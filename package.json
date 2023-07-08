@@ -1,0 +1,17 @@
+{
+  "name": "@ekubo/indexer",
+  "private": true,
+  "version": "0.0.1",
+  "main": "index.js",
+  "description": "Indexes Ekubo data",
+  "scripts": {
+    "start": "ts-node index"
+  },
+  "author": "Moody Salem",
+  "dependencies": {
+    "@apibara/protocol": "^0.4.6",
+    "@apibara/starknet": "^0.2.1",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.1.6"
+  }
+}
