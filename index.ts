@@ -9,6 +9,8 @@ import { StreamClient } from "@apibara/protocol";
 // Grab Apibara DNA token from environment, if any.
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
 const URL = process.env.APIBARA_URL ?? "goerli.starknet.a5a.ch";
+const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
+const CLOUDFLARE_KV_NAMESPACE = process.env.CLOUDFLARE_KV_NAMESPACE;
 
 const client = new StreamClient({
   url: URL,
@@ -41,6 +43,25 @@ client.configure({
   cursor,
 });
 
+interface PoolKey {
+  token0: string;
+  token1: string;
+  fee: bigint;
+  tick_spacing: number;
+  extension: bigint;
+}
+
+interface Bounds {
+  tick_lower: number;
+  tick_upper: number;
+}
+
+interface PositionMintedEvent {
+  token_id: bigint;
+  pool_key: PoolKey;
+  bounds: Bounds;
+}
+
 (async function () {
   for await (const message of client) {
     if (message.data?.data) {
@@ -49,18 +70,41 @@ client.configure({
 
         const events = block.events;
 
-        const relevant = events.filter((ev) =>
-          ev.event.keys.every(
-            (key, ix) =>
-              FieldElement.toHex(key) ===
-              FieldElement.toHex(POSITION_MINTED_KEY[ix])
+        const positionMintedEvents = events
+          .filter((ev) =>
+            ev.event.keys.every(
+              (key, ix) =>
+                FieldElement.toHex(key) ===
+                FieldElement.toHex(POSITION_MINTED_KEY[ix])
+            )
           )
-        );
+          .map<PositionMintedEvent>((ev) => {
+            return {
+              token_id: BigInt(FieldElement.toHex(ev.event.data[0])),
+              pool_key: {
+                token0: FieldElement.toHex(ev.event.data[2]),
+                token1: FieldElement.toHex(ev.event.data[3]),
+                fee: BigInt(FieldElement.toHex(ev.event.data[4])),
+                tick_spacing: Number(FieldElement.toHex(ev.event.data[5])),
+                extension: BigInt(FieldElement.toHex(ev.event.data[6])),
+              },
+              bounds: {
+                tick_lower:
+                  Number(FieldElement.toHex(ev.event.data[7])) *
+                  (Number(FieldElement.toHex(ev.event.data[8])) === 0 ? 1 : -1),
+                tick_upper:
+                  Number(FieldElement.toHex(ev.event.data[9])) *
+                  (Number(FieldElement.toHex(ev.event.data[10])) === 0
+                    ? 1
+                    : -1),
+              },
+            };
+          });
 
-        console.log("event", relevant);
+        console.log("event", positionMintedEvents);
       }
     }
   }
 })()
   .then(() => console.log("done"))
-  .catch((error) => console.error);
+  .catch((error) => console.error(error));
