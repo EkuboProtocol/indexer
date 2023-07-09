@@ -110,6 +110,9 @@ function toNftAttributes(e: PositionMintedEvent): {
 
 (async function () {
   for await (const message of client) {
+    console.log(
+      `${new Date().toISOString()}: Received message of type ${message.message}`
+    );
     switch (message.message) {
       case "data":
         for (const item of message.data.data) {
