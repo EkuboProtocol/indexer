@@ -69,7 +69,7 @@ const cursor = StarkNetCursor.createWithBlockNumber(829470);
 client.configure({
   filter,
   batchSize: 1,
-  finality: 1,
+  finality: 0,
   cursor,
 });
 
