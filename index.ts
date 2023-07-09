@@ -122,6 +122,7 @@ function toNftAttributes(e: PositionMintedEvent): {
     );
     switch (messageType) {
       case "data":
+        if (!message.data.data) break;
         for (const item of message.data.data) {
           const block = starknet.Block.decode(item);
 
