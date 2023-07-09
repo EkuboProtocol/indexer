@@ -4,7 +4,10 @@ import {
   StarkNetCursor,
   v1alpha2 as starknet,
 } from "@apibara/starknet";
-import { StreamClient, v1alpha2 } from "@apibara/protocol";
+import { writeFileSync, readFileSync, existsSync } from "fs";
+import { resolve } from "path";
+import { StreamClient, v1alpha2, Cursor } from "@apibara/protocol";
+import { ICursor } from "@apibara/protocol/dist/proto/v1alpha2";
 
 // Grab Apibara DNA token from environment, if any.
 const APIBARA_AUTH_TOKEN = process.env.APIBARA_AUTH_TOKEN;
@@ -12,6 +15,7 @@ const APIBARA_URL = process.env.APIBARA_URL;
 const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const CLOUDFLARE_KV_NAMESPACE_ID = process.env.CLOUDFLARE_KV_NAMESPACE_ID;
+const CURSOR_FILE = process.env.CURSOR_FILE || "./cursor.json";
 
 console.log(`${new Date().toISOString()}:
 Starting with config: 
@@ -65,7 +69,15 @@ const filter = Filter.create()
   )
   .encode();
 
-const cursor = StarkNetCursor.createWithBlockNumber(829470);
+let cursor = StarkNetCursor.createWithBlockNumber(829470);
+const CURSOR_PATH = resolve(__dirname, CURSOR_FILE);
+if (existsSync(resolve(__dirname, CURSOR_FILE))) {
+  try {
+    cursor = JSON.parse(readFileSync(CURSOR_PATH, "utf8"));
+  } catch (error) {
+    console.error(`${new Date().toISOString()}: Failed to parse cursor`);
+  }
+}
 
 client.configure({
   filter,
@@ -108,6 +120,10 @@ function toNftAttributes(e: PositionMintedEvent): {
   ];
 }
 
+function updateCursor(value: ICursor): void {
+  writeFileSync(CURSOR_PATH, JSON.stringify(Cursor.toObject(value)));
+}
+
 (async function () {
   for await (const message of client) {
     let messageType = !!message.heartbeat
@@ -123,6 +139,7 @@ function toNftAttributes(e: PositionMintedEvent): {
     switch (messageType) {
       case "data":
         if (!message.data.data) break;
+
         for (const item of message.data.data) {
           const block = starknet.Block.decode(item);
 
@@ -182,12 +199,15 @@ function toNftAttributes(e: PositionMintedEvent): {
             })
           );
         }
+
+        updateCursor(message.data.cursor);
         break;
       case "heartbeat":
         console.log(`${new Date().toISOString()}: Heartbeat`);
         break;
       case "invalidate":
         console.log(`${new Date().toISOString()}: Invalidated`);
+        updateCursor(message.invalidate.cursor);
         break;
     }
   }
