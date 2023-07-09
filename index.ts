@@ -110,10 +110,17 @@ function toNftAttributes(e: PositionMintedEvent): {
 
 (async function () {
   for await (const message of client) {
+    let messageType = !!message.heartbeat
+      ? "heartbeat"
+      : !!message.invalidate
+      ? "invalidate"
+      : !!message.data
+      ? "data"
+      : "unknown";
     console.log(
-      `${new Date().toISOString()}: Received message of type ${message.message}`
+      `${new Date().toISOString()}: Received message of type ${messageType}`
     );
-    switch (message.message) {
+    switch (messageType) {
       case "data":
         for (const item of message.data.data) {
           const block = starknet.Block.decode(item);
