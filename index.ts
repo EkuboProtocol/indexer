@@ -177,7 +177,7 @@ function toNftAttributes(e: PositionMintedEvent): {
               const value = JSON.stringify(toNftAttributes(event));
               await writeToKV({ key, value });
               console.log(
-                `${new Date().toISOString()}: Wrote ${key} from block @ ${blockTimestamp.toISOString()}}`
+                `${new Date().toISOString()}: Wrote ${key} from block @ ${blockTimestamp.toISOString()}`
               );
             })
           );
