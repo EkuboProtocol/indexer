@@ -13,7 +13,8 @@ const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const CLOUDFLARE_KV_NAMESPACE_ID = process.env.CLOUDFLARE_KV_NAMESPACE_ID;
 
-console.log(`Starting with config: 
+console.log(`${new Date().toISOString()}:
+Starting with config: 
 APIBARA_URL: "${APIBARA_URL}"
 CLOUDFLARE_ACCOUNT_ID: "${CLOUDFLARE_ACCOUNT_ID}"
 CLOUDFLARE_KV_NAMESPACE_ID: "${CLOUDFLARE_KV_NAMESPACE_ID}"`);
@@ -109,52 +110,74 @@ function toNftAttributes(e: PositionMintedEvent): {
 
 (async function () {
   for await (const message of client) {
-    if (message.data?.data) {
-      for (const item of message.data.data) {
-        const block = starknet.Block.decode(item);
+    switch (message.message) {
+      case "data":
+        for (const item of message.data.data) {
+          const block = starknet.Block.decode(item);
 
-        const events = block.events;
-
-        const positionMintedEvents = events
-          .filter((ev) =>
-            ev.event.keys.every(
-              (key, ix) =>
-                FieldElement.toHex(key) ===
-                FieldElement.toHex(POSITION_MINTED_KEY[ix])
+          const blockTimestamp = new Date(
+            Number(
+              BigInt(
+                typeof block.header.timestamp.seconds === "number"
+                  ? block.header.timestamp.seconds
+                  : block.header.timestamp.seconds.toNumber()
+              ) * 1000n
             )
-          )
-          .map<PositionMintedEvent>((ev) => {
-            return {
-              token_id: BigInt(FieldElement.toHex(ev.event.data[0])),
-              pool_key: {
-                token0: FieldElement.toHex(ev.event.data[2]),
-                token1: FieldElement.toHex(ev.event.data[3]),
-                fee: BigInt(FieldElement.toHex(ev.event.data[4])),
-                tick_spacing: Number(FieldElement.toHex(ev.event.data[5])),
-                extension: BigInt(FieldElement.toHex(ev.event.data[6])),
-              },
-              bounds: {
-                tick_lower:
-                  Number(FieldElement.toHex(ev.event.data[7])) *
-                  (Number(FieldElement.toHex(ev.event.data[8])) === 0 ? 1 : -1),
-                tick_upper:
-                  Number(FieldElement.toHex(ev.event.data[9])) *
-                  (Number(FieldElement.toHex(ev.event.data[10])) === 0
-                    ? 1
-                    : -1),
-              },
-            };
-          });
+          );
 
-        await Promise.all(
-          positionMintedEvents.map(async (event) => {
-            const key = event.token_id.toString();
-            const value = JSON.stringify(toNftAttributes(event));
-            await writeToKV({ key, value });
-            console.log(`Wrote ${key}`);
-          })
-        );
-      }
+          const events = block.events;
+
+          const positionMintedEvents = events
+            .filter((ev) =>
+              ev.event.keys.every(
+                (key, ix) =>
+                  FieldElement.toHex(key) ===
+                  FieldElement.toHex(POSITION_MINTED_KEY[ix])
+              )
+            )
+            .map<PositionMintedEvent>((ev) => {
+              return {
+                token_id: BigInt(FieldElement.toHex(ev.event.data[0])),
+                pool_key: {
+                  token0: FieldElement.toHex(ev.event.data[2]),
+                  token1: FieldElement.toHex(ev.event.data[3]),
+                  fee: BigInt(FieldElement.toHex(ev.event.data[4])),
+                  tick_spacing: Number(FieldElement.toHex(ev.event.data[5])),
+                  extension: BigInt(FieldElement.toHex(ev.event.data[6])),
+                },
+                bounds: {
+                  tick_lower:
+                    Number(FieldElement.toHex(ev.event.data[7])) *
+                    (Number(FieldElement.toHex(ev.event.data[8])) === 0
+                      ? 1
+                      : -1),
+                  tick_upper:
+                    Number(FieldElement.toHex(ev.event.data[9])) *
+                    (Number(FieldElement.toHex(ev.event.data[10])) === 0
+                      ? 1
+                      : -1),
+                },
+              };
+            });
+
+          await Promise.all(
+            positionMintedEvents.map(async (event) => {
+              const key = event.token_id.toString();
+              const value = JSON.stringify(toNftAttributes(event));
+              await writeToKV({ key, value });
+              console.log(
+                `${new Date().toISOString()}: Wrote ${key} from block @ ${blockTimestamp.toISOString()}}`
+              );
+            })
+          );
+        }
+        break;
+      case "heartbeat":
+        console.log(`${new Date().toISOString()}: Heartbeat`);
+        break;
+      case "invalidate":
+        console.log(`${new Date().toISOString()}: Invalidated`);
+        break;
     }
   }
 })()
