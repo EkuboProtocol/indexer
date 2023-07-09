@@ -59,6 +59,7 @@ const POSITION_MINTED_KEY = [
 ];
 
 const filter = Filter.create()
+  .withHeader({ weak: false })
   .addEvent((ev) =>
     ev.withFromAddress(POSITIONS_ADDRESS).withKeys(POSITION_MINTED_KEY)
   )
