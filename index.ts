@@ -7,8 +7,8 @@ import {
 import { StreamClient } from "@apibara/protocol";
 
 // Grab Apibara DNA token from environment, if any.
-const AUTH_TOKEN = process.env.AUTH_TOKEN;
-const URL = process.env.APIBARA_URL ?? "goerli.starknet.a5a.ch";
+const APIBARA_AUTH_TOKEN = process.env.APIBARA_AUTH_TOKEN;
+const APIBARA_URL = process.env.APIBARA_URL;
 const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const CLOUDFLARE_KV_NAMESPACE_ID = process.env.CLOUDFLARE_KV_NAMESPACE;
@@ -38,8 +38,8 @@ async function writeToKV({
 }
 
 const client = new StreamClient({
-  url: URL,
-  token: AUTH_TOKEN,
+  url: APIBARA_URL,
+  token: APIBARA_AUTH_TOKEN,
 });
 
 const POSITIONS_ADDRESS = FieldElement.fromBigInt(
@@ -146,6 +146,7 @@ function toNftAttributes(e: PositionMintedEvent): {
             const key = event.token_id.toString();
             const value = JSON.stringify(toNftAttributes(event));
             await writeToKV({ key, value });
+            console.log(`Wrote ${key}`);
           })
         );
       }
