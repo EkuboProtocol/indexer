@@ -217,9 +217,7 @@ function parseLong(long: number | Long): bigint {
           writeCursor(message.data.endCursor);
 
           printLog(
-            `Cursor updated to ${message.data.endCursor.orderKey.toString()} & ${
-              message.data.endCursor.uniqueKey
-            }`
+            `Cursor updated to block #${message.data.endCursor.orderKey.toString()}`
           );
         }
         break;
