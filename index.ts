@@ -135,12 +135,12 @@ function updateCursor(value: ICursor): void {
       : !!message.data
       ? "data"
       : "unknown";
-    console.log(
-      `${new Date().toISOString()}: Received message of type ${messageType}`
-    );
     switch (messageType) {
       case "data":
-        if (!message.data.data) break;
+        if (!message.data.data) {
+          console.log(`${new Date().toISOString()}: Data message is empty`);
+          break;
+        }
 
         for (const item of message.data.data) {
           const block = starknet.Block.decode(item);
@@ -210,6 +210,10 @@ function updateCursor(value: ICursor): void {
       case "invalidate":
         console.log(`${new Date().toISOString()}: Invalidated`);
         updateCursor(message.invalidate.cursor);
+        break;
+
+      case "unknown":
+        console.log(`${new Date().toISOString()}: Unknown message type`);
         break;
     }
   }
