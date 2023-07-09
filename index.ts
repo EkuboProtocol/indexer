@@ -17,7 +17,14 @@ const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const CLOUDFLARE_KV_NAMESPACE_ID = process.env.CLOUDFLARE_KV_NAMESPACE_ID;
 const CURSOR_FILE = process.env.CURSOR_FILE || "./cursor.json";
 
-console.log(`${new Date().toISOString()}:
+function log(...any: any[]) {
+  console.log(new Date().toISOString(), ...any);
+}
+function error(...any: any[]) {
+  console.error(new Date().toISOString(), ...any);
+}
+
+log(`${new Date().toISOString()}:
 Starting with config: 
 APIBARA_URL: "${APIBARA_URL}"
 CLOUDFLARE_ACCOUNT_ID: "${CLOUDFLARE_ACCOUNT_ID}"
@@ -75,10 +82,10 @@ if (existsSync(CURSOR_PATH)) {
   try {
     cursor = Cursor.fromObject(JSON.parse(readFileSync(CURSOR_PATH, "utf8")));
   } catch (error) {
-    console.error(`${new Date().toISOString()}: Failed to parse cursor`);
+    error(`Failed to parse cursor`);
   }
 } else {
-  console.log(`${new Date().toISOString()}: Cursor file not found`);
+  log(`Cursor file not found`);
 }
 
 client.configure({
@@ -126,6 +133,10 @@ function updateCursor(value: ICursor): void {
   writeFileSync(CURSOR_PATH, JSON.stringify(Cursor.toObject(value)));
 }
 
+function parseLong(long: number | Long): bigint {
+  return BigInt(typeof long === "number" ? long : long.toNumber());
+}
+
 (async function () {
   for await (const message of client) {
     let messageType = !!message.heartbeat
@@ -135,94 +146,92 @@ function updateCursor(value: ICursor): void {
       : !!message.data
       ? "data"
       : "unknown";
+
     switch (messageType) {
       case "data":
         if (!message.data.data) {
-          console.log(`${new Date().toISOString()}: Data message is empty`);
+          error(`Data message is empty`);
           break;
-        }
+        } else {
+          for (const item of message.data.data) {
+            const block = starknet.Block.decode(item);
 
-        for (const item of message.data.data) {
-          const block = starknet.Block.decode(item);
+            const blockTimestamp = new Date(
+              Number(parseLong(block.header.timestamp.seconds) * 1000n)
+            );
 
-          const blockTimestamp = new Date(
-            Number(
-              BigInt(
-                typeof block.header.timestamp.seconds === "number"
-                  ? block.header.timestamp.seconds
-                  : block.header.timestamp.seconds.toNumber()
-              ) * 1000n
-            )
-          );
+            const blockNumber = Number(parseLong(block.header.blockNumber));
 
-          const events = block.events;
+            const events = block.events;
 
-          const positionMintedEvents = events
-            .filter((ev) =>
-              ev.event.keys.every(
-                (key, ix) =>
-                  FieldElement.toHex(key) ===
-                  FieldElement.toHex(POSITION_MINTED_KEY[ix])
+            const positionMintedEvents = events
+              .filter((ev) =>
+                ev.event.keys.every(
+                  (key, ix) =>
+                    FieldElement.toHex(key) ===
+                    FieldElement.toHex(POSITION_MINTED_KEY[ix])
+                )
               )
-            )
-            .map<PositionMintedEvent>((ev) => {
-              return {
-                token_id: BigInt(FieldElement.toHex(ev.event.data[0])),
-                pool_key: {
-                  token0: FieldElement.toHex(ev.event.data[2]),
-                  token1: FieldElement.toHex(ev.event.data[3]),
-                  fee: BigInt(FieldElement.toHex(ev.event.data[4])),
-                  tick_spacing: Number(FieldElement.toHex(ev.event.data[5])),
-                  extension: BigInt(FieldElement.toHex(ev.event.data[6])),
-                },
-                bounds: {
-                  tick_lower:
-                    Number(FieldElement.toHex(ev.event.data[7])) *
-                    (Number(FieldElement.toHex(ev.event.data[8])) === 0
-                      ? 1
-                      : -1),
-                  tick_upper:
-                    Number(FieldElement.toHex(ev.event.data[9])) *
-                    (Number(FieldElement.toHex(ev.event.data[10])) === 0
-                      ? 1
-                      : -1),
-                },
-              };
-            });
+              .map<PositionMintedEvent>((ev) => {
+                return {
+                  token_id: BigInt(FieldElement.toHex(ev.event.data[0])),
+                  pool_key: {
+                    token0: FieldElement.toHex(ev.event.data[2]),
+                    token1: FieldElement.toHex(ev.event.data[3]),
+                    fee: BigInt(FieldElement.toHex(ev.event.data[4])),
+                    tick_spacing: Number(FieldElement.toHex(ev.event.data[5])),
+                    extension: BigInt(FieldElement.toHex(ev.event.data[6])),
+                  },
+                  bounds: {
+                    tick_lower:
+                      Number(FieldElement.toHex(ev.event.data[7])) *
+                      (Number(FieldElement.toHex(ev.event.data[8])) === 0
+                        ? 1
+                        : -1),
+                    tick_upper:
+                      Number(FieldElement.toHex(ev.event.data[9])) *
+                      (Number(FieldElement.toHex(ev.event.data[10])) === 0
+                        ? 1
+                        : -1),
+                  },
+                };
+              });
 
-          if (positionMintedEvents.length > 0) {
-            await Promise.all(
-              positionMintedEvents.map(async (event) => {
-                const key = event.token_id.toString();
-                const value = JSON.stringify(toNftAttributes(event));
-                await writeToKV({ key, value });
-                console.log(
-                  `${new Date().toISOString()}: Wrote ${key} from block @ ${blockTimestamp.toISOString()}`
-                );
-              })
-            );
-          } else {
-            console.log(
-              `${new Date().toISOString()}: No position minted events found in block @ ${blockTimestamp.toISOString()}`
-            );
+            if (positionMintedEvents.length > 0) {
+              await Promise.all(
+                positionMintedEvents.map(async (event) => {
+                  const key = event.token_id.toString();
+                  const value = JSON.stringify(toNftAttributes(event));
+                  await writeToKV({ key, value });
+                  log(
+                    `Wrote ${key} from block @ ${blockNumber} time ${blockTimestamp.toISOString()}`
+                  );
+                })
+              );
+            } else {
+              log(
+                `No position minted events found in block @ ${blockNumber} time ${blockTimestamp.toISOString()}`
+              );
+            }
           }
-        }
 
-        updateCursor(message.data.cursor);
+          log(`Cursor updated to ${message.data.cursor.orderKey.toString()}`);
+          updateCursor(message.data.cursor);
+        }
         break;
       case "heartbeat":
-        console.log(`${new Date().toISOString()}: Heartbeat`);
+        log(`Heartbeat`);
         break;
       case "invalidate":
-        console.log(`${new Date().toISOString()}: Invalidated`);
+        log(`Invalidated`);
         updateCursor(message.invalidate.cursor);
         break;
 
       case "unknown":
-        console.log(`${new Date().toISOString()}: Unknown message type`);
+        log(`Unknown message type`);
         break;
     }
   }
 })()
-  .then(() => console.log("done"))
-  .catch((error) => console.error(error));
+  .then(() => log("done"))
+  .catch((error) => error(error));
