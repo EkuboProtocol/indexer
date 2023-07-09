@@ -215,7 +215,9 @@ function parseLong(long: number | Long): bigint {
           }
 
           printLog(
-            `Cursor updated to ${message.data.cursor.orderKey.toString()}`
+            `Cursor updated to ${message.data.cursor.orderKey.toString()} & ${
+              message.data.cursor.uniqueKey
+            }`
           );
           updateCursor(message.data.cursor);
         }
