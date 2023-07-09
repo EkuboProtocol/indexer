@@ -17,18 +17,17 @@ const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const CLOUDFLARE_KV_NAMESPACE_ID = process.env.CLOUDFLARE_KV_NAMESPACE_ID;
 const CURSOR_FILE = process.env.CURSOR_FILE || "./cursor.json";
 
-function log(...any: any[]) {
+function printLog(...any: any[]) {
   console.log(new Date().toISOString(), ...any);
 }
-function error(...any: any[]) {
+function printError(...any: any[]) {
   console.error(new Date().toISOString(), ...any);
 }
 
-log(`${new Date().toISOString()}:
-Starting with config: 
-APIBARA_URL: "${APIBARA_URL}"
-CLOUDFLARE_ACCOUNT_ID: "${CLOUDFLARE_ACCOUNT_ID}"
-CLOUDFLARE_KV_NAMESPACE_ID: "${CLOUDFLARE_KV_NAMESPACE_ID}"`);
+printLog(`Starting with config: 
+APIBARA_URL="${APIBARA_URL}"
+CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID}"
+CLOUDFLARE_KV_NAMESPACE_ID="${CLOUDFLARE_KV_NAMESPACE_ID}"`);
 
 async function writeToKV({
   key,
@@ -82,10 +81,10 @@ if (existsSync(CURSOR_PATH)) {
   try {
     cursor = Cursor.fromObject(JSON.parse(readFileSync(CURSOR_PATH, "utf8")));
   } catch (error) {
-    error(`Failed to parse cursor`);
+    printError(`Failed to parse cursor`, error);
   }
 } else {
-  log(`Cursor file not found`);
+  printLog(`Cursor file not found`);
 }
 
 client.configure({
@@ -150,7 +149,7 @@ function parseLong(long: number | Long): bigint {
     switch (messageType) {
       case "data":
         if (!message.data.data) {
-          error(`Data message is empty`);
+          printError(`Data message is empty`);
           break;
         } else {
           for (const item of message.data.data) {
@@ -203,35 +202,37 @@ function parseLong(long: number | Long): bigint {
                   const key = event.token_id.toString();
                   const value = JSON.stringify(toNftAttributes(event));
                   await writeToKV({ key, value });
-                  log(
+                  printLog(
                     `Wrote ${key} from block @ ${blockNumber} time ${blockTimestamp.toISOString()}`
                   );
                 })
               );
             } else {
-              log(
+              printLog(
                 `No position minted events found in block @ ${blockNumber} time ${blockTimestamp.toISOString()}`
               );
             }
           }
 
-          log(`Cursor updated to ${message.data.cursor.orderKey.toString()}`);
+          printLog(
+            `Cursor updated to ${message.data.cursor.orderKey.toString()}`
+          );
           updateCursor(message.data.cursor);
         }
         break;
       case "heartbeat":
-        log(`Heartbeat`);
+        printLog(`Heartbeat`);
         break;
       case "invalidate":
-        log(`Invalidated`);
+        printLog(`Invalidated`);
         updateCursor(message.invalidate.cursor);
         break;
 
       case "unknown":
-        log(`Unknown message type`);
+        printLog(`Unknown message type`);
         break;
     }
   }
 })()
-  .then(() => log("done"))
+  .then(() => printLog("done"))
   .catch((error) => error(error));
