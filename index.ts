@@ -69,7 +69,7 @@ const filter = Filter.create()
   )
   .encode();
 
-let cursor = StarkNetCursor.createWithBlockNumber(829470);
+let cursor = StarkNetCursor.createWithBlockNumber(0);
 const CURSOR_PATH = resolve(__dirname, CURSOR_FILE);
 if (existsSync(CURSOR_PATH)) {
   try {
