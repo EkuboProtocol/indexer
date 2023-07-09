@@ -4,7 +4,7 @@ import {
   StarkNetCursor,
   v1alpha2 as starknet,
 } from "@apibara/starknet";
-import { StreamClient } from "@apibara/protocol";
+import { StreamClient, v1alpha2 } from "@apibara/protocol";
 
 // Grab Apibara DNA token from environment, if any.
 const APIBARA_AUTH_TOKEN = process.env.APIBARA_AUTH_TOKEN;
@@ -70,7 +70,7 @@ const cursor = StarkNetCursor.createWithBlockNumber(829470);
 client.configure({
   filter,
   batchSize: 1,
-  finality: 1,
+  finality: v1alpha2.DataFinality.DATA_STATUS_PENDING,
   cursor,
 });
 
