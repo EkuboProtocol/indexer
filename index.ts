@@ -71,12 +71,14 @@ const filter = Filter.create()
 
 let cursor = StarkNetCursor.createWithBlockNumber(829470);
 const CURSOR_PATH = resolve(__dirname, CURSOR_FILE);
-if (existsSync(resolve(__dirname, CURSOR_FILE))) {
+if (existsSync(CURSOR_PATH)) {
   try {
-    cursor = JSON.parse(readFileSync(CURSOR_PATH, "utf8"));
+    cursor = Cursor.fromObject(JSON.parse(readFileSync(CURSOR_PATH, "utf8")));
   } catch (error) {
     console.error(`${new Date().toISOString()}: Failed to parse cursor`);
   }
+} else {
+  console.log(`${new Date().toISOString()}: Cursor file not found`);
 }
 
 client.configure({
