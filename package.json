@@ -5,8 +5,8 @@
   "main": "index.js",
   "description": "Indexes Ekubo data",
   "scripts": {
-    "start": "APIBARA_URL=\"goerli.starknet.a5a.ch\" CLOUDFLARE_KV_NAMESPACE_ID=\"fc8880f5ea514ccb95fc6b2c295ca308\" CLOUDFLARE_ACCOUNT_ID=\"33bdfdfdcdce2c31ff2b755dd113664f\" ts-node index",
-    "start:prod": "APIBARA_URL=\"mainnet.starknet.a5a.ch\" CLOUDFLARE_KV_NAMESPACE_ID=\"70c627a75a1541289ee08d08e9a5970f\" CLOUDFLARE_ACCOUNT_ID=\"33bdfdfdcdce2c31ff2b755dd113664f\" ts-node index"
+    "goerli": "CURSOR_FILE=\"./goerli.cursor\" APIBARA_URL=\"goerli.starknet.a5a.ch\" CLOUDFLARE_KV_NAMESPACE_ID=\"fc8880f5ea514ccb95fc6b2c295ca308\" CLOUDFLARE_ACCOUNT_ID=\"33bdfdfdcdce2c31ff2b755dd113664f\" ts-node index",
+    "mainnet": "CURSOR_FILE=\"./mainnet.cursor\" APIBARA_URL=\"mainnet.starknet.a5a.ch\" CLOUDFLARE_KV_NAMESPACE_ID=\"70c627a75a1541289ee08d08e9a5970f\" CLOUDFLARE_ACCOUNT_ID=\"33bdfdfdcdce2c31ff2b755dd113664f\" ts-node index"
   },
   "author": "Moody Salem",
   "dependencies": {
