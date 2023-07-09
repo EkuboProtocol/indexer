@@ -236,4 +236,4 @@ function parseLong(long: number | Long): bigint {
   }
 })()
   .then(() => printLog("done"))
-  .catch((error) => error(error));
+  .catch((error) => printError(error));
