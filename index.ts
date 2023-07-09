@@ -190,16 +190,22 @@ function updateCursor(value: ICursor): void {
               };
             });
 
-          await Promise.all(
-            positionMintedEvents.map(async (event) => {
-              const key = event.token_id.toString();
-              const value = JSON.stringify(toNftAttributes(event));
-              await writeToKV({ key, value });
-              console.log(
-                `${new Date().toISOString()}: Wrote ${key} from block @ ${blockTimestamp.toISOString()}`
-              );
-            })
-          );
+          if (positionMintedEvents.length > 0) {
+            await Promise.all(
+              positionMintedEvents.map(async (event) => {
+                const key = event.token_id.toString();
+                const value = JSON.stringify(toNftAttributes(event));
+                await writeToKV({ key, value });
+                console.log(
+                  `${new Date().toISOString()}: Wrote ${key} from block @ ${blockTimestamp.toISOString()}`
+                );
+              })
+            );
+          } else {
+            console.log(
+              `${new Date().toISOString()}: No position minted events found in block @ ${blockTimestamp.toISOString()}`
+            );
+          }
         }
 
         updateCursor(message.data.cursor);
