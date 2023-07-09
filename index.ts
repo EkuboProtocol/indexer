@@ -10,7 +10,32 @@ import { StreamClient } from "@apibara/protocol";
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
 const URL = process.env.APIBARA_URL ?? "goerli.starknet.a5a.ch";
 const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
-const CLOUDFLARE_KV_NAMESPACE = process.env.CLOUDFLARE_KV_NAMESPACE;
+const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
+const CLOUDFLARE_KV_NAMESPACE_ID = process.env.CLOUDFLARE_KV_NAMESPACE;
+
+async function writeToKV({
+  key,
+  value,
+}: {
+  key: string;
+  value: string;
+}): Promise<void> {
+  const url = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${CLOUDFLARE_KV_NAMESPACE_ID}/values/${key}`;
+
+  const response = await fetch(url, {
+    method: "PUT",
+    body: value,
+    headers: {
+      Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Failed to write to KV store: ${message}`);
+  }
+}
 
 const client = new StreamClient({
   url: URL,
@@ -62,6 +87,21 @@ interface PositionMintedEvent {
   bounds: Bounds;
 }
 
+function toNftAttributes(e: PositionMintedEvent): {
+  trait_type: string;
+  value: string;
+}[] {
+  return [
+    { trait_type: "token0", value: e.pool_key.token0 },
+    { trait_type: "token1", value: e.pool_key.token1 },
+    { trait_type: "fee", value: e.pool_key.fee.toString() },
+    { trait_type: "tick_spacing", value: e.pool_key.tick_spacing.toString() },
+    { trait_type: "extension", value: e.pool_key.extension.toString() },
+    { trait_type: "tick_lower", value: e.bounds.tick_lower.toString() },
+    { trait_type: "tick_upper", value: e.bounds.tick_upper.toString() },
+  ];
+}
+
 (async function () {
   for await (const message of client) {
     if (message.data?.data) {
@@ -101,7 +141,13 @@ interface PositionMintedEvent {
             };
           });
 
-        console.log("event", positionMintedEvents);
+        await Promise.all(
+          positionMintedEvents.map(async (event) => {
+            const key = event.token_id.toString();
+            const value = JSON.stringify(toNftAttributes(event));
+            await writeToKV({ key, value });
+          })
+        );
       }
     }
   }
