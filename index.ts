@@ -128,7 +128,7 @@ function toNftAttributes(e: PositionMintedEvent): {
   ];
 }
 
-function updateCursor(value: ICursor): void {
+function writeCursor(value: ICursor): void {
   writeFileSync(CURSOR_PATH, JSON.stringify(Cursor.toObject(value)));
 }
 
@@ -214,12 +214,13 @@ function parseLong(long: number | Long): bigint {
             }
           }
 
+          writeCursor(message.data.endCursor);
+
           printLog(
-            `Cursor updated to ${message.data.cursor.orderKey.toString()} & ${
-              message.data.cursor.uniqueKey
+            `Cursor updated to ${message.data.endCursor.orderKey.toString()} & ${
+              message.data.endCursor.uniqueKey
             }`
           );
-          updateCursor(message.data.cursor);
         }
         break;
       case "heartbeat":
@@ -227,7 +228,7 @@ function parseLong(long: number | Long): bigint {
         break;
       case "invalidate":
         printLog(`Invalidated`);
-        updateCursor(message.invalidate.cursor);
+        writeCursor(message.invalidate.cursor);
         break;
 
       case "unknown":
