@@ -103,7 +103,9 @@ if (existsSync(CURSOR_PATH)) {
     printError(`Failed to parse cursor`, error);
   }
 } else {
-  printLog(`Cursor file not found`);
+  printLog(
+    `Cursor file not found, starting with ${STARTING_CURSOR_BLOCK_NUMBER ?? 0}`
+  );
 }
 
 client.configure({
