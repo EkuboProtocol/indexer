@@ -61,7 +61,7 @@ const EVENT_PROCESSORS = [
     ],
     fromAddress: FieldElement.fromBigInt(process.env.POSITIONS_ADDRESS),
     parser: parsePositionMintedEvent,
-    async processor(ev, meta) {
+    processor: async (ev, meta) => {
       const key = ev.token_id.toString();
       await kv.write(key, JSON.stringify(toNftAttributes(ev)));
       printLog(
