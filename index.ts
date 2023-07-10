@@ -1,7 +1,4 @@
 import { config } from "dotenv";
-
-config({ path: `./.env.${process.env.NETWORK}` });
-
 import {
   FieldElement,
   Filter,
@@ -16,6 +13,9 @@ import { CloudflareKV } from "./lib/cf";
 import { parsePositionMintedEvent, toNftAttributes } from "./lib/minted";
 import { parseLong } from "./lib/parse";
 import { ICursor } from "@apibara/protocol/dist/proto/v1alpha2";
+import { EventProcessor } from "./lib/processor";
+
+config({ path: `./.env.${process.env.NETWORK}` });
 
 const kv = new CloudflareKV({
   accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
@@ -38,20 +38,6 @@ if (existsSync(CURSOR_PATH)) {
   printLog(`Cursor file not found, starting with ${blockNumber}`);
 }
 
-interface EventProcessor<T> {
-  filter: {
-    keys: starknet.IFieldElement[];
-    fromAddress: starknet.IFieldElement;
-  };
-
-  parser(ev: starknet.IEventWithTransaction): T;
-
-  handle(
-    ev: T,
-    meta: { blockNumber: number; blockTimestamp: Date }
-  ): Promise<void>;
-}
-
 const EVENT_PROCESSORS: EventProcessor<any>[] = [
   {
     filter: {
@@ -67,9 +53,9 @@ const EVENT_PROCESSORS: EventProcessor<any>[] = [
       const key = ev.token_id.toString();
       await kv.write(key, JSON.stringify(toNftAttributes(ev)));
       printLog(
-        `Wrote ${key} from block @ ${
+        `Wrote token ID ${key} from block #${
           meta.blockNumber
-        } time ${meta.blockTimestamp.toISOString()}`
+        } @ ${meta.blockTimestamp.toISOString()}`
       );
     },
   },
