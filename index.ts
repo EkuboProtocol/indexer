@@ -2,6 +2,8 @@ import { config } from "dotenv";
 
 config({ path: `./env.${process.env.NETWORK}` });
 
+console.log(`./env.${process.env.NETWORK}`);
+
 import {
   FieldElement,
   Filter,
