@@ -39,29 +39,31 @@ if (existsSync(CURSOR_PATH)) {
 }
 
 interface EventProcessor<T> {
-  fromAddress: starknet.IFieldElement;
-  filterKeys: starknet.IFieldElement[];
-
-  filter(ev: starknet.IEventWithTransaction): T;
+  filter: {
+    keys: starknet.IFieldElement[];
+    fromAddress: starknet.IFieldElement;
+  };
 
   parser(ev: starknet.IEventWithTransaction): T;
 
-  processor(
+  handle(
     ev: T,
     meta: { blockNumber: number; blockTimestamp: Date }
   ): Promise<void>;
 }
 
-const EVENT_PROCESSORS = [
-  <EventProcessor<ReturnType<typeof parsePositionMintedEvent>>>{
-    filterKeys: [
-      FieldElement.fromBigInt(
-        0x2a9157ea1542bfe11220258bf15d8aa02d791e7f94426446ec85b94159929fn
-      ),
-    ],
-    fromAddress: FieldElement.fromBigInt(process.env.POSITIONS_ADDRESS),
+const EVENT_PROCESSORS: EventProcessor<any>[] = [
+  {
+    filter: {
+      keys: [
+        FieldElement.fromBigInt(
+          0x2a9157ea1542bfe11220258bf15d8aa02d791e7f94426446ec85b94159929fn
+        ),
+      ],
+      fromAddress: FieldElement.fromBigInt(process.env.POSITIONS_ADDRESS),
+    },
     parser: parsePositionMintedEvent,
-    processor: async (ev, meta) => {
+    handle: async (ev, meta) => {
       const key = ev.token_id.toString();
       await kv.write(key, JSON.stringify(toNftAttributes(ev)));
       printLog(
@@ -71,7 +73,7 @@ const EVENT_PROCESSORS = [
       );
     },
   },
-] as const;
+];
 
 const client = new StreamClient({
   url: process.env.APIBARA_URL,
@@ -81,7 +83,7 @@ const client = new StreamClient({
 client.configure({
   filter: EVENT_PROCESSORS.reduce((memo, value) => {
     return memo.addEvent((ev) =>
-      ev.withKeys(value.filterKeys).withFromAddress(value.fromAddress)
+      ev.withKeys(value.filter.keys).withFromAddress(value.filter.fromAddress)
     );
   }, Filter.create().withHeader({ weak: true })).encode(),
   batchSize: 1,
@@ -124,9 +126,20 @@ function writeCursor(value: v1alpha2.ICursor): void {
             await Promise.all(
               EVENT_PROCESSORS.flatMap((processor) => {
                 return events
-                  .filter(processor.filter)
+                  .filter((ev) => {
+                    return (
+                      FieldElement.toBigInt(ev.event.fromAddress) ===
+                        FieldElement.toBigInt(processor.filter.fromAddress) &&
+                      ev.event.keys.length === processor.filter.keys.length &&
+                      ev.event.keys.every(
+                        (key, ix) =>
+                          FieldElement.toBigInt(key) ===
+                          FieldElement.toBigInt(processor.filter.keys[ix])
+                      )
+                    );
+                  })
                   .map(processor.parser)
-                  .map((ev) => processor.processor(ev, meta));
+                  .map((ev) => processor.handle(ev, meta));
               })
             );
           }
