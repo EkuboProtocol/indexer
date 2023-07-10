@@ -15,6 +15,7 @@ const APIBARA_URL = process.env.APIBARA_URL;
 const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const CLOUDFLARE_KV_NAMESPACE_ID = process.env.CLOUDFLARE_KV_NAMESPACE_ID;
+const STARTING_CURSOR_BLOCK_NUMBER = process.env.STARTING_CURSOR_BLOCK_NUMBER;
 const CURSOR_FILE = process.env.CURSOR_FILE || "./cursor.json";
 
 function printLog(...any: any[]) {
@@ -52,6 +53,22 @@ async function writeToKV({
     throw new Error(`Failed to write to KV store: ${message}`);
   }
 }
+async function deleteFromKV({ key }: { key: string }): Promise<void> {
+  const url = `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${CLOUDFLARE_KV_NAMESPACE_ID}/values/${key}`;
+
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Failed to write to KV store: ${message}`);
+  }
+}
 
 const client = new StreamClient({
   url: APIBARA_URL,
@@ -75,7 +92,9 @@ const filter = Filter.create()
   )
   .encode();
 
-let cursor = StarkNetCursor.createWithBlockNumber(0);
+let cursor = StarkNetCursor.createWithBlockNumber(
+  Number(STARTING_CURSOR_BLOCK_NUMBER ?? 0)
+);
 const CURSOR_PATH = resolve(__dirname, CURSOR_FILE);
 if (existsSync(CURSOR_PATH)) {
   try {
