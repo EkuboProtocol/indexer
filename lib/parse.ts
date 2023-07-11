@@ -94,7 +94,7 @@ export const parseBounds = combineParsers({
 export const parsePositionMintedEvent = combineParsers({
   token_id: { index: 0, parser: parseU256 },
   pool_key: { index: 1, parser: parsePoolKey },
-  parseBounds: { index: 2, parser: parseBounds },
+  bounds: { index: 2, parser: parseBounds },
 });
 
 const parseUpdatePositionParams = combineParsers({
