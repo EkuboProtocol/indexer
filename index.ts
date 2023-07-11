@@ -8,7 +8,6 @@ import {
 } from "@apibara/starknet";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { Cursor, StreamClient, v1alpha2 } from "@apibara/protocol";
-import { printError, printLog } from "./lib/log";
 import { CloudflareKV } from "./lib/cf";
 import { toNftAttributes } from "./lib/minted";
 import {
@@ -18,6 +17,21 @@ import {
 } from "./lib/parse";
 import { ICursor } from "@apibara/protocol/dist/proto/v1alpha2";
 import { BlockMeta, EventProcessor } from "./lib/processor";
+import { createLogger, format, transports } from "winston";
+
+const logger = createLogger({
+  level: "debug",
+  format: format.combine(
+    format.timestamp({
+      format: "YYYY-MM-DD HH:mm:ss",
+    }),
+    format.errors({ stack: true }),
+    format.splat(),
+    format.json()
+  ),
+  defaultMeta: { service: "ekubo-indexer" },
+  transports: [new transports.Console()],
+});
 
 const kv = new CloudflareKV({
   accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
@@ -31,13 +45,15 @@ if (existsSync(CURSOR_PATH)) {
   try {
     cursor = Cursor.fromObject(JSON.parse(readFileSync(CURSOR_PATH, "utf8")));
   } catch (error) {
-    printError(`Failed to parse cursor file`, error);
+    logger.error(`Failed to parse cursor file`, error);
     throw error;
   }
 } else {
   const blockNumber = process.env.STARTING_CURSOR_BLOCK_NUMBER ?? 0;
   cursor = StarkNetCursor.createWithBlockNumber(Number(blockNumber));
-  printLog(`Cursor file not found, starting with ${blockNumber}`);
+  logger.info(`Cursor file not found, starting with block number`, {
+    blockNumber,
+  });
 }
 
 const EVENT_PROCESSORS: EventProcessor<any>[] = [
@@ -55,11 +71,7 @@ const EVENT_PROCESSORS: EventProcessor<any>[] = [
     handle: async (ev, meta) => {
       const key = ev.token_id.toString();
       await kv.write(key, JSON.stringify(toNftAttributes(ev)));
-      printLog(
-        `Wrote token ID ${key} from block #${
-          meta.blockNumber
-        } @ ${meta.blockTimestamp.toISOString()}`
-      );
+      logger.info(`Wrote token ID`, { key, meta });
     },
   },
   {
@@ -74,7 +86,7 @@ const EVENT_PROCESSORS: EventProcessor<any>[] = [
     },
     parser: (ev) => parsePositionUpdatedEvent(ev.event.data, 0).value,
     async handle(ev, meta): Promise<void> {
-      printLog("PositionUpdated", ev);
+      logger.info("PositionUpdated", ev);
     },
   },
 ];
@@ -112,7 +124,7 @@ function writeCursor(value: v1alpha2.ICursor): void {
     switch (messageType) {
       case "data":
         if (!message.data.data) {
-          printError(`Data message is empty`);
+          logger.error(`Data message is empty`);
           break;
         } else {
           for (const item of message.data.data) {
@@ -150,24 +162,26 @@ function writeCursor(value: v1alpha2.ICursor): void {
 
           writeCursor(message.data.endCursor);
 
-          printLog(
-            `Cursor updated to block #${message.data.endCursor.orderKey.toString()}`
-          );
+          logger.info({
+            cursor: Cursor.toObject(message.data.endCursor),
+          });
         }
         break;
       case "heartbeat":
-        printLog(`Heartbeat`);
+        logger.debug(`Heartbeat`);
         break;
       case "invalidate":
-        printLog(`Invalidated`);
+        logger.warn(`Cursor invalidated`, {
+          cursor: Cursor.toObject(message.data.endCursor),
+        });
         writeCursor(message.invalidate.cursor);
         break;
 
       case "unknown":
-        printLog(`Unknown message type`);
+        logger.error(`Unknown message type`, { message: message.streamId });
         break;
     }
   }
 })()
-  .then(() => printLog("Stream closed"))
-  .catch((error) => printError(error));
+  .then(() => logger.info("Stream closed"))
+  .catch((error) => logger.error("Stream crashed", { error }));
