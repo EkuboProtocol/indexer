@@ -46,12 +46,13 @@ if (existsSync(CURSOR_PATH)) {
 const EVENT_PROCESSORS: EventProcessor<any>[] = [
   {
     filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.POSITIONS_ADDRESS),
       keys: [
+        // PositionMinted
         FieldElement.fromBigInt(
           0x2a9157ea1542bfe11220258bf15d8aa02d791e7f94426446ec85b94159929fn
         ),
       ],
-      fromAddress: FieldElement.fromBigInt(process.env.POSITIONS_ADDRESS),
     },
     parser: parsePositionMintedEvent,
     handle: async (ev, meta) => {
@@ -66,13 +67,13 @@ const EVENT_PROCESSORS: EventProcessor<any>[] = [
   },
   {
     filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
       keys: [
         // PositionUpdated
         FieldElement.fromBigInt(
-          0x03a7adca3546c213ce791fabf3b04090c163e419c808c9830fb343a4a395946e
+          0x03a7adca3546c213ce791fabf3b04090c163e419c808c9830fb343a4a395946en
         ),
       ],
-      fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
     },
     parser(ev: starknet.IEventWithTransaction) {
       const pool_key = parsePoolKey(ev.event.data, 0);
