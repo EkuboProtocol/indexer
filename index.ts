@@ -1,4 +1,5 @@
-import { config } from "dotenv";
+import "./lib/config";
+
 import {
   FieldElement,
   Filter,
@@ -10,12 +11,16 @@ import { resolve } from "path";
 import { Cursor, StreamClient, v1alpha2 } from "@apibara/protocol";
 import { printError, printLog } from "./lib/log";
 import { CloudflareKV } from "./lib/cf";
-import { parsePositionMintedEvent, toNftAttributes } from "./lib/minted";
-import { parseLong } from "./lib/parse";
+import { toNftAttributes } from "./lib/minted";
+import {
+  parseDelta,
+  parseLong,
+  parsePoolKey,
+  parsePositionMintedEvent,
+  parsePositionUpdatedEvent,
+} from "./lib/parse";
 import { ICursor } from "@apibara/protocol/dist/proto/v1alpha2";
-import { EventProcessor } from "./lib/processor";
-
-config({ path: `./.env.${process.env.NETWORK}` });
+import { BlockMeta, EventProcessor } from "./lib/processor";
 
 const kv = new CloudflareKV({
   accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
@@ -59,6 +64,30 @@ const EVENT_PROCESSORS: EventProcessor<any>[] = [
       );
     },
   },
+  {
+    filter: {
+      keys: [
+        // PositionUpdated
+        FieldElement.fromBigInt(
+          0x03a7adca3546c213ce791fabf3b04090c163e419c808c9830fb343a4a395946e
+        ),
+      ],
+      fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
+    },
+    parser(ev: starknet.IEventWithTransaction) {
+      const pool_key = parsePoolKey(ev.event.data, 0);
+      const params = parsePositionUpdatedEvent(ev.event.data, 5);
+      const delta = parseDelta(ev.event.data, 15);
+      return {
+        pool_key,
+        params,
+        delta,
+      };
+    },
+    async handle(ev, meta): Promise<void> {
+      printLog("PositionUpdated", ev);
+    },
+  },
 ];
 
 const client = new StreamClient({
@@ -100,7 +129,7 @@ function writeCursor(value: v1alpha2.ICursor): void {
           for (const item of message.data.data) {
             const block = starknet.Block.decode(item);
 
-            const meta = {
+            const meta: BlockMeta = {
               blockNumber: Number(parseLong(block.header.blockNumber)),
               blockTimestamp: new Date(
                 Number(parseLong(block.header.timestamp.seconds) * 1000n)
