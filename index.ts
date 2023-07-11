@@ -7,15 +7,12 @@ import {
   v1alpha2 as starknet,
 } from "@apibara/starknet";
 import { existsSync, readFileSync, writeFileSync } from "fs";
-import { resolve } from "path";
 import { Cursor, StreamClient, v1alpha2 } from "@apibara/protocol";
 import { printError, printLog } from "./lib/log";
 import { CloudflareKV } from "./lib/cf";
 import { toNftAttributes } from "./lib/minted";
 import {
-  parseDelta,
   parseLong,
-  parsePoolKey,
   parsePositionMintedEvent,
   parsePositionUpdatedEvent,
 } from "./lib/parse";
@@ -29,7 +26,7 @@ const kv = new CloudflareKV({
 });
 
 let cursor: ICursor;
-const CURSOR_PATH = resolve(__dirname, process.env.CURSOR_FILE);
+const CURSOR_PATH = process.env.CURSOR_FILE;
 if (existsSync(CURSOR_PATH)) {
   try {
     cursor = Cursor.fromObject(JSON.parse(readFileSync(CURSOR_PATH, "utf8")));
