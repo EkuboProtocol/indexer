@@ -4,42 +4,6 @@ export function parseLong(long: number | Long): bigint {
   return BigInt(typeof long === "number" ? long : long.toNumber());
 }
 
-interface PoolKey {
-  token0: string;
-  token1: string;
-  fee: bigint;
-  tick_spacing: bigint;
-  extension: string;
-}
-
-interface Bounds {
-  lower: bigint;
-  upper: bigint;
-}
-
-export interface PositionMintedEvent {
-  token_id: bigint;
-  pool_key: PoolKey;
-  bounds: Bounds;
-}
-
-export interface UpdatePositionParameters {
-  salt: bigint;
-  bounds: Bounds;
-  liquidity_delta: bigint;
-}
-
-export interface Delta {
-  amount0: bigint;
-  amount1: bigint;
-}
-
-export interface PositionUpdatedEvent {
-  pool_key: PoolKey;
-  params: UpdatePositionParameters;
-  delta: Delta;
-}
-
 interface Parser<T> {
   (data: starknet.IFieldElement[], startingFrom: number): {
     value: T;
@@ -80,7 +44,7 @@ export function combineParsers<
     [key: string]: unknown;
   }
 >(parsers: {
-  [k in keyof T]: { index: number; parser: Parser<T[k]> };
+  [K in keyof T]: { index: number; parser: Parser<T[K]> };
 }): Parser<T> {
   return (data, startingFrom) =>
     Object.entries(parsers)
@@ -88,19 +52,23 @@ export function combineParsers<
         return index0 - index1;
       })
       .reduce(
-        (memo, value) => {
-          const { value: parsed, next } = value[1].parser(memo.startingFrom);
-          memo.value[value[0]] = parsed;
-          return {
-            value: parsed,
-            startingFrom: next,
-          };
+        (memo, fieldParser) => {
+          const { value: parsedValue, next } = fieldParser[1].parser(
+            data,
+            memo.next
+          );
+          memo.value[fieldParser[0] as keyof T] = parsedValue;
+          memo.next = next;
+          return memo;
         },
         {
-          startingFrom,
-          value: {},
+          value: {} as Partial<T>,
+          next: startingFrom,
         }
-      ).value;
+      ) as {
+      value: T;
+      next: number;
+    };
 }
 
 export const parseAddress: Parser<string> = (data, startingFrom) => {
@@ -110,11 +78,11 @@ export const parseAddress: Parser<string> = (data, startingFrom) => {
   };
 };
 
-export const parsePoolKey: Parser<PoolKey> = combineParsers({
+export const parsePoolKey = combineParsers({
   token0: { index: 0, parser: parseAddress },
   token1: { index: 1, parser: parseAddress },
   fee: { index: 2, parser: parseU128 },
-  tick_spacing: { index: 3, parser: parseI129 },
+  tick_spacing: { index: 3, parser: parseU128 },
   extension: { index: 4, parser: parseAddress },
 });
 
@@ -145,3 +113,21 @@ export const parsePositionUpdatedEvent = combineParsers({
   params: { index: 1, parser: parseUpdatePositionParams },
   delta: { index: 2, parser: parseDelta },
 });
+
+export type PoolKey = ReturnType<typeof parsePoolKey>["value"];
+
+export type Bounds = ReturnType<typeof parseBounds>["value"];
+
+export type PositionMintedEvent = ReturnType<
+  typeof parsePositionMintedEvent
+>["value"];
+
+export type UpdatePositionParameters = ReturnType<
+  typeof parseUpdatePositionParams
+>["value"];
+
+export type Delta = ReturnType<typeof parseDelta>["value"];
+
+export type PositionUpdatedEvent = ReturnType<
+  typeof parsePositionUpdatedEvent
+>["value"];

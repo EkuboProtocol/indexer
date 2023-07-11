@@ -6,7 +6,8 @@
   "description": "Indexes Ekubo data",
   "scripts": {
     "goerli": "NETWORK=goerli ts-node index",
-    "mainnet": "NETWORK=mainnet ts-node index"
+    "mainnet": "NETWORK=mainnet ts-node index",
+    "test": "jest"
   },
   "author": "Moody Salem",
   "dependencies": {
@@ -15,5 +16,10 @@
     "dotenv": "^16.3.1",
     "ts-node": "^10.9.1",
     "typescript": "^5.1.6"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.3",
+    "jest": "^29.6.1",
+    "ts-jest": "^29.1.1"
   }
 }
