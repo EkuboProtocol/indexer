@@ -12,9 +12,11 @@
     "test": "jest"
   },
   "author": "Moody Salem",
-  "devDependencies": {
+  "dependencies": {
     "@apibara/protocol": "^0.4.6",
-    "@apibara/starknet": "^0.2.1",
+    "@apibara/starknet": "^0.2.1"
+  },
+  "devDependencies": {
     "dotenv": "^16.3.1",
     "@types/jest": "^29.5.3",
     "jest": "^29.6.1",
