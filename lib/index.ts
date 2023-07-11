@@ -1,5 +1,6 @@
-import "./lib/config";
+import "./config";
 
+import { debounce } from "debounce";
 import {
   FieldElement,
   Filter,
@@ -8,15 +9,16 @@ import {
 } from "@apibara/starknet";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { Cursor, StreamClient, v1alpha2 } from "@apibara/protocol";
-import { CloudflareKV } from "./lib/cf";
-import { toNftAttributes } from "./lib/minted";
+import { CloudflareKV } from "./cf";
+import { toNftAttributes } from "./minted";
 import {
   parseLong,
   parsePositionMintedEvent,
   parsePositionUpdatedEvent,
-} from "./lib/parse";
+  PositionUpdatedEvent,
+} from "./parse";
 import { ICursor } from "@apibara/protocol/dist/proto/v1alpha2";
-import { BlockMeta, EventProcessor } from "./lib/processor";
+import { BlockMeta, EventProcessor } from "./processor";
 import { createLogger, format, transports } from "winston";
 
 const logger = createLogger({
@@ -85,8 +87,8 @@ const EVENT_PROCESSORS: EventProcessor<any>[] = [
       ],
     },
     parser: (ev) => parsePositionUpdatedEvent(ev.event.data, 0).value,
-    async handle(ev, meta): Promise<void> {
-      logger.info("PositionUpdated", ev);
+    async handle(ev: PositionUpdatedEvent, meta): Promise<void> {
+      // todo: handle these events
     },
   },
 ];
@@ -107,9 +109,18 @@ client.configure({
   cursor,
 });
 
-function writeCursor(value: v1alpha2.ICursor): void {
-  writeFileSync(CURSOR_PATH, JSON.stringify(Cursor.toObject(value)));
-}
+const writeCursor = debounce(
+  (value: v1alpha2.ICursor) => {
+    writeFileSync(CURSOR_PATH, JSON.stringify(Cursor.toObject(value)));
+
+    logger.info({
+      message: `Wrote cursor`,
+      cursor: Cursor.toObject(cursor),
+    });
+  },
+  100,
+  true
+);
 
 (async function () {
   for await (const message of client) {
@@ -160,18 +171,14 @@ function writeCursor(value: v1alpha2.ICursor): void {
             );
           }
 
-          writeCursor(message.data.endCursor);
-
-          logger.info({
-            cursor: Cursor.toObject(message.data.endCursor),
-          });
+          writeCursor(message.data.cursor);
         }
         break;
       case "heartbeat":
         logger.debug(`Heartbeat`);
         break;
       case "invalidate":
-        logger.warn(`Cursor invalidated`, {
+        logger.warn(`Invalidated cursor`, {
           cursor: Cursor.toObject(message.data.endCursor),
         });
         writeCursor(message.invalidate.cursor);
