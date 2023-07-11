@@ -114,6 +114,14 @@ export const parsePositionUpdatedEvent = combineParsers({
   delta: { index: 2, parser: parseDelta },
 });
 
+export const parseTransferEvent = combineParsers({
+  from: { index: 0, parser: parseAddress },
+  to: { index: 1, parser: parseAddress },
+  token_id: { index: 2, parser: parseU256 },
+});
+
+export type TransferEvent = ReturnType<typeof parseTransferEvent>["value"];
+
 export type PoolKey = ReturnType<typeof parsePoolKey>["value"];
 
 export type Bounds = ReturnType<typeof parseBounds>["value"];

@@ -15,9 +15,10 @@ import {
   parseLong,
   parsePositionMintedEvent,
   parsePositionUpdatedEvent,
+  parseTransferEvent,
   PositionUpdatedEvent,
+  TransferEvent,
 } from "./parse";
-import { ICursor } from "@apibara/protocol/dist/proto/v1alpha2";
 import { BlockMeta, EventProcessor } from "./processor";
 import { createLogger, format, transports } from "winston";
 
@@ -41,7 +42,7 @@ const kv = new CloudflareKV({
   apiToken: process.env.CLOUDFLARE_API_TOKEN,
 });
 
-let cursor: ICursor;
+let cursor: v1alpha2.ICursor;
 const CURSOR_PATH = process.env.CURSOR_FILE;
 if (existsSync(CURSOR_PATH)) {
   try {
@@ -78,6 +79,29 @@ const EVENT_PROCESSORS: EventProcessor<any>[] = [
   },
   {
     filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.POSITIONS_ADDRESS),
+      keys: [
+        // Transfer to address 0, i.e. a burn
+        FieldElement.fromBigInt(
+          0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9
+        ),
+      ],
+    },
+    parser: (ev) => parseTransferEvent(ev.event.data, 0).value,
+    async handle(ev: TransferEvent, meta): Promise<void> {
+      if (meta.isFinal && BigInt(ev.to) === 0n) {
+        logger.info({
+          message: `Burned token`,
+          token_id: ev.token_id,
+        });
+
+        // remove the key so api stops responding to requests about the token
+        await kv.delete(ev.token_id.toString());
+      }
+    },
+  },
+  {
+    filter: {
       fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
       keys: [
         // PositionUpdated
@@ -109,9 +133,14 @@ client.configure({
   cursor,
 });
 
-const writeCursor = debounce(
+const writeCursorIfNecessary = debounce(
   (value: v1alpha2.ICursor) => {
-    writeFileSync(CURSOR_PATH, JSON.stringify(Cursor.toObject(value)));
+    const next = JSON.stringify(Cursor.toObject(value));
+    if (next === JSON.stringify(Cursor.toObject(cursor))) {
+      return;
+    }
+    cursor = value;
+    writeFileSync(CURSOR_PATH, next);
 
     logger.info({
       message: `Wrote cursor`,
@@ -146,6 +175,9 @@ const writeCursor = debounce(
               blockTimestamp: new Date(
                 Number(parseLong(block.header.timestamp.seconds) * 1000n)
               ),
+              isFinal:
+                block.status ===
+                starknet.BlockStatus.BLOCK_STATUS_ACCEPTED_ON_L1,
             };
 
             const events = block.events;
@@ -171,7 +203,7 @@ const writeCursor = debounce(
             );
           }
 
-          writeCursor(message.data.cursor);
+          writeCursorIfNecessary(message.data.cursor);
         }
         break;
       case "heartbeat":
@@ -181,7 +213,7 @@ const writeCursor = debounce(
         logger.warn(`Invalidated cursor`, {
           cursor: Cursor.toObject(message.data.endCursor),
         });
-        writeCursor(message.invalidate.cursor);
+        writeCursorIfNecessary(message.invalidate.cursor);
         break;
 
       case "unknown":
