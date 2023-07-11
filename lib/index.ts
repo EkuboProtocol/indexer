@@ -90,8 +90,7 @@ const EVENT_PROCESSORS: EventProcessor<any>[] = [
     parser: (ev) => parseTransferEvent(ev.event.data, 0).value,
     async handle(ev: TransferEvent, meta): Promise<void> {
       if (meta.isFinal && BigInt(ev.to) === 0n) {
-        logger.info({
-          message: `Burned token`,
+        logger.info("Burned token", {
           token_id: ev.token_id,
         });
 
@@ -142,8 +141,7 @@ const writeCursorIfNecessary = debounce(
     cursor = value;
     writeFileSync(CURSOR_PATH, next);
 
-    logger.info({
-      message: `Wrote cursor`,
+    logger.info("Wrote cursor", {
       cursor: Cursor.toObject(value),
     });
   },
@@ -217,7 +215,7 @@ const writeCursorIfNecessary = debounce(
         break;
 
       case "unknown":
-        logger.error(`Unknown message type`, { message: message.streamId });
+        logger.error(`Unknown message type`);
         break;
     }
   }
