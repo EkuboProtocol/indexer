@@ -8,8 +8,8 @@ interface PoolKey {
   token0: string;
   token1: string;
   fee: bigint;
-  tick_spacing: number;
-  extension: bigint;
+  tick_spacing: bigint;
+  extension: string;
 }
 
 interface Bounds {
@@ -40,94 +40,108 @@ export interface PositionUpdatedEvent {
   delta: Delta;
 }
 
-export function parseU128(
-  data: starknet.IFieldElement[],
-  startingFrom: number
-): bigint {
-  return FieldElement.toBigInt(data[startingFrom]);
-}
-
-export function parseU256(
-  data: starknet.IFieldElement[],
-  startingFrom: number
-): bigint {
-  return (
-    FieldElement.toBigInt(data[startingFrom]) +
-    FieldElement.toBigInt(data[startingFrom + 1]) * 2n ** 128n
-  );
-}
-
-export function parseI129(
-  data: starknet.IFieldElement[],
-  startingFrom: number
-): bigint {
-  return (
-    FieldElement.toBigInt(data[startingFrom]) *
-    (FieldElement.toBigInt(data[startingFrom + 1]) !== 0n ? -1n : 1n)
-  );
-}
-
-export function parsePoolKey(
-  data: starknet.IFieldElement[],
-  startingFrom: number
-) {
-  return {
-    token0: FieldElement.toHex(data[startingFrom]),
-    token1: FieldElement.toHex(data[startingFrom + 1]),
-    fee: BigInt(FieldElement.toHex(data[startingFrom + 2])),
-    tick_spacing: Number(FieldElement.toHex(data[startingFrom + 3])),
-    extension: BigInt(FieldElement.toHex(data[startingFrom + 4])),
+interface Parser<T> {
+  (data: starknet.IFieldElement[], startingFrom: number): {
+    value: T;
+    next: number;
   };
 }
 
-export function parseBounds(
-  data: starknet.IFieldElement[],
-  startingFrom: number
-): { lower: bigint; upper: bigint } {
+export const parseU128: Parser<bigint> = (data, startingFrom) => {
   return {
-    lower: parseI129(data, startingFrom),
-    upper: parseI129(data, startingFrom + 2),
+    value: FieldElement.toBigInt(data[startingFrom]),
+    next: startingFrom + 1,
   };
+};
+
+export const parseU256: Parser<bigint> = (data, startingFrom) => {
+  return {
+    value:
+      FieldElement.toBigInt(data[startingFrom]) +
+      FieldElement.toBigInt(data[startingFrom + 1]) * 2n ** 128n,
+    next: startingFrom + 2,
+  };
+};
+
+export const parseI129: Parser<bigint> = (data, startingFrom) => {
+  return {
+    value:
+      FieldElement.toBigInt(data[startingFrom]) *
+      (FieldElement.toBigInt(data[startingFrom + 1]) !== 0n ? -1n : 1n),
+    next: startingFrom + 2,
+  };
+};
+
+type GetParserType<T extends Parser<any>> = T extends Parser<infer U>
+  ? U
+  : never;
+export function combineParsers<
+  T extends {
+    [key: string]: unknown;
+  }
+>(parsers: {
+  [k in keyof T]: { index: number; parser: Parser<T[k]> };
+}): Parser<T> {
+  return (data, startingFrom) =>
+    Object.entries(parsers)
+      .sort(([, { index: index0 }], [, { index: index1 }]) => {
+        return index0 - index1;
+      })
+      .reduce(
+        (memo, value) => {
+          const { value: parsed, next } = value[1].parser(memo.startingFrom);
+          memo.value[value[0]] = parsed;
+          return {
+            value: parsed,
+            startingFrom: next,
+          };
+        },
+        {
+          startingFrom,
+          value: {},
+        }
+      ).value;
 }
 
-export function parsePositionMintedEvent(
-  ev: starknet.IEventWithTransaction
-): PositionMintedEvent {
+export const parseAddress: Parser<string> = (data, startingFrom) => {
   return {
-    token_id: parseU256(ev.event.data, 0),
-    pool_key: parsePoolKey(ev.event.data, 2),
-    bounds: parseBounds(ev.event.data, 7),
+    value: FieldElement.toHex(data[startingFrom]),
+    next: startingFrom + 1,
   };
-}
+};
 
-function parseUpdatePositionParams(
-  data: starknet.IFieldElement[],
-  startingFrom: number
-): UpdatePositionParameters {
-  return {
-    salt: parseU128(data, startingFrom),
-    bounds: parseBounds(data, startingFrom + 1),
-    liquidity_delta: parseI129(data, startingFrom + 5),
-  };
-}
+export const parsePoolKey: Parser<PoolKey> = combineParsers({
+  token0: { index: 0, parser: parseAddress },
+  token1: { index: 1, parser: parseAddress },
+  fee: { index: 2, parser: parseU128 },
+  tick_spacing: { index: 3, parser: parseI129 },
+  extension: { index: 4, parser: parseAddress },
+});
 
-export function parseDelta(
-  data: starknet.IFieldElement[],
-  startingFrom: number
-): Delta {
-  return {
-    amount0: parseI129(data, startingFrom),
-    amount1: parseI129(data, startingFrom + 2),
-  };
-}
+export const parseBounds = combineParsers({
+  lower: { index: 0, parser: parseI129 },
+  upper: { index: 1, parser: parseI129 },
+});
 
-export function parsePositionUpdatedEvent(
-  data: starknet.IFieldElement[],
-  startingFrom: number
-): PositionUpdatedEvent {
-  return {
-    pool_key: parsePoolKey(data, startingFrom),
-    params: parseUpdatePositionParams(data, startingFrom + 5),
-    delta: parseDelta(data, startingFrom + 11),
-  };
-}
+export const parsePositionMintedEvent = combineParsers({
+  token_id: { index: 0, parser: parseU256 },
+  pool_key: { index: 1, parser: parsePoolKey },
+  parseBounds: { index: 2, parser: parseBounds },
+});
+
+const parseUpdatePositionParams = combineParsers({
+  salt: { index: 0, parser: parseU128 },
+  bounds: { index: 1, parser: parseBounds },
+  liquidity_delta: { index: 2, parser: parseI129 },
+});
+
+export const parseDelta = combineParsers({
+  amount0: { index: 0, parser: parseI129 },
+  amount1: { index: 1, parser: parseI129 },
+});
+
+export const parsePositionUpdatedEvent = combineParsers({
+  pool_key: { index: 0, parser: parsePoolKey },
+  params: { index: 1, parser: parseUpdatePositionParams },
+  delta: { index: 2, parser: parseDelta },
+});

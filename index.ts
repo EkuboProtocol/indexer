@@ -54,7 +54,7 @@ const EVENT_PROCESSORS: EventProcessor<any>[] = [
         ),
       ],
     },
-    parser: parsePositionMintedEvent,
+    parser: (ev) => parsePositionMintedEvent(ev.event.data, 0).value,
     handle: async (ev, meta) => {
       const key = ev.token_id.toString();
       await kv.write(key, JSON.stringify(toNftAttributes(ev)));
@@ -75,16 +75,7 @@ const EVENT_PROCESSORS: EventProcessor<any>[] = [
         ),
       ],
     },
-    parser(ev: starknet.IEventWithTransaction) {
-      const pool_key = parsePoolKey(ev.event.data, 0);
-      const params = parsePositionUpdatedEvent(ev.event.data, 5);
-      const delta = parseDelta(ev.event.data, 15);
-      return {
-        pool_key,
-        params,
-        delta,
-      };
-    },
+    parser: (ev) => parsePositionUpdatedEvent(ev.event.data, 0).value,
     async handle(ev, meta): Promise<void> {
       printLog("PositionUpdated", ev);
     },
