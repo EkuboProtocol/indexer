@@ -115,7 +115,7 @@ const writeCursor = debounce(
 
     logger.info({
       message: `Wrote cursor`,
-      cursor: Cursor.toObject(cursor),
+      cursor: Cursor.toObject(value),
     });
   },
   100,
