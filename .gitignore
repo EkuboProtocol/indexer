@@ -1,2 +1,4 @@
 .env
 *.cursor.json
+
+node_modules
