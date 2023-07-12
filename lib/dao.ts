@@ -62,6 +62,13 @@ export class DAO {
         timestamp TIMESTAMP NOT NULL
       )`),
 
+      // the token price as of a specific block timestamp
+      this.pg.query(`CREATE TABLE IF NOT EXISTS token_dollar_prices(
+        block_number INT8 NOT NULL REFERENCES blocks(number),
+        token_address NUMERIC NOT NULL,
+        price NUMERIC NOT NULL -- price is per-wei of the token, i.e. dollars per smallest unit
+      )`),
+
       this.pg.query(`CREATE TABLE IF NOT EXISTS cursor(
         id INT NOT NULL UNIQUE CHECK (id = 1), -- only one row.
         order_key NUMERIC NOT NULL,
@@ -339,8 +346,27 @@ export class DAO {
     });
   }
 
+  public async insertTokenPrice({
+    blockNumber,
+    tokenAddress,
+    price,
+  }: {
+    blockNumber: bigint;
+    tokenAddress: bigint;
+    price: number;
+  }) {
+    await this.pg.query({
+      name: `insert-token-price`,
+      text: `
+        INSERT INTO token_dollar_prices(block_number, token_address, price)
+        VALUES ($1, $2, $3);
+      `,
+      values: [blockNumber, tokenAddress, price],
+    });
+  }
+
   private async deleteFromTableWithBlockNumber(
-    table: "swaps" | "position_updates",
+    table: "swaps" | "position_updates" | "token_dollar_prices",
     invalidatedBlockNumber: bigint
   ): Promise<void> {
     await this.pg.query({
@@ -372,6 +398,10 @@ export class DAO {
       this.deleteFromTableWithBlockNumber("swaps", invalidatedBlockNumber),
       this.deleteFromTableWithBlockNumber(
         "position_updates",
+        invalidatedBlockNumber
+      ),
+      this.deleteFromTableWithBlockNumber(
+        "token_dollar_prices",
         invalidatedBlockNumber
       ),
     ]);
