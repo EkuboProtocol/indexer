@@ -1,66 +1,44 @@
 import "./config";
-
-import { debounce } from "debounce";
 import {
   FieldElement,
   Filter,
   StarkNetCursor,
   v1alpha2 as starknet,
 } from "@apibara/starknet";
-import { existsSync, readFileSync, writeFileSync } from "fs";
 import { Cursor, StreamClient, v1alpha2 } from "@apibara/protocol";
-import { CloudflareKV } from "./cf";
-import { toNftAttributes } from "./minted";
 import {
   parseLong,
   parsePositionMintedEvent,
   parsePositionUpdatedEvent,
+  parseSwappedEvent,
   parseTransferEvent,
+  PositionMintedEvent,
   PositionUpdatedEvent,
+  SwappedEvent,
   TransferEvent,
 } from "./parse";
-import { BlockMeta, EventProcessor } from "./processor";
-import { createLogger, format, transports } from "winston";
+import { EventProcessor } from "./processor";
+import { logger } from "./logger";
+import { EventDAO } from "./dao";
+import { Client } from "pg";
 
-const logger = createLogger({
-  level: "debug",
-  format: format.combine(
-    format.timestamp({
-      format: "YYYY-MM-DD HH:mm:ss",
-    }),
-    format.errors({ stack: true }),
-    format.splat(),
-    format.json()
-  ),
-  defaultMeta: { service: "ekubo-indexer" },
-  transports: [new transports.Console()],
-});
+const dao = new EventDAO(
+  new Client({
+    user: process.env.PGUSER,
+    password: process.env.PGPASSWORD,
+    host: process.env.PGHOST,
+    port: Number(process.env.PGPORT),
+    database: process.env.PGDATABASE,
+    ssl: process.env.PGCERT
+      ? {
+          ca: process.env.PGCERT,
+        }
+      : false,
+  })
+);
 
-const kv = new CloudflareKV({
-  accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
-  namespaceId: process.env.CLOUDFLARE_KV_NAMESPACE_ID,
-  apiToken: process.env.CLOUDFLARE_API_TOKEN,
-});
-
-let cursor: v1alpha2.ICursor;
-const CURSOR_PATH = process.env.CURSOR_FILE;
-if (existsSync(CURSOR_PATH)) {
-  try {
-    cursor = Cursor.fromObject(JSON.parse(readFileSync(CURSOR_PATH, "utf8")));
-  } catch (error) {
-    logger.error(`Failed to parse cursor file`, error);
-    throw error;
-  }
-} else {
-  const blockNumber = process.env.STARTING_CURSOR_BLOCK_NUMBER ?? 0;
-  cursor = StarkNetCursor.createWithBlockNumber(Number(blockNumber));
-  logger.info(`Cursor file not found, starting with block number`, {
-    blockNumber,
-  });
-}
-
-const EVENT_PROCESSORS: EventProcessor<any>[] = [
-  {
+const EVENT_PROCESSORS = [
+  <EventProcessor<PositionMintedEvent>>{
     filter: {
       fromAddress: FieldElement.fromBigInt(process.env.POSITIONS_ADDRESS),
       keys: [
@@ -70,36 +48,31 @@ const EVENT_PROCESSORS: EventProcessor<any>[] = [
         ),
       ],
     },
-    parser: (ev) => parsePositionMintedEvent(ev.event.data, 0).value,
-    handle: async (ev, meta) => {
-      const key = ev.token_id.toString();
-      await kv.write(key, JSON.stringify(toNftAttributes(ev)));
-      logger.info(`Wrote token ID`, { key, meta });
+    parser: parsePositionMintedEvent,
+    handle: async ({ key, parsed }) => {
+      logger.debug("PositionMinted", { parsed, key });
+      await dao.setPositionMetadata(parsed, key.blockNumber);
     },
   },
-  {
+  <EventProcessor<TransferEvent>>{
     filter: {
       fromAddress: FieldElement.fromBigInt(process.env.POSITIONS_ADDRESS),
       keys: [
         // Transfer to address 0, i.e. a burn
         FieldElement.fromBigInt(
-          0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9
+          0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9n
         ),
       ],
     },
-    parser: (ev) => parseTransferEvent(ev.event.data, 0).value,
-    async handle(ev: TransferEvent, meta): Promise<void> {
-      if (meta.isFinal && BigInt(ev.to) === 0n) {
-        logger.info("Burned token", {
-          token_id: ev.token_id,
-        });
-
-        // remove the key so api stops responding to requests about the token
-        await kv.delete(ev.token_id.toString());
+    parser: parseTransferEvent,
+    async handle({ parsed, key }): Promise<void> {
+      if (BigInt(parsed.to) === 0n) {
+        logger.debug("Position burned", { parsed, key });
+        await dao.deletePositionMetadata(parsed, key.blockNumber);
       }
     },
   },
-  {
+  <EventProcessor<PositionUpdatedEvent>>{
     filter: {
       fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
       keys: [
@@ -109,47 +82,59 @@ const EVENT_PROCESSORS: EventProcessor<any>[] = [
         ),
       ],
     },
-    parser: (ev) => parsePositionUpdatedEvent(ev.event.data, 0).value,
-    async handle(ev: PositionUpdatedEvent, meta): Promise<void> {
-      // todo: handle these events
+    parser: parsePositionUpdatedEvent,
+    async handle({ parsed, key }): Promise<void> {
+      logger.debug("PositionUpdated", { parsed, key });
+      await dao.insertPositionUpdatedEvent(parsed, key);
     },
   },
-];
+  <EventProcessor<SwappedEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
+      keys: [
+        // swap events
+        FieldElement.fromBigInt(
+          0x157717768aca88da4ac4279765f09f4d0151823d573537fbbeb950cdbd9a870n
+        ),
+      ],
+    },
+    parser: parseSwappedEvent,
+    async handle({ parsed, key }): Promise<void> {
+      logger.debug("Swapped", { parsed, key });
+      await dao.insertSwappedEvent(parsed, key);
+    },
+  },
+] as const;
 
 const client = new StreamClient({
   url: process.env.APIBARA_URL,
   token: process.env.APIBARA_AUTH_TOKEN,
 });
 
-client.configure({
-  filter: EVENT_PROCESSORS.reduce((memo, value) => {
-    return memo.addEvent((ev) =>
-      ev.withKeys(value.filter.keys).withFromAddress(value.filter.fromAddress)
-    );
-  }, Filter.create().withHeader({ weak: true })).encode(),
-  batchSize: 1,
-  finality: v1alpha2.DataFinality.DATA_STATUS_PENDING,
-  cursor,
-});
-
-const writeCursorIfNecessary = debounce(
-  (value: v1alpha2.ICursor) => {
-    const next = JSON.stringify(Cursor.toObject(value));
-    if (next === JSON.stringify(Cursor.toObject(cursor))) {
-      return;
-    }
-    cursor = value;
-    writeFileSync(CURSOR_PATH, next);
-
-    logger.info("Wrote cursor", {
-      cursor: Cursor.toObject(value),
-    });
-  },
-  100,
-  true
-);
-
 (async function () {
+  // first set up the schema
+  const databaseStartingCursor =
+    (await dao.connectAndInit()) ?? Cursor.toObject();
+
+  logger.info(`Initialized`, {
+    startingCursor: databaseStartingCursor,
+  });
+
+  client.configure({
+    filter: EVENT_PROCESSORS.reduce((memo, value) => {
+      return memo.addEvent((ev) =>
+        ev.withKeys(value.filter.keys).withFromAddress(value.filter.fromAddress)
+      );
+    }, Filter.create().withHeader({ weak: true })).encode(),
+    batchSize: 1,
+    finality: v1alpha2.DataFinality.DATA_STATUS_PENDING,
+    cursor: databaseStartingCursor
+      ? Cursor.fromObject(databaseStartingCursor)
+      : StarkNetCursor.createWithBlockNumber(
+          Number(process.env.STARTING_CURSOR_BLOCK_NUMBER ?? 0)
+        ),
+  });
+
   for await (const message of client) {
     let messageType = !!message.heartbeat
       ? "heartbeat"
@@ -166,52 +151,72 @@ const writeCursorIfNecessary = debounce(
           break;
         } else {
           for (const item of message.data.data) {
-            const block = starknet.Block.decode(item);
+            const decoded = starknet.Block.decode(item);
 
-            const meta: BlockMeta = {
-              blockNumber: Number(parseLong(block.header.blockNumber)),
-              blockTimestamp: new Date(
-                Number(parseLong(block.header.timestamp.seconds) * 1000n)
-              ),
-              isFinal:
-                block.status ===
-                starknet.BlockStatus.BLOCK_STATUS_ACCEPTED_ON_L1,
-            };
+            const blockNumber = parseLong(decoded.header.blockNumber);
 
-            const events = block.events;
+            const events = decoded.events;
 
-            await Promise.all(
-              EVENT_PROCESSORS.flatMap((processor) => {
-                return events
-                  .filter((ev) => {
-                    return (
-                      FieldElement.toBigInt(ev.event.fromAddress) ===
-                        FieldElement.toBigInt(processor.filter.fromAddress) &&
-                      ev.event.keys.length === processor.filter.keys.length &&
-                      ev.event.keys.every(
-                        (key, ix) =>
-                          FieldElement.toBigInt(key) ===
-                          FieldElement.toBigInt(processor.filter.keys[ix])
-                      )
-                    );
-                  })
-                  .map(processor.parser)
-                  .map((ev) => processor.handle(ev, meta));
-              })
-            );
+            await dao.startTransaction();
+
+            await dao.invalidateBlockNumber(blockNumber);
+
+            for (const { event, transaction } of events) {
+              const txHash = FieldElement.toBigInt(transaction.meta.hash);
+
+              // process each event sequentially through all the event processors in parallel
+              // assumption is that none of the event processors operate on the same events, i.e. have the same filters
+              // this assumption could be validated at runtime
+              await Promise.all(
+                EVENT_PROCESSORS.map(async ({ parser, handle, filter }) => {
+                  if (
+                    FieldElement.toBigInt(event.fromAddress) ===
+                      FieldElement.toBigInt(filter.fromAddress) &&
+                    event.keys.length === filter.keys.length &&
+                    event.keys.every(
+                      (key, ix) =>
+                        FieldElement.toBigInt(key) ===
+                        FieldElement.toBigInt(filter.keys[ix])
+                    )
+                  ) {
+                    const parsed = parser(event.data, 0).value;
+
+                    await handle({
+                      parsed: parsed as any,
+                      key: {
+                        blockNumber,
+                        txHash,
+                        logIndex: parseLong(event.index),
+                      },
+                    });
+                  }
+                })
+              );
+            }
+
+            await dao.writeCursor(Cursor.toObject(message.data.cursor));
+            await dao.endTransaction();
+
+            logger.info(`Processed block`, { blockNumber });
           }
-
-          writeCursorIfNecessary(message.data.cursor);
         }
         break;
+
       case "heartbeat":
         logger.debug(`Heartbeat`);
         break;
+
       case "invalidate":
+        let invalidatedCursor = Cursor.toObject(message.invalidate.cursor);
+
         logger.warn(`Invalidated cursor`, {
-          cursor: Cursor.toObject(message.data.endCursor),
+          cursor: invalidatedCursor,
         });
-        writeCursorIfNecessary(message.invalidate.cursor);
+
+        await dao.startTransaction();
+        await dao.invalidateBlockNumber(BigInt(invalidatedCursor.orderKey));
+        await dao.writeCursor(Cursor.toObject(message.invalidate.cursor));
+        await dao.endTransaction();
         break;
 
       case "unknown":
@@ -220,5 +225,13 @@ const writeCursorIfNecessary = debounce(
     }
   }
 })()
-  .then(() => logger.info("Stream closed"))
-  .catch((error) => logger.error("Stream crashed", { error }));
+  .then(() => {
+    logger.info("Stream closed gracefully");
+  })
+  .catch((error) => {
+    logger.error(error);
+  })
+  .finally(async () => {
+    await dao.close();
+    process.exit(1);
+  });
