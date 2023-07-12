@@ -19,10 +19,16 @@ import {
 } from "./parse";
 import { EventProcessor } from "./processor";
 import { logger } from "./logger";
-import { EventDAO } from "./dao";
+import { DAO } from "./dao";
 import { Client } from "pg";
+import { CoinGeckoClient } from "coingecko-api-v3";
 
-const dao = new EventDAO(
+const coingecko = new CoinGeckoClient({
+  timeout: 1000,
+  autoRetry: true,
+});
+
+const dao = new DAO(
   new Client({
     user: process.env.PGUSER,
     password: process.env.PGPASSWORD,
@@ -156,9 +162,15 @@ const client = new StreamClient({
 
             const events = decoded.events;
 
-            await dao.startTransaction();
+            await dao.start();
 
             await dao.invalidateBlockNumber(blockNumber);
+
+            await dao.insertBlock({
+              hash: FieldElement.toBigInt(decoded.header.blockHash),
+              timestamp: parseLong(decoded.header.timestamp.seconds),
+              number: parseLong(decoded.header.blockNumber),
+            });
 
             for (const { event, transaction } of events) {
               const txHash = FieldElement.toBigInt(transaction.meta.hash);
@@ -194,7 +206,7 @@ const client = new StreamClient({
             }
 
             await dao.writeCursor(Cursor.toObject(message.data.cursor));
-            await dao.endTransaction();
+            await dao.commit();
 
             logger.info(`Processed block`, { blockNumber });
           }
@@ -212,10 +224,10 @@ const client = new StreamClient({
           cursor: invalidatedCursor,
         });
 
-        await dao.startTransaction();
+        await dao.start();
         await dao.invalidateBlockNumber(BigInt(invalidatedCursor.orderKey));
         await dao.writeCursor(Cursor.toObject(message.invalidate.cursor));
-        await dao.endTransaction();
+        await dao.commit();
         break;
 
       case "unknown":

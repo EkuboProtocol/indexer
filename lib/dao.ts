@@ -26,36 +26,42 @@ function computeKeyHash(pool_key: PositionMintedEvent["pool_key"]): bigint {
 }
 
 // Data access object that manages inserts/deletes
-export class EventDAO {
+export class DAO {
   private pg: Client;
 
   constructor(pg: Client) {
     this.pg = pg;
   }
 
-  public async startTransaction(): Promise<void> {
+  public async start(): Promise<void> {
     await this.pg.query("BEGIN");
   }
 
-  public async endTransaction(): Promise<void> {
+  public async commit(): Promise<void> {
     await this.pg.query("COMMIT");
   }
 
   async connectAndInit() {
     await this.pg.connect();
-    await this.startTransaction();
+    await this.start();
     await this.initSchema();
     const cursor = await this.loadCursor();
     // we need to clear anything that was potentially inserted as pending before starting
     if (cursor) {
       await this.invalidateBlockNumber(BigInt(cursor.orderKey) + 1n);
     }
-    await this.endTransaction();
+    await this.commit();
     return cursor;
   }
 
   private async initSchema(): Promise<void> {
     const result = await Promise.all([
+      this.pg.query(`CREATE TABLE IF NOT EXISTS blocks(
+        number INT8 NOT NULL PRIMARY KEY,
+        hash NUMERIC NOT NULL,
+        timestamp TIMESTAMP NOT NULL
+      )`),
+
       this.pg.query(`CREATE TABLE IF NOT EXISTS cursor(
         id INT NOT NULL UNIQUE CHECK (id = 1), -- only one row.
         order_key NUMERIC NOT NULL,
@@ -84,7 +90,7 @@ export class EventDAO {
 
       this.pg.query(`CREATE TABLE IF NOT EXISTS position_updates(
         transaction_hash NUMERIC NOT NULL,
-        block_number INT8 NOT NULL,
+        block_number INT8 NOT NULL REFERENCES blocks(number),
         index INT8 NOT NULL,
     
         pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys(key_hash),
@@ -102,7 +108,7 @@ export class EventDAO {
 
       this.pg.query(`CREATE TABLE IF NOT EXISTS swaps(
           transaction_hash NUMERIC NOT NULL,
-          block_number INT8 NOT NULL,
+          block_number INT8 NOT NULL REFERENCES blocks(number),
           index INT8 NOT NULL,
           
           pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys(key_hash),
@@ -314,6 +320,25 @@ export class EventDAO {
     });
   }
 
+  public async insertBlock({
+    number,
+    hash,
+    timestamp,
+  }: {
+    number: bigint;
+    hash: bigint;
+    timestamp: bigint;
+  }) {
+    await this.pg.query({
+      name: `insert-block`,
+      text: `
+        INSERT INTO blocks (number, hash, timestamp)
+        VALUES ($1, $2, to_timestamp($3));
+      `,
+      values: [number, hash, timestamp],
+    });
+  }
+
   private async deleteFromTableWithBlockNumber(
     table: "swaps" | "position_updates",
     invalidatedBlockNumber: bigint
@@ -328,6 +353,19 @@ export class EventDAO {
     });
   }
 
+  private async deleteOldBlockNumbers(
+    invalidatedBlockNumber: bigint
+  ): Promise<void> {
+    await this.pg.query({
+      name: `delete-old-blocks`,
+      text: `
+        DELETE FROM blocks
+        WHERE number >= $1;
+      `,
+      values: [invalidatedBlockNumber],
+    });
+  }
+
   public async invalidateBlockNumber(invalidatedBlockNumber: bigint) {
     await Promise.all([
       this.invalidatePositionMetadata(invalidatedBlockNumber),
@@ -337,6 +375,7 @@ export class EventDAO {
         invalidatedBlockNumber
       ),
     ]);
+    await this.deleteOldBlockNumbers(invalidatedBlockNumber);
   }
 
   public async close() {
