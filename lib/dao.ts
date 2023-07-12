@@ -64,7 +64,7 @@ export class DAO {
 
       // the token price as of a specific block timestamp
       this.pg.query(`CREATE TABLE IF NOT EXISTS token_dollar_prices(
-        block_number INT8 NOT NULL REFERENCES blocks(number),
+        block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
         token_address NUMERIC NOT NULL,
         price NUMERIC NOT NULL -- price is per-wei of the token, i.e. dollars per smallest unit
       )`),
@@ -97,7 +97,7 @@ export class DAO {
 
       this.pg.query(`CREATE TABLE IF NOT EXISTS position_updates(
         transaction_hash NUMERIC NOT NULL,
-        block_number INT8 NOT NULL REFERENCES blocks(number),
+        block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
         index INT8 NOT NULL,
     
         pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys(key_hash),
@@ -115,7 +115,7 @@ export class DAO {
 
       this.pg.query(`CREATE TABLE IF NOT EXISTS swaps(
           transaction_hash NUMERIC NOT NULL,
-          block_number INT8 NOT NULL REFERENCES blocks(number),
+          block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
           index INT8 NOT NULL,
           
           pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys(key_hash),
@@ -365,20 +365,6 @@ export class DAO {
     });
   }
 
-  private async deleteFromTableWithBlockNumber(
-    table: "swaps" | "position_updates" | "token_dollar_prices",
-    invalidatedBlockNumber: bigint
-  ): Promise<void> {
-    await this.pg.query({
-      name: `delete-${table}-after-block-number`,
-      text: `
-        DELETE FROM ${table}
-        WHERE block_number >= $1;
-      `,
-      values: [invalidatedBlockNumber],
-    });
-  }
-
   private async deleteOldBlockNumbers(
     invalidatedBlockNumber: bigint
   ): Promise<void> {
@@ -395,15 +381,6 @@ export class DAO {
   public async invalidateBlockNumber(invalidatedBlockNumber: bigint) {
     await Promise.all([
       this.invalidatePositionMetadata(invalidatedBlockNumber),
-      this.deleteFromTableWithBlockNumber("swaps", invalidatedBlockNumber),
-      this.deleteFromTableWithBlockNumber(
-        "position_updates",
-        invalidatedBlockNumber
-      ),
-      this.deleteFromTableWithBlockNumber(
-        "token_dollar_prices",
-        invalidatedBlockNumber
-      ),
     ]);
     await this.deleteOldBlockNumbers(invalidatedBlockNumber);
   }
