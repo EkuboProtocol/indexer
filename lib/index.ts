@@ -113,8 +113,7 @@ const client = new StreamClient({
 
 (async function () {
   // first set up the schema
-  const databaseStartingCursor =
-    (await dao.connectAndInit()) ?? Cursor.toObject();
+  const databaseStartingCursor = await dao.connectAndInit();
 
   logger.info(`Initialized`, {
     startingCursor: databaseStartingCursor,
