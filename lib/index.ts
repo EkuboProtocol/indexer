@@ -7,11 +7,13 @@ import {
 } from "@apibara/starknet";
 import { Cursor, StreamClient, v1alpha2 } from "@apibara/protocol";
 import {
+  parsePoolInitializedEvent,
   parseLong,
   parsePositionMintedEvent,
   parsePositionUpdatedEvent,
   parseSwappedEvent,
   parseTransferEvent,
+  PoolInitializationEvent,
   PositionMintedEvent,
   PositionUpdatedEvent,
   SwappedEvent,
@@ -102,6 +104,22 @@ const EVENT_PROCESSORS = [
     async handle({ parsed, key }): Promise<void> {
       logger.debug("Swapped", { parsed, key });
       await dao.insertSwappedEvent(parsed, key);
+    },
+  },
+  <EventProcessor<PoolInitializationEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
+      keys: [
+        // pool initialized events
+        FieldElement.fromBigInt(
+          0x025ccf80ee62b2ca9b97c76ccea317c7f450fd6efb6ed6ea56da21d7bb9da5f1n
+        ),
+      ],
+    },
+    parser: parsePoolInitializedEvent,
+    async handle({ parsed, key }): Promise<void> {
+      logger.debug("PoolInitialized", { parsed, key });
+      await dao.insertInitializationEvent(parsed, key);
     },
   },
 ] as const;

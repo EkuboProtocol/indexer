@@ -150,11 +150,22 @@ export const parseSwappedEvent = combineParsers({
   pool_key: { index: 0, parser: parsePoolKey },
   params: { index: 1, parser: parseSwapParameters },
   delta: { index: 2, parser: parseDelta },
+  sqrt_ratio_after: { index: 3, parser: parseU256 },
+  tick_after: { index: 4, parser: parseI129 },
+});
+
+export const parsePoolInitializedEvent = combineParsers({
+  pool_key: { index: 0, parser: parsePoolKey },
+  tick: { index: 1, parser: parseI129 },
+  sqrt_ratio: { index: 2, parser: parseU256 },
 });
 
 export type TransferEvent = GetParserType<typeof parseTransferEvent>;
 
 export type SwappedEvent = GetParserType<typeof parseSwappedEvent>;
+export type PoolInitializationEvent = GetParserType<
+  typeof parsePoolInitializedEvent
+>;
 
 export type PoolKey = GetParserType<typeof parsePoolKey>;
 

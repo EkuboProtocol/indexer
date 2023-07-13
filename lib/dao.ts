@@ -1,5 +1,6 @@
 import { Client } from "pg";
 import {
+  PoolInitializationEvent,
   PoolKey,
   PositionMintedEvent,
   PositionUpdatedEvent,
@@ -106,6 +107,19 @@ export class DAO {
         PRIMARY KEY (transaction_hash, block_number, index)
       )`),
 
+      this.pg.query(`CREATE TABLE IF NOT EXISTS initializations(
+          transaction_hash NUMERIC NOT NULL,
+          block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
+          index INT8 NOT NULL,
+          
+          pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys(key_hash),
+
+          tick INT8 NOT NULL,
+          sqrt_ratio NUMERIC NOT NULL,
+          
+          PRIMARY KEY (transaction_hash, block_number, index)
+        );`),
+
       this.pg.query(`CREATE TABLE IF NOT EXISTS swaps(
           transaction_hash NUMERIC NOT NULL,
           block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
@@ -115,6 +129,9 @@ export class DAO {
           
           delta0 NUMERIC NOT NULL,
           delta1 NUMERIC NOT NULL,
+
+          sqrt_ratio_after NUMERIC NOT NULL,
+          tick_after INT8 NOT NULL,
           
           PRIMARY KEY (transaction_hash, block_number, index)
         );`),
@@ -270,6 +287,39 @@ export class DAO {
     });
   }
 
+  public async insertInitializationEvent(
+    event: PoolInitializationEvent,
+    key: EventKey
+  ) {
+    const pool_key_hash = await this.insertKeyHash(event.pool_key);
+
+    await this.pg.query({
+      name: "insert-initialization",
+      text: `
+      INSERT INTO initializations (
+        transaction_hash,
+        block_number,
+        index,
+
+        pool_key_hash,
+
+        tick,
+        sqrt_ratio
+      ) values ($1, $2, $3, $4, $5, $6);
+      `,
+      values: [
+        key.txHash,
+        key.blockNumber,
+        key.logIndex,
+
+        pool_key_hash,
+
+        event.tick,
+        event.sqrt_ratio,
+      ],
+    });
+  }
+
   public async insertSwappedEvent(event: SwappedEvent, key: EventKey) {
     const pool_key_hash = await this.insertKeyHash(event.pool_key);
 
@@ -284,8 +334,10 @@ export class DAO {
         pool_key_hash,
 
         delta0,
-        delta1
-      ) values ($1, $2, $3, $4, $5, $6);
+        delta1,
+        sqrt_ratio_after,
+        tick_after
+      ) values ($1, $2, $3, $4, $5, $6, $7, $8);
       `,
       values: [
         key.txHash,
@@ -296,6 +348,7 @@ export class DAO {
 
         event.delta.amount0,
         event.delta.amount1,
+        event.sqrt_ratio_after,
       ],
     });
   }
@@ -336,25 +389,6 @@ export class DAO {
         VALUES ($1, $2, to_timestamp($3));
       `,
       values: [number, hash, timestamp],
-    });
-  }
-
-  public async insertTokenPrice({
-    blockNumber,
-    tokenAddress,
-    price,
-  }: {
-    blockNumber: bigint;
-    tokenAddress: bigint;
-    price: number;
-  }) {
-    await this.pg.query({
-      name: `insert-token-price`,
-      text: `
-        INSERT INTO token_dollar_prices(block_number, token_address, price)
-        VALUES ($1, $2, $3);
-      `,
-      values: [blockNumber, tokenAddress, price],
     });
   }
 
