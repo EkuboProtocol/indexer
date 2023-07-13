@@ -21,12 +21,6 @@ import { EventProcessor } from "./processor";
 import { logger } from "./logger";
 import { DAO } from "./dao";
 import { Client } from "pg";
-import { CoinGeckoClient } from "coingecko-api-v3";
-
-const coingecko = new CoinGeckoClient({
-  timeout: 1000,
-  autoRetry: true,
-});
 
 const dao = new DAO(
   new Client({

@@ -62,13 +62,6 @@ export class DAO {
         timestamp TIMESTAMP NOT NULL
       )`),
 
-      // the token price as of a specific block timestamp
-      this.pg.query(`CREATE TABLE IF NOT EXISTS token_dollar_prices(
-        block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
-        token_address NUMERIC NOT NULL,
-        price NUMERIC NOT NULL -- price is per-wei of the token, i.e. dollars per smallest unit
-      )`),
-
       this.pg.query(`CREATE TABLE IF NOT EXISTS cursor(
         id INT NOT NULL UNIQUE CHECK (id = 1), -- only one row.
         order_key NUMERIC NOT NULL,
