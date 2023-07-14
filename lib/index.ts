@@ -53,7 +53,7 @@ const EVENT_PROCESSORS = [
     parser: parsePositionMintedEvent,
     handle: async ({ key, parsed }) => {
       logger.debug("PositionMinted", { parsed, key });
-      await dao.setPositionMetadata(parsed, key.blockNumber);
+      await dao.insertPositionMinted(parsed, key.blockNumber);
     },
   },
   <EventProcessor<TransferEvent>>{
@@ -68,10 +68,8 @@ const EVENT_PROCESSORS = [
     },
     parser: parseTransferEvent,
     async handle({ parsed, key }): Promise<void> {
-      if (BigInt(parsed.to) === 0n) {
-        logger.debug("Position burned", { parsed, key });
-        await dao.deletePositionMetadata(parsed, key.blockNumber);
-      }
+      logger.debug("Position transferred", { parsed, key });
+      await dao.insertPositionTransferEvent(parsed, key);
     },
   },
   <EventProcessor<PositionUpdatedEvent>>{

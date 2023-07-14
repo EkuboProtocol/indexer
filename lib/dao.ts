@@ -78,15 +78,26 @@ export class DAO {
         extension NUMERIC NOT NULL
       )`),
 
-      this.pg.query(`CREATE TABLE IF NOT EXISTS position_metadata(
+      this.pg.query(`CREATE TABLE IF NOT EXISTS position_minted(
         token_id NUMERIC NOT NULL PRIMARY KEY,
         lower_bound NUMERIC NOT NULL,
         upper_bound NUMERIC NOT NULL,
         
         pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys(key_hash),
         
-        -- validity range.
-        _valid int8range NOT NULL
+        block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE
+      )`),
+
+      this.pg.query(`CREATE TABLE IF NOT EXISTS position_transfers(
+        transaction_hash NUMERIC NOT NULL,
+        block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
+        index INT8 NOT NULL,
+        
+        token_id NUMERIC NOT NULL,
+        from_address NUMERIC NOT NULL,
+        to_address NUMERIC NOT NULL,
+        
+        PRIMARY KEY (transaction_hash, block_number, index)
       )`),
 
       this.pg.query(`CREATE TABLE IF NOT EXISTS position_updates(
@@ -199,7 +210,7 @@ export class DAO {
     return key_hash;
   }
 
-  public async setPositionMetadata(
+  public async insertPositionMinted(
     token: PositionMintedEvent,
     blockNumber: bigint
   ) {
@@ -208,12 +219,12 @@ export class DAO {
     await this.pg.query({
       name: "insert-token",
       text: `
-      insert into position_metadata (
+      insert into position_minted (
         token_id,
         lower_bound,
         upper_bound,
         pool_key_hash,
-        _valid
+        block_number
       ) values ($1, $2, $3, $4, $5); 
       `,
       values: [
@@ -221,26 +232,37 @@ export class DAO {
         token.bounds.lower,
         token.bounds.upper,
         pool_key_hash,
-        `[${blockNumber},)`,
+        blockNumber,
       ],
     });
   }
 
-  public async deletePositionMetadata(
-    token: TransferEvent,
-    blockNumber: bigint
+  public async insertPositionTransferEvent(
+    transfer: TransferEvent,
+    key: EventKey
   ) {
     // The `*` operator is the PostgreSQL range intersection operator.
     await this.pg.query({
-      name: "delete-token",
+      name: "insert-position-transfer",
       text: `
-      update position_metadata
-      set
-        _valid = _valid * $1::int8range
-      where
-        token_id = $2;
+      INSERT INTO position_transfers (
+        transaction_hash,
+        block_number,
+        index,
+
+        token_id,
+        from_address,
+        to_address
+      ) values ($1, $2, $3, $4, $5, $6)
       `,
-      values: [`[,${blockNumber})`, token.token_id],
+      values: [
+        key.txHash,
+        key.blockNumber,
+        key.logIndex,
+        transfer.token_id,
+        transfer.from,
+        transfer.to,
+      ],
     });
   }
 
@@ -353,26 +375,6 @@ export class DAO {
     });
   }
 
-  private async invalidatePositionMetadata(invalidatedBlockNumber: bigint) {
-    await this.pg.query({
-      name: "invalidate-position-metadata",
-      text: `
-        DELETE FROM position_metadata
-        WHERE LOWER(_valid) >= $1;
-      `,
-      values: [invalidatedBlockNumber],
-    });
-    await this.pg.query({
-      name: "update-position-metadata-upper-bounds",
-      text: `
-      UPDATE position_metadata
-        SET _valid = int8range(LOWER(_valid), NULL)
-        WHERE UPPER(_valid) >= $1;
-      `,
-      values: [invalidatedBlockNumber],
-    });
-  }
-
   public async insertBlock({
     number,
     hash,
@@ -406,9 +408,6 @@ export class DAO {
   }
 
   public async invalidateBlockNumber(invalidatedBlockNumber: bigint) {
-    await Promise.all([
-      this.invalidatePositionMetadata(invalidatedBlockNumber),
-    ]);
     await this.deleteOldBlockNumbers(invalidatedBlockNumber);
   }
 
