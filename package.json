@@ -5,10 +5,10 @@
   "main": "index.js",
   "description": "Indexes Ekubo data",
   "scripts": {
-    "start": "NETWORK=goerli ts-node lib/index.ts",
+    "start": "NETWORK=goerli ts-node src/index.ts",
     "goerli": "NETWORK=goerli node ./dist/index.js",
     "mainnet": "NETWORK=mainnet node ./dist/index.js",
-    "build": "tsup lib/index.ts",
+    "build": "tsup src/index.ts",
     "test": "jest"
   },
   "author": "Moody Salem",
