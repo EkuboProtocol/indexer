@@ -105,10 +105,14 @@ export const parsePoolKey = combineParsers({
   extension: { index: 4, parser: parseFelt252 },
 });
 
+export type PoolKey = GetParserType<typeof parsePoolKey>;
+
 export const parseBounds = combineParsers({
   lower: { index: 0, parser: parseI129 },
   upper: { index: 1, parser: parseI129 },
 });
+
+export type Bounds = GetParserType<typeof parseBounds>;
 
 export const parsePositionMintedEvent = combineParsers({
   token_id: { index: 0, parser: parseU256 },
@@ -116,22 +120,53 @@ export const parsePositionMintedEvent = combineParsers({
   bounds: { index: 2, parser: parseBounds },
 });
 
+export type PositionMintedEvent = GetParserType<
+  typeof parsePositionMintedEvent
+>;
+
 const parseUpdatePositionParams = combineParsers({
   salt: { index: 0, parser: parseU128 },
   bounds: { index: 1, parser: parseBounds },
   liquidity_delta: { index: 2, parser: parseI129 },
 });
 
+export type UpdatePositionParameters = GetParserType<
+  typeof parseUpdatePositionParams
+>;
+
 export const parseDelta = combineParsers({
   amount0: { index: 0, parser: parseI129 },
   amount1: { index: 1, parser: parseI129 },
 });
 
+export type Delta = GetParserType<typeof parseDelta>;
+
 export const parsePositionUpdatedEvent = combineParsers({
-  pool_key: { index: 0, parser: parsePoolKey },
-  params: { index: 1, parser: parseUpdatePositionParams },
-  delta: { index: 2, parser: parseDelta },
+  locker: { index: 0, parser: parseFelt252 },
+  pool_key: { index: 1, parser: parsePoolKey },
+  params: { index: 2, parser: parseUpdatePositionParams },
+  delta: { index: 3, parser: parseDelta },
 });
+
+export type PositionUpdatedEvent = GetParserType<
+  typeof parsePositionUpdatedEvent
+>;
+
+export const parsePositionKey = combineParsers({
+  salt: { index: 0, parser: parseU128 },
+  owner: { index: 1, parser: parseFelt252 },
+  bounds: { index: 2, parser: parseBounds },
+});
+
+export const parsePositionFeesCollectedEvent = combineParsers({
+  pool_key: { index: 1, parser: parsePoolKey },
+  position_key: { index: 2, parser: parsePositionKey },
+  delta: { index: 3, parser: parseDelta },
+});
+
+export type PositionFeesCollectedEvent = GetParserType<
+  typeof parsePositionFeesCollectedEvent
+>;
 
 export const parseTransferEvent = combineParsers({
   from: { index: 0, parser: parseFelt252 },
@@ -139,6 +174,7 @@ export const parseTransferEvent = combineParsers({
   token_id: { index: 2, parser: parseU256 },
 });
 
+export type TransferEvent = GetParserType<typeof parseTransferEvent>;
 const parseSwapParameters = combineParsers({
   amount: { index: 0, parser: parseI129 },
   is_token1: { index: 1, parser: parseBoolean },
@@ -147,12 +183,15 @@ const parseSwapParameters = combineParsers({
 });
 
 export const parseSwappedEvent = combineParsers({
-  pool_key: { index: 0, parser: parsePoolKey },
-  params: { index: 1, parser: parseSwapParameters },
-  delta: { index: 2, parser: parseDelta },
-  sqrt_ratio_after: { index: 3, parser: parseU256 },
-  tick_after: { index: 4, parser: parseI129 },
+  locker: { index: 0, parser: parseFelt252 },
+  pool_key: { index: 1, parser: parsePoolKey },
+  params: { index: 2, parser: parseSwapParameters },
+  delta: { index: 3, parser: parseDelta },
+  sqrt_ratio_after: { index: 4, parser: parseU256 },
+  tick_after: { index: 5, parser: parseI129 },
 });
+
+export type SwappedEvent = GetParserType<typeof parseSwappedEvent>;
 
 export const parsePoolInitializedEvent = combineParsers({
   pool_key: { index: 0, parser: parsePoolKey },
@@ -160,27 +199,13 @@ export const parsePoolInitializedEvent = combineParsers({
   sqrt_ratio: { index: 2, parser: parseU256 },
 });
 
-export type TransferEvent = GetParserType<typeof parseTransferEvent>;
-
-export type SwappedEvent = GetParserType<typeof parseSwappedEvent>;
 export type PoolInitializationEvent = GetParserType<
   typeof parsePoolInitializedEvent
 >;
 
-export type PoolKey = GetParserType<typeof parsePoolKey>;
+export const parseFeesPaidEvent = combineParsers({
+  token: { index: 0, parser: parseFelt252 },
+  amount: { index: 1, parser: parseU128 },
+});
 
-export type Bounds = GetParserType<typeof parseBounds>;
-
-export type PositionMintedEvent = GetParserType<
-  typeof parsePositionMintedEvent
->;
-
-export type UpdatePositionParameters = GetParserType<
-  typeof parseUpdatePositionParams
->;
-
-export type Delta = GetParserType<typeof parseDelta>;
-
-export type PositionUpdatedEvent = GetParserType<
-  typeof parsePositionUpdatedEvent
->;
+export type FeesPaidEvent = GetParserType<typeof parseFeesPaidEvent>;

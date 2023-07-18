@@ -18,6 +18,8 @@ import {
   PositionUpdatedEvent,
   SwappedEvent,
   TransferEvent,
+  PositionFeesCollectedEvent,
+  parsePositionFeesCollectedEvent,
 } from "./parse";
 import { EventProcessor } from "./processor";
 import { logger } from "./logger";
@@ -86,6 +88,22 @@ const EVENT_PROCESSORS = [
     async handle({ parsed, key }): Promise<void> {
       logger.debug("PositionUpdated", { parsed, key });
       await dao.insertPositionUpdatedEvent(parsed, key);
+    },
+  },
+  <EventProcessor<PositionFeesCollectedEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
+      keys: [
+        // PositionFeesCollected
+        FieldElement.fromBigInt(
+          0x96982abd597114bdaa4a60612f87fabfcc7206aa12d61c50e7ba1e6c291100n
+        ),
+      ],
+    },
+    parser: parsePositionFeesCollectedEvent,
+    async handle({ parsed, key }): Promise<void> {
+      logger.debug("PositionFeesCollected", { parsed, key });
+      await dao.insertPositionFeesCollectedEvent(parsed, key);
     },
   },
   <EventProcessor<SwappedEvent>>{

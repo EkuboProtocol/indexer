@@ -2,6 +2,7 @@ import { Client } from "pg";
 import {
   PoolInitializationEvent,
   PoolKey,
+  PositionFeesCollectedEvent,
   PositionMintedEvent,
   PositionUpdatedEvent,
   SwappedEvent,
@@ -105,6 +106,8 @@ export class DAO {
         block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
         index INT8 NOT NULL,
     
+        locker NUMERIC NOT NULL,
+        
         pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys(key_hash),
     
         salt NUMERIC NOT NULL,
@@ -112,6 +115,24 @@ export class DAO {
         upper_bound NUMERIC NOT NULL,
         
         liquidity_delta NUMERIC NOT NULL,
+        delta0 NUMERIC NOT NULL,
+        delta1 NUMERIC NOT NULL,
+        
+        PRIMARY KEY (transaction_hash, block_number, index)
+      )`),
+
+      this.pg.query(`CREATE TABLE IF NOT EXISTS position_fees_collected(
+        transaction_hash NUMERIC NOT NULL,
+        block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
+        index INT8 NOT NULL,
+    
+        pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys(key_hash),
+        
+        owner NUMERIC NOT NULL,
+        salt NUMERIC NOT NULL,
+        lower_bound NUMERIC NOT NULL,
+        upper_bound NUMERIC NOT NULL,
+        
         delta0 NUMERIC NOT NULL,
         delta1 NUMERIC NOT NULL,
         
@@ -136,6 +157,7 @@ export class DAO {
           block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
           index INT8 NOT NULL,
           
+          locker NUMERIC NOT NULL,
           pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys(key_hash),
           
           delta0 NUMERIC NOT NULL,
@@ -273,13 +295,14 @@ export class DAO {
     const pool_key_hash = await this.insertKeyHash(event.pool_key);
 
     await this.pg.query({
-      name: "insert-position",
+      name: "insert-position-update",
       text: `
       INSERT INTO position_updates (
         transaction_hash,
         block_number,
         index,
 
+        locker,
         pool_key_hash,
 
         salt,
@@ -287,6 +310,51 @@ export class DAO {
         upper_bound,
 
         liquidity_delta,
+        delta0,
+        delta1
+      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+      `,
+      values: [
+        key.txHash,
+        key.blockNumber,
+        key.logIndex,
+
+        event.locker,
+
+        pool_key_hash,
+
+        event.params.salt,
+        event.params.bounds.lower,
+        event.params.bounds.upper,
+
+        event.params.liquidity_delta,
+        event.delta.amount0,
+        event.delta.amount1,
+      ],
+    });
+  }
+
+  public async insertPositionFeesCollectedEvent(
+    event: PositionFeesCollectedEvent,
+    key: EventKey
+  ) {
+    const pool_key_hash = await this.insertKeyHash(event.pool_key);
+
+    await this.pg.query({
+      name: "insert-position-fees-collected",
+      text: `
+      INSERT INTO position_fees_collected (
+        transaction_hash,
+        block_number,
+        index,
+
+        pool_key_hash,
+
+        owner,
+        salt,
+        lower_bound,
+        upper_bound,
+
         delta0,
         delta1
       ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
@@ -298,11 +366,11 @@ export class DAO {
 
         pool_key_hash,
 
-        event.params.salt,
-        event.params.bounds.lower,
-        event.params.bounds.upper,
+        event.position_key.owner,
+        event.position_key.salt,
+        event.position_key.bounds.lower,
+        event.position_key.bounds.upper,
 
-        event.params.liquidity_delta,
         event.delta.amount0,
         event.delta.amount1,
       ],
@@ -353,19 +421,21 @@ export class DAO {
         block_number,
         index,
 
+        locker,
         pool_key_hash,
 
         delta0,
         delta1,
         sqrt_ratio_after,
         tick_after
-      ) values ($1, $2, $3, $4, $5, $6, $7, $8);
+      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9);
       `,
       values: [
         key.txHash,
         key.blockNumber,
         key.logIndex,
 
+        event.locker,
         pool_key_hash,
 
         event.delta.amount0,
