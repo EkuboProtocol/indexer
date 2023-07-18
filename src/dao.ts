@@ -371,6 +371,7 @@ export class DAO {
         event.delta.amount0,
         event.delta.amount1,
         event.sqrt_ratio_after,
+        event.tick_after,
       ],
     });
   }
