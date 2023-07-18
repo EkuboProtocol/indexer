@@ -20,6 +20,10 @@ import {
   TransferEvent,
   PositionFeesCollectedEvent,
   parsePositionFeesCollectedEvent,
+  FeesWithdrawnEvent,
+  parseFeesWithdrawnEvent,
+  FeesPaidEvent,
+  parseFeesPaidEvent,
 } from "./parse";
 import { EventProcessor } from "./processor";
 import { logger } from "./logger";
@@ -136,6 +140,38 @@ const EVENT_PROCESSORS = [
     async handle({ parsed, key }): Promise<void> {
       logger.debug("PoolInitialized", { parsed, key });
       await dao.insertInitializationEvent(parsed, key);
+    },
+  },
+  <EventProcessor<FeesWithdrawnEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
+      keys: [
+        // pool initialized events
+        FieldElement.fromBigInt(
+          0x02c40516c55e451c62653e3176466cee959ae1775ff03c755649134c6725e81cn
+        ),
+      ],
+    },
+    parser: parseFeesWithdrawnEvent,
+    async handle({ parsed, key }): Promise<void> {
+      logger.debug("FeesWithdrawn", { parsed, key });
+      await dao.insertFeesWithdrawn(parsed, key);
+    },
+  },
+  <EventProcessor<FeesPaidEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
+      keys: [
+        // pool initialized events
+        FieldElement.fromBigInt(
+          0x9ea5f34ab266886deeb312652333d0e77e338de3ae1ed3d37d147a1a21fe7fn
+        ),
+      ],
+    },
+    parser: parseFeesPaidEvent,
+    async handle({ parsed, key }): Promise<void> {
+      logger.debug("FeesPaid", { parsed, key });
+      await dao.insertFeesPaid(parsed, key);
     },
   },
 ] as const;

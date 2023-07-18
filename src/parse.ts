@@ -168,6 +168,14 @@ export type PositionFeesCollectedEvent = GetParserType<
   typeof parsePositionFeesCollectedEvent
 >;
 
+export const parseFeesWithdrawnEvent = combineParsers({
+  recipient: { index: 0, parser: parseFelt252 },
+  token: { index: 1, parser: parseFelt252 },
+  amount: { index: 2, parser: parseU128 },
+});
+
+export type FeesWithdrawnEvent = GetParserType<typeof parseFeesWithdrawnEvent>;
+
 export const parseTransferEvent = combineParsers({
   from: { index: 0, parser: parseFelt252 },
   to: { index: 1, parser: parseFelt252 },

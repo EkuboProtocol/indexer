@@ -1,5 +1,7 @@
 import { Client } from "pg";
 import {
+  FeesPaidEvent,
+  FeesWithdrawnEvent,
   PoolInitializationEvent,
   PoolKey,
   PositionFeesCollectedEvent,
@@ -135,6 +137,29 @@ export class DAO {
         
         delta0 NUMERIC NOT NULL,
         delta1 NUMERIC NOT NULL,
+        
+        PRIMARY KEY (transaction_hash, block_number, index)
+      )`),
+
+      this.pg.query(`CREATE TABLE IF NOT EXISTS protocol_fees_withdrawn(
+        transaction_hash NUMERIC NOT NULL,
+        block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
+        index INT8 NOT NULL,
+
+        recipient NUMERIC NOT NULL,
+        token NUMERIC NOT NULL,
+        amount NUMERIC NOT NULL,
+        
+        PRIMARY KEY (transaction_hash, block_number, index)
+      )`),
+
+      this.pg.query(`CREATE TABLE IF NOT EXISTS protocol_fees_paid(
+        transaction_hash NUMERIC NOT NULL,
+        block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
+        index INT8 NOT NULL,
+
+        token NUMERIC NOT NULL,
+        amount NUMERIC NOT NULL,
         
         PRIMARY KEY (transaction_hash, block_number, index)
       )`),
@@ -406,6 +431,56 @@ export class DAO {
 
         event.tick,
         event.sqrt_ratio,
+      ],
+    });
+  }
+
+  public async insertFeesWithdrawn(event: FeesWithdrawnEvent, key: EventKey) {
+    await this.pg.query({
+      name: "insert-fees-withdrawn",
+      text: `
+      INSERT INTO protocol_fees_withdrawn (
+        transaction_hash,
+        block_number,
+        index,
+
+        recipient,
+        token,
+        amount
+      ) values ($1, $2, $3, $4, $5, $6);
+      `,
+      values: [
+        key.txHash,
+        key.blockNumber,
+        key.logIndex,
+
+        event.recipient,
+        event.token,
+        event.amount,
+      ],
+    });
+  }
+
+  public async insertFeesPaid(event: FeesPaidEvent, key: EventKey) {
+    await this.pg.query({
+      name: "insert-fees-paid",
+      text: `
+      INSERT INTO protocol_fees_paid (
+        transaction_hash,
+        block_number,
+        index,
+
+        token,
+        amount
+      ) values ($1, $2, $3, $4, $5);
+      `,
+      values: [
+        key.txHash,
+        key.blockNumber,
+        key.logIndex,
+
+        event.token,
+        event.amount,
       ],
     });
   }
