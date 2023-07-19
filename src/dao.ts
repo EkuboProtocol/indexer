@@ -158,8 +158,15 @@ export class DAO {
         block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
         index INT8 NOT NULL,
 
-        token NUMERIC NOT NULL,
-        amount NUMERIC NOT NULL,
+        pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys(key_hash),
+
+        owner NUMERIC NOT NULL,
+        salt NUMERIC NOT NULL,
+        lower_bound NUMERIC NOT NULL,
+        upper_bound NUMERIC NOT NULL,
+
+        delta0 NUMERIC NOT NULL,
+        delta1 NUMERIC NOT NULL,
         
         PRIMARY KEY (transaction_hash, block_number, index)
       )`),
@@ -190,6 +197,7 @@ export class DAO {
 
           sqrt_ratio_after NUMERIC NOT NULL,
           tick_after INT8 NOT NULL,
+          liquidity_after NUMERIC NOT NULL,
           
           PRIMARY KEY (transaction_hash, block_number, index)
         );`),
@@ -462,6 +470,8 @@ export class DAO {
   }
 
   public async insertFeesPaid(event: FeesPaidEvent, key: EventKey) {
+    const pool_key_hash = await this.insertKeyHash(event.pool_key);
+
     await this.pg.query({
       name: "insert-fees-paid",
       text: `
@@ -470,17 +480,31 @@ export class DAO {
         block_number,
         index,
 
-        token,
-        amount
-      ) values ($1, $2, $3, $4, $5);
+        pool_key_hash,
+
+        owner,
+        salt,
+        lower_bound,
+        upper_bound,                                      
+
+        delta0,
+        delta1
+      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
       `,
       values: [
         key.txHash,
         key.blockNumber,
         key.logIndex,
 
-        event.token,
-        event.amount,
+        pool_key_hash,
+
+        event.position_key.owner,
+        event.position_key.salt,
+        event.position_key.bounds.lower,
+        event.position_key.bounds.upper,
+
+        event.delta.amount0,
+        event.delta.amount1,
       ],
     });
   }

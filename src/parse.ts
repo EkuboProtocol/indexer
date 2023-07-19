@@ -197,6 +197,7 @@ export const parseSwappedEvent = combineParsers({
   delta: { index: 3, parser: parseDelta },
   sqrt_ratio_after: { index: 4, parser: parseU256 },
   tick_after: { index: 5, parser: parseI129 },
+  liquidity_after: { index: 6, parser: parseU128 },
 });
 
 export type SwappedEvent = GetParserType<typeof parseSwappedEvent>;
@@ -212,8 +213,9 @@ export type PoolInitializationEvent = GetParserType<
 >;
 
 export const parseFeesPaidEvent = combineParsers({
-  token: { index: 0, parser: parseFelt252 },
-  amount: { index: 1, parser: parseU128 },
+  pool_key: { index: 0, parser: parsePoolKey },
+  position_key: { index: 1, parser: parsePositionKey },
+  delta: { index: 2, parser: parseDelta },
 });
 
 export type FeesPaidEvent = GetParserType<typeof parseFeesPaidEvent>;
