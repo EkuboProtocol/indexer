@@ -526,8 +526,9 @@ export class DAO {
         delta0,
         delta1,
         sqrt_ratio_after,
-        tick_after
-      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+        tick_after,
+        liquidity_after
+      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
       `,
       values: [
         key.txHash,
@@ -541,6 +542,7 @@ export class DAO {
         event.delta.amount1,
         event.sqrt_ratio_after,
         event.tick_after,
+        event.liquidity_after,
       ],
     });
   }
