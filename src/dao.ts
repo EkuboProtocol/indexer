@@ -180,6 +180,7 @@ export class DAO {
 
           tick INT8 NOT NULL,
           sqrt_ratio NUMERIC NOT NULL,
+          call_points SMALLINT NOT NULL,
           
           PRIMARY KEY (transaction_hash, block_number, index)
         );`),
@@ -427,8 +428,9 @@ export class DAO {
         pool_key_hash,
 
         tick,
-        sqrt_ratio
-      ) values ($1, $2, $3, $4, $5, $6);
+        sqrt_ratio,
+        call_points
+      ) values ($1, $2, $3, $4, $5, $6, $7);
       `,
       values: [
         key.txHash,
@@ -439,6 +441,7 @@ export class DAO {
 
         event.tick,
         event.sqrt_ratio,
+        event.call_points,
       ],
     });
   }

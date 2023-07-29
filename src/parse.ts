@@ -72,6 +72,13 @@ export function combineParsers<
     };
 }
 
+export const parseU8: Parser<number> = (data, startingFrom) => {
+  return {
+    value: Number(FieldElement.toBigInt(data[startingFrom])),
+    next: startingFrom + 1,
+  };
+};
+
 export const parseFelt252: Parser<bigint> = (data, startingFrom) => {
   return {
     value: FieldElement.toBigInt(data[startingFrom]),
@@ -206,6 +213,7 @@ export const parsePoolInitializedEvent = combineParsers({
   pool_key: { index: 0, parser: parsePoolKey },
   tick: { index: 1, parser: parseI129 },
   sqrt_ratio: { index: 2, parser: parseU256 },
+  call_points: { index: 3, parser: parseU8 },
 });
 
 export type PoolInitializationEvent = GetParserType<
