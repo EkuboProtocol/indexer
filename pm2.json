@@ -1,0 +1,20 @@
+{
+  "apps": [
+    {
+      "name": "indexer-goerli",
+      "script": "dist/index.js",
+      "cwd": ".",
+      "env": {
+        "NETWORK": "goerli"
+      }
+    },
+    {
+      "name": "indexer-mainnet",
+      "script": "dist/index.js",
+      "cwd": ".",
+      "env": {
+        "NETWORK": "mainnet"
+      }
+    }
+  ]
+}
