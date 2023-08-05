@@ -1,17 +1,17 @@
 import { Client } from "pg";
+import { pedersen_from_hex } from "pedersen-fast";
+import { EventKey } from "./processor";
 import {
   FeesPaidEvent,
   FeesWithdrawnEvent,
   PoolInitializationEvent,
   PoolKey,
   PositionFeesCollectedEvent,
-  PositionMintedEvent,
   PositionUpdatedEvent,
   SwappedEvent,
-  TransferEvent,
-} from "./parse";
-import { pedersen_from_hex } from "pedersen-fast";
-import { EventKey } from "./processor";
+} from "./events/core";
+import { PositionMintedEvent } from "./events/positions";
+import { TransferEvent } from "./events/nft";
 
 function toHex(x: bigint): string {
   return `0x${x.toString(16)}`;
@@ -210,7 +210,6 @@ export class DAO {
     uniqueKey: string;
   } | null> {
     const { rows } = await this.pg.query({
-      name: "load-cursor",
       text: `
           SELECT order_key, unique_key FROM cursor WHERE id = 1;
         `,
@@ -229,7 +228,6 @@ export class DAO {
 
   public async writeCursor(cursor: { orderKey: string; uniqueKey: string }) {
     await this.pg.query({
-      name: "write-cursor",
       text: `
           INSERT INTO cursor (id, order_key, unique_key)
           VALUES (1, $1, $2)
@@ -243,7 +241,6 @@ export class DAO {
     const key_hash = computeKeyHash(pool_key);
 
     await this.pg.query({
-      name: "insert-key-hash",
       text: `
         insert into pool_keys (
           key_hash,
@@ -273,7 +270,6 @@ export class DAO {
     const pool_key_hash = await this.insertKeyHash(token.pool_key);
 
     await this.pg.query({
-      name: "insert-token",
       text: `
       insert into position_minted (
         token_id,
@@ -284,7 +280,7 @@ export class DAO {
       ) values ($1, $2, $3, $4, $5); 
       `,
       values: [
-        token.token_id,
+        token.id,
         token.bounds.lower,
         token.bounds.upper,
         pool_key_hash,
@@ -299,7 +295,6 @@ export class DAO {
   ) {
     // The `*` operator is the PostgreSQL range intersection operator.
     await this.pg.query({
-      name: "insert-position-transfer",
       text: `
       INSERT INTO position_transfers (
         transaction_hash,
@@ -315,7 +310,7 @@ export class DAO {
         key.txHash,
         key.blockNumber,
         key.logIndex,
-        transfer.token_id,
+        transfer.id,
         transfer.from,
         transfer.to,
       ],
@@ -329,7 +324,6 @@ export class DAO {
     const pool_key_hash = await this.insertKeyHash(event.pool_key);
 
     await this.pg.query({
-      name: "insert-position-update",
       text: `
       INSERT INTO position_updates (
         transaction_hash,
@@ -375,7 +369,6 @@ export class DAO {
     const pool_key_hash = await this.insertKeyHash(event.pool_key);
 
     await this.pg.query({
-      name: "insert-position-fees-collected",
       text: `
       INSERT INTO position_fees_collected (
         transaction_hash,
@@ -418,7 +411,6 @@ export class DAO {
     const pool_key_hash = await this.insertKeyHash(event.pool_key);
 
     await this.pg.query({
-      name: "insert-initialization",
       text: `
       INSERT INTO initializations (
         transaction_hash,
@@ -446,9 +438,11 @@ export class DAO {
     });
   }
 
-  public async insertFeesWithdrawn(event: FeesWithdrawnEvent, key: EventKey) {
+  public async insertProtocolFeesWithdrawn(
+    event: FeesWithdrawnEvent,
+    key: EventKey
+  ) {
     await this.pg.query({
-      name: "insert-fees-withdrawn",
       text: `
       INSERT INTO protocol_fees_withdrawn (
         transaction_hash,
@@ -472,11 +466,10 @@ export class DAO {
     });
   }
 
-  public async insertFeesPaid(event: FeesPaidEvent, key: EventKey) {
+  public async insertProtocolFeesPaid(event: FeesPaidEvent, key: EventKey) {
     const pool_key_hash = await this.insertKeyHash(event.pool_key);
 
     await this.pg.query({
-      name: "insert-fees-paid",
       text: `
       INSERT INTO protocol_fees_paid (
         transaction_hash,
@@ -516,7 +509,6 @@ export class DAO {
     const pool_key_hash = await this.insertKeyHash(event.pool_key);
 
     await this.pg.query({
-      name: "insert-swapped",
       text: `
       INSERT INTO swaps (
         transaction_hash,
@@ -560,7 +552,6 @@ export class DAO {
     timestamp: bigint;
   }) {
     await this.pg.query({
-      name: `insert-block`,
       text: `
         INSERT INTO blocks (number, hash, timestamp)
         VALUES ($1, $2, to_timestamp($3));
@@ -573,7 +564,6 @@ export class DAO {
     invalidatedBlockNumber: bigint
   ): Promise<void> {
     await this.pg.query({
-      name: `delete-old-blocks`,
       text: `
         DELETE FROM blocks
         WHERE number >= $1;

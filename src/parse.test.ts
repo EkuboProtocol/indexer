@@ -1,5 +1,5 @@
-import { parsePoolKey, PoolKey } from "./parse";
 import { FieldElement } from "@apibara/starknet";
+import { parsePoolKey, PoolKey } from "./events/core";
 
 describe("parse", () => {
   describe("parsePoolKey", () => {

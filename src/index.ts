@@ -6,42 +6,33 @@ import {
   v1alpha2 as starknet,
 } from "@apibara/starknet";
 import { Cursor, StreamClient, v1alpha2 } from "@apibara/protocol";
-import {
-  parsePoolInitializedEvent,
-  parseLong,
-  parsePositionMintedEvent,
-  parsePositionUpdatedEvent,
-  parseSwappedEvent,
-  parseTransferEvent,
-  PoolInitializationEvent,
-  PositionMintedEvent,
-  PositionUpdatedEvent,
-  SwappedEvent,
-  TransferEvent,
-  PositionFeesCollectedEvent,
-  parsePositionFeesCollectedEvent,
-  FeesWithdrawnEvent,
-  parseFeesWithdrawnEvent,
-  FeesPaidEvent,
-  parseFeesPaidEvent,
-} from "./parse";
 import { EventProcessor } from "./processor";
 import { logger } from "./logger";
 import { DAO } from "./dao";
 import { Client } from "pg";
+import {
+  FeesPaidEvent,
+  FeesWithdrawnEvent,
+  parseFeesPaidEvent,
+  parsePoolInitializedEvent,
+  parsePositionFeesCollectedEvent,
+  parsePositionUpdatedEvent,
+  parseProtocolFeesWithdrawnEvent,
+  parseSwappedEvent,
+  PoolInitializationEvent,
+  PositionFeesCollectedEvent,
+  PositionUpdatedEvent,
+  SwappedEvent,
+} from "./events/core";
+import {
+  parsePositionMintedEvent,
+  PositionMintedEvent,
+} from "./events/positions";
+import { parseTransferEvent, TransferEvent } from "./events/nft";
 
 const dao = new DAO(
   new Client({
-    user: process.env.PGUSER,
-    password: process.env.PGPASSWORD,
-    host: process.env.PGHOST,
-    port: Number(process.env.PGPORT),
-    database: process.env.PGDATABASE,
-    ssl: process.env.PGCERT
-      ? {
-          ca: process.env.PGCERT,
-        }
-      : false,
+    connectionString: process.env.PG_CONNECTION_STRING,
   })
 );
 
@@ -66,6 +57,7 @@ const EVENT_PROCESSORS = [
     filter: {
       fromAddress: FieldElement.fromBigInt(process.env.NFT_ADDRESS),
       keys: [
+        // Transfer
         FieldElement.fromBigInt(
           0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9n
         ),
@@ -113,7 +105,7 @@ const EVENT_PROCESSORS = [
     filter: {
       fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
       keys: [
-        // swap events
+        // Swapped
         FieldElement.fromBigInt(
           0x157717768aca88da4ac4279765f09f4d0151823d573537fbbeb950cdbd9a870n
         ),
@@ -129,7 +121,7 @@ const EVENT_PROCESSORS = [
     filter: {
       fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
       keys: [
-        // pool initialized events
+        // PoolInitialized
         FieldElement.fromBigInt(
           0x025ccf80ee62b2ca9b97c76ccea317c7f450fd6efb6ed6ea56da21d7bb9da5f1n
         ),
@@ -145,32 +137,32 @@ const EVENT_PROCESSORS = [
     filter: {
       fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
       keys: [
-        // pool initialized events
+        // ProtocolFeesWithdrawn
         FieldElement.fromBigInt(
-          0x02c40516c55e451c62653e3176466cee959ae1775ff03c755649134c6725e81cn
+          0x291697c8230383d5c3cc8dc39443356a7da6b0735605fb0ee0f7bfbb7b824an
         ),
       ],
     },
-    parser: parseFeesWithdrawnEvent,
+    parser: parseProtocolFeesWithdrawnEvent,
     async handle({ parsed, key }): Promise<void> {
-      logger.debug("FeesWithdrawn", { parsed, key });
-      await dao.insertFeesWithdrawn(parsed, key);
+      logger.debug("ProtocolFeesWithdrawn", { parsed, key });
+      await dao.insertProtocolFeesWithdrawn(parsed, key);
     },
   },
   <EventProcessor<FeesPaidEvent>>{
     filter: {
       fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
       keys: [
-        // pool initialized events
+        // ProtocolFeesPaid
         FieldElement.fromBigInt(
-          0x9ea5f34ab266886deeb312652333d0e77e338de3ae1ed3d37d147a1a21fe7fn
+          0x5dacf59794364ad1555bb3c9b2346afa81e57e5c19bb6bae0d22721c96c4e5n
         ),
       ],
     },
     parser: parseFeesPaidEvent,
     async handle({ parsed, key }): Promise<void> {
-      logger.debug("FeesPaid", { parsed, key });
-      await dao.insertFeesPaid(parsed, key);
+      logger.debug("ProtocolFeesPaid", { parsed, key });
+      await dao.insertProtocolFeesPaid(parsed, key);
     },
   },
 ] as const;
@@ -179,6 +171,10 @@ const client = new StreamClient({
   url: process.env.APIBARA_URL,
   token: process.env.APIBARA_AUTH_TOKEN,
 });
+
+export function parseLong(long: number | Long): bigint {
+  return BigInt(typeof long === "number" ? long : long.toNumber());
+}
 
 (async function () {
   // first set up the schema
