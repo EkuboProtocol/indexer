@@ -64,9 +64,8 @@ const EVENT_PROCESSORS = [
   },
   <EventProcessor<TransferEvent>>{
     filter: {
-      fromAddress: FieldElement.fromBigInt(process.env.POSITIONS_ADDRESS),
+      fromAddress: FieldElement.fromBigInt(process.env.NFT_ADDRESS),
       keys: [
-        // Transfer to address 0, i.e. a burn
         FieldElement.fromBigInt(
           0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9n
         ),
@@ -74,7 +73,7 @@ const EVENT_PROCESSORS = [
     },
     parser: parseTransferEvent,
     async handle({ parsed, key }): Promise<void> {
-      logger.debug("Position transferred", { parsed, key });
+      logger.debug("NFT transferred", { parsed, key });
       await dao.insertPositionTransferEvent(parsed, key);
     },
   },
