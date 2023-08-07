@@ -82,9 +82,9 @@ export class DAO {
       )`),
 
       this.pg.query(`CREATE TABLE IF NOT EXISTS position_minted(
-        token_id NUMERIC NOT NULL PRIMARY KEY,
-        lower_bound NUMERIC NOT NULL,
-        upper_bound NUMERIC NOT NULL,
+        token_id INT8 NOT NULL PRIMARY KEY,
+        lower_bound INT4 NOT NULL,
+        upper_bound INT4 NOT NULL,
         
         pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys(key_hash),
         
@@ -94,9 +94,9 @@ export class DAO {
       this.pg.query(`CREATE TABLE IF NOT EXISTS position_transfers(
         transaction_hash NUMERIC NOT NULL,
         block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
-        index INT8 NOT NULL,
+        index INT4 NOT NULL,
         
-        token_id NUMERIC NOT NULL,
+        token_id INT8 NOT NULL,
         from_address NUMERIC NOT NULL,
         to_address NUMERIC NOT NULL,
         
@@ -106,15 +106,15 @@ export class DAO {
       this.pg.query(`CREATE TABLE IF NOT EXISTS position_updates(
         transaction_hash NUMERIC NOT NULL,
         block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
-        index INT8 NOT NULL,
+        index INT4 NOT NULL,
     
         locker NUMERIC NOT NULL,
         
         pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys(key_hash),
     
         salt NUMERIC NOT NULL,
-        lower_bound NUMERIC NOT NULL,
-        upper_bound NUMERIC NOT NULL,
+        lower_bound INT4 NOT NULL,
+        upper_bound INT4 NOT NULL,
         
         liquidity_delta NUMERIC NOT NULL,
         delta0 NUMERIC NOT NULL,
@@ -126,14 +126,14 @@ export class DAO {
       this.pg.query(`CREATE TABLE IF NOT EXISTS position_fees_collected(
         transaction_hash NUMERIC NOT NULL,
         block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
-        index INT8 NOT NULL,
+        index INT4 NOT NULL,
     
         pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys(key_hash),
         
         owner NUMERIC NOT NULL,
         salt NUMERIC NOT NULL,
-        lower_bound NUMERIC NOT NULL,
-        upper_bound NUMERIC NOT NULL,
+        lower_bound INT4 NOT NULL,
+        upper_bound INT4 NOT NULL,
         
         delta0 NUMERIC NOT NULL,
         delta1 NUMERIC NOT NULL,
@@ -144,7 +144,7 @@ export class DAO {
       this.pg.query(`CREATE TABLE IF NOT EXISTS protocol_fees_withdrawn(
         transaction_hash NUMERIC NOT NULL,
         block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
-        index INT8 NOT NULL,
+        index INT4 NOT NULL,
 
         recipient NUMERIC NOT NULL,
         token NUMERIC NOT NULL,
@@ -156,14 +156,14 @@ export class DAO {
       this.pg.query(`CREATE TABLE IF NOT EXISTS protocol_fees_paid(
         transaction_hash NUMERIC NOT NULL,
         block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
-        index INT8 NOT NULL,
+        index INT4 NOT NULL,
 
         pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys(key_hash),
 
         owner NUMERIC NOT NULL,
         salt NUMERIC NOT NULL,
-        lower_bound NUMERIC NOT NULL,
-        upper_bound NUMERIC NOT NULL,
+        lower_bound INT4 NOT NULL,
+        upper_bound INT4 NOT NULL,
 
         delta0 NUMERIC NOT NULL,
         delta1 NUMERIC NOT NULL,
@@ -174,11 +174,11 @@ export class DAO {
       this.pg.query(`CREATE TABLE IF NOT EXISTS initializations(
           transaction_hash NUMERIC NOT NULL,
           block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
-          index INT8 NOT NULL,
+          index INT4 NOT NULL,
           
           pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys(key_hash),
 
-          tick INT8 NOT NULL,
+          tick INT4 NOT NULL,
           sqrt_ratio NUMERIC NOT NULL,
           call_points SMALLINT NOT NULL,
           
@@ -188,7 +188,7 @@ export class DAO {
       this.pg.query(`CREATE TABLE IF NOT EXISTS swaps(
           transaction_hash NUMERIC NOT NULL,
           block_number INT8 NOT NULL REFERENCES blocks(number) ON DELETE CASCADE,
-          index INT8 NOT NULL,
+          index INT4 NOT NULL,
           
           locker NUMERIC NOT NULL,
           pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys(key_hash),
@@ -197,7 +197,7 @@ export class DAO {
           delta1 NUMERIC NOT NULL,
 
           sqrt_ratio_after NUMERIC NOT NULL,
-          tick_after INT8 NOT NULL,
+          tick_after INT4 NOT NULL,
           liquidity_after NUMERIC NOT NULL,
           
           PRIMARY KEY (transaction_hash, block_number, index)
