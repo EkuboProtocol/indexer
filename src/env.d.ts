@@ -10,11 +10,6 @@ declare namespace NodeJS {
 
     APIBARA_AUTH_TOKEN: string;
 
-    PGHOST: string;
-    PGPORT: string;
-    PGCERT: string;
-    PGUSER: string;
-    PGPASSWORD: string;
-    PGDATABASE: string;
+    PG_CONNECTION_STRING: string;
   }
 }
