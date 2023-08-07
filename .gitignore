@@ -1,3 +1,5 @@
+.env.goerli.local
+.env.mainnet.local
 .env.local
 *.cursor.json
 dist/
