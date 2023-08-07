@@ -221,7 +221,7 @@ export function parseLong(long: number | Long): bigint {
 
             const events = decoded.events;
 
-            await dao.start();
+            await dao.beginTransaction();
 
             await dao.invalidateBlockNumber(blockNumber);
 
@@ -265,7 +265,7 @@ export function parseLong(long: number | Long): bigint {
             }
 
             await dao.writeCursor(Cursor.toObject(message.data.cursor));
-            await dao.commit();
+            await dao.commitTransaction();
 
             logger.info(`Processed block`, { blockNumber });
           }
@@ -283,10 +283,10 @@ export function parseLong(long: number | Long): bigint {
           cursor: invalidatedCursor,
         });
 
-        await dao.start();
+        await dao.beginTransaction();
         await dao.invalidateBlockNumber(BigInt(invalidatedCursor.orderKey));
         await dao.writeCursor(Cursor.toObject(message.invalidate.cursor));
-        await dao.commit();
+        await dao.commitTransaction();
         break;
 
       case "unknown":
