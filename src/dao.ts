@@ -1,4 +1,4 @@
-import { Client } from "pg";
+import { Client, PoolClient } from "pg";
 import { pedersen_from_hex } from "pedersen-fast";
 import { EventKey } from "./processor";
 import {
@@ -31,9 +31,9 @@ function computeKeyHash(pool_key: PositionMintedEvent["pool_key"]): bigint {
 
 // Data access object that manages inserts/deletes
 export class DAO {
-  private pg: Client;
+  private pg: Client | PoolClient;
 
-  constructor(pg: Client) {
+  constructor(pg: Client | PoolClient) {
     this.pg = pg;
   }
 
@@ -45,8 +45,7 @@ export class DAO {
     await this.pg.query("COMMIT");
   }
 
-  public async connectAndInit() {
-    await this.pg.connect();
+  public async initializeSchema() {
     await this.beginTransaction();
     await this.initSchema();
     const cursor = await this.loadCursor();
@@ -613,9 +612,5 @@ export class DAO {
 
   public async invalidateBlockNumber(invalidatedBlockNumber: bigint) {
     await this.deleteOldBlockNumbers(invalidatedBlockNumber);
-  }
-
-  public async close() {
-    await this.pg.end();
   }
 }

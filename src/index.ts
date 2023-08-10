@@ -9,7 +9,6 @@ import { Cursor, StreamClient, v1alpha2 } from "@apibara/protocol";
 import { EventProcessor } from "./processor";
 import { logger } from "./logger";
 import { DAO } from "./dao";
-import { Client } from "pg";
 import {
   FeesPaidEvent,
   FeesWithdrawnEvent,
@@ -29,12 +28,12 @@ import {
   PositionMintedEvent,
 } from "./events/positions";
 import { parseTransferEvent, TransferEvent } from "./events/nft";
+import { Pool } from "pg";
 
-const dao = new DAO(
-  new Client({
-    connectionString: process.env.PG_CONNECTION_STRING,
-  })
-);
+const pool = new Pool({
+  connectionString: process.env.PG_CONNECTION_STRING,
+  idleTimeoutMillis: 1_000,
+});
 
 const EVENT_PROCESSORS = [
   <EventProcessor<PositionMintedEvent>>{
@@ -48,7 +47,7 @@ const EVENT_PROCESSORS = [
       ],
     },
     parser: parsePositionMintedEvent,
-    handle: async ({ key, parsed }) => {
+    handle: async (dao, { key, parsed }) => {
       logger.debug("PositionMinted", { parsed, key });
       await dao.insertPositionMinted(parsed, key.blockNumber);
     },
@@ -64,7 +63,7 @@ const EVENT_PROCESSORS = [
       ],
     },
     parser: parseTransferEvent,
-    async handle({ parsed, key }): Promise<void> {
+    async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("NFT transferred", { parsed, key });
       await dao.insertPositionTransferEvent(parsed, key);
     },
@@ -80,7 +79,7 @@ const EVENT_PROCESSORS = [
       ],
     },
     parser: parsePositionUpdatedEvent,
-    async handle({ parsed, key }): Promise<void> {
+    async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("PositionUpdated", { parsed, key });
       await dao.insertPositionUpdatedEvent(parsed, key);
     },
@@ -96,7 +95,7 @@ const EVENT_PROCESSORS = [
       ],
     },
     parser: parsePositionFeesCollectedEvent,
-    async handle({ parsed, key }): Promise<void> {
+    async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("PositionFeesCollected", { parsed, key });
       await dao.insertPositionFeesCollectedEvent(parsed, key);
     },
@@ -112,7 +111,7 @@ const EVENT_PROCESSORS = [
       ],
     },
     parser: parseSwappedEvent,
-    async handle({ parsed, key }): Promise<void> {
+    async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("Swapped", { parsed, key });
       await dao.insertSwappedEvent(parsed, key);
     },
@@ -128,7 +127,7 @@ const EVENT_PROCESSORS = [
       ],
     },
     parser: parsePoolInitializedEvent,
-    async handle({ parsed, key }): Promise<void> {
+    async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("PoolInitialized", { parsed, key });
       await dao.insertInitializationEvent(parsed, key);
     },
@@ -144,7 +143,7 @@ const EVENT_PROCESSORS = [
       ],
     },
     parser: parseProtocolFeesWithdrawnEvent,
-    async handle({ parsed, key }): Promise<void> {
+    async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("ProtocolFeesWithdrawn", { parsed, key });
       await dao.insertProtocolFeesWithdrawn(parsed, key);
     },
@@ -160,7 +159,7 @@ const EVENT_PROCESSORS = [
       ],
     },
     parser: parseFeesPaidEvent,
-    async handle({ parsed, key }): Promise<void> {
+    async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("ProtocolFeesPaid", { parsed, key });
       await dao.insertProtocolFeesPaid(parsed, key);
     },
@@ -178,7 +177,12 @@ export function parseLong(long: number | Long): bigint {
 
 (async function () {
   // first set up the schema
-  const databaseStartingCursor = await dao.connectAndInit();
+  let databaseStartingCursor;
+  {
+    const client = await pool.connect();
+    databaseStartingCursor = await new DAO(client).initializeSchema();
+    await client.release();
+  }
 
   logger.info(`Initialized`, {
     startingCursor: databaseStartingCursor,
@@ -209,11 +213,14 @@ export function parseLong(long: number | Long): bigint {
       : "unknown";
 
     switch (messageType) {
-      case "data":
+      case "data": {
         if (!message.data.data) {
           logger.error(`Data message is empty`);
           break;
         } else {
+          const client = await pool.connect();
+          const dao = new DAO(client);
+
           for (const item of message.data.data) {
             const decoded = starknet.Block.decode(item);
 
@@ -251,7 +258,7 @@ export function parseLong(long: number | Long): bigint {
                   ) {
                     const parsed = parser(event.data, 0).value;
 
-                    await handle({
+                    await handle(dao, {
                       parsed: parsed as any,
                       key: {
                         blockNumber,
@@ -269,29 +276,41 @@ export function parseLong(long: number | Long): bigint {
 
             logger.info(`Processed block`, { blockNumber });
           }
-        }
-        break;
 
-      case "heartbeat":
+          client.release();
+        }
+
+        break;
+      }
+
+      case "heartbeat": {
         logger.debug(`Heartbeat`);
         break;
+      }
 
-      case "invalidate":
+      case "invalidate": {
         let invalidatedCursor = Cursor.toObject(message.invalidate.cursor);
 
         logger.warn(`Invalidated cursor`, {
           cursor: invalidatedCursor,
         });
 
+        const client = await pool.connect();
+        const dao = new DAO(client);
+
         await dao.beginTransaction();
         await dao.invalidateBlockNumber(BigInt(invalidatedCursor.orderKey));
         await dao.writeCursor(Cursor.toObject(message.invalidate.cursor));
         await dao.commitTransaction();
-        break;
 
-      case "unknown":
+        client.release();
+        break;
+      }
+
+      case "unknown": {
         logger.error(`Unknown message type`);
         break;
+      }
     }
   }
 })()
@@ -302,6 +321,6 @@ export function parseLong(long: number | Long): bigint {
     logger.error(error);
   })
   .finally(async () => {
-    await dao.close();
+    await pool.end();
     process.exit(1);
   });
