@@ -181,7 +181,7 @@ export function parseLong(long: number | Long): bigint {
   {
     const client = await pool.connect();
     databaseStartingCursor = await new DAO(client).initializeSchema();
-    await client.release();
+    client.release();
   }
 
   logger.info(`Initialized`, {
