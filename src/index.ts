@@ -231,9 +231,12 @@ export function parseLong(long: number | Long): bigint {
 
             await dao.invalidateBlockNumber(blockNumber);
 
+            const blockTimestampSeconds = parseLong(
+              decoded.header.timestamp.seconds
+            );
             await dao.insertBlock({
               hash: FieldElement.toBigInt(decoded.header.blockHash),
-              timestamp: parseLong(decoded.header.timestamp.seconds),
+              timestamp: blockTimestampSeconds,
               number: parseLong(decoded.header.blockNumber),
             });
 
@@ -280,7 +283,16 @@ export function parseLong(long: number | Long): bigint {
             await dao.writeCursor(Cursor.toObject(message.data.cursor));
             await dao.commitTransaction();
 
-            logger.info(`Processed block`, { blockNumber });
+            const blockTimestampDate = new Date(
+              Number(blockTimestampSeconds * 1000n)
+            );
+            logger.info(`Processed block`, {
+              blockNumber,
+              blockTimestamp: blockTimestampDate,
+              lagMilliseconds: Math.floor(
+                Date.now() - Number(blockTimestampSeconds * 1000n)
+              ),
+            });
           }
 
           client.release();
