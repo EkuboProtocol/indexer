@@ -4,8 +4,9 @@ import { DAO } from "./dao";
 
 export interface EventKey {
   blockNumber: bigint;
-  txHash: bigint;
-  logIndex: bigint;
+  transactionHash: bigint;
+  transactionIndex: number;
+  eventIndex: bigint;
 }
 
 export interface EventProcessor<T> {

@@ -6,7 +6,7 @@ import {
   v1alpha2 as starknet,
 } from "@apibara/starknet";
 import { Cursor, StreamClient, v1alpha2 } from "@apibara/protocol";
-import { EventProcessor } from "./processor";
+import { EventKey, EventProcessor } from "./processor";
 import { logger } from "./logger";
 import { DAO } from "./dao";
 import {
@@ -32,7 +32,6 @@ import { Pool } from "pg";
 
 const pool = new Pool({
   connectionString: process.env.PG_CONNECTION_STRING,
-  idleTimeoutMillis: 1_000,
 });
 
 const EVENT_PROCESSORS = [
@@ -49,7 +48,7 @@ const EVENT_PROCESSORS = [
     parser: parsePositionMintedEvent,
     handle: async (dao, { key, parsed }) => {
       logger.debug("PositionMinted", { parsed, key });
-      await dao.insertPositionMinted(parsed, key.blockNumber);
+      await dao.insertPositionMinted(parsed, key);
     },
   },
   <EventProcessor<TransferEvent>>{
@@ -238,8 +237,19 @@ export function parseLong(long: number | Long): bigint {
               number: parseLong(decoded.header.blockNumber),
             });
 
-            for (const { event, transaction } of events) {
-              const txHash = FieldElement.toBigInt(transaction.meta.hash);
+            for (
+              let transactionIndex = 0;
+              transactionIndex < events.length;
+              transactionIndex++
+            ) {
+              const { event, transaction } = events[transactionIndex];
+
+              const eventKey: EventKey = {
+                blockNumber,
+                transactionHash: FieldElement.toBigInt(transaction.meta.hash),
+                eventIndex: parseLong(event.index),
+                transactionIndex: transactionIndex,
+              };
 
               // process each event sequentially through all the event processors in parallel
               // assumption is that none of the event processors operate on the same events, i.e. have the same filters
@@ -260,11 +270,7 @@ export function parseLong(long: number | Long): bigint {
 
                     await handle(dao, {
                       parsed: parsed as any,
-                      key: {
-                        blockNumber,
-                        txHash,
-                        logIndex: parseLong(event.index),
-                      },
+                      key: eventKey,
                     });
                   }
                 })

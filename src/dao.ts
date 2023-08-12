@@ -97,40 +97,53 @@ export class DAO {
       this.pg.query(`
           CREATE TABLE IF NOT EXISTS position_minted
           (
-              token_id      INT8    NOT NULL PRIMARY KEY,
+              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+              transaction_index INT4    NOT NULL,
+              event_index       INT4    NOT NULL,
+
+              transaction_hash  NUMERIC NOT NULL,
+              
+              token_id      INT8    NOT NULL,
               lower_bound   INT4    NOT NULL,
               upper_bound   INT4    NOT NULL,
 
               pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-              block_number  INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE
+              PRIMARY KEY (block_number, transaction_index, event_index)
           );
-          CREATE INDEX IF NOT EXISTS idx_position_minted_pool_key_hash ON position_minted USING btree (pool_key_hash);
+          CREATE INDEX IF NOT EXISTS idx_position_minted_pool_key_hash ON position_minted (pool_key_hash);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_token_id ON position_minted (token_id);
       `),
 
       this.pg.query(`
           CREATE TABLE IF NOT EXISTS position_transfers
           (
-              transaction_hash NUMERIC NOT NULL,
-              block_number     INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              index            INT4    NOT NULL,
+              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+              transaction_index INT4    NOT NULL,
+              event_index       INT4    NOT NULL,
+
+              transaction_hash  NUMERIC NOT NULL,
 
               token_id         INT8    NOT NULL,
               from_address     NUMERIC NOT NULL,
               to_address       NUMERIC NOT NULL,
 
-              PRIMARY KEY (transaction_hash, block_number, index)
+              PRIMARY KEY (block_number, transaction_index, event_index)
           );
 
-          CREATE INDEX IF NOT EXISTS idx_position_transfers_token_id ON position_transfers USING btree (token_id);
+          CREATE INDEX IF NOT EXISTS idx_position_transfers_token_id ON position_transfers (token_id);
+          CREATE INDEX IF NOT EXISTS idx_position_transfers_from_address ON position_transfers (from_address);
+          CREATE INDEX IF NOT EXISTS idx_position_transfers_to_address ON position_transfers (to_address);
       `),
 
       this.pg.query(`
           CREATE TABLE IF NOT EXISTS position_updates
           (
-              transaction_hash NUMERIC NOT NULL,
-              block_number     INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              index            INT4    NOT NULL,
+              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+              transaction_index INT4    NOT NULL,
+              event_index       INT4    NOT NULL,
+
+              transaction_hash  NUMERIC NOT NULL,
 
               locker           NUMERIC NOT NULL,
 
@@ -144,16 +157,18 @@ export class DAO {
               delta0           NUMERIC NOT NULL,
               delta1           NUMERIC NOT NULL,
 
-              PRIMARY KEY (transaction_hash, block_number, index)
+              PRIMARY KEY (block_number, transaction_index, event_index)
           );
       `),
 
       this.pg.query(`
           CREATE TABLE IF NOT EXISTS position_fees_collected
           (
-              transaction_hash NUMERIC NOT NULL,
-              block_number     INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              index            INT4    NOT NULL,
+              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+              transaction_index INT4    NOT NULL,
+              event_index       INT4    NOT NULL,
+
+              transaction_hash  NUMERIC NOT NULL,
 
               pool_key_hash    NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
@@ -165,31 +180,35 @@ export class DAO {
               delta0           NUMERIC NOT NULL,
               delta1           NUMERIC NOT NULL,
 
-              PRIMARY KEY (transaction_hash, block_number, index)
+              PRIMARY KEY (block_number, transaction_index, event_index)
           );
       `),
 
       this.pg.query(`
           CREATE TABLE IF NOT EXISTS protocol_fees_withdrawn
           (
-              transaction_hash NUMERIC NOT NULL,
-              block_number     INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              index            INT4    NOT NULL,
+              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+              transaction_index INT4    NOT NULL,
+              event_index       INT4    NOT NULL,
+
+              transaction_hash  NUMERIC NOT NULL,
 
               recipient        NUMERIC NOT NULL,
               token            NUMERIC NOT NULL,
               amount           NUMERIC NOT NULL,
 
-              PRIMARY KEY (transaction_hash, block_number, index)
+              PRIMARY KEY (block_number, transaction_index, event_index)
           );
       `),
 
       this.pg.query(`
           CREATE TABLE IF NOT EXISTS protocol_fees_paid
           (
-              transaction_hash NUMERIC NOT NULL,
-              block_number     INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              index            INT4    NOT NULL,
+              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+              transaction_index INT4    NOT NULL,
+              event_index       INT4    NOT NULL,
+
+              transaction_hash  NUMERIC NOT NULL,
 
               pool_key_hash    NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
@@ -201,16 +220,18 @@ export class DAO {
               delta0           NUMERIC NOT NULL,
               delta1           NUMERIC NOT NULL,
 
-              PRIMARY KEY (transaction_hash, block_number, index)
+              PRIMARY KEY (block_number, transaction_index, event_index)
           );
       `),
 
       this.pg.query(`
-          CREATE TABLE IF NOT EXISTS initializations
+          CREATE TABLE IF NOT EXISTS pool_initializations
           (
-              transaction_hash NUMERIC  NOT NULL,
-              block_number     INT8     NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              index            INT4     NOT NULL,
+              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+              transaction_index INT4    NOT NULL,
+              event_index       INT4    NOT NULL,
+
+              transaction_hash  NUMERIC NOT NULL,
 
               pool_key_hash    NUMERIC  NOT NULL REFERENCES pool_keys (key_hash),
 
@@ -218,28 +239,30 @@ export class DAO {
               sqrt_ratio       NUMERIC  NOT NULL,
               call_points      SMALLINT NOT NULL,
 
-              PRIMARY KEY (transaction_hash, block_number, index)
+              PRIMARY KEY (block_number, transaction_index, event_index)
           );
       `),
 
       this.pg.query(`
           CREATE TABLE IF NOT EXISTS swaps
           (
-              transaction_hash NUMERIC NOT NULL,
-              block_number     INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              index            INT4    NOT NULL,
+              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+              transaction_index INT4    NOT NULL,
+              event_index       INT4    NOT NULL,
 
-              locker           NUMERIC NOT NULL,
-              pool_key_hash    NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
-              
-              delta0           NUMERIC NOT NULL,
-              delta1           NUMERIC NOT NULL,
+              transaction_hash  NUMERIC NOT NULL,
 
-              sqrt_ratio_after NUMERIC NOT NULL,
-              tick_after       INT4    NOT NULL,
-              liquidity_after  NUMERIC NOT NULL,
+              locker            NUMERIC NOT NULL,
+              pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-              PRIMARY KEY (transaction_hash, block_number, index)
+              delta0            NUMERIC NOT NULL,
+              delta1            NUMERIC NOT NULL,
+
+              sqrt_ratio_after  NUMERIC NOT NULL,
+              tick_after        INT4    NOT NULL,
+              liquidity_after   NUMERIC NOT NULL,
+
+              PRIMARY KEY (block_number, transaction_index, event_index)
           );
       `),
     ]);
@@ -275,7 +298,25 @@ export class DAO {
     });
   }
 
-  private async insertKeyHash(pool_key: PoolKey) {
+  public async insertBlock({
+    number,
+    hash,
+    timestamp,
+  }: {
+    number: bigint;
+    hash: bigint;
+    timestamp: bigint;
+  }) {
+    await this.pg.query({
+      text: `
+        INSERT INTO blocks (number, hash, timestamp)
+        VALUES ($1, $2, to_timestamp($3));
+      `,
+      values: [number, hash, timestamp],
+    });
+  }
+
+  private async insertPoolKeyHash(pool_key: PoolKey) {
     const key_hash = computeKeyHash(pool_key);
 
     await this.pg.query({
@@ -301,28 +342,32 @@ export class DAO {
     return key_hash;
   }
 
-  public async insertPositionMinted(
-    token: PositionMintedEvent,
-    blockNumber: bigint
-  ) {
-    const pool_key_hash = await this.insertKeyHash(token.pool_key);
+  public async insertPositionMinted(token: PositionMintedEvent, key: EventKey) {
+    const pool_key_hash = await this.insertPoolKeyHash(token.pool_key);
 
     await this.pg.query({
       text: `
-      insert into position_minted (
-        token_id,
-        lower_bound,
-        upper_bound,
-        pool_key_hash,
-        block_number
-      ) values ($1, $2, $3, $4, $5); 
+          insert into position_minted
+          (block_number,
+           transaction_index,
+           event_index,
+           transaction_hash,
+           token_id,
+           lower_bound,
+           upper_bound,
+           pool_key_hash)
+          values ($1, $2, $3, $4, $5, $6, $7, $8);
       `,
       values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+
         token.id,
         token.bounds.lower,
         token.bounds.upper,
         pool_key_hash,
-        blockNumber,
       ],
     });
   }
@@ -334,20 +379,21 @@ export class DAO {
     // The `*` operator is the PostgreSQL range intersection operator.
     await this.pg.query({
       text: `
-      INSERT INTO position_transfers (
-        transaction_hash,
-        block_number,
-        index,
-
-        token_id,
-        from_address,
-        to_address
-      ) values ($1, $2, $3, $4, $5, $6)
+          INSERT INTO position_transfers
+          (block_number,
+           transaction_index,
+           event_index,
+           transaction_hash,
+           token_id,
+           from_address,
+           to_address)
+          values ($1, $2, $3, $4, $5, $6, $7)
       `,
       values: [
-        key.txHash,
         key.blockNumber,
-        key.logIndex,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
         transfer.id,
         transfer.from,
         transfer.to,
@@ -359,31 +405,30 @@ export class DAO {
     event: PositionUpdatedEvent,
     key: EventKey
   ) {
-    const pool_key_hash = await this.insertKeyHash(event.pool_key);
+    const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
     await this.pg.query({
       text: `
-      INSERT INTO position_updates (
-        transaction_hash,
-        block_number,
-        index,
-
-        locker,
-        pool_key_hash,
-
-        salt,
-        lower_bound,
-        upper_bound,
-
-        liquidity_delta,
-        delta0,
-        delta1
-      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+          INSERT INTO position_updates
+          (block_number,
+           transaction_index,
+           event_index,
+           transaction_hash,
+           locker,
+           pool_key_hash,
+           salt,
+           lower_bound,
+           upper_bound,
+           liquidity_delta,
+           delta0,
+           delta1)
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);
       `,
       values: [
-        key.txHash,
         key.blockNumber,
-        key.logIndex,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
 
         event.locker,
 
@@ -404,30 +449,29 @@ export class DAO {
     event: PositionFeesCollectedEvent,
     key: EventKey
   ) {
-    const pool_key_hash = await this.insertKeyHash(event.pool_key);
+    const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
     await this.pg.query({
       text: `
-      INSERT INTO position_fees_collected (
-        transaction_hash,
-        block_number,
-        index,
-
-        pool_key_hash,
-
-        owner,
-        salt,
-        lower_bound,
-        upper_bound,
-
-        delta0,
-        delta1
-      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
+          INSERT INTO position_fees_collected
+          (block_number,
+           transaction_index,
+           event_index,
+           transaction_hash,
+           pool_key_hash,
+           owner,
+           salt,
+           lower_bound,
+           upper_bound,
+           delta0,
+           delta1)
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
       `,
       values: [
-        key.txHash,
         key.blockNumber,
-        key.logIndex,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
 
         pool_key_hash,
 
@@ -446,26 +490,26 @@ export class DAO {
     event: PoolInitializationEvent,
     key: EventKey
   ) {
-    const pool_key_hash = await this.insertKeyHash(event.pool_key);
+    const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
     await this.pg.query({
       text: `
-      INSERT INTO initializations (
-        transaction_hash,
-        block_number,
-        index,
-
-        pool_key_hash,
-
-        tick,
-        sqrt_ratio,
-        call_points
-      ) values ($1, $2, $3, $4, $5, $6, $7);
+          INSERT INTO pool_initializations
+          (block_number,
+           transaction_index,
+           event_index,
+           transaction_hash,
+           pool_key_hash,
+           tick,
+           sqrt_ratio,
+           call_points)
+          values ($1, $2, $3, $4, $5, $6, $7, $8);
       `,
       values: [
-        key.txHash,
         key.blockNumber,
-        key.logIndex,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
 
         pool_key_hash,
 
@@ -482,20 +526,21 @@ export class DAO {
   ) {
     await this.pg.query({
       text: `
-      INSERT INTO protocol_fees_withdrawn (
-        transaction_hash,
-        block_number,
-        index,
-
-        recipient,
-        token,
-        amount
-      ) values ($1, $2, $3, $4, $5, $6);
+          INSERT INTO protocol_fees_withdrawn
+          (block_number,
+           transaction_index,
+           event_index,
+           transaction_hash,
+           recipient,
+           token,
+           amount)
+          values ($1, $2, $3, $4, $5, $6, $7);
       `,
       values: [
-        key.txHash,
         key.blockNumber,
-        key.logIndex,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
 
         event.recipient,
         event.token,
@@ -505,14 +550,16 @@ export class DAO {
   }
 
   public async insertProtocolFeesPaid(event: FeesPaidEvent, key: EventKey) {
-    const pool_key_hash = await this.insertKeyHash(event.pool_key);
+    const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
     await this.pg.query({
       text: `
-      INSERT INTO protocol_fees_paid (
-        transaction_hash,
-        block_number,
-        index,
+      INSERT INTO protocol_fees_paid 
+          (
+              block_number,
+              transaction_index,
+              event_index,
+              transaction_hash,
 
         pool_key_hash,
 
@@ -523,12 +570,13 @@ export class DAO {
 
         delta0,
         delta1
-      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
+      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
       `,
       values: [
-        key.txHash,
         key.blockNumber,
-        key.logIndex,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
 
         pool_key_hash,
 
@@ -544,29 +592,29 @@ export class DAO {
   }
 
   public async insertSwappedEvent(event: SwappedEvent, key: EventKey) {
-    const pool_key_hash = await this.insertKeyHash(event.pool_key);
+    const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
     await this.pg.query({
       text: `
-      INSERT INTO swaps (
-        transaction_hash,
-        block_number,
-        index,
-
-        locker,
-        pool_key_hash,
-
-        delta0,
-        delta1,
-        sqrt_ratio_after,
-        tick_after,
-        liquidity_after
-      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
+          INSERT INTO swaps
+          (block_number,
+           transaction_index,
+           event_index,
+           transaction_hash,
+           locker,
+           pool_key_hash,
+           delta0,
+           delta1,
+           sqrt_ratio_after,
+           tick_after,
+           liquidity_after)
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
       `,
       values: [
-        key.txHash,
         key.blockNumber,
-        key.logIndex,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
 
         event.locker,
         pool_key_hash,
@@ -577,24 +625,6 @@ export class DAO {
         event.tick_after,
         event.liquidity_after,
       ],
-    });
-  }
-
-  public async insertBlock({
-    number,
-    hash,
-    timestamp,
-  }: {
-    number: bigint;
-    hash: bigint;
-    timestamp: bigint;
-  }) {
-    await this.pg.query({
-      text: `
-        INSERT INTO blocks (number, hash, timestamp)
-        VALUES ($1, $2, to_timestamp($3));
-      `,
-      values: [number, hash, timestamp],
     });
   }
 
