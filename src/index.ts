@@ -317,7 +317,9 @@ export function parseLong(long: number | Long): bigint {
         const dao = new DAO(client);
 
         await dao.beginTransaction();
-        await dao.invalidateBlockNumber(BigInt(invalidatedCursor.orderKey));
+        await dao.invalidateBlockNumber(
+          BigInt(invalidatedCursor.orderKey) + 1n
+        );
         await dao.writeCursor(Cursor.toObject(message.invalidate.cursor));
         await dao.commitTransaction();
 
