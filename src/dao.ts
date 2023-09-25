@@ -10,7 +10,11 @@ import {
   PositionUpdatedEvent,
   SwappedEvent,
 } from "./events/core";
-import { PositionMintedEvent } from "./events/positions";
+import {
+  DepositEvent,
+  PositionMintedEvent,
+  WithdrawEvent,
+} from "./events/positions";
 import { TransferEvent } from "./events/nft";
 
 function toHex(x: bigint): string {
@@ -113,6 +117,60 @@ export class DAO {
           );
           CREATE INDEX IF NOT EXISTS idx_position_minted_pool_key_hash ON position_minted (pool_key_hash);
           CREATE UNIQUE INDEX IF NOT EXISTS idx_token_id ON position_minted (token_id);
+      `),
+
+      this.pg.query(`
+          CREATE TABLE IF NOT EXISTS position_deposit
+          (
+              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+              transaction_index INT4    NOT NULL,
+              event_index       INT4    NOT NULL,
+
+              transaction_hash  NUMERIC NOT NULL,
+              
+              token_id      INT8    NOT NULL,
+              lower_bound   INT4    NOT NULL,
+              upper_bound   INT4    NOT NULL,
+
+              pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+              
+              liquidity NUMERIC NOT NULL,
+              delta0 NUMERIC NOT NULL,
+              delta1 NUMERIC NOT NULL,
+
+              PRIMARY KEY (block_number, transaction_index, event_index)
+          );
+          CREATE INDEX IF NOT EXISTS idx_position_deposit_pool_key_hash ON position_deposit (pool_key_hash);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_token_id ON position_deposit (token_id);
+      `),
+
+      this.pg.query(`
+          CREATE TABLE IF NOT EXISTS position_withdraw
+          (
+              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+              transaction_index INT4    NOT NULL,
+              event_index       INT4    NOT NULL,
+
+              transaction_hash  NUMERIC NOT NULL,
+              
+              token_id      INT8    NOT NULL,
+              lower_bound   INT4    NOT NULL,
+              upper_bound   INT4    NOT NULL,
+            
+              pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+              
+              collect_fees BOOL NOT NULL,
+
+              liquidity NUMERIC NOT NULL,
+              delta0 NUMERIC NOT NULL,
+              delta1 NUMERIC NOT NULL,
+              
+              recipient NUMERIC NOT NULL,
+
+              PRIMARY KEY (block_number, transaction_index, event_index)
+          );
+          CREATE INDEX IF NOT EXISTS idx_position_withdraw_pool_key_hash ON position_withdraw (pool_key_hash);
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_token_id ON position_withdraw (token_id);
       `),
 
       this.pg.query(`
@@ -342,8 +400,11 @@ export class DAO {
     return key_hash;
   }
 
-  public async insertPositionMinted(token: PositionMintedEvent, key: EventKey) {
-    const pool_key_hash = await this.insertPoolKeyHash(token.pool_key);
+  public async insertPositionMinted(
+    minted: PositionMintedEvent,
+    key: EventKey
+  ) {
+    const pool_key_hash = await this.insertPoolKeyHash(minted.pool_key);
 
     await this.pg.query({
       text: `
@@ -364,10 +425,85 @@ export class DAO {
         key.eventIndex,
         key.transactionHash,
 
-        token.id,
-        token.bounds.lower,
-        token.bounds.upper,
+        minted.id,
+        minted.bounds.lower,
+        minted.bounds.upper,
         pool_key_hash,
+      ],
+    });
+  }
+
+  public async insertPositionDeposit(deposit: DepositEvent, key: EventKey) {
+    const pool_key_hash = await this.insertPoolKeyHash(deposit.pool_key);
+
+    await this.pg.query({
+      text: `
+          insert into position_deposit
+          (block_number,
+           transaction_index,
+           event_index,
+           transaction_hash,
+           token_id,
+           lower_bound,
+           upper_bound,
+           pool_key_hash,
+           liquidity,
+           delta0,
+           delta1)
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+
+        deposit.id,
+        deposit.bounds.lower,
+        deposit.bounds.upper,
+        pool_key_hash,
+        deposit.liquidity,
+        deposit.delta.amount0,
+        deposit.delta.amount1,
+      ],
+    });
+  }
+  public async insertPositionWithdraw(withdraw: WithdrawEvent, key: EventKey) {
+    const pool_key_hash = await this.insertPoolKeyHash(withdraw.pool_key);
+
+    await this.pg.query({
+      text: `
+          insert into position_withdraw
+          (block_number,
+           transaction_index,
+           event_index,
+           transaction_hash,
+           token_id,
+           lower_bound,
+           upper_bound,
+           pool_key_hash, 
+           collect_fees,
+           liquidity,
+           delta0, 
+           delta1,
+           recipient)
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+
+        withdraw.id,
+        withdraw.bounds.lower,
+        withdraw.bounds.upper,
+        pool_key_hash,
+        withdraw.collect_fees,
+        withdraw.liquidity,
+        withdraw.delta.amount0,
+        withdraw.delta.amount1,
+        withdraw.recipient,
       ],
     });
   }

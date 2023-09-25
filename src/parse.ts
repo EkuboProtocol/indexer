@@ -52,6 +52,8 @@ export const parseFelt252: Parser<bigint> = (data, startingFrom) => {
   };
 };
 
+export const parseAddress: Parser<bigint> = parseFelt252;
+
 export const parseBoolean: Parser<boolean> = (data, startingFrom) => {
   let num = FieldElement.toBigInt(data[startingFrom]);
   let value: boolean;

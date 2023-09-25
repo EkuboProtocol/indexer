@@ -24,8 +24,12 @@ import {
   SwappedEvent,
 } from "./events/core";
 import {
+  DepositEvent,
+  parseDepositEvent,
   parsePositionMintedEvent,
+  parseWithdrawEvent,
   PositionMintedEvent,
+  WithdrawEvent,
 } from "./events/positions";
 import { parseTransferEvent, TransferEvent } from "./events/nft";
 import { Pool } from "pg";
@@ -49,6 +53,38 @@ const EVENT_PROCESSORS = [
     handle: async (dao, { key, parsed }) => {
       logger.debug("PositionMinted", { parsed, key });
       await dao.insertPositionMinted(parsed, key);
+    },
+  },
+  <EventProcessor<DepositEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.POSITIONS_ADDRESS),
+      keys: [
+        // Deposit
+        FieldElement.fromBigInt(
+          0x9149d2123147c5f43d258257fef0b7b969db78269369ebcf5ebb9eef8592f2n
+        ),
+      ],
+    },
+    parser: parseDepositEvent,
+    handle: async (dao, { key, parsed }) => {
+      logger.debug("Deposit", { parsed, key });
+      await dao.insertPositionDeposit(parsed, key);
+    },
+  },
+  <EventProcessor<WithdrawEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.POSITIONS_ADDRESS),
+      keys: [
+        // Withdraw
+        FieldElement.fromBigInt(
+          0x017f87ab38a7f75a63dc465e10aadacecfca64c44ca774040b039bfb004e3367n
+        ),
+      ],
+    },
+    parser: parseWithdrawEvent,
+    handle: async (dao, { key, parsed }) => {
+      logger.debug("Withdraw", { parsed, key });
+      await dao.insertPositionWithdraw(parsed, key);
     },
   },
   <EventProcessor<TransferEvent>>{
