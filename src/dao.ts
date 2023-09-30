@@ -62,8 +62,14 @@ export class DAO {
   }
 
   private async initSchema(): Promise<void> {
-    // tables go here
     await this.pg.query(`
+        CREATE TABLE IF NOT EXISTS cursor
+        (
+            id         INT     NOT NULL UNIQUE CHECK (id = 1), -- only one row.
+            order_key  NUMERIC NOT NULL,
+            unique_key TEXT    NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS blocks
         (
             number    INT8      NOT NULL PRIMARY KEY,
@@ -72,13 +78,6 @@ export class DAO {
         );
         CREATE INDEX IF NOT EXISTS idx_blocks_timestamp ON blocks USING btree (timestamp);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_blocks_hash ON blocks USING btree (hash);
-
-        CREATE TABLE IF NOT EXISTS cursor
-        (
-            id         INT     NOT NULL UNIQUE CHECK (id = 1), -- only one row.
-            order_key  NUMERIC NOT NULL,
-            unique_key TEXT    NOT NULL
-        );
 
 
         CREATE TABLE IF NOT EXISTS pool_keys
@@ -92,7 +91,7 @@ export class DAO {
         );
         CREATE INDEX IF NOT EXISTS idx_pool_keys_token0 ON pool_keys USING btree (token0);
         CREATE INDEX IF NOT EXISTS idx_pool_keys_token1 ON pool_keys USING btree (token1);
-
+        CREATE INDEX IF NOT EXISTS idx_pool_keys_extension ON pool_keys USING btree (extension);
 
         CREATE TABLE IF NOT EXISTS position_minted
         (
@@ -111,7 +110,7 @@ export class DAO {
             PRIMARY KEY (block_number, transaction_index, event_index)
         );
         CREATE INDEX IF NOT EXISTS idx_position_minted_pool_key_hash ON position_minted (pool_key_hash);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_token_id ON position_minted (token_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_position_minted_token_id ON position_minted (token_id);
 
         CREATE TABLE IF NOT EXISTS position_deposit
         (
@@ -134,7 +133,7 @@ export class DAO {
             PRIMARY KEY (block_number, transaction_index, event_index)
         );
         CREATE INDEX IF NOT EXISTS idx_position_deposit_pool_key_hash ON position_deposit (pool_key_hash);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_token_id ON position_deposit (token_id);
+        CREATE INDEX IF NOT EXISTS idx_position_deposit_token_id ON position_deposit (token_id);
 
         CREATE TABLE IF NOT EXISTS position_withdraw
         (
@@ -161,8 +160,7 @@ export class DAO {
             PRIMARY KEY (block_number, transaction_index, event_index)
         );
         CREATE INDEX IF NOT EXISTS idx_position_withdraw_pool_key_hash ON position_withdraw (pool_key_hash);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_token_id ON position_withdraw (token_id);
-
+        CREATE INDEX IF NOT EXISTS idx_position_withdraw_token_id ON position_withdraw (token_id);
 
         CREATE TABLE IF NOT EXISTS position_transfers
         (
