@@ -62,268 +62,247 @@ export class DAO {
   }
 
   private async initSchema(): Promise<void> {
-    const result = await Promise.all([
-      this.pg.query(`CREATE TABLE IF NOT EXISTS blocks
-                     (
-                         number    INT8      NOT NULL PRIMARY KEY,
-                         hash      NUMERIC   NOT NULL,
-                         timestamp TIMESTAMP NOT NULL
-                     );
-
+    // tables go here
+    await this.pg.query(`
+        CREATE TABLE IF NOT EXISTS blocks
+        (
+            number    INT8      NOT NULL PRIMARY KEY,
+            hash      NUMERIC   NOT NULL,
+            timestamp TIMESTAMP NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS idx_blocks_timestamp ON blocks USING btree (timestamp);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_blocks_hash ON blocks USING btree (hash);
-      `),
 
-      this.pg.query(`
-          CREATE TABLE IF NOT EXISTS cursor
-          (
-              id         INT     NOT NULL UNIQUE CHECK (id = 1), -- only one row.
-              order_key  NUMERIC NOT NULL,
-              unique_key TEXT    NOT NULL
-          );
-      `),
+        CREATE TABLE IF NOT EXISTS cursor
+        (
+            id         INT     NOT NULL UNIQUE CHECK (id = 1), -- only one row.
+            order_key  NUMERIC NOT NULL,
+            unique_key TEXT    NOT NULL
+        );
 
-      this.pg.query(`
-          CREATE TABLE IF NOT EXISTS pool_keys
-          (
-              key_hash     NUMERIC NOT NULL PRIMARY KEY,
-              token0       NUMERIC NOT NULL,
-              token1       NUMERIC NOT NULL,
-              fee          NUMERIC NOT NULL,
-              tick_spacing NUMERIC NOT NULL,
-              extension    NUMERIC NOT NULL
-          );
 
-          CREATE INDEX IF NOT EXISTS idx_pool_keys_token0 ON pool_keys USING btree (token0);
-          CREATE INDEX IF NOT EXISTS idx_pool_keys_token1 ON pool_keys USING btree (token1);
-      `),
+        CREATE TABLE IF NOT EXISTS pool_keys
+        (
+            key_hash     NUMERIC NOT NULL PRIMARY KEY,
+            token0       NUMERIC NOT NULL,
+            token1       NUMERIC NOT NULL,
+            fee          NUMERIC NOT NULL,
+            tick_spacing NUMERIC NOT NULL,
+            extension    NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_pool_keys_token0 ON pool_keys USING btree (token0);
+        CREATE INDEX IF NOT EXISTS idx_pool_keys_token1 ON pool_keys USING btree (token1);
 
-      this.pg.query(`
-          CREATE TABLE IF NOT EXISTS position_minted
-          (
-              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              transaction_index INT4    NOT NULL,
-              event_index       INT4    NOT NULL,
 
-              transaction_hash  NUMERIC NOT NULL,
-              
-              token_id      INT8    NOT NULL,
-              lower_bound   INT4    NOT NULL,
-              upper_bound   INT4    NOT NULL,
+        CREATE TABLE IF NOT EXISTS position_minted
+        (
+            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index INT4    NOT NULL,
+            event_index       INT4    NOT NULL,
 
-              pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            transaction_hash  NUMERIC NOT NULL,
 
-              PRIMARY KEY (block_number, transaction_index, event_index)
-          );
-          CREATE INDEX IF NOT EXISTS idx_position_minted_pool_key_hash ON position_minted (pool_key_hash);
-          CREATE UNIQUE INDEX IF NOT EXISTS idx_token_id ON position_minted (token_id);
-      `),
+            token_id          INT8    NOT NULL,
+            lower_bound       INT4    NOT NULL,
+            upper_bound       INT4    NOT NULL,
 
-      this.pg.query(`
-          CREATE TABLE IF NOT EXISTS position_deposit
-          (
-              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              transaction_index INT4    NOT NULL,
-              event_index       INT4    NOT NULL,
+            pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-              transaction_hash  NUMERIC NOT NULL,
-              
-              token_id      INT8    NOT NULL,
-              lower_bound   INT4    NOT NULL,
-              upper_bound   INT4    NOT NULL,
+            PRIMARY KEY (block_number, transaction_index, event_index)
+        );
+        CREATE INDEX IF NOT EXISTS idx_position_minted_pool_key_hash ON position_minted (pool_key_hash);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_token_id ON position_minted (token_id);
 
-              pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
-              
-              liquidity NUMERIC NOT NULL,
-              delta0 NUMERIC NOT NULL,
-              delta1 NUMERIC NOT NULL,
+        CREATE TABLE IF NOT EXISTS position_deposit
+        (
+            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index INT4    NOT NULL,
+            event_index       INT4    NOT NULL,
 
-              PRIMARY KEY (block_number, transaction_index, event_index)
-          );
-          CREATE INDEX IF NOT EXISTS idx_position_deposit_pool_key_hash ON position_deposit (pool_key_hash);
-          CREATE UNIQUE INDEX IF NOT EXISTS idx_token_id ON position_deposit (token_id);
-      `),
+            transaction_hash  NUMERIC NOT NULL,
 
-      this.pg.query(`
-          CREATE TABLE IF NOT EXISTS position_withdraw
-          (
-              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              transaction_index INT4    NOT NULL,
-              event_index       INT4    NOT NULL,
+            token_id          INT8    NOT NULL,
+            lower_bound       INT4    NOT NULL,
+            upper_bound       INT4    NOT NULL,
 
-              transaction_hash  NUMERIC NOT NULL,
-              
-              token_id      INT8    NOT NULL,
-              lower_bound   INT4    NOT NULL,
-              upper_bound   INT4    NOT NULL,
-            
-              pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
-              
-              collect_fees BOOL NOT NULL,
+            pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-              liquidity NUMERIC NOT NULL,
-              delta0 NUMERIC NOT NULL,
-              delta1 NUMERIC NOT NULL,
-              
-              recipient NUMERIC NOT NULL,
+            liquidity         NUMERIC NOT NULL,
+            delta0            NUMERIC NOT NULL,
+            delta1            NUMERIC NOT NULL,
 
-              PRIMARY KEY (block_number, transaction_index, event_index)
-          );
-          CREATE INDEX IF NOT EXISTS idx_position_withdraw_pool_key_hash ON position_withdraw (pool_key_hash);
-          CREATE UNIQUE INDEX IF NOT EXISTS idx_token_id ON position_withdraw (token_id);
-      `),
+            PRIMARY KEY (block_number, transaction_index, event_index)
+        );
+        CREATE INDEX IF NOT EXISTS idx_position_deposit_pool_key_hash ON position_deposit (pool_key_hash);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_token_id ON position_deposit (token_id);
 
-      this.pg.query(`
-          CREATE TABLE IF NOT EXISTS position_transfers
-          (
-              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              transaction_index INT4    NOT NULL,
-              event_index       INT4    NOT NULL,
+        CREATE TABLE IF NOT EXISTS position_withdraw
+        (
+            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index INT4    NOT NULL,
+            event_index       INT4    NOT NULL,
 
-              transaction_hash  NUMERIC NOT NULL,
+            transaction_hash  NUMERIC NOT NULL,
 
-              token_id         INT8    NOT NULL,
-              from_address     NUMERIC NOT NULL,
-              to_address       NUMERIC NOT NULL,
+            token_id          INT8    NOT NULL,
+            lower_bound       INT4    NOT NULL,
+            upper_bound       INT4    NOT NULL,
 
-              PRIMARY KEY (block_number, transaction_index, event_index)
-          );
+            pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-          CREATE INDEX IF NOT EXISTS idx_position_transfers_token_id ON position_transfers (token_id);
-          CREATE INDEX IF NOT EXISTS idx_position_transfers_from_address ON position_transfers (from_address);
-          CREATE INDEX IF NOT EXISTS idx_position_transfers_to_address ON position_transfers (to_address);
-      `),
+            collect_fees      BOOL    NOT NULL,
 
-      this.pg.query(`
-          CREATE TABLE IF NOT EXISTS position_updates
-          (
-              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              transaction_index INT4    NOT NULL,
-              event_index       INT4    NOT NULL,
+            liquidity         NUMERIC NOT NULL,
+            delta0            NUMERIC NOT NULL,
+            delta1            NUMERIC NOT NULL,
 
-              transaction_hash  NUMERIC NOT NULL,
+            recipient         NUMERIC NOT NULL,
 
-              locker           NUMERIC NOT NULL,
+            PRIMARY KEY (block_number, transaction_index, event_index)
+        );
+        CREATE INDEX IF NOT EXISTS idx_position_withdraw_pool_key_hash ON position_withdraw (pool_key_hash);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_token_id ON position_withdraw (token_id);
 
-              pool_key_hash    NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-              salt             NUMERIC NOT NULL,
-              lower_bound      INT4    NOT NULL,
-              upper_bound      INT4    NOT NULL,
+        CREATE TABLE IF NOT EXISTS position_transfers
+        (
+            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index INT4    NOT NULL,
+            event_index       INT4    NOT NULL,
 
-              liquidity_delta  NUMERIC NOT NULL,
-              delta0           NUMERIC NOT NULL,
-              delta1           NUMERIC NOT NULL,
+            transaction_hash  NUMERIC NOT NULL,
 
-              PRIMARY KEY (block_number, transaction_index, event_index)
-          );
-      `),
+            token_id          INT8    NOT NULL,
+            from_address      NUMERIC NOT NULL,
+            to_address        NUMERIC NOT NULL,
 
-      this.pg.query(`
-          CREATE TABLE IF NOT EXISTS position_fees_collected
-          (
-              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              transaction_index INT4    NOT NULL,
-              event_index       INT4    NOT NULL,
+            PRIMARY KEY (block_number, transaction_index, event_index)
+        );
+        CREATE INDEX IF NOT EXISTS idx_position_transfers_token_id ON position_transfers (token_id);
+        CREATE INDEX IF NOT EXISTS idx_position_transfers_from_address ON position_transfers (from_address);
+        CREATE INDEX IF NOT EXISTS idx_position_transfers_to_address ON position_transfers (to_address);
 
-              transaction_hash  NUMERIC NOT NULL,
+        CREATE TABLE IF NOT EXISTS position_updates
+        (
+            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index INT4    NOT NULL,
+            event_index       INT4    NOT NULL,
 
-              pool_key_hash    NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            transaction_hash  NUMERIC NOT NULL,
 
-              owner            NUMERIC NOT NULL,
-              salt             NUMERIC NOT NULL,
-              lower_bound      INT4    NOT NULL,
-              upper_bound      INT4    NOT NULL,
+            locker            NUMERIC NOT NULL,
 
-              delta0           NUMERIC NOT NULL,
-              delta1           NUMERIC NOT NULL,
+            pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-              PRIMARY KEY (block_number, transaction_index, event_index)
-          );
-      `),
+            salt              NUMERIC NOT NULL,
+            lower_bound       INT4    NOT NULL,
+            upper_bound       INT4    NOT NULL,
 
-      this.pg.query(`
-          CREATE TABLE IF NOT EXISTS protocol_fees_withdrawn
-          (
-              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              transaction_index INT4    NOT NULL,
-              event_index       INT4    NOT NULL,
+            liquidity_delta   NUMERIC NOT NULL,
+            delta0            NUMERIC NOT NULL,
+            delta1            NUMERIC NOT NULL,
 
-              transaction_hash  NUMERIC NOT NULL,
+            PRIMARY KEY (block_number, transaction_index, event_index)
+        );
 
-              recipient        NUMERIC NOT NULL,
-              token            NUMERIC NOT NULL,
-              amount           NUMERIC NOT NULL,
+        CREATE TABLE IF NOT EXISTS position_fees_collected
+        (
+            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index INT4    NOT NULL,
+            event_index       INT4    NOT NULL,
 
-              PRIMARY KEY (block_number, transaction_index, event_index)
-          );
-      `),
+            transaction_hash  NUMERIC NOT NULL,
 
-      this.pg.query(`
-          CREATE TABLE IF NOT EXISTS protocol_fees_paid
-          (
-              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              transaction_index INT4    NOT NULL,
-              event_index       INT4    NOT NULL,
+            pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-              transaction_hash  NUMERIC NOT NULL,
+            owner             NUMERIC NOT NULL,
+            salt              NUMERIC NOT NULL,
+            lower_bound       INT4    NOT NULL,
+            upper_bound       INT4    NOT NULL,
 
-              pool_key_hash    NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            delta0            NUMERIC NOT NULL,
+            delta1            NUMERIC NOT NULL,
 
-              owner            NUMERIC NOT NULL,
-              salt             NUMERIC NOT NULL,
-              lower_bound      INT4    NOT NULL,
-              upper_bound      INT4    NOT NULL,
+            PRIMARY KEY (block_number, transaction_index, event_index)
+        );
 
-              delta0           NUMERIC NOT NULL,
-              delta1           NUMERIC NOT NULL,
+        CREATE TABLE IF NOT EXISTS protocol_fees_withdrawn
+        (
+            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index INT4    NOT NULL,
+            event_index       INT4    NOT NULL,
 
-              PRIMARY KEY (block_number, transaction_index, event_index)
-          );
-      `),
+            transaction_hash  NUMERIC NOT NULL,
 
-      this.pg.query(`
-          CREATE TABLE IF NOT EXISTS pool_initializations
-          (
-              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              transaction_index INT4    NOT NULL,
-              event_index       INT4    NOT NULL,
+            recipient         NUMERIC NOT NULL,
+            token             NUMERIC NOT NULL,
+            amount            NUMERIC NOT NULL,
 
-              transaction_hash  NUMERIC NOT NULL,
+            PRIMARY KEY (block_number, transaction_index, event_index)
+        );
 
-              pool_key_hash    NUMERIC  NOT NULL REFERENCES pool_keys (key_hash),
 
-              tick             INT4     NOT NULL,
-              sqrt_ratio       NUMERIC  NOT NULL,
-              call_points      SMALLINT NOT NULL,
+        CREATE TABLE IF NOT EXISTS protocol_fees_paid
+        (
+            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index INT4    NOT NULL,
+            event_index       INT4    NOT NULL,
 
-              PRIMARY KEY (block_number, transaction_index, event_index)
-          );
-      `),
+            transaction_hash  NUMERIC NOT NULL,
 
-      this.pg.query(`
-          CREATE TABLE IF NOT EXISTS swaps
-          (
-              block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-              transaction_index INT4    NOT NULL,
-              event_index       INT4    NOT NULL,
+            pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-              transaction_hash  NUMERIC NOT NULL,
+            owner             NUMERIC NOT NULL,
+            salt              NUMERIC NOT NULL,
+            lower_bound       INT4    NOT NULL,
+            upper_bound       INT4    NOT NULL,
 
-              locker            NUMERIC NOT NULL,
-              pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            delta0            NUMERIC NOT NULL,
+            delta1            NUMERIC NOT NULL,
 
-              delta0            NUMERIC NOT NULL,
-              delta1            NUMERIC NOT NULL,
+            PRIMARY KEY (block_number, transaction_index, event_index)
+        );
 
-              sqrt_ratio_after  NUMERIC NOT NULL,
-              tick_after        INT4    NOT NULL,
-              liquidity_after   NUMERIC NOT NULL,
 
-              PRIMARY KEY (block_number, transaction_index, event_index)
-          );
-      `),
-    ]);
+        CREATE TABLE IF NOT EXISTS pool_initializations
+        (
+            block_number      INT8     NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index INT4     NOT NULL,
+            event_index       INT4     NOT NULL,
+
+            transaction_hash  NUMERIC  NOT NULL,
+
+            pool_key_hash     NUMERIC  NOT NULL REFERENCES pool_keys (key_hash),
+
+            tick              INT4     NOT NULL,
+            sqrt_ratio        NUMERIC  NOT NULL,
+            call_points       SMALLINT NOT NULL,
+
+            PRIMARY KEY (block_number, transaction_index, event_index)
+        );
+
+
+        CREATE TABLE IF NOT EXISTS swaps
+        (
+            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index INT4    NOT NULL,
+            event_index       INT4    NOT NULL,
+
+            transaction_hash  NUMERIC NOT NULL,
+
+            locker            NUMERIC NOT NULL,
+            pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+
+            delta0            NUMERIC NOT NULL,
+            delta1            NUMERIC NOT NULL,
+
+            sqrt_ratio_after  NUMERIC NOT NULL,
+            tick_after        INT4    NOT NULL,
+            liquidity_after   NUMERIC NOT NULL,
+
+            PRIMARY KEY (block_number, transaction_index, event_index)
+        );
+    `);
   }
 
   private async loadCursor(): Promise<{
