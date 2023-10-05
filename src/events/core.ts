@@ -3,7 +3,6 @@ import {
   GetParserType,
   parseAddress,
   parseBoolean,
-  parseFelt252,
   parseI129,
   parseU128,
   parseU256,
@@ -11,11 +10,11 @@ import {
 } from "../parse";
 
 export const parsePoolKey = combineParsers({
-  token0: { index: 0, parser: parseFelt252 },
-  token1: { index: 1, parser: parseFelt252 },
+  token0: { index: 0, parser: parseAddress },
+  token1: { index: 1, parser: parseAddress },
   fee: { index: 2, parser: parseU128 },
   tick_spacing: { index: 3, parser: parseU128 },
-  extension: { index: 4, parser: parseFelt252 },
+  extension: { index: 4, parser: parseAddress },
 });
 export type PoolKey = GetParserType<typeof parsePoolKey>;
 export const parseBounds = combineParsers({
@@ -37,7 +36,7 @@ export const parseDelta = combineParsers({
 });
 export type Delta = GetParserType<typeof parseDelta>;
 export const parsePositionUpdatedEvent = combineParsers({
-  locker: { index: 0, parser: parseFelt252 },
+  locker: { index: 0, parser: parseAddress },
   pool_key: { index: 1, parser: parsePoolKey },
   params: { index: 2, parser: parseUpdatePositionParams },
   delta: { index: 3, parser: parseDelta },
@@ -47,7 +46,7 @@ export type PositionUpdatedEvent = GetParserType<
 >;
 export const parsePositionKey = combineParsers({
   salt: { index: 0, parser: parseU128 },
-  owner: { index: 1, parser: parseFelt252 },
+  owner: { index: 1, parser: parseAddress },
   bounds: { index: 2, parser: parseBounds },
 });
 export const parsePositionFeesCollectedEvent = combineParsers({
@@ -60,7 +59,7 @@ export type PositionFeesCollectedEvent = GetParserType<
 >;
 export const parseProtocolFeesWithdrawnEvent = combineParsers({
   recipient: { index: 0, parser: parseAddress },
-  token: { index: 1, parser: parseFelt252 },
+  token: { index: 1, parser: parseAddress },
   amount: { index: 2, parser: parseU128 },
 });
 export type FeesWithdrawnEvent = GetParserType<
@@ -73,7 +72,7 @@ const parseSwapParameters = combineParsers({
   skip_ahead: { index: 3, parser: parseU128 },
 });
 export const parseSwappedEvent = combineParsers({
-  locker: { index: 0, parser: parseFelt252 },
+  locker: { index: 0, parser: parseAddress },
   pool_key: { index: 1, parser: parsePoolKey },
   params: { index: 2, parser: parseSwapParameters },
   delta: { index: 3, parser: parseDelta },

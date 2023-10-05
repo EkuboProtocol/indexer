@@ -23,7 +23,7 @@ function toHex(x: bigint): string {
 
 const KEY_HASH_CACHE: { [key: string]: bigint } = {};
 
-function computeKeyHash(pool_key: PositionMintedEvent["pool_key"]): bigint {
+function computeKeyHash(pool_key: PoolKey): bigint {
   const cacheKey = `${pool_key.token0}-${pool_key.token1}-${pool_key.fee}-${pool_key.tick_spacing}-${pool_key.extension}`;
   return (
     KEY_HASH_CACHE[cacheKey] ??
