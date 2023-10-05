@@ -239,6 +239,8 @@ export function parseLong(long: number | Long): bigint {
   });
 
   for await (const message of client) {
+    const start = process.hrtime.bigint();
+
     let messageType = !!message.heartbeat
       ? "heartbeat"
       : !!message.invalidate
@@ -322,12 +324,14 @@ export function parseLong(long: number | Long): bigint {
             const blockTimestampDate = new Date(
               Number(blockTimestampSeconds * 1000n)
             );
+            const processTimeNanos = process.hrtime.bigint() - start;
             logger.info(`Processed block`, {
               blockNumber,
               blockTimestamp: blockTimestampDate,
               lagMilliseconds: Math.floor(
                 Date.now() - Number(blockTimestampSeconds * 1000n)
               ),
+              processTime: `${(processTimeNanos / 1_000_000n).toString()}ms`,
             });
           }
 
