@@ -21,15 +21,21 @@ function toHex(x: bigint): string {
   return `0x${x.toString(16)}`;
 }
 
+const KEY_HASH_CACHE: { [key: string]: bigint } = {};
+
 function computeKeyHash(pool_key: PositionMintedEvent["pool_key"]): bigint {
-  return BigInt(
-    pedersen_from_hex(
+  const cacheKey = `${pool_key.token0}-${pool_key.token1}-${pool_key.fee}-${pool_key.tick_spacing}-${pool_key.extension}`;
+  return (
+    KEY_HASH_CACHE[cacheKey] ??
+    (KEY_HASH_CACHE[cacheKey] = BigInt(
       pedersen_from_hex(
-        pedersen_from_hex(toHex(pool_key.token0), toHex(pool_key.token1)),
-        pedersen_from_hex(toHex(pool_key.fee), toHex(pool_key.tick_spacing))
-      ),
-      toHex(pool_key.extension)
-    )
+        pedersen_from_hex(
+          pedersen_from_hex(toHex(pool_key.token0), toHex(pool_key.token1)),
+          pedersen_from_hex(toHex(pool_key.fee), toHex(pool_key.tick_spacing))
+        ),
+        toHex(pool_key.extension)
+      )
+    ))
   );
 }
 
