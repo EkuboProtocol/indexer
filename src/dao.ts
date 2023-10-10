@@ -307,22 +307,24 @@ export class DAO {
             PRIMARY KEY (block_number, transaction_index, event_index)
         );
 
-        CREATE MATERIALIZED VIEW IF NOT EXISTS volume_by_token_by_hour AS
+        CREATE MATERIALIZED VIEW IF NOT EXISTS volume_by_token_by_hour_by_key_hash AS
         (
         SELECT date_trunc('hour', blocks.timestamp)                   AS hour,
+               key_hash,
                (CASE WHEN delta0 >= 0 THEN token0 ELSE token1 END)       token,
                SUM(CASE WHEN delta0 >= 0 THEN delta0 ELSE delta1 END) AS volume
         FROM swaps
                  JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
                  JOIN blocks ON swaps.block_number = blocks.number
-        GROUP BY hour, token
+        GROUP BY hour, key_hash, token
             );
 
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_volume_by_token_by_hour_hour_token ON volume_by_token_by_hour USING btree (hour, token);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_volume_by_token_by_hour_by_hour_key_hash_token ON volume_by_token_by_hour_by_key_hash USING btree (hour, token, key_hash);
 
-        CREATE MATERIALIZED VIEW IF NOT EXISTS tvl_delta_by_token_by_hour AS
+        CREATE MATERIALIZED VIEW IF NOT EXISTS tvl_delta_by_token_by_hour_by_key_hash AS
         (
         WITH token_deltas AS (SELECT token0                               as token,
+                                     key_hash,
                                      position_updates.delta0              as delta,
                                      date_trunc('hour', blocks.timestamp) as hour
                               FROM position_updates
@@ -333,6 +335,7 @@ export class DAO {
                                                   ON position_updates.block_number = blocks.number
                               UNION ALL
                               SELECT pool_keys.token1                     as token,
+                                     key_hash,
                                      position_updates.delta1              as delta,
                                      date_trunc('hour', blocks.timestamp) as hour
                               FROM position_updates
@@ -343,6 +346,7 @@ export class DAO {
                                                   ON position_updates.block_number = blocks.number
                               UNION ALL
                               SELECT pool_keys.token0                     as token,
+                                     key_hash,
                                      swaps.delta0                         as delta,
                                      date_trunc('hour', blocks.timestamp) as hour
                               FROM swaps
@@ -352,6 +356,7 @@ export class DAO {
                                                   ON swaps.block_number = blocks.number
                               UNION ALL
                               SELECT pool_keys.token1                     as token,
+                                     key_hash,
                                      swaps.delta1                         as delta,
                                      date_trunc('hour', blocks.timestamp) as hour
                               FROM swaps
@@ -361,6 +366,7 @@ export class DAO {
                                                   ON swaps.block_number = blocks.number
                               UNION ALL
                               SELECT pool_keys.token0                     as token,
+                                     key_hash,
                                      position_fees_collected.delta0       as delta,
                                      date_trunc('hour', blocks.timestamp) as hour
                               FROM position_fees_collected
@@ -371,6 +377,7 @@ export class DAO {
                                                   ON position_fees_collected.block_number = blocks.number
                               UNION ALL
                               SELECT pool_keys.token1                     as token,
+                                     key_hash,
                                      position_fees_collected.delta1       as delta,
                                      date_trunc('hour', blocks.timestamp) as hour
                               FROM position_fees_collected
@@ -381,6 +388,7 @@ export class DAO {
                                                   ON position_fees_collected.block_number = blocks.number
                               UNION ALL
                               SELECT pool_keys.token0                     as token,
+                                     key_hash,
                                      protocol_fees_paid.delta0            as delta,
                                      date_trunc('hour', blocks.timestamp) as hour
                               FROM protocol_fees_paid
@@ -391,6 +399,7 @@ export class DAO {
                                                   ON protocol_fees_paid.block_number = blocks.number
                               UNION ALL
                               SELECT pool_keys.token1                     as token,
+                                     key_hash,
                                      protocol_fees_paid.delta1            as delta,
                                      date_trunc('hour', blocks.timestamp) as hour
                               FROM protocol_fees_paid
@@ -401,21 +410,21 @@ export class DAO {
                                                   ON protocol_fees_paid.block_number = blocks.number)
 
         SELECT token,
+               key_hash,
                hour,
                SUM(delta) as delta
         FROM token_deltas
-        GROUP BY token, hour
-        ORDER BY token, hour
+        GROUP BY token, key_hash, hour
             );
 
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_tvl_delta_by_token_by_hour_token_hour ON tvl_delta_by_token_by_hour USING btree (hour, token);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tvl_delta_by_token_by_hour_by_key_hash_token_hour_key_hash ON tvl_delta_by_token_by_hour_by_key_hash USING btree (key_hash, hour, token);
     `);
   }
 
   public async refreshMaterializedViews() {
     await this.pg.query(`
-      REFRESH MATERIALIZED VIEW CONCURRENTLY volume_by_token_by_hour;
-      REFRESH MATERIALIZED VIEW CONCURRENTLY tvl_delta_by_token_by_hour;
+      REFRESH MATERIALIZED VIEW CONCURRENTLY volume_by_token_by_hour_by_key_hash;
+      REFRESH MATERIALIZED VIEW CONCURRENTLY tvl_delta_by_token_by_hour_by_key_hash;
     `);
   }
 
