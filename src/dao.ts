@@ -313,8 +313,8 @@ export class DAO {
                key_hash,
                (CASE WHEN delta0 >= 0 THEN token0 ELSE token1 END)       token,
                SUM(CASE WHEN delta0 >= 0 THEN delta0 ELSE delta1 END) AS volume,
-               SUM(((CASE WHEN delta0 >= 0 THEN delta0 ELSE delta1 END) * fee) /
-                   340282366920938463463374607431768211456)           as fees
+               SUM(FLOOR(((CASE WHEN delta0 >= 0 THEN delta0 ELSE delta1 END) * fee) /
+                         340282366920938463463374607431768211456))    as fees
         FROM swaps
                  JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
                  JOIN blocks ON swaps.block_number = blocks.number
