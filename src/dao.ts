@@ -306,6 +306,116 @@ export class DAO {
 
             PRIMARY KEY (block_number, transaction_index, event_index)
         );
+
+        CREATE MATERIALIZED VIEW IF NOT EXISTS volume_by_token_by_hour AS
+        (
+        SELECT date_trunc('hour', blocks.timestamp)                   AS hour,
+               (CASE WHEN delta0 >= 0 THEN token0 ELSE token1 END)       token,
+               SUM(CASE WHEN delta0 >= 0 THEN delta0 ELSE delta1 END) AS volume
+        FROM swaps
+                 JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
+                 JOIN blocks ON swaps.block_number = blocks.number
+        GROUP BY hour, token
+            );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_volume_by_token_by_hour_hour_token ON volume_by_token_by_hour USING btree (hour, token);
+
+        CREATE MATERIALIZED VIEW IF NOT EXISTS tvl_delta_by_token_by_hour AS
+        (
+        WITH token_deltas AS (SELECT token0                               as token,
+                                     position_updates.delta0              as delta,
+                                     date_trunc('hour', blocks.timestamp) as hour
+                              FROM position_updates
+                                       INNER JOIN
+                                   pool_keys
+                                   ON pool_keys.key_hash = position_updates.pool_key_hash
+                                       INNER JOIN blocks
+                                                  ON position_updates.block_number = blocks.number
+                              UNION ALL
+                              SELECT pool_keys.token1                     as token,
+                                     position_updates.delta1              as delta,
+                                     date_trunc('hour', blocks.timestamp) as hour
+                              FROM position_updates
+                                       INNER JOIN
+                                   pool_keys
+                                   ON pool_keys.key_hash = position_updates.pool_key_hash
+                                       INNER JOIN blocks
+                                                  ON position_updates.block_number = blocks.number
+                              UNION ALL
+                              SELECT pool_keys.token0                     as token,
+                                     swaps.delta0                         as delta,
+                                     date_trunc('hour', blocks.timestamp) as hour
+                              FROM swaps
+                                       INNER JOIN
+                                   pool_keys ON pool_keys.key_hash = swaps.pool_key_hash
+                                       INNER JOIN blocks
+                                                  ON swaps.block_number = blocks.number
+                              UNION ALL
+                              SELECT pool_keys.token1                     as token,
+                                     swaps.delta1                         as delta,
+                                     date_trunc('hour', blocks.timestamp) as hour
+                              FROM swaps
+                                       INNER JOIN
+                                   pool_keys ON pool_keys.key_hash = swaps.pool_key_hash
+                                       INNER JOIN blocks
+                                                  ON swaps.block_number = blocks.number
+                              UNION ALL
+                              SELECT pool_keys.token0                     as token,
+                                     position_fees_collected.delta0       as delta,
+                                     date_trunc('hour', blocks.timestamp) as hour
+                              FROM position_fees_collected
+                                       INNER JOIN
+                                   pool_keys
+                                   ON pool_keys.key_hash = position_fees_collected.pool_key_hash
+                                       INNER JOIN blocks
+                                                  ON position_fees_collected.block_number = blocks.number
+                              UNION ALL
+                              SELECT pool_keys.token1                     as token,
+                                     position_fees_collected.delta1       as delta,
+                                     date_trunc('hour', blocks.timestamp) as hour
+                              FROM position_fees_collected
+                                       INNER JOIN
+                                   pool_keys
+                                   ON pool_keys.key_hash = position_fees_collected.pool_key_hash
+                                       INNER JOIN blocks
+                                                  ON position_fees_collected.block_number = blocks.number
+                              UNION ALL
+                              SELECT pool_keys.token0                     as token,
+                                     protocol_fees_paid.delta0            as delta,
+                                     date_trunc('hour', blocks.timestamp) as hour
+                              FROM protocol_fees_paid
+                                       INNER JOIN
+                                   pool_keys
+                                   ON pool_keys.key_hash = protocol_fees_paid.pool_key_hash
+                                       INNER JOIN blocks
+                                                  ON protocol_fees_paid.block_number = blocks.number
+                              UNION ALL
+                              SELECT pool_keys.token1                     as token,
+                                     protocol_fees_paid.delta1            as delta,
+                                     date_trunc('hour', blocks.timestamp) as hour
+                              FROM protocol_fees_paid
+                                       INNER JOIN
+                                   pool_keys
+                                   ON pool_keys.key_hash = protocol_fees_paid.pool_key_hash
+                                       INNER JOIN blocks
+                                                  ON protocol_fees_paid.block_number = blocks.number)
+
+        SELECT token,
+               hour,
+               SUM(delta) as delta
+        FROM token_deltas
+        GROUP BY token, hour
+        ORDER BY token, hour
+            );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tvl_delta_by_token_by_hour_token_hour ON tvl_delta_by_token_by_hour USING btree (hour, token);
+    `);
+  }
+
+  public async refreshMaterializedViews() {
+    await this.pg.query(`
+      REFRESH MATERIALIZED VIEW CONCURRENTLY volume_by_token_by_hour;
+      REFRESH MATERIALIZED VIEW CONCURRENTLY tvl_delta_by_token_by_hour;
     `);
   }
 
@@ -314,7 +424,9 @@ export class DAO {
     uniqueKey: string;
   } | null> {
     const { rows } = await this.pg.query({
-      text: `SELECT order_key, unique_key FROM cursor WHERE id = 1;`,
+      text: `SELECT order_key, unique_key
+                   FROM cursor
+                   WHERE id = 1;`,
     });
     if (rows.length === 1) {
       const { order_key, unique_key } = rows[0];
@@ -331,10 +443,11 @@ export class DAO {
   public async writeCursor(cursor: { orderKey: string; uniqueKey: string }) {
     await this.pg.query({
       text: `
-          INSERT INTO cursor (id, order_key, unique_key)
-          VALUES (1, $1, $2)
-          ON CONFLICT (id) DO UPDATE SET order_key = $1, unique_key = $2;
-      `,
+                INSERT INTO cursor (id, order_key, unique_key)
+                VALUES (1, $1, $2)
+                ON CONFLICT (id) DO UPDATE SET order_key  = $1,
+                                               unique_key = $2;
+            `,
       values: [BigInt(cursor.orderKey), cursor.uniqueKey],
     });
   }
@@ -350,9 +463,9 @@ export class DAO {
   }) {
     await this.pg.query({
       text: `
-        INSERT INTO blocks (number, hash, timestamp)
-        VALUES ($1, $2, to_timestamp($3));
-      `,
+                INSERT INTO blocks (number, hash, timestamp)
+                VALUES ($1, $2, to_timestamp($3));
+            `,
       values: [number, hash, timestamp],
     });
   }
@@ -362,15 +475,15 @@ export class DAO {
 
     await this.pg.query({
       text: `
-        insert into pool_keys (
-          key_hash,
-          token0,
-          token1,
-          fee,
-          tick_spacing,
-          extension
-        ) values ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING;
-      `,
+                insert into pool_keys (key_hash,
+                                       token0,
+                                       token1,
+                                       fee,
+                                       tick_spacing,
+                                       extension)
+                values ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT DO NOTHING;
+            `,
       values: [
         key_hash,
         BigInt(pool_key.token0),
@@ -391,17 +504,17 @@ export class DAO {
 
     await this.pg.query({
       text: `
-          insert into position_minted
-          (block_number,
-           transaction_index,
-           event_index,
-           transaction_hash,
-           token_id,
-           lower_bound,
-           upper_bound,
-           pool_key_hash)
-          values ($1, $2, $3, $4, $5, $6, $7, $8);
-      `,
+                insert into position_minted
+                (block_number,
+                 transaction_index,
+                 event_index,
+                 transaction_hash,
+                 token_id,
+                 lower_bound,
+                 upper_bound,
+                 pool_key_hash)
+                values ($1, $2, $3, $4, $5, $6, $7, $8);
+            `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -421,20 +534,20 @@ export class DAO {
 
     await this.pg.query({
       text: `
-          insert into position_deposit
-          (block_number,
-           transaction_index,
-           event_index,
-           transaction_hash,
-           token_id,
-           lower_bound,
-           upper_bound,
-           pool_key_hash,
-           liquidity,
-           delta0,
-           delta1)
-          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
-      `,
+                insert into position_deposit
+                (block_number,
+                 transaction_index,
+                 event_index,
+                 transaction_hash,
+                 token_id,
+                 lower_bound,
+                 upper_bound,
+                 pool_key_hash,
+                 liquidity,
+                 delta0,
+                 delta1)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+            `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -451,27 +564,28 @@ export class DAO {
       ],
     });
   }
+
   public async insertPositionWithdraw(withdraw: WithdrawEvent, key: EventKey) {
     const pool_key_hash = await this.insertPoolKeyHash(withdraw.pool_key);
 
     await this.pg.query({
       text: `
-          insert into position_withdraw
-          (block_number,
-           transaction_index,
-           event_index,
-           transaction_hash,
-           token_id,
-           lower_bound,
-           upper_bound,
-           pool_key_hash, 
-           collect_fees,
-           liquidity,
-           delta0, 
-           delta1,
-           recipient)
-          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);
-      `,
+                insert into position_withdraw
+                (block_number,
+                 transaction_index,
+                 event_index,
+                 transaction_hash,
+                 token_id,
+                 lower_bound,
+                 upper_bound,
+                 pool_key_hash,
+                 collect_fees,
+                 liquidity,
+                 delta0,
+                 delta1,
+                 recipient)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);
+            `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -498,16 +612,16 @@ export class DAO {
     // The `*` operator is the PostgreSQL range intersection operator.
     await this.pg.query({
       text: `
-          INSERT INTO position_transfers
-          (block_number,
-           transaction_index,
-           event_index,
-           transaction_hash,
-           token_id,
-           from_address,
-           to_address)
-          values ($1, $2, $3, $4, $5, $6, $7)
-      `,
+                INSERT INTO position_transfers
+                (block_number,
+                 transaction_index,
+                 event_index,
+                 transaction_hash,
+                 token_id,
+                 from_address,
+                 to_address)
+                values ($1, $2, $3, $4, $5, $6, $7)
+            `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -528,21 +642,21 @@ export class DAO {
 
     await this.pg.query({
       text: `
-          INSERT INTO position_updates
-          (block_number,
-           transaction_index,
-           event_index,
-           transaction_hash,
-           locker,
-           pool_key_hash,
-           salt,
-           lower_bound,
-           upper_bound,
-           liquidity_delta,
-           delta0,
-           delta1)
-          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);
-      `,
+                INSERT INTO position_updates
+                (block_number,
+                 transaction_index,
+                 event_index,
+                 transaction_hash,
+                 locker,
+                 pool_key_hash,
+                 salt,
+                 lower_bound,
+                 upper_bound,
+                 liquidity_delta,
+                 delta0,
+                 delta1)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);
+            `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -572,20 +686,20 @@ export class DAO {
 
     await this.pg.query({
       text: `
-          INSERT INTO position_fees_collected
-          (block_number,
-           transaction_index,
-           event_index,
-           transaction_hash,
-           pool_key_hash,
-           owner,
-           salt,
-           lower_bound,
-           upper_bound,
-           delta0,
-           delta1)
-          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
-      `,
+                INSERT INTO position_fees_collected
+                (block_number,
+                 transaction_index,
+                 event_index,
+                 transaction_hash,
+                 pool_key_hash,
+                 owner,
+                 salt,
+                 lower_bound,
+                 upper_bound,
+                 delta0,
+                 delta1)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+            `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -613,17 +727,17 @@ export class DAO {
 
     await this.pg.query({
       text: `
-          INSERT INTO pool_initializations
-          (block_number,
-           transaction_index,
-           event_index,
-           transaction_hash,
-           pool_key_hash,
-           tick,
-           sqrt_ratio,
-           call_points)
-          values ($1, $2, $3, $4, $5, $6, $7, $8);
-      `,
+                INSERT INTO pool_initializations
+                (block_number,
+                 transaction_index,
+                 event_index,
+                 transaction_hash,
+                 pool_key_hash,
+                 tick,
+                 sqrt_ratio,
+                 call_points)
+                values ($1, $2, $3, $4, $5, $6, $7, $8);
+            `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -645,16 +759,16 @@ export class DAO {
   ) {
     await this.pg.query({
       text: `
-          INSERT INTO protocol_fees_withdrawn
-          (block_number,
-           transaction_index,
-           event_index,
-           transaction_hash,
-           recipient,
-           token,
-           amount)
-          values ($1, $2, $3, $4, $5, $6, $7);
-      `,
+                INSERT INTO protocol_fees_withdrawn
+                (block_number,
+                 transaction_index,
+                 event_index,
+                 transaction_hash,
+                 recipient,
+                 token,
+                 amount)
+                values ($1, $2, $3, $4, $5, $6, $7);
+            `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -673,24 +787,20 @@ export class DAO {
 
     await this.pg.query({
       text: `
-      INSERT INTO protocol_fees_paid 
-          (
-              block_number,
-              transaction_index,
-              event_index,
-              transaction_hash,
-
-        pool_key_hash,
-
-        owner,
-        salt,
-        lower_bound,
-        upper_bound,                                      
-
-        delta0,
-        delta1
-      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
-      `,
+                INSERT INTO protocol_fees_paid
+                (block_number,
+                 transaction_index,
+                 event_index,
+                 transaction_hash,
+                 pool_key_hash,
+                 owner,
+                 salt,
+                 lower_bound,
+                 upper_bound,
+                 delta0,
+                 delta1)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+            `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -715,20 +825,20 @@ export class DAO {
 
     await this.pg.query({
       text: `
-          INSERT INTO swaps
-          (block_number,
-           transaction_index,
-           event_index,
-           transaction_hash,
-           locker,
-           pool_key_hash,
-           delta0,
-           delta1,
-           sqrt_ratio_after,
-           tick_after,
-           liquidity_after)
-          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
-      `,
+                INSERT INTO swaps
+                (block_number,
+                 transaction_index,
+                 event_index,
+                 transaction_hash,
+                 locker,
+                 pool_key_hash,
+                 delta0,
+                 delta1,
+                 sqrt_ratio_after,
+                 tick_after,
+                 liquidity_after)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+            `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -752,9 +862,10 @@ export class DAO {
   ): Promise<void> {
     await this.pg.query({
       text: `
-        DELETE FROM blocks
-        WHERE number >= $1;
-      `,
+                DELETE
+                FROM blocks
+                WHERE number >= $1;
+            `,
       values: [invalidatedBlockNumber],
     });
   }

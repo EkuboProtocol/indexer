@@ -33,6 +33,7 @@ import {
 } from "./events/positions";
 import { parseTransferEvent, TransferEvent } from "./events/nft";
 import { Pool } from "pg";
+import { throttle } from "tadaaa";
 
 const pool = new Pool({
   connectionString: process.env.PG_CONNECTION_STRING,
@@ -210,6 +211,22 @@ export function parseLong(long: number | Long): bigint {
   return BigInt(typeof long === "number" ? long : long.toNumber());
 }
 
+const refreshMaterializedViews = throttle(
+  async function () {
+    logger.info("Refreshing materialized views", {
+      timestamp: new Date().toISOString(),
+    });
+    const client = await pool.connect();
+    const dao = new DAO(client);
+    await dao.refreshMaterializedViews();
+    client.release();
+    logger.info("Refreshed materialized views", {
+      timestamp: new Date().toISOString(),
+    });
+  },
+  { delay: 60_000, leading: true }
+);
+
 (async function () {
   // first set up the schema
   let databaseStartingCursor;
@@ -334,6 +351,8 @@ export function parseLong(long: number | Long): bigint {
               processTime: `${(processTimeNanos / 1_000_000n).toString()}ms`,
             });
           }
+
+          refreshMaterializedViews();
 
           client.release();
         }
