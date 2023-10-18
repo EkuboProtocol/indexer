@@ -213,7 +213,8 @@ export function parseLong(long: number | Long): bigint {
 
 const refreshMaterializedViews = throttle(
   async function () {
-    logger.info("Refreshing materialized views", {
+    const time = process.hrtime.bigint();
+    logger.debug("Refreshing materialized views", {
       timestamp: new Date().toISOString(),
     });
     const client = await pool.connect();
@@ -222,6 +223,7 @@ const refreshMaterializedViews = throttle(
     client.release();
     logger.info("Refreshed materialized views", {
       timestamp: new Date().toISOString(),
+      processTimeMs: `${(process.hrtime.bigint() - time) / 1_000_000n}ms`,
     });
   },
   { delay: 60_000, leading: true }
