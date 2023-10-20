@@ -10,8 +10,10 @@ import { EventKey, EventProcessor } from "./processor";
 import { logger } from "./logger";
 import { DAO } from "./dao";
 import {
+  FeesAccumulatedEvent,
   FeesPaidEvent,
   FeesWithdrawnEvent,
+  parseFeesAccumulatedEvent,
   parseFeesPaidEvent,
   parsePoolInitializedEvent,
   parsePositionFeesCollectedEvent,
@@ -198,6 +200,22 @@ const EVENT_PROCESSORS = [
     async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("ProtocolFeesPaid", { parsed, key });
       await dao.insertProtocolFeesPaid(parsed, key);
+    },
+  },
+  <EventProcessor<FeesAccumulatedEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
+      keys: [
+        // FeesAccumulated
+        FieldElement.fromBigInt(
+          0x0237e5e0677822acfc9117ed0f7ba4810b2c6b539a2359e8d73f9025d56957aan
+        ),
+      ],
+    },
+    parser: parseFeesAccumulatedEvent,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("FeesAccumulated", { parsed, key });
+      await dao.insertFeesAccumulatedEvent(parsed, key);
     },
   },
 ] as const;

@@ -96,3 +96,12 @@ export const parseFeesPaidEvent = combineParsers({
   delta: { index: 2, parser: parseDelta },
 });
 export type FeesPaidEvent = GetParserType<typeof parseFeesPaidEvent>;
+
+export const parseFeesAccumulatedEvent = combineParsers({
+  pool_key: { index: 0, parser: parsePoolKey },
+  amount0: { index: 1, parser: parseU128 },
+  amount1: { index: 2, parser: parseU128 },
+});
+export type FeesAccumulatedEvent = GetParserType<
+  typeof parseFeesAccumulatedEvent
+>;

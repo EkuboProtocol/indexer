@@ -2,6 +2,7 @@ import { Client, PoolClient } from "pg";
 import { pedersen_from_hex } from "pedersen-fast";
 import { EventKey } from "./processor";
 import {
+  FeesAccumulatedEvent,
   FeesPaidEvent,
   FeesWithdrawnEvent,
   PoolInitializationEvent,
@@ -267,6 +268,21 @@ export class DAO {
             PRIMARY KEY (block_number, transaction_index, event_index)
         );
 
+        CREATE TABLE IF NOT EXISTS fees_accumulated
+        (
+            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index INT4    NOT NULL,
+            event_index       INT4    NOT NULL,
+
+            transaction_hash  NUMERIC NOT NULL,
+
+            pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+
+            amount0           NUMERIC NOT NULL,
+            amount1           NUMERIC NOT NULL,
+
+            PRIMARY KEY (block_number, transaction_index, event_index)
+        );
 
         CREATE TABLE IF NOT EXISTS pool_initializations
         (
@@ -409,7 +425,29 @@ export class DAO {
                                    pool_keys
                                    ON pool_keys.key_hash = protocol_fees_paid.pool_key_hash
                                        INNER JOIN blocks
-                                                  ON protocol_fees_paid.block_number = blocks.number)
+                                                  ON protocol_fees_paid.block_number = blocks.number
+                              UNION ALL
+                              SELECT pool_keys.token0                     as token,
+                                     key_hash,
+                                     amount0                              as delta,
+                                     date_trunc('hour', blocks.timestamp) as hour
+                              FROM fees_accumulated
+                                       INNER JOIN
+                                   pool_keys
+                                   ON pool_keys.key_hash = fees_accumulated.pool_key_hash
+                                       INNER JOIN blocks
+                                                  ON fees_accumulated.block_number = blocks.number
+                              UNION ALL
+                              SELECT pool_keys.token1                     as token,
+                                     key_hash,
+                                     amount1                              as delta,
+                                     date_trunc('hour', blocks.timestamp) as hour
+                              FROM fees_accumulated
+                                       INNER JOIN
+                                   pool_keys
+                                   ON pool_keys.key_hash = fees_accumulated.pool_key_hash
+                                       INNER JOIN blocks
+                                                  ON fees_accumulated.block_number = blocks.number)
 
         SELECT token,
                key_hash,
@@ -827,6 +865,38 @@ export class DAO {
 
         event.delta.amount0,
         event.delta.amount1,
+      ],
+    });
+  }
+
+  public async insertFeesAccumulatedEvent(
+    event: FeesAccumulatedEvent,
+    key: EventKey
+  ) {
+    const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
+
+    await this.pg.query({
+      text: `
+                INSERT INTO fees_accumulated
+                (block_number,
+                 transaction_index,
+                 event_index,
+                 transaction_hash,
+                 pool_key_hash,
+                 amount0,
+                 amount1)
+                values ($1, $2, $3, $4, $5, $6, $7);
+            `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+
+        pool_key_hash,
+
+        event.amount0,
+        event.amount1,
       ],
     });
   }
