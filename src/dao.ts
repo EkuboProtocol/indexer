@@ -86,7 +86,6 @@ export class DAO {
         CREATE INDEX IF NOT EXISTS idx_blocks_timestamp ON blocks USING btree (timestamp);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_blocks_hash ON blocks USING btree (hash);
 
-
         CREATE TABLE IF NOT EXISTS pool_keys
         (
             key_hash     NUMERIC NOT NULL PRIMARY KEY,
@@ -98,6 +97,7 @@ export class DAO {
         );
         CREATE INDEX IF NOT EXISTS idx_pool_keys_token0 ON pool_keys USING btree (token0);
         CREATE INDEX IF NOT EXISTS idx_pool_keys_token1 ON pool_keys USING btree (token1);
+        CREATE INDEX IF NOT EXISTS idx_pool_keys_token0_token1 ON pool_keys USING btree (token0, token1);
         CREATE INDEX IF NOT EXISTS idx_pool_keys_extension ON pool_keys USING btree (extension);
 
         CREATE TABLE IF NOT EXISTS position_minted
@@ -209,6 +209,7 @@ export class DAO {
 
             PRIMARY KEY (block_number, transaction_index, event_index)
         );
+        CREATE INDEX IF NOT EXISTS idx_position_updates_pool_key_hash ON position_updates (pool_key_hash);
 
         CREATE TABLE IF NOT EXISTS position_fees_collected
         (
@@ -230,6 +231,7 @@ export class DAO {
 
             PRIMARY KEY (block_number, transaction_index, event_index)
         );
+        CREATE INDEX IF NOT EXISTS idx_position_fees_collected_pool_key_hash ON position_fees_collected (pool_key_hash);
 
         CREATE TABLE IF NOT EXISTS protocol_fees_withdrawn
         (
@@ -267,6 +269,7 @@ export class DAO {
 
             PRIMARY KEY (block_number, transaction_index, event_index)
         );
+        CREATE INDEX IF NOT EXISTS idx_protocol_fees_paid_pool_key_hash ON protocol_fees_paid (pool_key_hash);
 
         CREATE TABLE IF NOT EXISTS fees_accumulated
         (
@@ -283,6 +286,7 @@ export class DAO {
 
             PRIMARY KEY (block_number, transaction_index, event_index)
         );
+        CREATE INDEX IF NOT EXISTS idx_fees_accumulated_pool_key_hash ON fees_accumulated (pool_key_hash);
 
         CREATE TABLE IF NOT EXISTS pool_initializations
         (
@@ -300,6 +304,7 @@ export class DAO {
 
             PRIMARY KEY (block_number, transaction_index, event_index)
         );
+        CREATE INDEX IF NOT EXISTS idx_pool_initializations_pool_key_hash ON pool_initializations (pool_key_hash);
 
 
         CREATE TABLE IF NOT EXISTS swaps
@@ -322,6 +327,7 @@ export class DAO {
 
             PRIMARY KEY (block_number, transaction_index, event_index)
         );
+        CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash ON swaps (pool_key_hash);
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS volume_by_token_by_hour_by_key_hash AS
         (
@@ -458,6 +464,34 @@ export class DAO {
             );
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_tvl_delta_by_token_by_hour_by_key_hash_token_hour_key_hash ON tvl_delta_by_token_by_hour_by_key_hash USING btree (key_hash, hour, token);
+
+        CREATE MATERIALIZED VIEW IF NOT EXISTS pool_prices_by_block AS
+        (
+        WITH pool_state_updates AS (SELECT block_number,
+                                           transaction_index,
+                                           event_index,
+                                           pool_key_hash,
+                                           sqrt_ratio,
+                                           tick
+                                    FROM pool_initializations
+                                    UNION ALL
+                                    SELECT block_number,
+                                           transaction_index,
+                                           event_index,
+                                           pool_key_hash,
+                                           sqrt_ratio_after AS sqrt_ratio,
+                                           tick_after       AS tick
+                                    FROM swaps)
+        SELECT DISTINCT ON (pool_key_hash, block_number) pool_key_hash,
+                                                         block_number,
+                                                         LAST_VALUE(sqrt_ratio)
+                                                         OVER (PARTITION BY pool_key_hash, block_number ORDER BY block_number, transaction_index, event_index ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) as sqrt_ratio,
+                                                         LAST_VALUE(tick)
+                                                         over (PARTITION BY pool_key_hash, block_number ORDER BY block_number, transaction_index, event_index ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) as tick
+        FROM pool_state_updates
+            );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_prices_by_block_by_pool_key_hash_block_number ON pool_prices_by_block USING btree (pool_key_hash, block_number);
     `);
   }
 
@@ -465,6 +499,7 @@ export class DAO {
     await this.pg.query(`
       REFRESH MATERIALIZED VIEW CONCURRENTLY volume_by_token_by_hour_by_key_hash;
       REFRESH MATERIALIZED VIEW CONCURRENTLY tvl_delta_by_token_by_hour_by_key_hash;
+      REFRESH MATERIALIZED VIEW CONCURRENTLY pool_prices_by_block;
     `);
   }
 

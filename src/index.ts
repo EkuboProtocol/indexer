@@ -244,7 +244,14 @@ const refreshMaterializedViews = throttle(
       processTimeMs: `${(process.hrtime.bigint() - time) / 1_000_000n}ms`,
     });
   },
-  { delay: 60_000, leading: true }
+  {
+    delay: 15_000,
+    leading: true,
+    async onError() {
+      await pool.end();
+      process.exit(1);
+    },
+  }
 );
 
 (async function () {
