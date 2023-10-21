@@ -466,34 +466,6 @@ export class DAO {
             );
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_tvl_delta_by_token_by_hour_by_key_hash_token_hour_key_hash ON tvl_delta_by_token_by_hour_by_key_hash USING btree (key_hash, hour, token);
-
-        CREATE MATERIALIZED VIEW IF NOT EXISTS pool_prices_by_block AS
-        (
-        WITH pool_state_updates AS (SELECT block_number,
-                                           transaction_index,
-                                           event_index,
-                                           pool_key_hash,
-                                           sqrt_ratio,
-                                           tick
-                                    FROM pool_initializations
-                                    UNION ALL
-                                    SELECT block_number,
-                                           transaction_index,
-                                           event_index,
-                                           pool_key_hash,
-                                           sqrt_ratio_after AS sqrt_ratio,
-                                           tick_after       AS tick
-                                    FROM swaps)
-        SELECT DISTINCT ON (pool_key_hash, block_number) pool_key_hash,
-                                                         block_number,
-                                                         LAST_VALUE(sqrt_ratio)
-                                                         OVER (PARTITION BY pool_key_hash, block_number ORDER BY block_number, transaction_index, event_index ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) as sqrt_ratio,
-                                                         LAST_VALUE(tick)
-                                                         over (PARTITION BY pool_key_hash, block_number ORDER BY block_number, transaction_index, event_index ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) as tick
-        FROM pool_state_updates
-            );
-
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_prices_by_block_by_pool_key_hash_block_number ON pool_prices_by_block USING btree (pool_key_hash, block_number);
     `);
   }
 
@@ -501,7 +473,6 @@ export class DAO {
     await this.pg.query(`
       REFRESH MATERIALIZED VIEW CONCURRENTLY volume_by_token_by_hour_by_key_hash;
       REFRESH MATERIALIZED VIEW CONCURRENTLY tvl_delta_by_token_by_hour_by_key_hash;
-      REFRESH MATERIALIZED VIEW CONCURRENTLY pool_prices_by_block;
     `);
   }
 
