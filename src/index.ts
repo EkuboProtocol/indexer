@@ -245,7 +245,7 @@ const refreshMaterializedViews = throttle(
     });
   },
   {
-    delay: 15_000,
+    delay: parseInt(process.env.REFRESH_RATE_MATERIALIZED_VIEWS ?? "60000"),
     leading: true,
     async onError() {
       await pool.end();
