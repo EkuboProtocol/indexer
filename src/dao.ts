@@ -210,7 +210,7 @@ export class DAO {
             PRIMARY KEY (block_number, transaction_index, event_index)
         );
         CREATE INDEX IF NOT EXISTS idx_position_updates_pool_key_hash ON position_updates (pool_key_hash);
-        CREATE INDEX IF NOT EXISTS idx_position_updates_pool_key_hash_sorted_events ON position_updates USING btree (pool_key_hash, block_number, event_index, transaction_index);
+        CREATE INDEX IF NOT EXISTS idx_position_updates_pool_key_hash_sorted_events ON position_updates USING btree (pool_key_hash, block_number, transaction_index, event_index);
 
         CREATE TABLE IF NOT EXISTS position_fees_collected
         (
@@ -329,7 +329,7 @@ export class DAO {
             PRIMARY KEY (block_number, transaction_index, event_index)
         );
         CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash ON swaps (pool_key_hash);
-        CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_sorted_events ON swaps USING btree (pool_key_hash, block_number, event_index, transaction_index);
+        CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_sorted_events ON swaps USING btree (pool_key_hash, block_number, transaction_index, event_index);
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS volume_by_token_by_hour_by_key_hash AS
         (
