@@ -79,7 +79,7 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS blocks
         (
-            number    INT8      NOT NULL PRIMARY KEY,
+            number    int8      NOT NULL PRIMARY KEY,
             hash      NUMERIC   NOT NULL,
             timestamp TIMESTAMP NOT NULL
         );
@@ -102,15 +102,15 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS position_minted
         (
-            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index INT4    NOT NULL,
-            event_index       INT4    NOT NULL,
+            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index int4    NOT NULL,
+            event_index       int4    NOT NULL,
 
             transaction_hash  NUMERIC NOT NULL,
 
-            token_id          INT8    NOT NULL,
-            lower_bound       INT4    NOT NULL,
-            upper_bound       INT4    NOT NULL,
+            token_id          int8    NOT NULL,
+            lower_bound       int4    NOT NULL,
+            upper_bound       int4    NOT NULL,
 
             pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
@@ -121,15 +121,15 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS position_deposit
         (
-            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index INT4    NOT NULL,
-            event_index       INT4    NOT NULL,
+            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index int4    NOT NULL,
+            event_index       int4    NOT NULL,
 
             transaction_hash  NUMERIC NOT NULL,
 
-            token_id          INT8    NOT NULL,
-            lower_bound       INT4    NOT NULL,
-            upper_bound       INT4    NOT NULL,
+            token_id          int8    NOT NULL,
+            lower_bound       int4    NOT NULL,
+            upper_bound       int4    NOT NULL,
 
             pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
@@ -144,19 +144,19 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS position_withdraw
         (
-            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index INT4    NOT NULL,
-            event_index       INT4    NOT NULL,
+            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index int4    NOT NULL,
+            event_index       int4    NOT NULL,
 
             transaction_hash  NUMERIC NOT NULL,
 
-            token_id          INT8    NOT NULL,
-            lower_bound       INT4    NOT NULL,
-            upper_bound       INT4    NOT NULL,
+            token_id          int8    NOT NULL,
+            lower_bound       int4    NOT NULL,
+            upper_bound       int4    NOT NULL,
 
             pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-            collect_fees      BOOL    NOT NULL,
+            collect_fees      bool    NOT NULL,
 
             liquidity         NUMERIC NOT NULL,
             delta0            NUMERIC NOT NULL,
@@ -171,13 +171,13 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS position_transfers
         (
-            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index INT4    NOT NULL,
-            event_index       INT4    NOT NULL,
+            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index int4    NOT NULL,
+            event_index       int4    NOT NULL,
 
             transaction_hash  NUMERIC NOT NULL,
 
-            token_id          INT8    NOT NULL,
+            token_id          int8    NOT NULL,
             from_address      NUMERIC NOT NULL,
             to_address        NUMERIC NOT NULL,
 
@@ -189,9 +189,9 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS position_updates
         (
-            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index INT4    NOT NULL,
-            event_index       INT4    NOT NULL,
+            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index int4    NOT NULL,
+            event_index       int4    NOT NULL,
 
             transaction_hash  NUMERIC NOT NULL,
 
@@ -200,8 +200,8 @@ export class DAO {
             pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
             salt              NUMERIC NOT NULL,
-            lower_bound       INT4    NOT NULL,
-            upper_bound       INT4    NOT NULL,
+            lower_bound       int4    NOT NULL,
+            upper_bound       int4    NOT NULL,
 
             liquidity_delta   NUMERIC NOT NULL,
             delta0            NUMERIC NOT NULL,
@@ -214,9 +214,9 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS position_fees_collected
         (
-            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index INT4    NOT NULL,
-            event_index       INT4    NOT NULL,
+            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index int4    NOT NULL,
+            event_index       int4    NOT NULL,
 
             transaction_hash  NUMERIC NOT NULL,
 
@@ -224,8 +224,8 @@ export class DAO {
 
             owner             NUMERIC NOT NULL,
             salt              NUMERIC NOT NULL,
-            lower_bound       INT4    NOT NULL,
-            upper_bound       INT4    NOT NULL,
+            lower_bound       int4    NOT NULL,
+            upper_bound       int4    NOT NULL,
 
             delta0            NUMERIC NOT NULL,
             delta1            NUMERIC NOT NULL,
@@ -236,9 +236,9 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS protocol_fees_withdrawn
         (
-            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index INT4    NOT NULL,
-            event_index       INT4    NOT NULL,
+            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index int4    NOT NULL,
+            event_index       int4    NOT NULL,
 
             transaction_hash  NUMERIC NOT NULL,
 
@@ -252,9 +252,9 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS protocol_fees_paid
         (
-            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index INT4    NOT NULL,
-            event_index       INT4    NOT NULL,
+            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index int4    NOT NULL,
+            event_index       int4    NOT NULL,
 
             transaction_hash  NUMERIC NOT NULL,
 
@@ -262,8 +262,8 @@ export class DAO {
 
             owner             NUMERIC NOT NULL,
             salt              NUMERIC NOT NULL,
-            lower_bound       INT4    NOT NULL,
-            upper_bound       INT4    NOT NULL,
+            lower_bound       int4    NOT NULL,
+            upper_bound       int4    NOT NULL,
 
             delta0            NUMERIC NOT NULL,
             delta1            NUMERIC NOT NULL,
@@ -274,9 +274,9 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS fees_accumulated
         (
-            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index INT4    NOT NULL,
-            event_index       INT4    NOT NULL,
+            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index int4    NOT NULL,
+            event_index       int4    NOT NULL,
 
             transaction_hash  NUMERIC NOT NULL,
 
@@ -291,15 +291,15 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS pool_initializations
         (
-            block_number      INT8     NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index INT4     NOT NULL,
-            event_index       INT4     NOT NULL,
+            block_number      int8     NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index int4     NOT NULL,
+            event_index       int4     NOT NULL,
 
             transaction_hash  NUMERIC  NOT NULL,
 
             pool_key_hash     NUMERIC  NOT NULL REFERENCES pool_keys (key_hash),
 
-            tick              INT4     NOT NULL,
+            tick              int4     NOT NULL,
             sqrt_ratio        NUMERIC  NOT NULL,
             call_points       SMALLINT NOT NULL,
 
@@ -310,9 +310,9 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS swaps
         (
-            block_number      INT8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index INT4    NOT NULL,
-            event_index       INT4    NOT NULL,
+            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index int4    NOT NULL,
+            event_index       int4    NOT NULL,
 
             transaction_hash  NUMERIC NOT NULL,
 
@@ -323,7 +323,7 @@ export class DAO {
             delta1            NUMERIC NOT NULL,
 
             sqrt_ratio_after  NUMERIC NOT NULL,
-            tick_after        INT4    NOT NULL,
+            tick_after        int4    NOT NULL,
             liquidity_after   NUMERIC NOT NULL,
 
             PRIMARY KEY (block_number, transaction_index, event_index)
@@ -333,12 +333,12 @@ export class DAO {
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS volume_by_token_by_hour_by_key_hash AS
         (
-        SELECT date_trunc('hour', blocks.timestamp)                   AS hour,
+        SELECT DATE_TRUNC('hour', blocks.timestamp)                   AS hour,
                key_hash,
                (CASE WHEN delta0 >= 0 THEN token0 ELSE token1 END)       token,
                SUM(CASE WHEN delta0 >= 0 THEN delta0 ELSE delta1 END) AS volume,
                SUM(FLOOR(((CASE WHEN delta0 >= 0 THEN delta0 ELSE delta1 END) * fee) /
-                         340282366920938463463374607431768211456))    as fees
+                         340282366920938463463374607431768211456))    AS fees
         FROM swaps
                  JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
                  JOIN blocks ON swaps.block_number = blocks.number
@@ -349,10 +349,10 @@ export class DAO {
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS tvl_delta_by_token_by_hour_by_key_hash AS
         (
-        WITH token_deltas AS (SELECT token0                               as token,
+        WITH token_deltas AS (SELECT token0                               AS token,
                                      key_hash,
-                                     position_updates.delta0              as delta,
-                                     date_trunc('hour', blocks.timestamp) as hour
+                                     position_updates.delta0              AS delta,
+                                     DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM position_updates
                                        INNER JOIN
                                    pool_keys
@@ -360,10 +360,10 @@ export class DAO {
                                        INNER JOIN blocks
                                                   ON position_updates.block_number = blocks.number
                               UNION ALL
-                              SELECT pool_keys.token1                     as token,
+                              SELECT pool_keys.token1                     AS token,
                                      key_hash,
-                                     position_updates.delta1              as delta,
-                                     date_trunc('hour', blocks.timestamp) as hour
+                                     position_updates.delta1              AS delta,
+                                     DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM position_updates
                                        INNER JOIN
                                    pool_keys
@@ -371,30 +371,30 @@ export class DAO {
                                        INNER JOIN blocks
                                                   ON position_updates.block_number = blocks.number
                               UNION ALL
-                              SELECT pool_keys.token0                     as token,
+                              SELECT pool_keys.token0                     AS token,
                                      key_hash,
-                                     swaps.delta0                         as delta,
-                                     date_trunc('hour', blocks.timestamp) as hour
+                                     swaps.delta0                         AS delta,
+                                     DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM swaps
                                        INNER JOIN
                                    pool_keys ON pool_keys.key_hash = swaps.pool_key_hash
                                        INNER JOIN blocks
                                                   ON swaps.block_number = blocks.number
                               UNION ALL
-                              SELECT pool_keys.token1                     as token,
+                              SELECT pool_keys.token1                     AS token,
                                      key_hash,
-                                     swaps.delta1                         as delta,
-                                     date_trunc('hour', blocks.timestamp) as hour
+                                     swaps.delta1                         AS delta,
+                                     DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM swaps
                                        INNER JOIN
                                    pool_keys ON pool_keys.key_hash = swaps.pool_key_hash
                                        INNER JOIN blocks
                                                   ON swaps.block_number = blocks.number
                               UNION ALL
-                              SELECT pool_keys.token0                     as token,
+                              SELECT pool_keys.token0                     AS token,
                                      key_hash,
-                                     position_fees_collected.delta0       as delta,
-                                     date_trunc('hour', blocks.timestamp) as hour
+                                     position_fees_collected.delta0       AS delta,
+                                     DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM position_fees_collected
                                        INNER JOIN
                                    pool_keys
@@ -402,10 +402,10 @@ export class DAO {
                                        INNER JOIN blocks
                                                   ON position_fees_collected.block_number = blocks.number
                               UNION ALL
-                              SELECT pool_keys.token1                     as token,
+                              SELECT pool_keys.token1                     AS token,
                                      key_hash,
-                                     position_fees_collected.delta1       as delta,
-                                     date_trunc('hour', blocks.timestamp) as hour
+                                     position_fees_collected.delta1       AS delta,
+                                     DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM position_fees_collected
                                        INNER JOIN
                                    pool_keys
@@ -413,10 +413,10 @@ export class DAO {
                                        INNER JOIN blocks
                                                   ON position_fees_collected.block_number = blocks.number
                               UNION ALL
-                              SELECT pool_keys.token0                     as token,
+                              SELECT pool_keys.token0                     AS token,
                                      key_hash,
-                                     protocol_fees_paid.delta0            as delta,
-                                     date_trunc('hour', blocks.timestamp) as hour
+                                     protocol_fees_paid.delta0            AS delta,
+                                     DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM protocol_fees_paid
                                        INNER JOIN
                                    pool_keys
@@ -424,10 +424,10 @@ export class DAO {
                                        INNER JOIN blocks
                                                   ON protocol_fees_paid.block_number = blocks.number
                               UNION ALL
-                              SELECT pool_keys.token1                     as token,
+                              SELECT pool_keys.token1                     AS token,
                                      key_hash,
-                                     protocol_fees_paid.delta1            as delta,
-                                     date_trunc('hour', blocks.timestamp) as hour
+                                     protocol_fees_paid.delta1            AS delta,
+                                     DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM protocol_fees_paid
                                        INNER JOIN
                                    pool_keys
@@ -435,10 +435,10 @@ export class DAO {
                                        INNER JOIN blocks
                                                   ON protocol_fees_paid.block_number = blocks.number
                               UNION ALL
-                              SELECT pool_keys.token0                     as token,
+                              SELECT pool_keys.token0                     AS token,
                                      key_hash,
-                                     amount0                              as delta,
-                                     date_trunc('hour', blocks.timestamp) as hour
+                                     amount0                              AS delta,
+                                     DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM fees_accumulated
                                        INNER JOIN
                                    pool_keys
@@ -446,10 +446,10 @@ export class DAO {
                                        INNER JOIN blocks
                                                   ON fees_accumulated.block_number = blocks.number
                               UNION ALL
-                              SELECT pool_keys.token1                     as token,
+                              SELECT pool_keys.token1                     AS token,
                                      key_hash,
-                                     amount1                              as delta,
-                                     date_trunc('hour', blocks.timestamp) as hour
+                                     amount1                              AS delta,
+                                     DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM fees_accumulated
                                        INNER JOIN
                                    pool_keys
@@ -460,12 +460,73 @@ export class DAO {
         SELECT token,
                key_hash,
                hour,
-               SUM(delta) as delta
+               SUM(delta) AS delta
         FROM token_deltas
         GROUP BY token, key_hash, hour
             );
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_tvl_delta_by_token_by_hour_by_key_hash_token_hour_key_hash ON tvl_delta_by_token_by_hour_by_key_hash USING btree (key_hash, hour, token);
+
+        CREATE OR REPLACE VIEW pool_states AS
+        (
+        WITH lss AS (SELECT key_hash,
+                            (SELECT block_number
+                             FROM swaps
+                             WHERE key_hash = swaps.pool_key_hash
+                             ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                             LIMIT 1)                      AS block_number,
+                            (SELECT transaction_index
+                             FROM swaps
+                             WHERE key_hash = swaps.pool_key_hash
+                             ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                             LIMIT 1)                      AS transaction_index,
+                            (SELECT event_index
+                             FROM swaps
+                             WHERE key_hash = swaps.pool_key_hash
+                             ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                             LIMIT 1)                      AS event_index,
+                            COALESCE((SELECT sqrt_ratio_after
+                                      FROM swaps
+                                      WHERE key_hash = swaps.pool_key_hash
+                                      ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                                      LIMIT 1), (SELECT sqrt_ratio
+                                                 FROM pool_initializations
+                                                 WHERE key_hash = pool_initializations.pool_key_hash
+                                                 LIMIT 1)) AS sqrt_ratio,
+                            COALESCE((SELECT tick_after
+                                      FROM swaps
+                                      WHERE key_hash = swaps.pool_key_hash
+                                      ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                                      LIMIT 1), (SELECT tick
+                                                 FROM pool_initializations
+                                                 WHERE key_hash = pool_initializations.pool_key_hash
+                                                 LIMIT 1)) AS tick,
+                            COALESCE((SELECT liquidity_after
+                                      FROM swaps
+                                      WHERE key_hash = swaps.pool_key_hash
+                                      ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                                      LIMIT 1), 0)         AS liquidity_last
+                     FROM pool_keys),
+             pl AS (SELECT key_hash,
+                           (COALESCE(liquidity_last, 0) + COALESCE((SELECT SUM(liquidity_delta)
+                                                                    FROM position_updates AS pu
+                                                                    WHERE pu.pool_key_hash =
+                                                                          lss.key_hash
+                                                                      AND lss.tick BETWEEN pu.lower_bound AND (pu.upper_bound - 1)
+                                                                      AND (lss.block_number,
+                                                                           lss.transaction_index,
+                                                                           lss.event_index) <
+                                                                          (pu.block_number,
+                                                                           pu.transaction_index,
+                                                                           pu.event_index)), 0)) AS liquidity
+                    FROM lss)
+        SELECT lss.key_hash AS pool_key_hash,
+               sqrt_ratio,
+               tick,
+               liquidity
+        FROM lss
+                 JOIN pl ON lss.key_hash = pl.key_hash
+            );
     `);
   }
 
