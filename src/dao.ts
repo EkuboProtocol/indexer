@@ -467,7 +467,7 @@ export class DAO {
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_tvl_delta_by_token_by_hour_by_key_hash_token_hour_key_hash ON tvl_delta_by_token_by_hour_by_key_hash USING btree (key_hash, hour, token);
 
-        CREATE MATERIALIZED VIEW IF NOT EXISTS per_pool_per_tick_liquidity AS
+        CREATE OR REPLACE VIEW per_pool_per_tick_liquidity_view AS
         (
         WITH all_tick_deltas AS (SELECT pool_key_hash,
                                         lower_bound AS       tick,
@@ -489,6 +489,11 @@ export class DAO {
         FROM summed
         WHERE net_liquidity_delta_diff != 0
         ORDER BY tick);
+
+        CREATE MATERIALIZED VIEW IF NOT EXISTS per_pool_per_tick_liquidity AS
+        (
+        SELECT pool_key_hash, tick, net_liquidity_delta_diff
+        FROM per_pool_per_tick_liquidity_view);
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_per_pool_per_tick_liquidity_pool_key_hash_tick ON per_pool_per_tick_liquidity USING btree (pool_key_hash, tick);
 

@@ -229,7 +229,7 @@ export function parseLong(long: number | Long): bigint {
   return BigInt(typeof long === "number" ? long : long.toNumber());
 }
 
-const refreshMaterializedViews = throttle(
+const throttledRefreshMaterializedViews = throttle(
   async function () {
     const time = process.hrtime.bigint();
     logger.debug("Refreshing materialized views", {
@@ -379,9 +379,9 @@ const refreshMaterializedViews = throttle(
             });
           }
 
-          refreshMaterializedViews();
-
           client.release();
+
+          throttledRefreshMaterializedViews();
         }
 
         break;
