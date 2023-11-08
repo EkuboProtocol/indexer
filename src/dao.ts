@@ -564,7 +564,12 @@ export class DAO {
     await this.pg.query(`
       REFRESH MATERIALIZED VIEW CONCURRENTLY volume_by_token_by_hour_by_key_hash;
       REFRESH MATERIALIZED VIEW CONCURRENTLY tvl_delta_by_token_by_hour_by_key_hash;
-      REFRESH MATERIALIZED VIEW CONCURRENTLY per_pool_per_tick_liquidity;
+    `);
+  }
+
+  public async refreshOperationalMaterializedView() {
+    await this.pg.query(`
+            REFRESH MATERIALIZED VIEW CONCURRENTLY per_pool_per_tick_liquidity;
     `);
   }
 

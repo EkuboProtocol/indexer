@@ -229,6 +229,8 @@ export function parseLong(long: number | Long): bigint {
   return BigInt(typeof long === "number" ? long : long.toNumber());
 }
 
+const DEFAULT_REFRESH_INTERVAL_MS = 600_000;
+
 const throttledRefreshMaterializedViews = throttle(
   async function () {
     const time = process.hrtime.bigint();
@@ -245,7 +247,10 @@ const throttledRefreshMaterializedViews = throttle(
     });
   },
   {
-    delay: parseInt(process.env.REFRESH_RATE_MATERIALIZED_VIEWS ?? "60000"),
+    delay: parseInt(
+      process.env.REFRESH_RATE_MATERIALIZED_VIEWS ??
+        DEFAULT_REFRESH_INTERVAL_MS.toString()
+    ),
     leading: true,
     async onError() {
       await pool.end();
@@ -302,24 +307,30 @@ const throttledRefreshMaterializedViews = throttle(
           const client = await pool.connect();
           const dao = new DAO(client);
 
+          await dao.beginTransaction();
+
+          let isPending: boolean = false;
+
           for (const item of message.data.data) {
-            const decoded = starknet.Block.decode(item);
+            const block = starknet.Block.decode(item);
 
-            const blockNumber = parseLong(decoded.header.blockNumber);
+            const blockNumber = parseLong(block.header.blockNumber);
 
-            const events = decoded.events;
+            // for pending blocks we update operational materialized views before we commit
+            isPending =
+              isPending || FieldElement.toBigInt(block.header.blockHash) === 0n;
 
-            await dao.beginTransaction();
+            const events = block.events;
 
             await dao.invalidateBlockNumber(blockNumber);
 
             const blockTimestampSeconds = parseLong(
-              decoded.header.timestamp.seconds
+              block.header.timestamp.seconds
             );
             await dao.insertBlock({
-              hash: FieldElement.toBigInt(decoded.header.blockHash),
+              hash: FieldElement.toBigInt(block.header.blockHash),
               timestamp: blockTimestampSeconds,
-              number: parseLong(decoded.header.blockNumber),
+              number: parseLong(block.header.blockNumber),
             });
 
             for (
@@ -360,17 +371,26 @@ const throttledRefreshMaterializedViews = throttle(
                   }
                 })
               );
+
+              logger.debug("Processed item", {
+                blockNumber,
+              });
             }
 
             await dao.writeCursor(Cursor.toObject(message.data.cursor));
+
+            // refresh operational views at the end of the batch
+            if (isPending) await dao.refreshOperationalMaterializedView();
+
             await dao.commitTransaction();
 
             const blockTimestampDate = new Date(
               Number(blockTimestampSeconds * 1000n)
             );
             const processTimeNanos = process.hrtime.bigint() - start;
-            logger.info(`Processed block`, {
+            logger.info(`Processed to block`, {
               blockNumber,
+              isPending,
               blockTimestamp: blockTimestampDate,
               lagMilliseconds: Math.floor(
                 Date.now() - Number(blockTimestampSeconds * 1000n)
