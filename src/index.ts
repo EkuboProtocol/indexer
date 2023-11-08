@@ -311,18 +311,19 @@ const throttledRefreshMaterializedViews = throttle(
 
           let isPending: boolean = false;
 
-          for (const item of message.data.data) {
-            const block = starknet.Block.decode(item);
+          let deletedCount: number = 0;
+
+          for (const encodedBlockData of message.data.data) {
+            const block = starknet.Block.decode(encodedBlockData);
 
             const blockNumber = parseLong(block.header.blockNumber);
+            deletedCount += await dao.deleteOldBlockNumbers(blockNumber);
 
             // for pending blocks we update operational materialized views before we commit
             isPending =
               isPending || FieldElement.toBigInt(block.header.blockHash) === 0n;
 
             const events = block.events;
-
-            await dao.invalidateBlockNumber(blockNumber);
 
             const blockTimestampSeconds = parseLong(
               block.header.timestamp.seconds
@@ -380,7 +381,9 @@ const throttledRefreshMaterializedViews = throttle(
             await dao.writeCursor(Cursor.toObject(message.data.cursor));
 
             // refresh operational views at the end of the batch
-            if (isPending) await dao.refreshOperationalMaterializedView();
+            if (isPending || deletedCount > 0) {
+              await dao.refreshOperationalMaterializedView();
+            }
 
             await dao.commitTransaction();
 
@@ -423,7 +426,7 @@ const throttledRefreshMaterializedViews = throttle(
         const dao = new DAO(client);
 
         await dao.beginTransaction();
-        await dao.invalidateBlockNumber(
+        await dao.deleteOldBlockNumbers(
           BigInt(invalidatedCursor.orderKey) + 1n
         );
         await dao.writeCursor(Cursor.toObject(message.invalidate.cursor));

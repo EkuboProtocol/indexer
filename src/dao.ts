@@ -62,7 +62,7 @@ export class DAO {
     const cursor = await this.loadCursor();
     // we need to clear anything that was potentially inserted as pending before starting
     if (cursor) {
-      await this.invalidateBlockNumber(BigInt(cursor.orderKey) + 1n);
+      await this.deleteOldBlockNumbers(BigInt(cursor.orderKey) + 1n);
     }
     await this.commitTransaction();
     return cursor;
@@ -1043,10 +1043,8 @@ export class DAO {
     });
   }
 
-  private async deleteOldBlockNumbers(
-    invalidatedBlockNumber: bigint
-  ): Promise<void> {
-    await this.pg.query({
+  public async deleteOldBlockNumbers(invalidatedBlockNumber: bigint) {
+    const { rowCount } = await this.pg.query({
       text: `
                 DELETE
                 FROM blocks
@@ -1054,9 +1052,6 @@ export class DAO {
             `,
       values: [invalidatedBlockNumber],
     });
-  }
-
-  public async invalidateBlockNumber(invalidatedBlockNumber: bigint) {
-    await this.deleteOldBlockNumbers(invalidatedBlockNumber);
+    return rowCount;
   }
 }
