@@ -538,6 +538,21 @@ export class DAO {
                                       LIMIT 1), 0)         AS liquidity_last
                      FROM pool_keys),
              pl AS (SELECT key_hash,
+                           (SELECT block_number
+                            FROM position_updates
+                            WHERE key_hash = position_updates.pool_key_hash
+                            ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                            LIMIT 1)                                                             AS block_number,
+                           (SELECT transaction_index
+                            FROM position_updates
+                            WHERE key_hash = position_updates.pool_key_hash
+                            ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                            LIMIT 1)                                                             AS transaction_index,
+                           (SELECT event_index
+                            FROM position_updates
+                            WHERE key_hash = position_updates.pool_key_hash
+                            ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                            LIMIT 1)                                                             AS event_index,
                            (COALESCE(liquidity_last, 0) + COALESCE((SELECT SUM(liquidity_delta)
                                                                     FROM position_updates AS pu
                                                                     WHERE pu.pool_key_hash =
@@ -550,13 +565,53 @@ export class DAO {
                                                                            pu.transaction_index,
                                                                            pu.event_index)), 0)) AS liquidity
                     FROM lss)
-        SELECT lss.key_hash AS pool_key_hash,
+        SELECT lss.key_hash                                             AS pool_key_hash,
                sqrt_ratio,
                tick,
-               liquidity
+               liquidity,
+               COALESCE((CASE
+                             WHEN lss.block_number > pl.block_number THEN lss.block_number
+                             ELSE pl.block_number END), (SELECT block_number
+                                                         FROM pool_initializations AS pi
+                                                         WHERE pi.pool_key_hash = lss.key_hash
+                                                         ORDER BY pi.block_number DESC, pi.transaction_index DESC,
+                                                                  pi.event_index DESC
+                                                         LIMIT 1))      AS block_number,
+               COALESCE((CASE
+                             WHEN lss.block_number > pl.block_number OR
+                                  (lss.block_number = pl.block_number AND lss.transaction_index > pl.transaction_index)
+                                 THEN lss.transaction_index
+                             ELSE pl.transaction_index END), (SELECT transaction_index
+                                                              FROM pool_initializations AS pi
+                                                              WHERE pi.pool_key_hash = lss.key_hash
+                                                              ORDER BY pi.block_number DESC, pi.transaction_index DESC,
+                                                                       pi.event_index DESC
+                                                              LIMIT 1)) AS transaction_index,
+               COALESCE((CASE
+                             WHEN lss.block_number > pl.block_number OR
+                                  (lss.block_number = pl.block_number AND
+                                   lss.transaction_index > pl.transaction_index) OR (
+                                              lss.block_number = pl.block_number AND
+                                              lss.transaction_index = pl.transaction_index AND
+                                              lss.event_index > pl.event_index
+                                      )
+                                 THEN lss.event_index
+                             ELSE pl.event_index END), (SELECT event_index
+                                                        FROM pool_initializations AS pi
+                                                        WHERE pi.pool_key_hash = lss.key_hash
+                                                        ORDER BY pi.block_number DESC, pi.transaction_index DESC,
+                                                                 pi.event_index DESC
+                                                        LIMIT 1))       AS event_index
         FROM lss
                  JOIN pl ON lss.key_hash = pl.key_hash
             );
+
+        CREATE MATERIALIZED VIEW IF NOT EXISTS pool_states_materialized AS
+        (
+        SELECT pool_key_hash, block_number, transaction_index, event_index, sqrt_ratio, liquidity, tick
+        FROM pool_states);
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_states_materialized_pool_key_hash ON pool_states_materialized USING btree (pool_key_hash);
     `);
   }
 
@@ -570,6 +625,7 @@ export class DAO {
   public async refreshOperationalMaterializedView() {
     await this.pg.query(`
             REFRESH MATERIALIZED VIEW CONCURRENTLY per_pool_per_tick_liquidity;
+            REFRESH MATERIALIZED VIEW CONCURRENTLY pool_states_materialized;
     `);
   }
 
