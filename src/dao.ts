@@ -542,28 +542,29 @@ export class DAO {
                             FROM position_updates
                             WHERE key_hash = position_updates.pool_key_hash
                             ORDER BY block_number DESC, transaction_index DESC, event_index DESC
-                            LIMIT 1)                                                             AS block_number,
+                            LIMIT 1)                                                               AS block_number,
                            (SELECT transaction_index
                             FROM position_updates
                             WHERE key_hash = position_updates.pool_key_hash
                             ORDER BY block_number DESC, transaction_index DESC, event_index DESC
-                            LIMIT 1)                                                             AS transaction_index,
+                            LIMIT 1)                                                               AS transaction_index,
                            (SELECT event_index
                             FROM position_updates
                             WHERE key_hash = position_updates.pool_key_hash
                             ORDER BY block_number DESC, transaction_index DESC, event_index DESC
-                            LIMIT 1)                                                             AS event_index,
+                            LIMIT 1)                                                               AS event_index,
                            (COALESCE(liquidity_last, 0) + COALESCE((SELECT SUM(liquidity_delta)
                                                                     FROM position_updates AS pu
                                                                     WHERE pu.pool_key_hash =
                                                                           lss.key_hash
                                                                       AND lss.tick BETWEEN pu.lower_bound AND (pu.upper_bound - 1)
-                                                                      AND (lss.block_number,
-                                                                           lss.transaction_index,
-                                                                           lss.event_index) <
-                                                                          (pu.block_number,
-                                                                           pu.transaction_index,
-                                                                           pu.event_index)), 0)) AS liquidity
+                                                                      AND (lss.block_number IS NULL OR
+                                                                           (lss.block_number,
+                                                                            lss.transaction_index,
+                                                                            lss.event_index) <
+                                                                           (pu.block_number,
+                                                                            pu.transaction_index,
+                                                                            pu.event_index))), 0)) AS liquidity
                     FROM lss)
         SELECT lss.key_hash                                             AS pool_key_hash,
                sqrt_ratio,
