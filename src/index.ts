@@ -239,7 +239,7 @@ const throttledRefreshMaterializedViews = throttle(
     });
     const client = await pool.connect();
     const dao = new DAO(client);
-    await dao.refreshMaterializedViews();
+    await dao.refreshAnalyticalMaterializedViews();
     client.release();
     logger.info("Refreshed materialized views", {
       timestamp: new Date().toISOString(),

@@ -613,13 +613,35 @@ export class DAO {
         FROM pool_states);
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_states_materialized_pool_key_hash ON pool_states_materialized USING btree (pool_key_hash);
+
+        CREATE OR REPLACE VIEW pair_vwap_preimages AS
+        (
+        SELECT date_bin('15 minutes', blocks.timestamp, '2000-1-1') AS timestamp_start,
+               token0,
+               token1,
+               SUM(delta1 * delta1)                                 AS total,
+               SUM(ABS(delta0 * delta1))                            AS k_volume
+        FROM swaps
+                 JOIN blocks ON swaps.block_number = blocks.number
+                 JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
+        GROUP BY token0, token1, timestamp_start
+            );
+
+        CREATE MATERIALIZED VIEW IF NOT EXISTS pair_vwap_preimages_materialized AS
+        (
+        SELECT timestamp_start, token0, token1, total, k_volume
+        FROM pair_vwap_preimages
+            );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_pair_vwap_preimages_materialized_token0_token1_timestamp ON pair_vwap_preimages_materialized USING btree (token0, token1, timestamp_start);
     `);
   }
 
-  public async refreshMaterializedViews() {
+  public async refreshAnalyticalMaterializedViews() {
     await this.pg.query(`
       REFRESH MATERIALIZED VIEW CONCURRENTLY volume_by_token_by_hour_by_key_hash;
       REFRESH MATERIALIZED VIEW CONCURRENTLY tvl_delta_by_token_by_hour_by_key_hash;
+      REFRESH MATERIALIZED VIEW CONCURRENTLY pair_vwap_preimages_materialized;
     `);
   }
 
