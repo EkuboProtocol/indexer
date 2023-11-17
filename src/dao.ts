@@ -186,6 +186,7 @@ export class DAO {
         CREATE INDEX IF NOT EXISTS idx_position_transfers_token_id ON position_transfers (token_id);
         CREATE INDEX IF NOT EXISTS idx_position_transfers_from_address ON position_transfers (from_address);
         CREATE INDEX IF NOT EXISTS idx_position_transfers_to_address ON position_transfers (to_address);
+        CREATE INDEX IF NOT EXISTS idx_position_transfers_token_id_by_number ON position_transfers USING btree (token_id, block_number, transaction_index, event_index);
 
         CREATE TABLE IF NOT EXISTS position_updates
         (
