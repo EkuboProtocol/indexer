@@ -2,7 +2,6 @@ import {
   combineParsers,
   GetParserType,
   parseAddress,
-  parseFelt252,
   parseU256,
 } from "../parse";
 

@@ -1,5 +1,6 @@
 import { parseBounds, parseDelta, parsePoolKey } from "./core";
 import {
+  backwardsCompatibleParserAdditionalArgument,
   combineParsers,
   GetParserType,
   parseAddress,
@@ -12,6 +13,10 @@ export const parsePositionMintedEvent = combineParsers({
   id: { index: 0, parser: parseU64 },
   pool_key: { index: 1, parser: parsePoolKey },
   bounds: { index: 2, parser: parseBounds },
+  referrer: {
+    index: 3,
+    parser: backwardsCompatibleParserAdditionalArgument(parseAddress),
+  },
 });
 export type PositionMintedEvent = GetParserType<
   typeof parsePositionMintedEvent

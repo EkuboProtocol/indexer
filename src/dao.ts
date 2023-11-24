@@ -111,6 +111,8 @@ export class DAO {
             token_id          int8    NOT NULL,
             lower_bound       int4    NOT NULL,
             upper_bound       int4    NOT NULL,
+            
+            referrer       NUMERIC,
 
             pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
@@ -738,17 +740,18 @@ export class DAO {
 
     await this.pg.query({
       text: `
-                insert into position_minted
-                (block_number,
-                 transaction_index,
-                 event_index,
-                 transaction_hash,
-                 token_id,
-                 lower_bound,
-                 upper_bound,
-                 pool_key_hash)
-                values ($1, $2, $3, $4, $5, $6, $7, $8);
-            `,
+          INSERT INTO position_minted
+          (block_number,
+           transaction_index,
+           event_index,
+           transaction_hash,
+           token_id,
+           lower_bound,
+           upper_bound,
+           referrer,
+           pool_key_hash)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -758,6 +761,8 @@ export class DAO {
         minted.id,
         minted.bounds.lower,
         minted.bounds.upper,
+        // we treat 0n as null so queries don't have to filter by both
+        minted.referrer !== 0n ? minted.referrer : null,
         pool_key_hash,
       ],
     });

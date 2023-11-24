@@ -72,6 +72,21 @@ export const parseBoolean: Parser<boolean> = (data, startingFrom) => {
   };
 };
 
+/**
+ * Returns a parser that will only run if there is additional data in the event to be parsed
+ * @param parser the parser that it will run if there is additional data
+ */
+export function backwardsCompatibleParserAdditionalArgument<T>(
+  parser: Parser<T>
+): Parser<T | null> {
+  return (data, startingFrom) => {
+    if (startingFrom < data.length) {
+      return parser(data, startingFrom);
+    }
+    return { value: null, next: startingFrom };
+  };
+}
+
 export function combineParsers<
   T extends {
     [key: string]: unknown;
