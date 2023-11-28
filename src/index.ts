@@ -275,7 +275,10 @@ const throttledRefreshMaterializedViews = throttle(
   client.configure({
     filter: EVENT_PROCESSORS.reduce((memo, value) => {
       return memo.addEvent((ev) =>
-        ev.withKeys(value.filter.keys).withFromAddress(value.filter.fromAddress)
+        ev
+          .withKeys(value.filter.keys)
+          .withIncludeReceipt(false)
+          .withFromAddress(value.filter.fromAddress)
       );
     }, Filter.create().withHeader({ weak: true })).encode(),
     batchSize: 1,
