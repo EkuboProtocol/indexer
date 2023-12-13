@@ -19,11 +19,13 @@ import {
   parsePositionFeesCollectedEvent,
   parsePositionUpdatedEvent,
   parseProtocolFeesWithdrawnEvent,
+  parseRegistrationEvent,
   parseSwappedEvent,
   PoolInitializationEvent,
   PositionFeesCollectedEvent,
   PositionUpdatedEvent,
   SwappedEvent,
+  TokenRegistrationEvent,
 } from "./events/core";
 import {
   DepositEvent,
@@ -216,6 +218,22 @@ const EVENT_PROCESSORS = [
     async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("FeesAccumulated", { parsed, key });
       await dao.insertFeesAccumulatedEvent(parsed, key);
+    },
+  },
+  <EventProcessor<TokenRegistrationEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.TOKEN_REGISTRY_ADDRESS),
+      keys: [
+        // Registration
+        FieldElement.fromBigInt(
+          0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74n
+        ),
+      ],
+    },
+    parser: parseRegistrationEvent,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("Registration", { parsed, key });
+      await dao.insertRegistration(parsed, key);
     },
   },
 ] as const;

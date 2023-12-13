@@ -10,6 +10,7 @@ import {
   PositionFeesCollectedEvent,
   PositionUpdatedEvent,
   SwappedEvent,
+  TokenRegistrationEvent,
 } from "./events/core";
 import {
   DepositEvent,
@@ -111,8 +112,8 @@ export class DAO {
             token_id          int8    NOT NULL,
             lower_bound       int4    NOT NULL,
             upper_bound       int4    NOT NULL,
-            
-            referrer       NUMERIC,
+
+            referrer          NUMERIC,
 
             pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
@@ -500,6 +501,24 @@ export class DAO {
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_per_pool_per_tick_liquidity_pool_key_hash_tick ON per_pool_per_tick_liquidity USING btree (pool_key_hash, tick);
 
+        CREATE TABLE IF NOT EXISTS token_registrations
+        (
+            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index int4    NOT NULL,
+            event_index       int4    NOT NULL,
+
+            transaction_hash  NUMERIC NOT NULL,
+            
+            address NUMERIC NOT NULL,
+            
+            name NUMERIC NOT NULL,
+            symbol NUMERIC NOT NULL,
+            decimals INT NOT NULL,
+            total_supply NUMERIC NOT NULL,
+            
+            PRIMARY KEY (block_number, transaction_index, event_index)
+        );
+
         CREATE OR REPLACE VIEW pool_states AS
         (
         WITH lss AS (SELECT key_hash,
@@ -595,9 +614,9 @@ export class DAO {
                              WHEN lss.block_number > pl.block_number OR
                                   (lss.block_number = pl.block_number AND
                                    lss.transaction_index > pl.transaction_index) OR (
-                                              lss.block_number = pl.block_number AND
-                                              lss.transaction_index = pl.transaction_index AND
-                                              lss.event_index > pl.event_index
+                                      lss.block_number = pl.block_number AND
+                                      lss.transaction_index = pl.transaction_index AND
+                                      lss.event_index > pl.event_index
                                       )
                                  THEN lss.event_index
                              ELSE pl.event_index END), (SELECT event_index
@@ -1087,6 +1106,39 @@ export class DAO {
 
         event.amount0,
         event.amount1,
+      ],
+    });
+  }
+
+  public async insertRegistration(
+    event: TokenRegistrationEvent,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+                INSERT INTO token_registrations
+                (block_number,
+                 transaction_index,
+                 event_index,
+                 transaction_hash,
+                 address,
+                 decimals,
+                 name,
+                 symbol,
+                 total_supply)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+            `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+
+        event.address,
+        event.decimals,
+        event.name,
+        event.symbol,
+        event.total_supply,
       ],
     });
   }
