@@ -357,7 +357,7 @@ export class DAO {
         FROM pool_states_view);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_states_materialized_pool_key_hash ON pool_states_materialized USING btree (pool_key_hash);
 
-        CREATE MATERIALIZED VIEW IF NOT EXISTS volume_by_token_by_hour_by_key_hash AS
+        CREATE MATERIALIZED VIEW IF NOT EXISTS volume_by_token_by_hour_by_key_hash_materialized AS
         (
         SELECT DATE_TRUNC('hour', blocks.timestamp)                   AS hour,
                key_hash,
@@ -371,9 +371,9 @@ export class DAO {
                  JOIN blocks ON event_keys.block_number = blocks.number
         GROUP BY hour, key_hash, token
             );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_volume_by_token_by_hour_by_hour_key_hash_token ON volume_by_token_by_hour_by_key_hash USING btree (key_hash, hour, token);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_volume_by_token_by_hour_by_hour_key_hash_materialized_token ON volume_by_token_by_hour_by_key_hash_materialized USING btree (key_hash, hour, token);
 
-        CREATE MATERIALIZED VIEW IF NOT EXISTS tvl_delta_by_token_by_hour_by_key_hash AS
+        CREATE MATERIALIZED VIEW IF NOT EXISTS tvl_delta_by_token_by_hour_by_key_hash_materialized AS
         (
         WITH token_deltas AS (SELECT token0                               AS token,
                                      key_hash,
@@ -501,7 +501,7 @@ export class DAO {
         GROUP BY token, key_hash, hour
             );
 
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_tvl_delta_by_token_by_hour_by_key_hash_token_hour_key_hash ON tvl_delta_by_token_by_hour_by_key_hash USING btree (key_hash, hour, token);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tvl_delta_by_token_by_hour_by_key_hash_token_hour_key_hash ON tvl_delta_by_token_by_hour_by_key_hash_materialized USING btree (key_hash, hour, token);
 
         CREATE OR REPLACE VIEW per_pool_per_tick_liquidity_view AS
         (
@@ -526,12 +526,12 @@ export class DAO {
         WHERE net_liquidity_delta_diff != 0
         ORDER BY tick);
 
-        CREATE MATERIALIZED VIEW IF NOT EXISTS per_pool_per_tick_liquidity AS
+        CREATE MATERIALIZED VIEW IF NOT EXISTS per_pool_per_tick_liquidity_materialized AS
         (
         SELECT pool_key_hash, tick, net_liquidity_delta_diff
         FROM per_pool_per_tick_liquidity_view);
 
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_per_pool_per_tick_liquidity_pool_key_hash_tick ON per_pool_per_tick_liquidity USING btree (pool_key_hash, tick);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_per_pool_per_tick_liquidity_pool_key_hash_tick ON per_pool_per_tick_liquidity_materialized USING btree (pool_key_hash, tick);
 
         CREATE OR REPLACE VIEW pair_vwap_preimages_view AS
         (
@@ -550,8 +550,7 @@ export class DAO {
         CREATE MATERIALIZED VIEW IF NOT EXISTS pair_vwap_preimages_materialized AS
         (
         SELECT timestamp_start, token0, token1, total, k_volume
-        FROM pair_vwap_preimages
-            );
+        FROM pair_vwap_preimages_view);
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_pair_vwap_preimages_materialized_token0_token1_timestamp ON pair_vwap_preimages_materialized USING btree (token0, token1, timestamp_start);
     `);
@@ -559,15 +558,15 @@ export class DAO {
 
   public async refreshAnalyticalMaterializedViews() {
     await this.pg.query(`
-      REFRESH MATERIALIZED VIEW CONCURRENTLY volume_by_token_by_hour_by_key_hash;
-      REFRESH MATERIALIZED VIEW CONCURRENTLY tvl_delta_by_token_by_hour_by_key_hash;
+      REFRESH MATERIALIZED VIEW CONCURRENTLY volume_by_token_by_hour_by_key_hash_materialized;
+      REFRESH MATERIALIZED VIEW CONCURRENTLY tvl_delta_by_token_by_hour_by_key_hash_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY pair_vwap_preimages_materialized;
     `);
   }
 
   public async refreshOperationalMaterializedView() {
     await this.pg.query(`
-            REFRESH MATERIALIZED VIEW CONCURRENTLY per_pool_per_tick_liquidity;
+            REFRESH MATERIALIZED VIEW CONCURRENTLY per_pool_per_tick_liquidity_materialized;
             REFRESH MATERIALIZED VIEW CONCURRENTLY pool_states_materialized;
     `);
   }
