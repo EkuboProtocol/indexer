@@ -1,7 +1,7 @@
 {
   "apps": [
     {
-      "name": "indexer-goerli",
+      "name": "goerli",
       "script": "dist/index.js",
       "cwd": ".",
       "env": {
@@ -9,7 +9,7 @@
       }
     },
     {
-      "name": "indexer-mainnet",
+      "name": "mainnet",
       "script": "dist/index.js",
       "cwd": ".",
       "env": {
