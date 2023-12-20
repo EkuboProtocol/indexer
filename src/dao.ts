@@ -279,6 +279,149 @@ export class DAO {
         );
         CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash ON swaps (pool_key_hash);
 
+        CREATE TABLE IF NOT EXISTS token_registrations
+        (
+            event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            address      NUMERIC NOT NULL,
+
+            name         NUMERIC NOT NULL,
+            symbol       NUMERIC NOT NULL,
+            decimals     INT     NOT NULL,
+            total_supply NUMERIC NOT NULL
+        );
+
+        CREATE OR REPLACE VIEW pool_states AS
+        (
+        WITH lss AS (SELECT key_hash,
+                            (SELECT block_number
+                             FROM swaps
+                                      JOIN event_keys ON swaps.event_id = event_keys.id
+                             WHERE key_hash = swaps.pool_key_hash
+                             ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                             LIMIT 1)                      AS last_swap_block_number,
+                            (SELECT transaction_index
+                             FROM swaps
+                                      JOIN event_keys ON swaps.event_id = event_keys.id
+                             WHERE key_hash = swaps.pool_key_hash
+                             ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                             LIMIT 1)                      AS last_swap_transaction_index,
+                            (SELECT event_index
+                             FROM swaps
+                                      JOIN event_keys ON swaps.event_id = event_keys.id
+                             WHERE key_hash = swaps.pool_key_hash
+                             ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                             LIMIT 1)                      AS last_swap_event_index,
+                            COALESCE((SELECT sqrt_ratio_after
+                                      FROM swaps
+                                               JOIN event_keys ON swaps.event_id = event_keys.id
+                                      WHERE key_hash = swaps.pool_key_hash
+                                      ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                                      LIMIT 1), (SELECT sqrt_ratio
+                                                 FROM pool_initializations
+                                                 WHERE key_hash = pool_initializations.pool_key_hash
+                                                 LIMIT 1)) AS sqrt_ratio,
+                            COALESCE((SELECT tick_after
+                                      FROM swaps
+                                               JOIN event_keys ON swaps.event_id = event_keys.id
+                                      WHERE key_hash = swaps.pool_key_hash
+                                      ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                                      LIMIT 1), (SELECT tick
+                                                 FROM pool_initializations
+                                                 WHERE key_hash = pool_initializations.pool_key_hash
+                                                 LIMIT 1)) AS tick,
+                            COALESCE((SELECT liquidity_after
+                                      FROM swaps
+                                               JOIN event_keys ON swaps.event_id = event_keys.id
+                                      WHERE key_hash = swaps.pool_key_hash
+                                      ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                                      LIMIT 1), 0)         AS liquidity_last
+                     FROM pool_keys),
+             pl AS (SELECT key_hash,
+                           (SELECT block_number
+                            FROM position_updates
+                                     JOIN event_keys ON position_updates.event_id = event_keys.id
+                            WHERE key_hash = position_updates.pool_key_hash
+                            ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                            LIMIT 1)                                                                       AS last_update_block_number,
+                           (SELECT transaction_index
+                            FROM position_updates
+                                     JOIN event_keys ON position_updates.event_id = event_keys.id
+                            WHERE key_hash = position_updates.pool_key_hash
+                            ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                            LIMIT 1)                                                                       AS last_update_transaction_index,
+                           (SELECT event_index
+                            FROM position_updates
+                                     JOIN event_keys ON position_updates.event_id = event_keys.id
+                            WHERE key_hash = position_updates.pool_key_hash
+                            ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                            LIMIT 1)                                                                       AS last_update_event_index,
+                           (COALESCE(liquidity_last, 0) + COALESCE((SELECT SUM(liquidity_delta)
+                                                                    FROM position_updates AS pu
+                                                                             JOIN event_keys ON pu.event_id = event_keys.id
+                                                                    WHERE pu.pool_key_hash =
+                                                                          lss.key_hash
+                                                                      AND lss.tick BETWEEN pu.lower_bound AND (pu.upper_bound - 1)
+                                                                      AND (lss.last_swap_block_number IS NULL OR
+                                                                           (lss.last_swap_block_number,
+                                                                            lss.last_swap_transaction_index,
+                                                                            lss.last_swap_event_index) <
+                                                                           (event_keys.block_number,
+                                                                            event_keys.transaction_index,
+                                                                            event_keys.event_index))), 0)) AS liquidity
+                    FROM lss)
+        SELECT lss.key_hash                                                         AS pool_key_hash,
+               sqrt_ratio,
+               tick,
+               liquidity,
+               COALESCE((CASE
+                             WHEN lss.last_swap_block_number > pl.last_update_block_number
+                                 THEN lss.last_swap_block_number
+                             ELSE pl.last_update_block_number END), (SELECT block_number
+                                                                     FROM pool_initializations AS pi
+                                                                              JOIN event_keys ON pi.event_id = event_keys.id
+                                                                     WHERE pi.pool_key_hash = lss.key_hash
+                                                                     ORDER BY block_number DESC, transaction_index DESC,
+                                                                              event_index DESC
+                                                                     LIMIT 1))      AS block_number,
+               COALESCE((CASE
+                             WHEN lss.last_swap_block_number > pl.last_update_block_number OR
+                                  (lss.last_swap_block_number = pl.last_update_block_number AND
+                                   lss.last_swap_transaction_index > pl.last_update_transaction_index)
+                                 THEN lss.last_swap_transaction_index
+                             ELSE pl.last_update_transaction_index END), (SELECT transaction_index
+                                                                          FROM pool_initializations AS pi
+                                                                                   JOIN event_keys ON pi.event_id = event_keys.id
+                                                                          WHERE pi.pool_key_hash = lss.key_hash
+                                                                          ORDER BY block_number DESC,
+                                                                                   transaction_index DESC,
+                                                                                   event_index DESC
+                                                                          LIMIT 1)) AS transaction_index,
+               COALESCE((CASE
+                             WHEN lss.last_swap_block_number > pl.last_update_block_number OR
+                                  (lss.last_swap_block_number = pl.last_update_block_number AND
+                                   lss.last_swap_transaction_index > pl.last_update_transaction_index) OR (
+                                      lss.last_swap_block_number = pl.last_update_block_number AND
+                                      lss.last_swap_transaction_index = pl.last_update_transaction_index AND
+                                      lss.last_swap_event_index > pl.last_update_event_index
+                                      )
+                                 THEN lss.last_swap_event_index
+                             ELSE pl.last_update_event_index END), (SELECT event_index
+                                                                    FROM pool_initializations AS pi
+                                                                             JOIN event_keys ON pi.event_id = event_keys.id
+                                                                    WHERE pi.pool_key_hash = lss.key_hash
+                                                                    ORDER BY block_number DESC, transaction_index DESC,
+                                                                             event_index DESC
+                                                                    LIMIT 1))       AS event_index
+        FROM lss
+                 JOIN pl ON lss.key_hash = pl.key_hash
+            );
+
+        CREATE MATERIALIZED VIEW IF NOT EXISTS pool_states_materialized AS
+        (
+        SELECT pool_key_hash, block_number, transaction_index, event_index, sqrt_ratio, liquidity, tick
+        FROM pool_states);
+
         CREATE MATERIALIZED VIEW IF NOT EXISTS volume_by_token_by_hour_by_key_hash AS
         (
         SELECT DATE_TRUNC('hour', blocks.timestamp)                   AS hour,
@@ -293,7 +436,6 @@ export class DAO {
                  JOIN blocks ON event_keys.block_number = blocks.number
         GROUP BY hour, key_hash, token
             );
-
         CREATE UNIQUE INDEX IF NOT EXISTS idx_volume_by_token_by_hour_by_hour_key_hash_token ON volume_by_token_by_hour_by_key_hash USING btree (key_hash, hour, token);
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS tvl_delta_by_token_by_hour_by_key_hash AS
@@ -455,25 +597,6 @@ export class DAO {
         FROM per_pool_per_tick_liquidity_view);
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_per_pool_per_tick_liquidity_pool_key_hash_tick ON per_pool_per_tick_liquidity USING btree (pool_key_hash, tick);
-
-        CREATE TABLE IF NOT EXISTS token_registrations
-        (
-            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index int4    NOT NULL,
-            event_index       int4    NOT NULL,
-
-            transaction_hash  NUMERIC NOT NULL,
-
-            address           NUMERIC NOT NULL,
-
-            name              NUMERIC NOT NULL,
-            symbol            NUMERIC NOT NULL,
-            decimals          INT     NOT NULL,
-            total_supply      NUMERIC NOT NULL,
-
-            PRIMARY KEY (block_number, transaction_index, event_index)
-        );
-
 
         CREATE OR REPLACE VIEW pair_vwap_preimages AS
         (
@@ -966,18 +1089,20 @@ export class DAO {
   ) {
     await this.pg.query({
       text: `
-                INSERT INTO token_registrations
-                (block_number,
-                 transaction_index,
-                 event_index,
-                 transaction_hash,
-                 address,
-                 decimals,
-                 name,
-                 symbol,
-                 total_supply)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
-            `,
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO token_registrations
+          (event_id,
+           address,
+           decimals,
+           name,
+           symbol,
+           total_supply)
+          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9);
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
