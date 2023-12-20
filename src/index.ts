@@ -365,7 +365,6 @@ const throttledRefreshMaterializedViews = throttle(
               const eventKey: EventKey = {
                 blockNumber,
                 transactionHash: FieldElement.toBigInt(transaction.meta.hash),
-                // todo: need to do a full reindex so all transaction indices are correct :(
                 transactionIndex: Number(parseLong(receipt.transactionIndex)),
                 eventIndex: Number(parseLong(event.index)),
               };
