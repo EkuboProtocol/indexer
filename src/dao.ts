@@ -298,25 +298,25 @@ export class DAO {
                              FROM swaps
                                       JOIN event_keys ON swaps.event_id = event_keys.id
                              WHERE key_hash = swaps.pool_key_hash
-                             ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                             ORDER BY event_keys.id DESC
                              LIMIT 1)                      AS last_swap_block_number,
                             (SELECT transaction_index
                              FROM swaps
                                       JOIN event_keys ON swaps.event_id = event_keys.id
                              WHERE key_hash = swaps.pool_key_hash
-                             ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                             ORDER BY event_keys.id DESC
                              LIMIT 1)                      AS last_swap_transaction_index,
                             (SELECT event_index
                              FROM swaps
                                       JOIN event_keys ON swaps.event_id = event_keys.id
                              WHERE key_hash = swaps.pool_key_hash
-                             ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                             ORDER BY event_keys.id DESC
                              LIMIT 1)                      AS last_swap_event_index,
                             COALESCE((SELECT sqrt_ratio_after
                                       FROM swaps
                                                JOIN event_keys ON swaps.event_id = event_keys.id
                                       WHERE key_hash = swaps.pool_key_hash
-                                      ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                                      ORDER BY event_keys.id DESC
                                       LIMIT 1), (SELECT sqrt_ratio
                                                  FROM pool_initializations
                                                  WHERE key_hash = pool_initializations.pool_key_hash
@@ -325,7 +325,7 @@ export class DAO {
                                       FROM swaps
                                                JOIN event_keys ON swaps.event_id = event_keys.id
                                       WHERE key_hash = swaps.pool_key_hash
-                                      ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                                      ORDER BY event_keys.id DESC
                                       LIMIT 1), (SELECT tick
                                                  FROM pool_initializations
                                                  WHERE key_hash = pool_initializations.pool_key_hash
@@ -334,7 +334,7 @@ export class DAO {
                                       FROM swaps
                                                JOIN event_keys ON swaps.event_id = event_keys.id
                                       WHERE key_hash = swaps.pool_key_hash
-                                      ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                                      ORDER BY event_keys.id DESC
                                       LIMIT 1), 0)         AS liquidity_last
                      FROM pool_keys),
              pl AS (SELECT key_hash,
@@ -342,19 +342,19 @@ export class DAO {
                             FROM position_updates
                                      JOIN event_keys ON position_updates.event_id = event_keys.id
                             WHERE key_hash = position_updates.pool_key_hash
-                            ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                            ORDER BY event_keys.id DESC
                             LIMIT 1)                                                                       AS last_update_block_number,
                            (SELECT transaction_index
                             FROM position_updates
                                      JOIN event_keys ON position_updates.event_id = event_keys.id
                             WHERE key_hash = position_updates.pool_key_hash
-                            ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                            ORDER BY event_keys.id DESC
                             LIMIT 1)                                                                       AS last_update_transaction_index,
                            (SELECT event_index
                             FROM position_updates
                                      JOIN event_keys ON position_updates.event_id = event_keys.id
                             WHERE key_hash = position_updates.pool_key_hash
-                            ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                            ORDER BY event_keys.id DESC
                             LIMIT 1)                                                                       AS last_update_event_index,
                            (COALESCE(liquidity_last, 0) + COALESCE((SELECT SUM(liquidity_delta)
                                                                     FROM position_updates AS pu
@@ -381,8 +381,6 @@ export class DAO {
                                                                      FROM pool_initializations AS pi
                                                                               JOIN event_keys ON pi.event_id = event_keys.id
                                                                      WHERE pi.pool_key_hash = lss.key_hash
-                                                                     ORDER BY block_number DESC, transaction_index DESC,
-                                                                              event_index DESC
                                                                      LIMIT 1))      AS block_number,
                COALESCE((CASE
                              WHEN lss.last_swap_block_number > pl.last_update_block_number OR
@@ -393,9 +391,6 @@ export class DAO {
                                                                           FROM pool_initializations AS pi
                                                                                    JOIN event_keys ON pi.event_id = event_keys.id
                                                                           WHERE pi.pool_key_hash = lss.key_hash
-                                                                          ORDER BY block_number DESC,
-                                                                                   transaction_index DESC,
-                                                                                   event_index DESC
                                                                           LIMIT 1)) AS transaction_index,
                COALESCE((CASE
                              WHEN lss.last_swap_block_number > pl.last_update_block_number OR
@@ -410,8 +405,6 @@ export class DAO {
                                                                     FROM pool_initializations AS pi
                                                                              JOIN event_keys ON pi.event_id = event_keys.id
                                                                     WHERE pi.pool_key_hash = lss.key_hash
-                                                                    ORDER BY block_number DESC, transaction_index DESC,
-                                                                             event_index DESC
                                                                     LIMIT 1))       AS event_index
         FROM lss
                  JOIN pl ON lss.key_hash = pl.key_hash
