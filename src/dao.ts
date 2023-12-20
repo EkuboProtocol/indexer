@@ -107,7 +107,7 @@ export class DAO {
         -- all events reference an event id which contains the metadata of the event
         CREATE TABLE IF NOT EXISTS event_keys
         (
-            id                SERIAL8 PRIMARY KEY,
+            id                int8 GENERATED ALWAYS AS (block_number * 4294967296 + transaction_index * 65536 + event_index) STORED PRIMARY KEY,
             transaction_hash  NUMERIC NOT NULL,
             block_number      int4    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
             transaction_index int2    NOT NULL,
