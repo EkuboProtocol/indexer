@@ -356,17 +356,19 @@ const throttledRefreshMaterializedViews = throttle(
             });
 
             for (
-              let transactionIndex = 0;
-              transactionIndex < events.length;
-              transactionIndex++
+              let blockEventsIndex = 0;
+              blockEventsIndex < events.length;
+              blockEventsIndex++
             ) {
-              const { event, transaction } = events[transactionIndex];
+              const { event, transaction } = events[blockEventsIndex];
 
               const eventKey: EventKey = {
                 blockNumber,
                 transactionHash: FieldElement.toBigInt(transaction.meta.hash),
+                // oops! this is not actually the index of the transaction within the block
+                // todo: need to do a full migration :(
+                transactionIndex: blockEventsIndex,
                 eventIndex: parseLong(event.index),
-                transactionIndex: transactionIndex,
               };
 
               // process each event sequentially through all the event processors in parallel
