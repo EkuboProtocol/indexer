@@ -73,16 +73,19 @@ export class DAO {
     await this.pg.query(`
         CREATE TABLE IF NOT EXISTS cursor
         (
-            id         INT     NOT NULL UNIQUE CHECK (id = 1), -- only one row.
-            order_key  NUMERIC NOT NULL,
-            unique_key TEXT    NOT NULL
+            id           INT       NOT NULL UNIQUE CHECK (id = 1), -- only one row.
+            order_key    NUMERIC   NOT NULL,
+            unique_key   TEXT      NOT NULL,
+            last_updated TIMESTAMP NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS blocks
         (
-            number    int8      NOT NULL PRIMARY KEY,
-            hash      NUMERIC   NOT NULL,
-            timestamp TIMESTAMP NOT NULL
+            -- int4 blocks represents over a thousand years at 12 second blocks
+            number             int4      NOT NULL PRIMARY KEY,
+            hash               NUMERIC   NOT NULL,
+            timestamp          TIMESTAMP NOT NULL,
+            inserted_timestamp TIMESTAMP NOT NULL DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_blocks_timestamp ON blocks USING btree (timestamp);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_blocks_hash ON blocks USING btree (hash);
@@ -101,239 +104,180 @@ export class DAO {
         CREATE INDEX IF NOT EXISTS idx_pool_keys_token0_token1 ON pool_keys USING btree (token0, token1);
         CREATE INDEX IF NOT EXISTS idx_pool_keys_extension ON pool_keys USING btree (extension);
 
+        -- all events reference an event id which contains the metadata of the event
+        CREATE TABLE IF NOT EXISTS event_keys
+        (
+            id                SERIAL8 PRIMARY KEY,
+            transaction_hash  NUMERIC NOT NULL,
+            block_number      int4    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index int2    NOT NULL,
+            event_index       int2    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_event_keys_block_number_transaction_index_event_index ON event_keys USING btree (block_number, transaction_index, event_index);
+        CREATE INDEX IF NOT EXISTS idx_event_keys_transaction_hash ON event_keys USING btree (transaction_hash);
+
         CREATE TABLE IF NOT EXISTS position_minted
         (
-            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index int4    NOT NULL,
-            event_index       int4    NOT NULL,
+            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            transaction_hash  NUMERIC NOT NULL,
+            token_id      int8    NOT NULL,
+            lower_bound   int4    NOT NULL,
+            upper_bound   int4    NOT NULL,
 
-            token_id          int8    NOT NULL,
-            lower_bound       int4    NOT NULL,
-            upper_bound       int4    NOT NULL,
+            referrer      NUMERIC,
 
-            referrer          NUMERIC,
-
-            pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
-
-            PRIMARY KEY (block_number, transaction_index, event_index)
+            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_position_minted_pool_key_hash ON position_minted (pool_key_hash);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_position_minted_token_id ON position_minted (token_id);
 
         CREATE TABLE IF NOT EXISTS position_deposit
         (
-            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index int4    NOT NULL,
-            event_index       int4    NOT NULL,
+            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            transaction_hash  NUMERIC NOT NULL,
+            token_id      int8    NOT NULL,
+            lower_bound   int4    NOT NULL,
+            upper_bound   int4    NOT NULL,
 
-            token_id          int8    NOT NULL,
-            lower_bound       int4    NOT NULL,
-            upper_bound       int4    NOT NULL,
+            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-            pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
-
-            liquidity         NUMERIC NOT NULL,
-            delta0            NUMERIC NOT NULL,
-            delta1            NUMERIC NOT NULL,
-
-            PRIMARY KEY (block_number, transaction_index, event_index)
+            liquidity     NUMERIC NOT NULL,
+            delta0        NUMERIC NOT NULL,
+            delta1        NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_position_deposit_pool_key_hash ON position_deposit (pool_key_hash);
         CREATE INDEX IF NOT EXISTS idx_position_deposit_token_id ON position_deposit (token_id);
 
         CREATE TABLE IF NOT EXISTS position_withdraw
         (
-            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index int4    NOT NULL,
-            event_index       int4    NOT NULL,
+            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            transaction_hash  NUMERIC NOT NULL,
+            token_id      int8    NOT NULL,
+            lower_bound   int4    NOT NULL,
+            upper_bound   int4    NOT NULL,
 
-            token_id          int8    NOT NULL,
-            lower_bound       int4    NOT NULL,
-            upper_bound       int4    NOT NULL,
+            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-            pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            collect_fees  bool    NOT NULL,
 
-            collect_fees      bool    NOT NULL,
+            liquidity     NUMERIC NOT NULL,
+            delta0        NUMERIC NOT NULL,
+            delta1        NUMERIC NOT NULL,
 
-            liquidity         NUMERIC NOT NULL,
-            delta0            NUMERIC NOT NULL,
-            delta1            NUMERIC NOT NULL,
-
-            recipient         NUMERIC NOT NULL,
-
-            PRIMARY KEY (block_number, transaction_index, event_index)
+            recipient     NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_position_withdraw_pool_key_hash ON position_withdraw (pool_key_hash);
         CREATE INDEX IF NOT EXISTS idx_position_withdraw_token_id ON position_withdraw (token_id);
 
         CREATE TABLE IF NOT EXISTS position_transfers
         (
-            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index int4    NOT NULL,
-            event_index       int4    NOT NULL,
+            event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            transaction_hash  NUMERIC NOT NULL,
-
-            token_id          int8    NOT NULL,
-            from_address      NUMERIC NOT NULL,
-            to_address        NUMERIC NOT NULL,
-
-            PRIMARY KEY (block_number, transaction_index, event_index)
+            token_id     int8    NOT NULL,
+            from_address NUMERIC NOT NULL,
+            to_address   NUMERIC NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_position_transfers_token_id ON position_transfers (token_id);
-        CREATE INDEX IF NOT EXISTS idx_position_transfers_from_address ON position_transfers (from_address);
-        CREATE INDEX IF NOT EXISTS idx_position_transfers_to_address ON position_transfers (to_address);
-        CREATE INDEX IF NOT EXISTS idx_position_transfers_token_id_by_number ON position_transfers USING btree (token_id, block_number, transaction_index, event_index);
+        CREATE INDEX IF NOT EXISTS idx_position_transfers_token_id_from_to ON position_transfers (token_id, from_address, to_address);
 
         CREATE TABLE IF NOT EXISTS position_updates
         (
-            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index int4    NOT NULL,
-            event_index       int4    NOT NULL,
+            event_id        int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            transaction_hash  NUMERIC NOT NULL,
+            locker          NUMERIC NOT NULL,
 
-            locker            NUMERIC NOT NULL,
+            pool_key_hash   NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-            pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            salt            NUMERIC NOT NULL,
+            lower_bound     int4    NOT NULL,
+            upper_bound     int4    NOT NULL,
 
-            salt              NUMERIC NOT NULL,
-            lower_bound       int4    NOT NULL,
-            upper_bound       int4    NOT NULL,
-
-            liquidity_delta   NUMERIC NOT NULL,
-            delta0            NUMERIC NOT NULL,
-            delta1            NUMERIC NOT NULL,
-
-            PRIMARY KEY (block_number, transaction_index, event_index)
+            liquidity_delta NUMERIC NOT NULL,
+            delta0          NUMERIC NOT NULL,
+            delta1          NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_position_updates_pool_key_hash ON position_updates (pool_key_hash);
-        CREATE INDEX IF NOT EXISTS idx_position_updates_pool_key_hash_sorted_events ON position_updates USING btree (pool_key_hash, block_number, transaction_index, event_index);
 
         CREATE TABLE IF NOT EXISTS position_fees_collected
         (
-            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index int4    NOT NULL,
-            event_index       int4    NOT NULL,
+            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            transaction_hash  NUMERIC NOT NULL,
+            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-            pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            owner         NUMERIC NOT NULL,
+            salt          NUMERIC NOT NULL,
+            lower_bound   int4    NOT NULL,
+            upper_bound   int4    NOT NULL,
 
-            owner             NUMERIC NOT NULL,
-            salt              NUMERIC NOT NULL,
-            lower_bound       int4    NOT NULL,
-            upper_bound       int4    NOT NULL,
-
-            delta0            NUMERIC NOT NULL,
-            delta1            NUMERIC NOT NULL,
-
-            PRIMARY KEY (block_number, transaction_index, event_index)
+            delta0        NUMERIC NOT NULL,
+            delta1        NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_position_fees_collected_pool_key_hash ON position_fees_collected (pool_key_hash);
 
         CREATE TABLE IF NOT EXISTS protocol_fees_withdrawn
         (
-            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index int4    NOT NULL,
-            event_index       int4    NOT NULL,
+            event_id  int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            transaction_hash  NUMERIC NOT NULL,
-
-            recipient         NUMERIC NOT NULL,
-            token             NUMERIC NOT NULL,
-            amount            NUMERIC NOT NULL,
-
-            PRIMARY KEY (block_number, transaction_index, event_index)
+            recipient NUMERIC NOT NULL,
+            token     NUMERIC NOT NULL,
+            amount    NUMERIC NOT NULL
         );
 
 
         CREATE TABLE IF NOT EXISTS protocol_fees_paid
         (
-            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index int4    NOT NULL,
-            event_index       int4    NOT NULL,
+            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            transaction_hash  NUMERIC NOT NULL,
+            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-            pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            owner         NUMERIC NOT NULL,
+            salt          NUMERIC NOT NULL,
+            lower_bound   int4    NOT NULL,
+            upper_bound   int4    NOT NULL,
 
-            owner             NUMERIC NOT NULL,
-            salt              NUMERIC NOT NULL,
-            lower_bound       int4    NOT NULL,
-            upper_bound       int4    NOT NULL,
-
-            delta0            NUMERIC NOT NULL,
-            delta1            NUMERIC NOT NULL,
-
-            PRIMARY KEY (block_number, transaction_index, event_index)
+            delta0        NUMERIC NOT NULL,
+            delta1        NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_protocol_fees_paid_pool_key_hash ON protocol_fees_paid (pool_key_hash);
 
         CREATE TABLE IF NOT EXISTS fees_accumulated
         (
-            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index int4    NOT NULL,
-            event_index       int4    NOT NULL,
+            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            transaction_hash  NUMERIC NOT NULL,
+            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-            pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
-
-            amount0           NUMERIC NOT NULL,
-            amount1           NUMERIC NOT NULL,
-
-            PRIMARY KEY (block_number, transaction_index, event_index)
+            amount0       NUMERIC NOT NULL,
+            amount1       NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_fees_accumulated_pool_key_hash ON fees_accumulated (pool_key_hash);
 
         CREATE TABLE IF NOT EXISTS pool_initializations
         (
-            block_number      int8     NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index int4     NOT NULL,
-            event_index       int4     NOT NULL,
+            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            transaction_hash  NUMERIC  NOT NULL,
+            pool_key_hash NUMERIC  NOT NULL REFERENCES pool_keys (key_hash),
 
-            pool_key_hash     NUMERIC  NOT NULL REFERENCES pool_keys (key_hash),
-
-            tick              int4     NOT NULL,
-            sqrt_ratio        NUMERIC  NOT NULL,
-            call_points       SMALLINT NOT NULL,
-
-            PRIMARY KEY (block_number, transaction_index, event_index)
+            tick          int4     NOT NULL,
+            sqrt_ratio    NUMERIC  NOT NULL,
+            call_points   SMALLINT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_pool_initializations_pool_key_hash ON pool_initializations (pool_key_hash);
 
 
         CREATE TABLE IF NOT EXISTS swaps
         (
-            block_number      int8    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-            transaction_index int4    NOT NULL,
-            event_index       int4    NOT NULL,
+            event_id         int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            transaction_hash  NUMERIC NOT NULL,
+            locker           NUMERIC NOT NULL,
+            pool_key_hash    NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-            locker            NUMERIC NOT NULL,
-            pool_key_hash     NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            delta0           NUMERIC NOT NULL,
+            delta1           NUMERIC NOT NULL,
 
-            delta0            NUMERIC NOT NULL,
-            delta1            NUMERIC NOT NULL,
-
-            sqrt_ratio_after  NUMERIC NOT NULL,
-            tick_after        int4    NOT NULL,
-            liquidity_after   NUMERIC NOT NULL,
-
-            PRIMARY KEY (block_number, transaction_index, event_index)
+            sqrt_ratio_after NUMERIC NOT NULL,
+            tick_after       int4    NOT NULL,
+            liquidity_after  NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash ON swaps (pool_key_hash);
-        CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_sorted_events ON swaps USING btree (pool_key_hash, block_number, transaction_index, event_index);
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS volume_by_token_by_hour_by_key_hash AS
         (
@@ -345,7 +289,8 @@ export class DAO {
                          340282366920938463463374607431768211456))    AS fees
         FROM swaps
                  JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
-                 JOIN blocks ON swaps.block_number = blocks.number
+                 JOIN event_keys ON swaps.event_id = event_keys.id
+                 JOIN blocks ON event_keys.block_number = blocks.number
         GROUP BY hour, key_hash, token
             );
 
@@ -358,108 +303,118 @@ export class DAO {
                                      position_updates.delta0              AS delta,
                                      DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM position_updates
-                                       INNER JOIN
+                                       JOIN
                                    pool_keys
                                    ON pool_keys.key_hash = position_updates.pool_key_hash
-                                       INNER JOIN blocks
-                                                  ON position_updates.block_number = blocks.number
+                                       JOIN event_keys ON position_updates.event_id = event_keys.id
+                                       JOIN blocks
+                                            ON event_keys.block_number = blocks.number
                               UNION ALL
                               SELECT pool_keys.token1                     AS token,
                                      key_hash,
                                      position_updates.delta1              AS delta,
                                      DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM position_updates
-                                       INNER JOIN
+                                       JOIN
                                    pool_keys
                                    ON pool_keys.key_hash = position_updates.pool_key_hash
-                                       INNER JOIN blocks
-                                                  ON position_updates.block_number = blocks.number
+                                       JOIN blocks
+                                       JOIN event_keys e ON blocks.number = e.block_number
+                                            ON e.block_number = blocks.number
                               UNION ALL
                               SELECT pool_keys.token0                     AS token,
                                      key_hash,
                                      swaps.delta0                         AS delta,
                                      DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM swaps
-                                       INNER JOIN
+                                       JOIN
                                    pool_keys ON pool_keys.key_hash = swaps.pool_key_hash
-                                       INNER JOIN blocks
-                                                  ON swaps.block_number = blocks.number
+                                       JOIN blocks
+                                       JOIN event_keys ek ON blocks.number = ek.block_number
+                                            ON ek.block_number = blocks.number
                               UNION ALL
                               SELECT pool_keys.token1                     AS token,
                                      key_hash,
                                      swaps.delta1                         AS delta,
                                      DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM swaps
-                                       INNER JOIN
+                                       JOIN
                                    pool_keys ON pool_keys.key_hash = swaps.pool_key_hash
-                                       INNER JOIN blocks
-                                                  ON swaps.block_number = blocks.number
+                                       JOIN blocks
+                                       JOIN event_keys k ON blocks.number = k.block_number
+                                            ON k.block_number = blocks.number
                               UNION ALL
                               SELECT pool_keys.token0                     AS token,
                                      key_hash,
                                      position_fees_collected.delta0       AS delta,
                                      DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM position_fees_collected
-                                       INNER JOIN
+                                       JOIN
                                    pool_keys
                                    ON pool_keys.key_hash = position_fees_collected.pool_key_hash
-                                       INNER JOIN blocks
-                                                  ON position_fees_collected.block_number = blocks.number
+                                       JOIN event_keys ON position_fees_collected.event_id = event_keys.id
+                                       JOIN blocks
+                                            ON event_keys.block_number = blocks.number
                               UNION ALL
                               SELECT pool_keys.token1                     AS token,
                                      key_hash,
                                      position_fees_collected.delta1       AS delta,
                                      DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM position_fees_collected
-                                       INNER JOIN
+                                       JOIN
                                    pool_keys
                                    ON pool_keys.key_hash = position_fees_collected.pool_key_hash
-                                       INNER JOIN blocks
-                                                  ON position_fees_collected.block_number = blocks.number
+                                       JOIN event_keys ON position_fees_collected.event_id = event_keys.id
+                                       JOIN blocks
+                                            ON event_keys.block_number = blocks.number
                               UNION ALL
                               SELECT pool_keys.token0                     AS token,
                                      key_hash,
                                      protocol_fees_paid.delta0            AS delta,
                                      DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM protocol_fees_paid
-                                       INNER JOIN
+                                       JOIN
                                    pool_keys
                                    ON pool_keys.key_hash = protocol_fees_paid.pool_key_hash
-                                       INNER JOIN blocks
-                                                  ON protocol_fees_paid.block_number = blocks.number
+                                       JOIN event_keys ON protocol_fees_paid.event_id = event_keys.id
+                                       JOIN blocks
+                                            ON event_keys.block_number = blocks.number
                               UNION ALL
                               SELECT pool_keys.token1                     AS token,
                                      key_hash,
                                      protocol_fees_paid.delta1            AS delta,
                                      DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM protocol_fees_paid
-                                       INNER JOIN
+                                       JOIN
                                    pool_keys
                                    ON pool_keys.key_hash = protocol_fees_paid.pool_key_hash
-                                       INNER JOIN blocks
-                                                  ON protocol_fees_paid.block_number = blocks.number
+                                       JOIN event_keys ON protocol_fees_paid.event_id = event_keys.id
+                                       JOIN blocks
+                                            ON event_keys.block_number = blocks.number
                               UNION ALL
                               SELECT pool_keys.token0                     AS token,
                                      key_hash,
                                      amount0                              AS delta,
                                      DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM fees_accumulated
-                                       INNER JOIN
+                                       JOIN
                                    pool_keys
                                    ON pool_keys.key_hash = fees_accumulated.pool_key_hash
-                                       INNER JOIN blocks
-                                                  ON fees_accumulated.block_number = blocks.number
+                                       JOIN event_keys ON fees_accumulated.event_id = event_keys.id
+                                       JOIN blocks
+                                            ON event_keys.block_number = blocks.number
                               UNION ALL
                               SELECT pool_keys.token1                     AS token,
                                      key_hash,
                                      amount1                              AS delta,
                                      DATE_TRUNC('hour', blocks.timestamp) AS hour
                               FROM fees_accumulated
-                                       INNER JOIN
+                                       JOIN
                                    pool_keys
                                    ON pool_keys.key_hash = fees_accumulated.pool_key_hash
-                                       INNER JOIN blocks
-                                                  ON fees_accumulated.block_number = blocks.number)
+                                       JOIN event_keys ON fees_accumulated.event_id = event_keys.id
+                                       JOIN blocks
+                                            ON event_keys.block_number = blocks.number)
 
         SELECT token,
                key_hash,
@@ -508,133 +463,17 @@ export class DAO {
             event_index       int4    NOT NULL,
 
             transaction_hash  NUMERIC NOT NULL,
-            
-            address NUMERIC NOT NULL,
-            
-            name NUMERIC NOT NULL,
-            symbol NUMERIC NOT NULL,
-            decimals INT NOT NULL,
-            total_supply NUMERIC NOT NULL,
-            
+
+            address           NUMERIC NOT NULL,
+
+            name              NUMERIC NOT NULL,
+            symbol            NUMERIC NOT NULL,
+            decimals          INT     NOT NULL,
+            total_supply      NUMERIC NOT NULL,
+
             PRIMARY KEY (block_number, transaction_index, event_index)
         );
 
-        CREATE OR REPLACE VIEW pool_states AS
-        (
-        WITH lss AS (SELECT key_hash,
-                            (SELECT block_number
-                             FROM swaps
-                             WHERE key_hash = swaps.pool_key_hash
-                             ORDER BY block_number DESC, transaction_index DESC, event_index DESC
-                             LIMIT 1)                      AS block_number,
-                            (SELECT transaction_index
-                             FROM swaps
-                             WHERE key_hash = swaps.pool_key_hash
-                             ORDER BY block_number DESC, transaction_index DESC, event_index DESC
-                             LIMIT 1)                      AS transaction_index,
-                            (SELECT event_index
-                             FROM swaps
-                             WHERE key_hash = swaps.pool_key_hash
-                             ORDER BY block_number DESC, transaction_index DESC, event_index DESC
-                             LIMIT 1)                      AS event_index,
-                            COALESCE((SELECT sqrt_ratio_after
-                                      FROM swaps
-                                      WHERE key_hash = swaps.pool_key_hash
-                                      ORDER BY block_number DESC, transaction_index DESC, event_index DESC
-                                      LIMIT 1), (SELECT sqrt_ratio
-                                                 FROM pool_initializations
-                                                 WHERE key_hash = pool_initializations.pool_key_hash
-                                                 LIMIT 1)) AS sqrt_ratio,
-                            COALESCE((SELECT tick_after
-                                      FROM swaps
-                                      WHERE key_hash = swaps.pool_key_hash
-                                      ORDER BY block_number DESC, transaction_index DESC, event_index DESC
-                                      LIMIT 1), (SELECT tick
-                                                 FROM pool_initializations
-                                                 WHERE key_hash = pool_initializations.pool_key_hash
-                                                 LIMIT 1)) AS tick,
-                            COALESCE((SELECT liquidity_after
-                                      FROM swaps
-                                      WHERE key_hash = swaps.pool_key_hash
-                                      ORDER BY block_number DESC, transaction_index DESC, event_index DESC
-                                      LIMIT 1), 0)         AS liquidity_last
-                     FROM pool_keys),
-             pl AS (SELECT key_hash,
-                           (SELECT block_number
-                            FROM position_updates
-                            WHERE key_hash = position_updates.pool_key_hash
-                            ORDER BY block_number DESC, transaction_index DESC, event_index DESC
-                            LIMIT 1)                                                               AS block_number,
-                           (SELECT transaction_index
-                            FROM position_updates
-                            WHERE key_hash = position_updates.pool_key_hash
-                            ORDER BY block_number DESC, transaction_index DESC, event_index DESC
-                            LIMIT 1)                                                               AS transaction_index,
-                           (SELECT event_index
-                            FROM position_updates
-                            WHERE key_hash = position_updates.pool_key_hash
-                            ORDER BY block_number DESC, transaction_index DESC, event_index DESC
-                            LIMIT 1)                                                               AS event_index,
-                           (COALESCE(liquidity_last, 0) + COALESCE((SELECT SUM(liquidity_delta)
-                                                                    FROM position_updates AS pu
-                                                                    WHERE pu.pool_key_hash =
-                                                                          lss.key_hash
-                                                                      AND lss.tick BETWEEN pu.lower_bound AND (pu.upper_bound - 1)
-                                                                      AND (lss.block_number IS NULL OR
-                                                                           (lss.block_number,
-                                                                            lss.transaction_index,
-                                                                            lss.event_index) <
-                                                                           (pu.block_number,
-                                                                            pu.transaction_index,
-                                                                            pu.event_index))), 0)) AS liquidity
-                    FROM lss)
-        SELECT lss.key_hash                                             AS pool_key_hash,
-               sqrt_ratio,
-               tick,
-               liquidity,
-               COALESCE((CASE
-                             WHEN lss.block_number > pl.block_number THEN lss.block_number
-                             ELSE pl.block_number END), (SELECT block_number
-                                                         FROM pool_initializations AS pi
-                                                         WHERE pi.pool_key_hash = lss.key_hash
-                                                         ORDER BY pi.block_number DESC, pi.transaction_index DESC,
-                                                                  pi.event_index DESC
-                                                         LIMIT 1))      AS block_number,
-               COALESCE((CASE
-                             WHEN lss.block_number > pl.block_number OR
-                                  (lss.block_number = pl.block_number AND lss.transaction_index > pl.transaction_index)
-                                 THEN lss.transaction_index
-                             ELSE pl.transaction_index END), (SELECT transaction_index
-                                                              FROM pool_initializations AS pi
-                                                              WHERE pi.pool_key_hash = lss.key_hash
-                                                              ORDER BY pi.block_number DESC, pi.transaction_index DESC,
-                                                                       pi.event_index DESC
-                                                              LIMIT 1)) AS transaction_index,
-               COALESCE((CASE
-                             WHEN lss.block_number > pl.block_number OR
-                                  (lss.block_number = pl.block_number AND
-                                   lss.transaction_index > pl.transaction_index) OR (
-                                      lss.block_number = pl.block_number AND
-                                      lss.transaction_index = pl.transaction_index AND
-                                      lss.event_index > pl.event_index
-                                      )
-                                 THEN lss.event_index
-                             ELSE pl.event_index END), (SELECT event_index
-                                                        FROM pool_initializations AS pi
-                                                        WHERE pi.pool_key_hash = lss.key_hash
-                                                        ORDER BY pi.block_number DESC, pi.transaction_index DESC,
-                                                                 pi.event_index DESC
-                                                        LIMIT 1))       AS event_index
-        FROM lss
-                 JOIN pl ON lss.key_hash = pl.key_hash
-            );
-
-        CREATE MATERIALIZED VIEW IF NOT EXISTS pool_states_materialized AS
-        (
-        SELECT pool_key_hash, block_number, transaction_index, event_index, sqrt_ratio, liquidity, tick
-        FROM pool_states);
-
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_states_materialized_pool_key_hash ON pool_states_materialized USING btree (pool_key_hash);
 
         CREATE OR REPLACE VIEW pair_vwap_preimages AS
         (
@@ -644,7 +483,8 @@ export class DAO {
                SUM(delta1 * delta1)                                 AS total,
                SUM(ABS(delta0 * delta1))                            AS k_volume
         FROM swaps
-                 JOIN blocks ON swaps.block_number = blocks.number
+                 JOIN event_keys ON swaps.event_id = event_keys.id
+                 JOIN blocks ON event_keys.block_number = blocks.number
                  JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
         GROUP BY token0, token1, timestamp_start
             );
@@ -698,10 +538,11 @@ export class DAO {
   public async writeCursor(cursor: { orderKey: string; uniqueKey: string }) {
     await this.pg.query({
       text: `
-                INSERT INTO cursor (id, order_key, unique_key)
-                VALUES (1, $1, $2)
-                ON CONFLICT (id) DO UPDATE SET order_key  = $1,
-                                               unique_key = $2;
+                INSERT INTO cursor (id, order_key, unique_key, last_updated)
+                VALUES (1, $1, $2, NOW())
+                ON CONFLICT (id) DO UPDATE SET order_key    = $1,
+                                               unique_key   = $2,
+                                               last_updated = NOW();
             `,
       values: [BigInt(cursor.orderKey), cursor.uniqueKey],
     });
@@ -719,7 +560,7 @@ export class DAO {
     await this.pg.query({
       text: `
                 INSERT INTO blocks (number, hash, timestamp)
-                VALUES ($1, $2, to_timestamp($3));
+                VALUES ($1, $2, TO_TIMESTAMP($3));
             `,
       values: [number, hash, timestamp],
     });
@@ -730,13 +571,13 @@ export class DAO {
 
     await this.pg.query({
       text: `
-                insert into pool_keys (key_hash,
+                INSERT INTO pool_keys (key_hash,
                                        token0,
                                        token1,
                                        fee,
                                        tick_spacing,
                                        extension)
-                values ($1, $2, $3, $4, $5, $6)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT DO NOTHING;
             `,
       values: [
@@ -759,18 +600,20 @@ export class DAO {
 
     await this.pg.query({
       text: `
-          INSERT INTO position_minted
-          (block_number,
-           transaction_index,
-           event_index,
-           transaction_hash,
-           token_id,
-           lower_bound,
-           upper_bound,
-           referrer,
-           pool_key_hash)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
-      `,
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id)
+                INSERT
+                INTO position_minted
+                (event_id,
+                 token_id,
+                 lower_bound,
+                 upper_bound,
+                 referrer,
+                 pool_key_hash)
+                VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9);
+            `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -792,11 +635,13 @@ export class DAO {
 
     await this.pg.query({
       text: `
-                insert into position_deposit
-                (block_number,
-                 transaction_index,
-                 event_index,
-                 transaction_hash,
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id)
+                INSERT
+                INTO position_deposit
+                (event_id,
                  token_id,
                  lower_bound,
                  upper_bound,
@@ -804,7 +649,7 @@ export class DAO {
                  liquidity,
                  delta0,
                  delta1)
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+                VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11);
             `,
       values: [
         key.blockNumber,
@@ -828,11 +673,13 @@ export class DAO {
 
     await this.pg.query({
       text: `
-                insert into position_withdraw
-                (block_number,
-                 transaction_index,
-                 event_index,
-                 transaction_hash,
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id)
+                INSERT
+                INTO position_withdraw
+                (event_id,
                  token_id,
                  lower_bound,
                  upper_bound,
@@ -842,7 +689,7 @@ export class DAO {
                  delta0,
                  delta1,
                  recipient)
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);
+                VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11, $12, $13);
             `,
       values: [
         key.blockNumber,
@@ -870,15 +717,17 @@ export class DAO {
     // The `*` operator is the PostgreSQL range intersection operator.
     await this.pg.query({
       text: `
-                INSERT INTO position_transfers
-                (block_number,
-                 transaction_index,
-                 event_index,
-                 transaction_hash,
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id)
+                INSERT
+                INTO position_transfers
+                (event_id,
                  token_id,
                  from_address,
                  to_address)
-                values ($1, $2, $3, $4, $5, $6, $7)
+                VALUES ((SELECT id FROM inserted_event), $5, $6, $7)
             `,
       values: [
         key.blockNumber,
@@ -900,11 +749,13 @@ export class DAO {
 
     await this.pg.query({
       text: `
-                INSERT INTO position_updates
-                (block_number,
-                 transaction_index,
-                 event_index,
-                 transaction_hash,
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id)
+                INSERT
+                INTO position_updates
+                (event_id,
                  locker,
                  pool_key_hash,
                  salt,
@@ -913,7 +764,7 @@ export class DAO {
                  liquidity_delta,
                  delta0,
                  delta1)
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);
+                VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11, $12);
             `,
       values: [
         key.blockNumber,
@@ -944,11 +795,13 @@ export class DAO {
 
     await this.pg.query({
       text: `
-                INSERT INTO position_fees_collected
-                (block_number,
-                 transaction_index,
-                 event_index,
-                 transaction_hash,
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id)
+                INSERT
+                INTO position_fees_collected
+                (event_id,
                  pool_key_hash,
                  owner,
                  salt,
@@ -956,7 +809,7 @@ export class DAO {
                  upper_bound,
                  delta0,
                  delta1)
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+                VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11);
             `,
       values: [
         key.blockNumber,
@@ -985,16 +838,18 @@ export class DAO {
 
     await this.pg.query({
       text: `
-                INSERT INTO pool_initializations
-                (block_number,
-                 transaction_index,
-                 event_index,
-                 transaction_hash,
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id)
+                INSERT
+                INTO pool_initializations
+                (event_id,
                  pool_key_hash,
                  tick,
                  sqrt_ratio,
                  call_points)
-                values ($1, $2, $3, $4, $5, $6, $7, $8);
+                VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8);
             `,
       values: [
         key.blockNumber,
@@ -1017,26 +872,19 @@ export class DAO {
   ) {
     await this.pg.query({
       text: `
-                INSERT INTO protocol_fees_withdrawn
-                (block_number,
-                 transaction_index,
-                 event_index,
-                 transaction_hash,
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id)
+                INSERT
+                INTO protocol_fees_withdrawn
+                (event_id,
                  recipient,
                  token,
                  amount)
-                values ($1, $2, $3, $4, $5, $6, $7);
+                VALUES ((SELECT id FROM inserted_event), $5, $6, $7);
             `,
-      values: [
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-
-        event.recipient,
-        event.token,
-        event.amount,
-      ],
+      values: [event.recipient, event.token, event.amount],
     });
   }
 
@@ -1045,11 +893,13 @@ export class DAO {
 
     await this.pg.query({
       text: `
-                INSERT INTO protocol_fees_paid
-                (block_number,
-                 transaction_index,
-                 event_index,
-                 transaction_hash,
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id)
+                INSERT
+                INTO protocol_fees_paid
+                (event_id,
                  pool_key_hash,
                  owner,
                  salt,
@@ -1057,7 +907,7 @@ export class DAO {
                  upper_bound,
                  delta0,
                  delta1)
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+                VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11);
             `,
       values: [
         key.blockNumber,
@@ -1094,7 +944,7 @@ export class DAO {
                  pool_key_hash,
                  amount0,
                  amount1)
-                values ($1, $2, $3, $4, $5, $6, $7);
+                VALUES ($1, $2, $3, $4, $5, $6, $7);
             `,
       values: [
         key.blockNumber,
@@ -1126,7 +976,7 @@ export class DAO {
                  name,
                  symbol,
                  total_supply)
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
             `,
       values: [
         key.blockNumber,
@@ -1160,7 +1010,7 @@ export class DAO {
                  sqrt_ratio_after,
                  tick_after,
                  liquidity_after)
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
             `,
       values: [
         key.blockNumber,
