@@ -1125,20 +1125,22 @@ export class DAO {
 
     await this.pg.query({
       text: `
-                INSERT INTO swaps
-                (block_number,
-                 transaction_index,
-                 event_index,
-                 transaction_hash,
-                 locker,
-                 pool_key_hash,
-                 delta0,
-                 delta1,
-                 sqrt_ratio_after,
-                 tick_after,
-                 liquidity_after)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
-            `,
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO swaps
+          (event_id,
+           locker,
+           pool_key_hash,
+           delta0,
+           delta1,
+           sqrt_ratio_after,
+           tick_after,
+           liquidity_after)
+          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11);
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
