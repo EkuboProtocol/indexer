@@ -422,6 +422,8 @@ export class DAO {
         SELECT pool_key_hash, block_number, transaction_index, event_index, sqrt_ratio, liquidity, tick
         FROM pool_states);
 
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_states_materialized_pool_key_hash ON pool_states_materialized USING btree (pool_key_hash);
+
         CREATE MATERIALIZED VIEW IF NOT EXISTS volume_by_token_by_hour_by_key_hash AS
         (
         SELECT DATE_TRUNC('hour', blocks.timestamp)                   AS hour,
