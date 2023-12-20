@@ -295,7 +295,7 @@ const throttledRefreshMaterializedViews = throttle(
       return memo.addEvent((ev) =>
         ev
           .withKeys(value.filter.keys)
-          .withIncludeReceipt(false)
+          .withIncludeReceipt(true)
           .withFromAddress(value.filter.fromAddress)
       );
     }, Filter.create().withHeader({ weak: true })).encode(),
@@ -360,15 +360,14 @@ const throttledRefreshMaterializedViews = throttle(
               blockEventsIndex < events.length;
               blockEventsIndex++
             ) {
-              const { event, transaction } = events[blockEventsIndex];
+              const { event, transaction, receipt } = events[blockEventsIndex];
 
               const eventKey: EventKey = {
                 blockNumber,
                 transactionHash: FieldElement.toBigInt(transaction.meta.hash),
-                // oops! this is not actually the index of the transaction within the block
-                // todo: need to do a full migration :(
-                transactionIndex: blockEventsIndex,
-                eventIndex: parseLong(event.index),
+                // todo: need to do a full reindex so all transaction indices are correct :(
+                transactionIndex: Number(parseLong(receipt.transactionIndex)),
+                eventIndex: Number(parseLong(event.index)),
               };
 
               // process each event sequentially through all the event processors in parallel
@@ -434,7 +433,7 @@ const throttledRefreshMaterializedViews = throttle(
       }
 
       case "heartbeat": {
-        logger.debug(`Heartbeat`);
+        logger.info(`Heartbeat`);
         break;
       }
 

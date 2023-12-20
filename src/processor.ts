@@ -6,7 +6,7 @@ export interface EventKey {
   blockNumber: bigint;
   transactionHash: bigint;
   transactionIndex: number;
-  eventIndex: bigint;
+  eventIndex: number;
 }
 
 export interface EventProcessor<T> {
