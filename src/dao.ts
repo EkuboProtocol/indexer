@@ -343,7 +343,7 @@ export class DAO {
         CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_states_materialized_pool_key_hash ON pool_states_materialized USING btree (pool_key_hash);
 
 
-        CREATE MATERIALIZED VIEW IF NOT EXISTS volume_by_token_by_hour_by_key_hash_materialized AS
+        CREATE OR REPLACE VIEW volume_by_token_by_hour_by_key_hash_view AS
         (
         SELECT DATE_TRUNC('hour', blocks.timestamp)                   AS hour,
                key_hash,
@@ -357,9 +357,14 @@ export class DAO {
                  JOIN blocks ON event_keys.block_number = blocks.number
         GROUP BY hour, key_hash, token
             );
+
+        CREATE MATERIALIZED VIEW IF NOT EXISTS volume_by_token_by_hour_by_key_hash_materialized AS
+        (
+        SELECT hour, key_hash, token, volume, fees
+        FROM volume_by_token_by_hour_by_key_hash_view);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_volume_by_token_by_hour_by_hour_key_hash_materialized_token ON volume_by_token_by_hour_by_key_hash_materialized USING btree (key_hash, hour, token);
 
-        CREATE MATERIALIZED VIEW IF NOT EXISTS tvl_delta_by_token_by_hour_by_key_hash_materialized AS
+        CREATE OR REPLACE VIEW tvl_delta_by_token_by_hour_by_key_hash_view AS
         (
         WITH grouped_pool_key_hash_deltas AS (SELECT pool_key_hash,
                                                      DATE_TRUNC('hour', blocks.timestamp) AS hour,
@@ -431,6 +436,11 @@ export class DAO {
         FROM token_deltas
         GROUP BY token, key_hash, hour
             );
+
+        CREATE MATERIALIZED VIEW IF NOT EXISTS tvl_delta_by_token_by_hour_by_key_hash_materialized AS
+        (
+        SELECT token, key_hash, hour, delta
+        FROM tvl_delta_by_token_by_hour_by_key_hash_view);
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_tvl_delta_by_token_by_hour_by_key_hash_token_hour_key_hash ON tvl_delta_by_token_by_hour_by_key_hash_materialized USING btree (key_hash, hour, token);
 
