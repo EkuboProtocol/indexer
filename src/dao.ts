@@ -425,7 +425,7 @@ export class DAO {
 
                               UNION ALL
 
-                              SELECT pool_key_hash, hour, pool_keys.token1 AS token, SUM(delta0) AS delta
+                              SELECT pool_key_hash, hour, pool_keys.token1 AS token, SUM(delta1) AS delta
                               FROM grouped_pool_key_hash_deltas
                                        JOIN pool_keys ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
                               GROUP BY pool_key_hash, hour, pool_keys.token1)
