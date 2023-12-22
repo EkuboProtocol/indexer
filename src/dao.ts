@@ -934,16 +934,18 @@ export class DAO {
 
     await this.pg.query({
       text: `
-                INSERT INTO fees_accumulated
-                (block_number,
-                 transaction_index,
-                 event_index,
-                 transaction_hash,
-                 pool_key_hash,
-                 amount0,
-                 amount1)
-                VALUES ($1, $2, $3, $4, $5, $6, $7);
-            `,
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO fees_accumulated
+          (event_id,
+           pool_key_hash,
+           amount0,
+           amount1)
+          VALUES ((SELECT id FROM inserted_event), $5, $6, $7);
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
