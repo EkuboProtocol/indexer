@@ -882,7 +882,15 @@ export class DAO {
                  amount)
                 VALUES ((SELECT id FROM inserted_event), $5, $6, $7);
             `,
-      values: [event.recipient, event.token, event.amount],
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        event.recipient,
+        event.token,
+        event.amount,
+      ],
     });
   }
 
