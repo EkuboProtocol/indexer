@@ -331,14 +331,15 @@ export class DAO {
                sqrt_ratio,
                tick,
                liquidity,
-               GREATEST(lss.last_swap_event_id, pl.last_update_event_id) AS last_event_id
+               GREATEST(lss.last_swap_event_id, pl.last_update_event_id) AS last_event_id,
+               pl.last_update_event_id                                   AS last_liquidity_update_event_id
         FROM lss
                  JOIN pl ON lss.key_hash = pl.key_hash
             );
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS pool_states_materialized AS
         (
-        SELECT pool_key_hash, last_event_id, sqrt_ratio, liquidity, tick
+        SELECT pool_key_hash, last_event_id, last_liquidity_update_event_id, sqrt_ratio, liquidity, tick
         FROM pool_states_view);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_states_materialized_pool_key_hash ON pool_states_materialized USING btree (pool_key_hash);
 
