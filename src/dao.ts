@@ -73,21 +73,21 @@ export class DAO {
     await this.pg.query(`
         CREATE TABLE IF NOT EXISTS cursor
         (
-            id           INT       NOT NULL UNIQUE CHECK (id = 1), -- only one row.
-            order_key    NUMERIC   NOT NULL,
-            unique_key   TEXT      NOT NULL,
-            last_updated TIMESTAMP NOT NULL
+            id           INT         NOT NULL UNIQUE CHECK (id = 1), -- only one row.
+            order_key    NUMERIC     NOT NULL,
+            unique_key   TEXT        NOT NULL,
+            last_updated timestamptz NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS blocks
         (
             -- int4 blocks represents over a thousand years at 12 second blocks
-            number             int4      NOT NULL PRIMARY KEY,
-            hash               NUMERIC   NOT NULL,
-            timestamp          TIMESTAMP NOT NULL,
-            inserted_timestamp TIMESTAMP NOT NULL DEFAULT NOW()
+            number   int4        NOT NULL PRIMARY KEY,
+            hash     NUMERIC     NOT NULL,
+            time     timestamptz NOT NULL,
+            inserted timestamptz NOT NULL DEFAULT NOW()
         );
-        CREATE INDEX IF NOT EXISTS idx_blocks_timestamp ON blocks USING btree (timestamp);
+        CREATE INDEX IF NOT EXISTS idx_blocks_time ON blocks USING btree (time);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_blocks_hash ON blocks USING btree (hash);
 
         CREATE TABLE IF NOT EXISTS pool_keys
@@ -346,7 +346,7 @@ export class DAO {
 
         CREATE OR REPLACE VIEW volume_by_token_by_hour_by_key_hash_view AS
         (
-        SELECT DATE_TRUNC('hour', blocks.timestamp)                   AS hour,
+        SELECT DATE_TRUNC('hour', blocks.time)                        AS hour,
                key_hash,
                (CASE WHEN delta0 >= 0 THEN token0 ELSE token1 END)       token,
                SUM(CASE WHEN delta0 >= 0 THEN delta0 ELSE delta1 END) AS volume,
@@ -368,9 +368,9 @@ export class DAO {
         CREATE OR REPLACE VIEW tvl_delta_by_token_by_hour_by_key_hash_view AS
         (
         WITH grouped_pool_key_hash_deltas AS (SELECT pool_key_hash,
-                                                     DATE_TRUNC('hour', blocks.timestamp) AS hour,
-                                                     SUM(delta0)                          AS delta0,
-                                                     SUM(delta1)                          AS delta1
+                                                     DATE_TRUNC('hour', blocks.time) AS hour,
+                                                     SUM(delta0)                     AS delta0,
+                                                     SUM(delta1)                     AS delta1
                                               FROM swaps
                                                        JOIN event_keys ON swaps.event_id = event_keys.id
                                                        JOIN blocks ON event_keys.block_number = blocks.number
@@ -379,9 +379,9 @@ export class DAO {
                                               UNION ALL
 
                                               SELECT pool_key_hash,
-                                                     DATE_TRUNC('hour', blocks.timestamp) AS hour,
-                                                     SUM(delta0)                          AS delta0,
-                                                     SUM(delta1)                          AS delta1
+                                                     DATE_TRUNC('hour', blocks.time) AS hour,
+                                                     SUM(delta0)                     AS delta0,
+                                                     SUM(delta1)                     AS delta1
                                               FROM position_updates
                                                        JOIN event_keys ON position_updates.event_id = event_keys.id
                                                        JOIN blocks ON event_keys.block_number = blocks.number
@@ -390,9 +390,9 @@ export class DAO {
                                               UNION ALL
 
                                               SELECT pool_key_hash,
-                                                     DATE_TRUNC('hour', blocks.timestamp) AS hour,
-                                                     SUM(delta0)                          AS delta0,
-                                                     SUM(delta1)                          AS delta1
+                                                     DATE_TRUNC('hour', blocks.time) AS hour,
+                                                     SUM(delta0)                     AS delta0,
+                                                     SUM(delta1)                     AS delta1
                                               FROM position_fees_collected
                                                        JOIN event_keys ON position_fees_collected.event_id = event_keys.id
                                                        JOIN blocks ON event_keys.block_number = blocks.number
@@ -401,9 +401,9 @@ export class DAO {
                                               UNION ALL
 
                                               SELECT pool_key_hash,
-                                                     DATE_TRUNC('hour', blocks.timestamp) AS hour,
-                                                     SUM(delta0)                          AS delta0,
-                                                     SUM(delta1)                          AS delta1
+                                                     DATE_TRUNC('hour', blocks.time) AS hour,
+                                                     SUM(delta0)                     AS delta0,
+                                                     SUM(delta1)                     AS delta1
                                               FROM protocol_fees_paid
                                                        JOIN event_keys ON protocol_fees_paid.event_id = event_keys.id
                                                        JOIN blocks ON event_keys.block_number = blocks.number
@@ -412,9 +412,9 @@ export class DAO {
                                               UNION ALL
 
                                               SELECT pool_key_hash,
-                                                     DATE_TRUNC('hour', blocks.timestamp) AS hour,
-                                                     SUM(amount0)                         AS delta0,
-                                                     SUM(amount1)                         AS delta1
+                                                     DATE_TRUNC('hour', blocks.time) AS hour,
+                                                     SUM(amount0)                    AS delta0,
+                                                     SUM(amount1)                    AS delta1
                                               FROM fees_accumulated
                                                        JOIN event_keys ON fees_accumulated.event_id = event_keys.id
                                                        JOIN blocks ON event_keys.block_number = blocks.number
@@ -477,11 +477,11 @@ export class DAO {
 
         CREATE OR REPLACE VIEW pair_vwap_preimages_view AS
         (
-        SELECT date_bin('15 minutes', blocks.timestamp, '2000-1-1') AS timestamp_start,
+        SELECT date_bin('15 minutes', blocks.time, '2000-1-1') AS timestamp_start,
                token0,
                token1,
-               SUM(delta1 * delta1)                                 AS total,
-               SUM(ABS(delta0 * delta1))                            AS k_volume
+               SUM(delta1 * delta1)                            AS total,
+               SUM(ABS(delta0 * delta1))                       AS k_volume
         FROM swaps
                  JOIN event_keys ON swaps.event_id = event_keys.id
                  JOIN blocks ON event_keys.block_number = blocks.number
@@ -550,18 +550,18 @@ export class DAO {
   public async insertBlock({
     number,
     hash,
-    timestamp,
+    time,
   }: {
     number: bigint;
     hash: bigint;
-    timestamp: bigint;
+    time: Date;
   }) {
     await this.pg.query({
       text: `
-                INSERT INTO blocks (number, hash, timestamp)
-                VALUES ($1, $2, TO_TIMESTAMP($3));
-            `,
-      values: [number, hash, timestamp],
+          INSERT INTO blocks (number, hash, time)
+          VALUES ($1, $2, $3);
+      `,
+      values: [number, hash, time],
     });
   }
 

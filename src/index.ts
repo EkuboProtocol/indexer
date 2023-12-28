@@ -346,13 +346,13 @@ const throttledRefreshMaterializedViews = throttle(
 
             const events = block.events;
 
-            const blockTimestampSeconds = parseLong(
-              block.header.timestamp.seconds
+            const blockTime = new Date(
+              Number(parseLong(block.header.timestamp.seconds) * 1000n)
             );
             await dao.insertBlock({
               hash: FieldElement.toBigInt(block.header.blockHash),
-              timestamp: blockTimestampSeconds,
               number: parseLong(block.header.blockNumber),
+              time: blockTime,
             });
 
             for (
@@ -408,16 +408,13 @@ const throttledRefreshMaterializedViews = throttle(
 
             await dao.commitTransaction();
 
-            const blockTimestampDate = new Date(
-              Number(blockTimestampSeconds * 1000n)
-            );
             const processTimeNanos = process.hrtime.bigint() - start;
             logger.info(`Processed to block`, {
               blockNumber,
               isPending,
-              blockTimestamp: blockTimestampDate,
+              blockTimestamp: blockTime,
               lagMilliseconds: Math.floor(
-                Date.now() - Number(blockTimestampSeconds * 1000n)
+                Date.now() - Number(blockTime.getTime())
               ),
               processTime: `${(processTimeNanos / 1_000_000n).toString()}ms`,
             });
@@ -469,8 +466,5 @@ const throttledRefreshMaterializedViews = throttle(
   })
   .catch((error) => {
     logger.error(error);
-  })
-  .finally(async () => {
-    await pool.end();
     process.exit(1);
   });
