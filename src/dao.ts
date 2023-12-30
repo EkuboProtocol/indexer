@@ -637,7 +637,7 @@ export class DAO {
         SELECT points_earned_day, collector, points
         FROM leaderboard_view);
 
-        CREATE INDEX IF NOT EXISTS idx_leaderboard_materialized_points_earned_day_collector ON leaderboard_materialized USING btree (points_earned_day, collector);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_leaderboard_materialized_points_earned_day_collector ON leaderboard_materialized USING btree (points_earned_day, collector);
     `);
   }
 
