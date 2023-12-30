@@ -422,7 +422,9 @@ const throttledRefreshMaterializedViews = throttle(
 
           client.release();
 
-          throttledRefreshMaterializedViews();
+          if (isPending) {
+            throttledRefreshMaterializedViews();
+          }
         }
 
         break;
