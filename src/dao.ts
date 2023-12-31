@@ -527,8 +527,7 @@ export class DAO {
                                                                2087021424722619777119509474943472645767659996348769578120564519014510906823)
                                          AND k_volume != 0
                                          AND total != 0
-                                         AND timestamp_start >= (NOW() - INTERVAL '1 day')
-                                       GROUP BY timestamp_start),
+                                         AND timestamp_start >= (NOW() - INTERVAL '1 day')),
                                       0) END) AS rate
                   FROM all_tokens),
 
