@@ -498,13 +498,27 @@ export class DAO {
 
         CREATE OR REPLACE VIEW leaderboard_view AS
         (
-        WITH all_tokens AS
-                 (SELECT token0 AS token
-                  FROM pool_keys
-                  UNION
-                  DISTINCT
-                  SELECT token1 AS token
-                  FROM pool_keys),
+        WITH swap_counts_as_t0 AS (SELECT pk.token0 AS token, COUNT(1) AS swap_count
+                                   FROM swaps AS s
+                                            JOIN event_keys AS ek ON s.event_id = ek.id
+                                            JOIN blocks AS b ON ek.block_number = b.number
+                                            JOIN pool_keys AS pk ON s.pool_key_hash = pk.key_hash
+                                   WHERE b.time >= (NOW() - INTERVAL '24 hours')
+                                   GROUP BY pk.token0),
+             swap_counts_as_t1 AS (SELECT pk.token1 AS token, COUNT(1) AS swap_count
+                                   FROM swaps AS s
+                                            JOIN event_keys AS ek ON s.event_id = ek.id
+                                            JOIN blocks AS b ON ek.block_number = b.number
+                                            JOIN pool_keys AS pk ON s.pool_key_hash = pk.key_hash
+                                   WHERE b.time >= (NOW() - INTERVAL '24 hours')
+                                   GROUP BY pk.token1),
+
+             -- only consider tokens that had more than 100 swaps in the last 24 hour period
+             considered_tokens AS (SELECT COALESCE(s0.token, s1.token) AS token
+                                   FROM swap_counts_as_t0 AS s0
+                                            FULL OUTER JOIN swap_counts_as_t1 AS s1
+                                                            ON s0.token = s1.token
+                                   WHERE (COALESCE(s0.swap_count, 0) + COALESCE(s1.swap_count, 0)) > 100),
 
              fee_to_discount_factor AS (SELECT DISTINCT fee,
                                                         1 - SQRT(fee / 340282366920938463463374607431768211456) AS fee_discount
@@ -517,9 +531,9 @@ export class DAO {
                               WHEN token = 2087021424722619777119509474943472645767659996348769578120564519014510906823
                                   THEN 1
                               ELSE COALESCE(
-                                      (SELECT MIN(CASE
-                                                      WHEN token = token0 THEN (total / k_volume)
-                                                      ELSE (k_volume / total) END)
+                                      (SELECT (CASE
+                                                   WHEN token = token0 THEN (total / k_volume)
+                                                   ELSE (k_volume / total) END)
                                        FROM pair_vwap_preimages_materialized
                                        WHERE token0 = LEAST(token,
                                                             2087021424722619777119509474943472645767659996348769578120564519014510906823)
@@ -527,9 +541,9 @@ export class DAO {
                                                                2087021424722619777119509474943472645767659996348769578120564519014510906823)
                                          AND k_volume != 0
                                          AND total != 0
-                                         AND timestamp_start >= (NOW() - INTERVAL '1 day')),
-                                      0) END) AS rate
-                  FROM all_tokens),
+                                       ORDER BY timestamp_start DESC
+                                       LIMIT 1), 0) END) AS rate
+                  FROM considered_tokens),
 
              position_multipliers AS (SELECT pm.token_id AS token_id,
                                              2 *
@@ -538,7 +552,6 @@ export class DAO {
                                       FROM position_minted AS pm
                                                JOIN event_keys ON pm.event_id = event_keys.id
                                                JOIN blocks AS pmb ON event_keys.block_number = pmb.number),
-
              points_from_mints AS (SELECT pmb.time                              AS points_earned_timestamp,
                                           (SELECT to_address
                                            FROM position_transfers AS pt
@@ -557,7 +570,6 @@ export class DAO {
                                             JOIN position_multipliers AS multipliers
                                                  ON pm.token_id = multipliers.token_id
                                             JOIN blocks AS pmb ON pmek.block_number = pmb.number),
-
              position_from_withdrawal_fees_paid AS (SELECT pfpb.time                  AS points_earned_timestamp,
                                                            (SELECT to_address
                                                             FROM position_transfers AS pt
@@ -582,8 +594,6 @@ export class DAO {
                                                              JOIN points_conversion AS pc0 ON pc0.token = pk.token0
                                                              JOIN points_conversion AS pc1 ON pc1.token = pk.token1
                                                              JOIN fee_to_discount_factor AS fd ON pk.fee = fd.fee),
-
-
              points_from_fees AS (SELECT pfb.time                                                     AS points_earned_timestamp,
                                          (SELECT to_address
                                           FROM position_transfers AS pt
@@ -609,8 +619,6 @@ export class DAO {
                                            JOIN points_conversion AS pc0 ON pc0.token = pk.token0
                                            JOIN points_conversion AS pc1 ON pc1.token = pk.token1
                                   GROUP BY pfb.time, multipliers.multiplier, collector, referrer),
-
-
              points_by_collector_with_referrer AS (SELECT points_earned_timestamp, collector, referrer, points
                                                    FROM points_from_fees
                                                    UNION ALL
