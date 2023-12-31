@@ -539,14 +539,14 @@ export class DAO {
                                                JOIN event_keys ON pm.event_id = event_keys.id
                                                JOIN blocks AS pmb ON event_keys.block_number = pmb.number),
 
-             points_from_mints AS (SELECT pmb.time                             AS points_earned_timestamp,
+             points_from_mints AS (SELECT pmb.time                                AS points_earned_timestamp,
                                           (SELECT to_address
                                            FROM position_transfers AS pt
                                            WHERE pt.token_id = pm.token_id
                                            ORDER BY pt.event_id
-                                           LIMIT 1)                            AS collector,
-                                          pm.referrer                          AS referrer,
-                                          (2000 * multipliers.multiplier)::INT AS points
+                                           LIMIT 1)                               AS collector,
+                                          pm.referrer                             AS referrer,
+                                          (2000 * multipliers.multiplier)::int8 AS points
                                    FROM position_minted AS pm
                                             JOIN event_keys AS pmek ON pm.event_id = pmek.id
                                             JOIN position_deposit AS pd
@@ -558,20 +558,20 @@ export class DAO {
                                                  ON pm.token_id = multipliers.token_id
                                             JOIN blocks AS pmb ON pmek.block_number = pmb.number),
 
-             position_from_withdrawal_fees_paid AS (SELECT pfpb.time                 AS points_earned_timestamp,
+             position_from_withdrawal_fees_paid AS (SELECT pfpb.time                    AS points_earned_timestamp,
                                                            (SELECT to_address
                                                             FROM position_transfers AS pt
                                                             WHERE pt.token_id = pfp.salt::int8
                                                               AND pt.event_id <
                                                                   pfp.event_id
                                                             ORDER BY pt.event_id DESC
-                                                            LIMIT 1)                 AS collector,
-                                                           pm.referrer               AS referrer,
+                                                            LIMIT 1)                    AS collector,
+                                                           pm.referrer                  AS referrer,
                                                            FLOOR(ABS(
                                                                          (pfp.delta0 * pc0.rate * fd.fee_discount) +
                                                                          (pfp.delta1 * pc1.rate * fd.fee_discount)
                                                                  ) * multipliers.multiplier /
-                                                                 1e12::NUMERIC)::INT AS points
+                                                                 1e12::NUMERIC)::int8 AS points
                                                     FROM protocol_fees_paid AS pfp
                                                              JOIN event_keys AS pfek ON pfp.event_id = pfek.id
                                                              JOIN blocks AS pfpb ON pfek.block_number = pfpb.number
@@ -584,20 +584,20 @@ export class DAO {
                                                              JOIN fee_to_discount_factor AS fd ON pk.fee = fd.fee),
 
 
-             points_from_fees AS (SELECT pfb.time                                                    AS points_earned_timestamp,
+             points_from_fees AS (SELECT pfb.time                                                     AS points_earned_timestamp,
                                          (SELECT to_address
                                           FROM position_transfers AS pt
                                           WHERE pt.token_id = pf.salt::int8
                                             AND pt.event_id < pf.event_id
                                           ORDER BY pt.event_id DESC
-                                          LIMIT 1)                                                   AS collector,
-                                         pm.referrer                                                 AS referrer,
+                                          LIMIT 1)                                                    AS collector,
+                                         pm.referrer                                                  AS referrer,
                                          FLOOR(ABS(SUM(
                                                  (pf.delta0 * pc0.rate * fd.fee_discount) +
                                                  (pf.delta1 * pc1.rate * fd.fee_discount)
-                                                   )) * multipliers.multiplier / 1e12::NUMERIC)::INT AS points
+                                                   )) * multipliers.multiplier / 1e12::NUMERIC)::int8 AS points
                                   FROM position_minted AS pm
-                                           JOIN position_fees_collected AS pf ON pm.token_id = pf.salt::BIGINT
+                                           JOIN position_fees_collected AS pf ON pm.token_id = pf.salt::int8
                                            JOIN position_multipliers AS multipliers
                                                 ON pm.token_id = multipliers.token_id
                                            JOIN event_keys AS pmek ON pm.event_id = pmek.id
