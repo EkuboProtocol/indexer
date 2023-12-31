@@ -516,19 +516,20 @@ export class DAO {
                          (CASE
                               WHEN token = 2087021424722619777119509474943472645767659996348769578120564519014510906823
                                   THEN 1
-                              ELSE COALESCE((SELECT (CASE
-                                                         WHEN token = token0 THEN (total / k_volume)
-                                                         ELSE (k_volume / total) END)
-                                             FROM pair_vwap_preimages_materialized
-                                             WHERE token0 = LEAST(token,
-                                                                  2087021424722619777119509474943472645767659996348769578120564519014510906823)
-                                               AND token1 = GREATEST(token,
-                                                                     2087021424722619777119509474943472645767659996348769578120564519014510906823)
-                                               AND k_volume != 0
-                                               AND total != 0
-                                               AND timestamp_start >= (NOW() - INTERVAL '1 day')
-                                             ORDER BY timestamp_start DESC
-                                             LIMIT 1), 0) END) AS rate
+                              ELSE COALESCE(
+                                      (SELECT MIN(CASE
+                                                      WHEN token = token0 THEN (total / k_volume)
+                                                      ELSE (k_volume / total) END)
+                                       FROM pair_vwap_preimages_materialized
+                                       WHERE token0 = LEAST(token,
+                                                            2087021424722619777119509474943472645767659996348769578120564519014510906823)
+                                         AND token1 = GREATEST(token,
+                                                               2087021424722619777119509474943472645767659996348769578120564519014510906823)
+                                         AND k_volume != 0
+                                         AND total != 0
+                                         AND timestamp_start >= (NOW() - INTERVAL '1 day')
+                                       GROUP BY timestamp_start),
+                                      0) END) AS rate
                   FROM all_tokens),
 
              position_multipliers AS (SELECT pm.token_id AS token_id,
@@ -539,13 +540,13 @@ export class DAO {
                                                JOIN event_keys ON pm.event_id = event_keys.id
                                                JOIN blocks AS pmb ON event_keys.block_number = pmb.number),
 
-             points_from_mints AS (SELECT pmb.time                                AS points_earned_timestamp,
+             points_from_mints AS (SELECT pmb.time                              AS points_earned_timestamp,
                                           (SELECT to_address
                                            FROM position_transfers AS pt
                                            WHERE pt.token_id = pm.token_id
                                            ORDER BY pt.event_id
-                                           LIMIT 1)                               AS collector,
-                                          pm.referrer                             AS referrer,
+                                           LIMIT 1)                             AS collector,
+                                          pm.referrer                           AS referrer,
                                           (2000 * multipliers.multiplier)::int8 AS points
                                    FROM position_minted AS pm
                                             JOIN event_keys AS pmek ON pm.event_id = pmek.id
@@ -558,15 +559,15 @@ export class DAO {
                                                  ON pm.token_id = multipliers.token_id
                                             JOIN blocks AS pmb ON pmek.block_number = pmb.number),
 
-             position_from_withdrawal_fees_paid AS (SELECT pfpb.time                    AS points_earned_timestamp,
+             position_from_withdrawal_fees_paid AS (SELECT pfpb.time                  AS points_earned_timestamp,
                                                            (SELECT to_address
                                                             FROM position_transfers AS pt
                                                             WHERE pt.token_id = pfp.salt::int8
                                                               AND pt.event_id <
                                                                   pfp.event_id
                                                             ORDER BY pt.event_id DESC
-                                                            LIMIT 1)                    AS collector,
-                                                           pm.referrer                  AS referrer,
+                                                            LIMIT 1)                  AS collector,
+                                                           pm.referrer                AS referrer,
                                                            FLOOR(ABS(
                                                                          (pfp.delta0 * pc0.rate * fd.fee_discount) +
                                                                          (pfp.delta1 * pc1.rate * fd.fee_discount)
