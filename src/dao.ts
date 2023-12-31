@@ -525,6 +525,13 @@ export class DAO {
                                             LEFT JOIN
                                         swap_counts_as_t1 AS s1 ON at.token = s1.token),
 
+             -- this boost allows users to earn more points by depositing liquidity in pools that are heavily utilized
+             pair_points_boost AS (SELECT token0,
+                                          token1,
+                                          -- todo: decide on these factors
+                                          0.1 + 9.9 * LN(1 + (EXP(1) - 1) * swap_count / (SUM(swap_count) OVER ())) multiplier
+                                   FROM pair_swap_counts),
+
              fee_to_discount_factor AS (SELECT DISTINCT fee,
                                                         1 - SQRT(fee / 340282366920938463463374607431768211456) AS fee_discount
                                         FROM pool_keys),
@@ -566,6 +573,7 @@ export class DAO {
                                       FROM position_minted AS pm
                                                JOIN event_keys ON pm.event_id = event_keys.id
                                                JOIN blocks AS pmb ON event_keys.block_number = pmb.number),
+
              points_from_mints AS (SELECT pmb.time                              AS points_earned_timestamp,
                                           (SELECT to_address
                                            FROM position_transfers AS pt
@@ -578,12 +586,14 @@ export class DAO {
                                             JOIN event_keys AS pmek ON pm.event_id = pmek.id
                                             JOIN position_deposit AS pd
                                                  ON pm.token_id = pd.token_id
+                                                     -- this means only a single deposit per mint
                                                      AND pd.event_id = pm.event_id + 4
                                                      -- this means non-zero deposit of in range
                                                      AND pd.delta0 != 0 AND pd.delta1 != 0
                                             JOIN position_multipliers AS multipliers
                                                  ON pm.token_id = multipliers.token_id
                                             JOIN blocks AS pmb ON pmek.block_number = pmb.number),
+
              position_from_withdrawal_fees_paid AS (SELECT pfpb.time                  AS points_earned_timestamp,
                                                            (SELECT to_address
                                                             FROM position_transfers AS pt
@@ -596,32 +606,41 @@ export class DAO {
                                                            FLOOR(ABS(
                                                                          (pfp.delta0 * tp0.rate * fd.fee_discount) +
                                                                          (pfp.delta1 * tp1.rate * fd.fee_discount)
-                                                                 ) * multipliers.multiplier /
+                                                                 ) * multipliers.multiplier *
+                                                                 COALESCE(ppb.multiplier, 1) /
                                                                  1e12::NUMERIC)::int8 AS points
                                                     FROM protocol_fees_paid AS pfp
                                                              JOIN event_keys AS pfek ON pfp.event_id = pfek.id
                                                              JOIN blocks AS pfpb ON pfek.block_number = pfpb.number
+                                                        -- todo: prevent points from being earned if the deposit/withdraw is a different pool key hash than the mint
+                                                        -- AND pfp.pool_key_hash = pm.pool_key_hash
                                                              JOIN position_minted AS pm ON pfp.salt::BIGINT = pm.token_id
                                                              JOIN position_multipliers AS multipliers
                                                                   ON pm.token_id = multipliers.token_id
                                                              JOIN pool_keys AS pk ON pfp.pool_key_hash = pk.key_hash
+                                                             LEFT JOIN pair_points_boost AS ppb
+                                                                       ON pk.token0 = ppb.token0 AND pk.token1 = ppb.token1
                                                              JOIN token_prices AS tp0 ON tp0.token = pk.token0
                                                              JOIN token_prices AS tp1 ON tp1.token = pk.token1
                                                              JOIN fee_to_discount_factor AS fd ON pk.fee = fd.fee),
-             points_from_fees AS (SELECT pfb.time                                                     AS points_earned_timestamp,
+
+             points_from_fees AS (SELECT pfb.time                   AS points_earned_timestamp,
                                          (SELECT to_address
                                           FROM position_transfers AS pt
                                           WHERE pt.token_id = pf.salt::int8
                                             AND pt.event_id < pf.event_id
                                           ORDER BY pt.event_id DESC
-                                          LIMIT 1)                                                    AS collector,
-                                         pm.referrer                                                  AS referrer,
+                                          LIMIT 1)                  AS collector,
+                                         pm.referrer                AS referrer,
                                          FLOOR(ABS(SUM(
                                                  (pf.delta0 * tp0.rate * fd.fee_discount) +
                                                  (pf.delta1 * tp1.rate * fd.fee_discount)
-                                                   )) * multipliers.multiplier / 1e12::NUMERIC)::int8 AS points
+                                                   )) * multipliers.multiplier * COALESCE(ppb.multiplier) /
+                                               1e12::NUMERIC)::int8 AS points
                                   FROM position_minted AS pm
                                            JOIN position_fees_collected AS pf ON pm.token_id = pf.salt::int8
+                                      -- todo: prevent points from being earned if the deposit/withdraw is a different pool key hash than the mint
+                                      -- AND pfp.pool_key_hash = pm.pool_key_hash
                                            JOIN position_multipliers AS multipliers
                                                 ON pm.token_id = multipliers.token_id
                                            JOIN event_keys AS pmek ON pm.event_id = pmek.id
@@ -629,10 +648,13 @@ export class DAO {
                                            JOIN event_keys AS pfek ON pf.event_id = pfek.id
                                            JOIN blocks AS pfb ON pfek.block_number = pfb.number
                                            JOIN pool_keys AS pk ON pf.pool_key_hash = pk.key_hash
+                                           LEFT JOIN pair_points_boost AS ppb
+                                                     ON pk.token0 = ppb.token0 AND pk.token1 = ppb.token1
                                            JOIN fee_to_discount_factor AS fd ON pk.fee = fd.fee
                                            JOIN token_prices AS tp0 ON tp0.token = pk.token0
                                            JOIN token_prices AS tp1 ON tp1.token = pk.token1
-                                  GROUP BY pfb.time, multipliers.multiplier, collector, referrer),
+                                  GROUP BY pfb.time, multipliers.multiplier, ppb.multiplier, collector, referrer),
+
              points_by_collector_with_referrer AS (SELECT points_earned_timestamp, collector, referrer, points
                                                    FROM points_from_fees
                                                    UNION ALL
