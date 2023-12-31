@@ -498,52 +498,66 @@ export class DAO {
 
         CREATE OR REPLACE VIEW leaderboard_view AS
         (
-        WITH swap_counts_as_t0 AS (SELECT pk.token0 AS token, COUNT(1) AS swap_count
-                                   FROM swaps AS s
-                                            JOIN event_keys AS ek ON s.event_id = ek.id
-                                            JOIN blocks AS b ON ek.block_number = b.number
-                                            JOIN pool_keys AS pk ON s.pool_key_hash = pk.key_hash
-                                   WHERE b.time >= (NOW() - INTERVAL '24 hours')
-                                   GROUP BY pk.token0),
-             swap_counts_as_t1 AS (SELECT pk.token1 AS token, COUNT(1) AS swap_count
-                                   FROM swaps AS s
-                                            JOIN event_keys AS ek ON s.event_id = ek.id
-                                            JOIN blocks AS b ON ek.block_number = b.number
-                                            JOIN pool_keys AS pk ON s.pool_key_hash = pk.key_hash
-                                   WHERE b.time >= (NOW() - INTERVAL '24 hours')
-                                   GROUP BY pk.token1),
+        WITH all_tokens AS (SELECT token0 AS token FROM pool_keys UNION DISTINCT SELECT token1 FROM pool_keys),
 
-             -- only consider tokens that had more than 100 swaps in the last 24 hour period
-             considered_tokens AS (SELECT COALESCE(s0.token, s1.token) AS token
-                                   FROM swap_counts_as_t0 AS s0
-                                            FULL OUTER JOIN swap_counts_as_t1 AS s1
-                                                            ON s0.token = s1.token
-                                   WHERE (COALESCE(s0.swap_count, 0) + COALESCE(s1.swap_count, 0)) > 100),
+             pair_swap_counts AS (SELECT pk.token0, pk.token1, COUNT(1) AS swap_count
+                                  FROM swaps AS s
+                                           JOIN event_keys AS ek ON s.event_id = ek.id
+                                           JOIN blocks AS b ON ek.block_number = b.number
+                                           JOIN pool_keys AS pk ON s.pool_key_hash = pk.key_hash
+                                  WHERE b.time >= (NOW() - INTERVAL '1 month')
+                                  GROUP BY pk.token0, pk.token1),
+
+             swap_counts_as_t0 AS (SELECT token0 AS token, SUM(swap_count) AS swap_count
+                                   FROM pair_swap_counts
+                                   GROUP BY token0),
+
+             swap_counts_as_t1 AS (SELECT token1 AS token, SUM(swap_count) AS swap_count
+                                   FROM pair_swap_counts
+                                   GROUP BY token1),
+
+             -- all the tokens and the respective total number of swaps for each token
+             token_swap_counts AS (SELECT at.token                                                  AS token,
+                                          (COALESCE(s0.swap_count, 0) + COALESCE(s1.swap_count, 0)) AS swap_count
+                                   FROM all_tokens AS at
+                                            LEFT JOIN
+                                        swap_counts_as_t0 AS s0 ON at.token = s0.token
+                                            LEFT JOIN
+                                        swap_counts_as_t1 AS s1 ON at.token = s1.token),
 
              fee_to_discount_factor AS (SELECT DISTINCT fee,
                                                         1 - SQRT(fee / 340282366920938463463374607431768211456) AS fee_discount
                                         FROM pool_keys),
 
-             -- 1 wei of token is converted to points via the last known price, so we get the price here
-             points_conversion AS
+             -- we compute the VWAP price in eth per token over the last month for each token we will consider
+             token_prices AS
                  (SELECT token,
                          (CASE
+                              WHEN swap_count < 3000 THEN 0
                               WHEN token = 2087021424722619777119509474943472645767659996348769578120564519014510906823
                                   THEN 1
-                              ELSE COALESCE(
-                                      (SELECT (CASE
-                                                   WHEN token = token0 THEN (total / k_volume)
-                                                   ELSE (k_volume / total) END)
-                                       FROM pair_vwap_preimages_materialized
-                                       WHERE token0 = LEAST(token,
-                                                            2087021424722619777119509474943472645767659996348769578120564519014510906823)
-                                         AND token1 = GREATEST(token,
-                                                               2087021424722619777119509474943472645767659996348769578120564519014510906823)
-                                         AND k_volume != 0
-                                         AND total != 0
-                                       ORDER BY timestamp_start DESC
-                                       LIMIT 1), 0) END) AS rate
-                  FROM considered_tokens),
+                              WHEN token < 2087021424722619777119509474943472645767659996348769578120564519014510906823
+                                  THEN (SELECT SUM(delta1 * delta1) / SUM(ABS(delta0 * delta1))
+                                        FROM swaps
+                                                 JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
+                                                 JOIN event_keys ON swaps.event_id = event_keys.id
+                                                 JOIN blocks ON event_keys.block_number = blocks.number
+                                        WHERE token0 = token
+                                          AND token1 =
+                                              2087021424722619777119509474943472645767659996348769578120564519014510906823
+                                          AND blocks.time >= NOW() - INTERVAL '1 month')
+                              ELSE
+                                  (SELECT SUM(ABS(delta0 * delta1)) / SUM(delta1 * delta1)
+                                   FROM swaps
+                                            JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
+                                            JOIN event_keys ON swaps.event_id = event_keys.id
+                                            JOIN blocks ON event_keys.block_number = blocks.number
+                                   WHERE token0 =
+                                         2087021424722619777119509474943472645767659996348769578120564519014510906823
+                                     AND token1 = token
+                                     AND blocks.time >= NOW() - INTERVAL '1 month')
+                             END) AS rate
+                  FROM token_swap_counts),
 
              position_multipliers AS (SELECT pm.token_id AS token_id,
                                              2 *
@@ -580,8 +594,8 @@ export class DAO {
                                                             LIMIT 1)                  AS collector,
                                                            pm.referrer                AS referrer,
                                                            FLOOR(ABS(
-                                                                         (pfp.delta0 * pc0.rate * fd.fee_discount) +
-                                                                         (pfp.delta1 * pc1.rate * fd.fee_discount)
+                                                                         (pfp.delta0 * tp0.rate * fd.fee_discount) +
+                                                                         (pfp.delta1 * tp1.rate * fd.fee_discount)
                                                                  ) * multipliers.multiplier /
                                                                  1e12::NUMERIC)::int8 AS points
                                                     FROM protocol_fees_paid AS pfp
@@ -591,8 +605,8 @@ export class DAO {
                                                              JOIN position_multipliers AS multipliers
                                                                   ON pm.token_id = multipliers.token_id
                                                              JOIN pool_keys AS pk ON pfp.pool_key_hash = pk.key_hash
-                                                             JOIN points_conversion AS pc0 ON pc0.token = pk.token0
-                                                             JOIN points_conversion AS pc1 ON pc1.token = pk.token1
+                                                             JOIN token_prices AS tp0 ON tp0.token = pk.token0
+                                                             JOIN token_prices AS tp1 ON tp1.token = pk.token1
                                                              JOIN fee_to_discount_factor AS fd ON pk.fee = fd.fee),
              points_from_fees AS (SELECT pfb.time                                                     AS points_earned_timestamp,
                                          (SELECT to_address
@@ -603,8 +617,8 @@ export class DAO {
                                           LIMIT 1)                                                    AS collector,
                                          pm.referrer                                                  AS referrer,
                                          FLOOR(ABS(SUM(
-                                                 (pf.delta0 * pc0.rate * fd.fee_discount) +
-                                                 (pf.delta1 * pc1.rate * fd.fee_discount)
+                                                 (pf.delta0 * tp0.rate * fd.fee_discount) +
+                                                 (pf.delta1 * tp1.rate * fd.fee_discount)
                                                    )) * multipliers.multiplier / 1e12::NUMERIC)::int8 AS points
                                   FROM position_minted AS pm
                                            JOIN position_fees_collected AS pf ON pm.token_id = pf.salt::int8
@@ -616,8 +630,8 @@ export class DAO {
                                            JOIN blocks AS pfb ON pfek.block_number = pfb.number
                                            JOIN pool_keys AS pk ON pf.pool_key_hash = pk.key_hash
                                            JOIN fee_to_discount_factor AS fd ON pk.fee = fd.fee
-                                           JOIN points_conversion AS pc0 ON pc0.token = pk.token0
-                                           JOIN points_conversion AS pc1 ON pc1.token = pk.token1
+                                           JOIN token_prices AS tp0 ON tp0.token = pk.token0
+                                           JOIN token_prices AS tp1 ON tp1.token = pk.token1
                                   GROUP BY pfb.time, multipliers.multiplier, collector, referrer),
              points_by_collector_with_referrer AS (SELECT points_earned_timestamp, collector, referrer, points
                                                    FROM points_from_fees
@@ -631,7 +645,8 @@ export class DAO {
                                     FROM points_by_collector_with_referrer
                                     UNION ALL
                                     SELECT points_earned_timestamp, referrer AS collector, points / 5
-                                    FROM points_by_collector_with_referrer)
+                                    FROM points_by_collector_with_referrer
+                                    WHERE referrer IS NOT NULL)
         SELECT date_bin(INTERVAL '1 day', points_earned_timestamp, '2000-01-01') AS points_earned_day,
                collector,
                SUM(points)                                                       AS points

@@ -252,7 +252,7 @@ const DEFAULT_REFRESH_INTERVAL_MS = 600_000;
 const throttledRefreshMaterializedViews = throttle(
   async function () {
     const time = process.hrtime.bigint();
-    logger.debug("Refreshing materialized views", {
+    logger.info("Started refreshing materialized views", {
       timestamp: new Date().toISOString(),
     });
     const client = await pool.connect();
