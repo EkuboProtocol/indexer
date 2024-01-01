@@ -517,7 +517,7 @@ export class DAO {
                                    GROUP BY token1),
 
              -- all the tokens and the respective total number of swaps for each token
-             token_swap_counts AS (SELECT at.token                                                  AS token,
+             all_tokens_with_swap_counts AS (SELECT at.token                                                  AS token,
                                           (COALESCE(s0.swap_count, 0) + COALESCE(s1.swap_count, 0)) AS swap_count
                                    FROM all_tokens AS at
                                             LEFT JOIN
@@ -528,8 +528,9 @@ export class DAO {
              -- this boost allows users to earn more points by depositing liquidity in pools that are heavily utilized
              pair_points_boost AS (SELECT token0,
                                           token1,
-                                          -- todo: decide on these factors
-                                          0.1 + 9.9 * LN(1 + (EXP(1) - 1) * swap_count / (SUM(swap_count) OVER ())) multiplier
+                                          1::NUMERIC AS multiplier
+                                   -- todo: decide on these factors
+                                   -- 0.1 + 9.9 * LN(1 + (EXP(1) - 1) * swap_count / (SUM(swap_count) OVER ())) multiplier
                                    FROM pair_swap_counts),
 
              fee_to_discount_factor AS (SELECT DISTINCT fee,
@@ -537,7 +538,7 @@ export class DAO {
                                         FROM pool_keys),
 
              -- we compute the VWAP price in eth per token over the last month for each token we will consider
-             token_prices AS
+             token_points_rates AS
                  (SELECT token,
                          (CASE
                               WHEN swap_count < 3000 THEN 0
@@ -564,7 +565,7 @@ export class DAO {
                                      AND token1 = token
                                      AND blocks.time >= NOW() - INTERVAL '1 month')
                              END) AS rate
-                  FROM token_swap_counts),
+                  FROM all_tokens_with_swap_counts),
 
              position_multipliers AS (SELECT pm.token_id AS token_id,
                                              2 *
@@ -620,8 +621,8 @@ export class DAO {
                                                              JOIN pool_keys AS pk ON pfp.pool_key_hash = pk.key_hash
                                                              LEFT JOIN pair_points_boost AS ppb
                                                                        ON pk.token0 = ppb.token0 AND pk.token1 = ppb.token1
-                                                             JOIN token_prices AS tp0 ON tp0.token = pk.token0
-                                                             JOIN token_prices AS tp1 ON tp1.token = pk.token1
+                                                             JOIN token_points_rates AS tp0 ON tp0.token = pk.token0
+                                                             JOIN token_points_rates AS tp1 ON tp1.token = pk.token1
                                                              JOIN fee_to_discount_factor AS fd ON pk.fee = fd.fee),
 
              points_from_fees AS (SELECT pfb.time                   AS points_earned_timestamp,
@@ -651,8 +652,8 @@ export class DAO {
                                            LEFT JOIN pair_points_boost AS ppb
                                                      ON pk.token0 = ppb.token0 AND pk.token1 = ppb.token1
                                            JOIN fee_to_discount_factor AS fd ON pk.fee = fd.fee
-                                           JOIN token_prices AS tp0 ON tp0.token = pk.token0
-                                           JOIN token_prices AS tp1 ON tp1.token = pk.token1
+                                           JOIN token_points_rates AS tp0 ON tp0.token = pk.token0
+                                           JOIN token_points_rates AS tp1 ON tp1.token = pk.token1
                                   GROUP BY pfb.time, multipliers.multiplier, ppb.multiplier, collector, referrer),
 
              points_by_collector_with_referrer AS (SELECT points_earned_timestamp, collector, referrer, points
