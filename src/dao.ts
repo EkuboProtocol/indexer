@@ -518,12 +518,12 @@ export class DAO {
 
              -- all the tokens and the respective total number of swaps for each token
              all_tokens_with_swap_counts AS (SELECT at.token                                                  AS token,
-                                          (COALESCE(s0.swap_count, 0) + COALESCE(s1.swap_count, 0)) AS swap_count
-                                   FROM all_tokens AS at
-                                            LEFT JOIN
-                                        swap_counts_as_t0 AS s0 ON at.token = s0.token
-                                            LEFT JOIN
-                                        swap_counts_as_t1 AS s1 ON at.token = s1.token),
+                                                    (COALESCE(s0.swap_count, 0) + COALESCE(s1.swap_count, 0)) AS swap_count
+                                             FROM all_tokens AS at
+                                                      LEFT JOIN
+                                                  swap_counts_as_t0 AS s0 ON at.token = s0.token
+                                                      LEFT JOIN
+                                                  swap_counts_as_t1 AS s1 ON at.token = s1.token),
 
              -- this boost allows users to earn more points by depositing liquidity in pools that are heavily utilized
              pair_points_boost AS (SELECT token0,
@@ -636,7 +636,7 @@ export class DAO {
                                          FLOOR(ABS(SUM(
                                                  (pf.delta0 * tp0.rate * fd.fee_discount) +
                                                  (pf.delta1 * tp1.rate * fd.fee_discount)
-                                                   )) * multipliers.multiplier * COALESCE(ppb.multiplier) /
+                                                   )) * multipliers.multiplier * COALESCE(ppb.multiplier, 1) /
                                                1e12::NUMERIC)::int8 AS points
                                   FROM position_minted AS pm
                                            JOIN position_fees_collected AS pf ON pm.token_id = pf.salt::int8
