@@ -96,7 +96,7 @@ export class DAO {
             token0       NUMERIC NOT NULL,
             token1       NUMERIC NOT NULL,
             fee          NUMERIC NOT NULL,
-            tick_spacing NUMERIC NOT NULL,
+            tick_spacing INT     NOT NULL,
             extension    NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_pool_keys_token0 ON pool_keys USING btree (token0);
@@ -421,14 +421,16 @@ export class DAO {
                                               GROUP BY pool_key_hash, hour),
              token_deltas AS (SELECT pool_key_hash, hour, pool_keys.token0 AS token, SUM(delta0) AS delta
                               FROM grouped_pool_key_hash_deltas
-                                       JOIN pool_keys ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
+                                       JOIN pool_keys
+                                            ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
                               GROUP BY pool_key_hash, hour, pool_keys.token0
 
                               UNION ALL
 
                               SELECT pool_key_hash, hour, pool_keys.token1 AS token, SUM(delta1) AS delta
                               FROM grouped_pool_key_hash_deltas
-                                       JOIN pool_keys ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
+                                       JOIN pool_keys
+                                            ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
                               GROUP BY pool_key_hash, hour, pool_keys.token1)
         SELECT token,
                pool_key_hash AS key_hash,
@@ -542,9 +544,11 @@ export class DAO {
                  (SELECT token,
                          (CASE
                               WHEN swap_count < 3000 THEN 0
-                              WHEN token = 2087021424722619777119509474943472645767659996348769578120564519014510906823
+                              WHEN token =
+                                   2087021424722619777119509474943472645767659996348769578120564519014510906823
                                   THEN 1
-                              WHEN token < 2087021424722619777119509474943472645767659996348769578120564519014510906823
+                              WHEN token <
+                                   2087021424722619777119509474943472645767659996348769578120564519014510906823
                                   THEN (SELECT SUM(delta1 * delta1) / SUM(ABS(delta0 * delta1))
                                         FROM swaps
                                                  JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
@@ -698,8 +702,8 @@ export class DAO {
 
   public async refreshOperationalMaterializedView() {
     await this.pg.query(`
-            REFRESH MATERIALIZED VIEW CONCURRENTLY per_pool_per_tick_liquidity_materialized;
-            REFRESH MATERIALIZED VIEW CONCURRENTLY pool_states_materialized;
+      REFRESH MATERIALIZED VIEW CONCURRENTLY per_pool_per_tick_liquidity_materialized;
+      REFRESH MATERIALIZED VIEW CONCURRENTLY pool_states_materialized;
     `);
   }
 
@@ -748,9 +752,9 @@ export class DAO {
   }) {
     await this.pg.query({
       text: `
-          INSERT INTO blocks (number, hash, time)
-          VALUES ($1, $2, $3);
-      `,
+                INSERT INTO blocks (number, hash, time)
+                VALUES ($1, $2, $3);
+            `,
       values: [number, hash, time],
     });
   }
@@ -1133,18 +1137,18 @@ export class DAO {
 
     await this.pg.query({
       text: `
-          WITH inserted_event AS (
-              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                  VALUES ($1, $2, $3, $4)
-                  RETURNING id)
-          INSERT
-          INTO fees_accumulated
-          (event_id,
-           pool_key_hash,
-           amount0,
-           amount1)
-          VALUES ((SELECT id FROM inserted_event), $5, $6, $7);
-      `,
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id)
+                INSERT
+                INTO fees_accumulated
+                (event_id,
+                 pool_key_hash,
+                 amount0,
+                 amount1)
+                VALUES ((SELECT id FROM inserted_event), $5, $6, $7);
+            `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -1165,20 +1169,20 @@ export class DAO {
   ) {
     await this.pg.query({
       text: `
-          WITH inserted_event AS (
-              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                  VALUES ($1, $2, $3, $4)
-                  RETURNING id)
-          INSERT
-          INTO token_registrations
-          (event_id,
-           address,
-           decimals,
-           name,
-           symbol,
-           total_supply)
-          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9);
-      `,
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id)
+                INSERT
+                INTO token_registrations
+                (event_id,
+                 address,
+                 decimals,
+                 name,
+                 symbol,
+                 total_supply)
+                VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9);
+            `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -1199,22 +1203,22 @@ export class DAO {
 
     await this.pg.query({
       text: `
-          WITH inserted_event AS (
-              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                  VALUES ($1, $2, $3, $4)
-                  RETURNING id)
-          INSERT
-          INTO swaps
-          (event_id,
-           locker,
-           pool_key_hash,
-           delta0,
-           delta1,
-           sqrt_ratio_after,
-           tick_after,
-           liquidity_after)
-          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11);
-      `,
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id)
+                INSERT
+                INTO swaps
+                (event_id,
+                 locker,
+                 pool_key_hash,
+                 delta0,
+                 delta1,
+                 sqrt_ratio_after,
+                 tick_after,
+                 liquidity_after)
+                VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11);
+            `,
       values: [
         key.blockNumber,
         key.transactionIndex,
