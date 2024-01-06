@@ -550,7 +550,7 @@ export class DAO {
                  token_points_rates AS
                      (SELECT token,
                              (CASE
-                                  WHEN swap_count < 3000 THEN 0
+                                  WHEN swap_count < 4000 THEN 0
                                   WHEN token =
                                        2087021424722619777119509474943472645767659996348769578120564519014510906823
                                       THEN 1
