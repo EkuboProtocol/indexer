@@ -21,9 +21,10 @@ import {
 
 const pool = new Pool({
   connectionString: process.env.PG_CONNECTION_STRING,
+  connectionTimeoutMillis: 1000,
 });
 
-const client = new StreamClient({
+const streamClient = new StreamClient({
   url: process.env.APIBARA_URL,
   token: process.env.APIBARA_AUTH_TOKEN,
 });
@@ -72,12 +73,12 @@ const refreshLeaderboard = throttle(
       block_number: number;
       transaction_index: number;
     }>(`
-            SELECT id, block_number, transaction_index
-            FROM event_keys
-            WHERE block_number != (SELECT block_number FROM event_keys ORDER BY id DESC LIMIT 1)
-            ORDER BY id DESC
-            LIMIT 1
-        `);
+        SELECT id, block_number, transaction_index
+        FROM event_keys
+        WHERE block_number != (SELECT block_number FROM event_keys ORDER BY id DESC LIMIT 1)
+        ORDER BY id DESC
+        LIMIT 1
+    `);
 
     logger.debug("Leaderboard refresh starting at block number", {
       latestEventId,
@@ -141,8 +142,14 @@ const refreshLeaderboard = throttle(
               extension: BigInt(p.extension),
             },
             bounds: {
-              lower: { mag: Math.abs(p.lower_bound), sign: p.lower_bound < 0 },
-              upper: { mag: Math.abs(p.upper_bound), sign: p.upper_bound < 0 },
+              lower: {
+                mag: Math.abs(p.lower_bound),
+                sign: p.lower_bound < 0,
+              },
+              upper: {
+                mag: Math.abs(p.upper_bound),
+                sign: p.upper_bound < 0,
+              },
             },
           }));
       });
@@ -325,7 +332,7 @@ const refreshLeaderboard = throttle(
     startingCursor: databaseStartingCursor,
   });
 
-  client.configure({
+  streamClient.configure({
     filter: EVENT_PROCESSORS.reduce((memo, value) => {
       return memo.addEvent((ev) =>
         ev
@@ -343,7 +350,7 @@ const refreshLeaderboard = throttle(
         ),
   });
 
-  for await (const message of client) {
+  for await (const message of streamClient) {
     let messageType = !!message.heartbeat
       ? "heartbeat"
       : !!message.invalidate
@@ -431,8 +438,6 @@ const refreshLeaderboard = throttle(
 
             await dao.commitTransaction();
 
-            client.release();
-
             blockProcessingTimer.done({
               message: `Processed to block`,
               blockNumber,
@@ -443,6 +448,8 @@ const refreshLeaderboard = throttle(
               ),
             });
           }
+
+          client.release();
 
           if (isPending) {
             refreshAnalyticalViews();
