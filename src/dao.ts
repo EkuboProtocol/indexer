@@ -982,6 +982,7 @@ export class DAO {
     const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
     await this.pg.query({
+      name: "insert-position-fees-collected",
       text: `
                 WITH inserted_event AS (
                     INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
@@ -1088,6 +1089,7 @@ export class DAO {
     const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
     await this.pg.query({
+      name: "insert-protocol-fees-paid",
       text: `
                 WITH inserted_event AS (
                     INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
@@ -1232,7 +1234,7 @@ export class DAO {
     });
   }
 
-  public refreshLeaderboard(atBlockNumber: number) {
+  public refreshLeaderboard() {
     // todo: use atBlockNumber to limit the leaderboard refresh to not include data after that block
     return this.pg.query(`DELETE
                           FROM leaderboard;
@@ -1242,7 +1244,7 @@ export class DAO {
                                    points
                             FROM leaderboard_view);`);
   }
-  public deleteFakeLeaderboardEvents(blockNumber: number) {
+  public deleteFakeEvents(blockNumber: number) {
     return this.pg.query({
       text: `DELETE FROM event_keys WHERE block_number = $1 AND transaction_hash = 0`,
       values: [blockNumber],

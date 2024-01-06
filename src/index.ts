@@ -14,11 +14,7 @@ import { throttle } from "tadaaa";
 import { positionsContract } from "./positions";
 import { EVENT_PROCESSORS } from "./EVENT_PROCESSORS";
 import PQueue from "p-queue-cjs";
-import {
-  FeesPaidEvent,
-  FeesWithdrawnEvent,
-  PositionFeesCollectedEvent,
-} from "./events/core";
+import { FeesPaidEvent, PositionFeesCollectedEvent } from "./events/core";
 
 const pool = new Pool({
   connectionString: process.env.PG_CONNECTION_STRING,
@@ -35,18 +31,13 @@ export function parseLong(long: number | Long): bigint {
 
 const refreshAnalyticalViews = throttle(
   async function () {
-    const start = process.hrtime.bigint();
-    logger.info("Started refreshing analytical views", {
-      timestamp: new Date().toISOString(),
-    });
+    const timer = logger.startTimer();
+    logger.info("Started refreshing analytical views", { start: timer.start });
     const client = await pool.connect();
     const dao = new DAO(client);
     await dao.refreshAnalyticalMaterializedViews();
     client.release();
-    logger.info("Refreshed analytical views", {
-      timestamp: new Date().toISOString(),
-      processTimeMs: `${(process.hrtime.bigint() - start) / 1_000_000n}ms`,
-    });
+    timer.done({ message: "Refreshed analytical views" });
   },
   {
     delay: parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS),
@@ -61,10 +52,12 @@ const MAX_POSTGRES_SMALLINT = 32767;
 
 const refreshLeaderboard = throttle(
   async function () {
-    const start = process.hrtime.bigint();
+    const timer = logger.startTimer();
+
     logger.info("Started refreshing leaderboard", {
-      timestamp: new Date().toISOString(),
+      start: timer.start,
     });
+
     const client = await pool.connect();
 
     const {
@@ -100,35 +93,38 @@ const refreshLeaderboard = throttle(
       lower_bound: number;
       upper_bound: number;
     }>(`
-            SELECT token_id,
-                   owner,
-                   token0,
-                   token1,
-                   fee,
-                   tick_spacing,
-                   extension,
-                   lower_bound,
-                   upper_bound
-            FROM position_minted AS pm
-                     LEFT JOIN LATERAL (
-                SELECT to_address AS owner
-                FROM position_transfers AS pt
-                WHERE pt.token_id = pm.token_id
-                  AND event_id <= ${latestEventId}
-                ORDER BY event_id DESC
-                LIMIT 1
-                ) ON TRUE
-                     JOIN pool_keys AS pk ON pm.pool_key_hash = pk.key_hash
-            WHERE owner != 0
-        `);
+        SELECT token_id,
+               owner,
+               token0,
+               token1,
+               fee,
+               tick_spacing,
+               extension,
+               lower_bound,
+               upper_bound
+        FROM position_minted AS pm
+                 LEFT JOIN LATERAL (
+            SELECT to_address AS owner
+            FROM position_transfers AS pt
+            WHERE pt.token_id = pm.token_id
+              AND event_id <= ${latestEventId}
+            ORDER BY event_id DESC
+            LIMIT 1
+            ) AS position_owners ON TRUE
+                 JOIN pool_keys AS pk ON pm.pool_key_hash = pk.key_hash
+        WHERE owner != 0
+        LIMIT 0
+    `);
 
-    logger.debug(
-      `Getting position information for ${positions.length} positions`
+    logger.info(
+      `Leaderboard: getting position information for ${positions.length} positions`
     );
 
     const CHUNK_SIZE = 200;
 
-    const chunks = Array(Math.ceil(positions.length / CHUNK_SIZE))
+    const getTokenInfoRequestChunks = Array(
+      Math.ceil(positions.length / CHUNK_SIZE)
+    )
       .fill(null)
       .map((_, ix) => {
         return positions
@@ -150,20 +146,31 @@ const refreshLeaderboard = throttle(
       });
 
     logger.info(
-      `Leaderboard query needs ${chunks.length} chunks at block number ${blockNumber}`
+      `Leaderboard query needs ${getTokenInfoRequestChunks.length} chunks at block number ${blockNumber}`
     );
 
     const queue = new PQueue({ concurrency: 20 });
 
+    const fivePercentMarker = Math.ceil(getTokenInfoRequestChunks.length / 20);
+
     const allPositionTokenInfos = await Promise.all(
-      chunks.map((chunk, ix) =>
+      getTokenInfoRequestChunks.map((getTokenInfoRequests, ix) =>
         queue.add(() => {
-          logger.debug("Loading chunk for leaderboard", {
-            chunkIndex: ix,
-          });
-          return positionsContract.call("get_tokens_info", [chunk], {
-            blockIdentifier: blockNumber,
-          });
+          if (ix !== 0 && ix % fivePercentMarker === 0) {
+            logger.info(
+              `Leaderboard: ${Math.round(
+                (ix / getTokenInfoRequestChunks.length) * 100
+              )}% complete fetching state`
+            );
+          }
+
+          return positionsContract.call(
+            "get_tokens_info",
+            [getTokenInfoRequests],
+            {
+              blockIdentifier: blockNumber,
+            }
+          );
         })
       )
     );
@@ -177,60 +184,57 @@ const refreshLeaderboard = throttle(
       }>(
         (
           memo,
-          {
-            fees0,
-            fees1,
-            amount0,
-            amount1,
-          }: {
+          tokenInfos: {
             amount0: bigint;
             amount1: bigint;
             fees0: bigint;
             fees1: bigint;
-          },
-          ix
+          }[],
+          chunkIx
         ) => {
-          const position = positions[ix];
-          const pool_key = {
-            token0: BigInt(position.token0),
-            token1: BigInt(position.token1),
-            fee: BigInt(position.fee),
-            tick_spacing: BigInt(position.tick_spacing),
-            extension: BigInt(position.extension),
-          };
-          const position_key = {
-            bounds: {
-              lower: BigInt(position.lower_bound),
-              upper: BigInt(position.lower_bound),
-            },
-            owner: BigInt(positionsContract.address),
-            salt: BigInt(position.token_id),
-          };
-
-          if (fees0 > 0n || fees1 > 0n) {
-            memo.feeWithdrawnEvents.push({
-              pool_key,
-              position_key,
-              delta: {
-                amount0: fees0,
-                amount1: fees1,
+          tokenInfos.forEach(({ fees0, fees1, amount0, amount1 }, ix) => {
+            const position = positions[chunkIx * 200 + ix];
+            const pool_key = {
+              token0: BigInt(position.token0),
+              token1: BigInt(position.token1),
+              fee: BigInt(position.fee),
+              tick_spacing: BigInt(position.tick_spacing),
+              extension: BigInt(position.extension),
+            };
+            const position_key = {
+              bounds: {
+                lower: BigInt(position.lower_bound),
+                upper: BigInt(position.lower_bound),
               },
-            });
-          }
+              owner: BigInt(positionsContract.address),
+              salt: BigInt(position.token_id),
+            };
 
-          if (amount0 > 0n || amount1 > 0n) {
-            const protocolFees0 = (amount0 * pool_key.fee) / (1n << 128n);
-            const protocolFees1 = (amount1 * pool_key.fee) / (1n << 128n);
-            if (protocolFees0 > 0n || protocolFees1 > 0n)
-              memo.protocolFeesPaidEvents.push({
+            if (fees0 > 0n || fees1 > 0n) {
+              memo.feeWithdrawnEvents.push({
                 pool_key,
                 position_key,
                 delta: {
-                  amount0: protocolFees0,
-                  amount1: protocolFees1,
+                  amount0: fees0,
+                  amount1: fees1,
                 },
               });
-          }
+            }
+
+            if (amount0 > 0n || amount1 > 0n) {
+              const protocolFees0 = (amount0 * pool_key.fee) / (1n << 128n);
+              const protocolFees1 = (amount1 * pool_key.fee) / (1n << 128n);
+              if (protocolFees0 > 0n || protocolFees1 > 0n)
+                memo.protocolFeesPaidEvents.push({
+                  pool_key,
+                  position_key,
+                  delta: {
+                    amount0: protocolFees0,
+                    amount1: protocolFees1,
+                  },
+                });
+            }
+          });
           return memo;
         },
         {
@@ -276,18 +280,21 @@ const refreshLeaderboard = throttle(
         )
     );
 
-    await dao.refreshLeaderboard(blockNumber);
+    logger.info(
+      `Inserted ${feeWithdrawnEvents.length} phantom fee withdrawal events and ${protocolFeesPaidEvents.length} protocol fees paid events`
+    );
 
-    await dao.deleteFakeLeaderboardEvents(blockNumber);
+    await dao.refreshLeaderboard();
+
+    await dao.deleteFakeEvents(blockNumber);
+
+    logger.info(`Cleared fake events`);
 
     await dao.commitTransaction();
 
     client.release();
 
-    logger.info("Refreshed leaderboard", {
-      timestamp: new Date().toISOString(),
-      processTimeMs: `${(process.hrtime.bigint() - start) / 1_000_000n}ms`,
-    });
+    timer.done({ message: "Refreshed leaderboard" });
   },
   {
     delay: parseInt(process.env.REFRESH_RATE_LEADERBOARD),
@@ -330,8 +337,6 @@ const refreshLeaderboard = throttle(
   });
 
   for await (const message of client) {
-    const start = process.hrtime.bigint();
-
     let messageType = !!message.heartbeat
       ? "heartbeat"
       : !!message.invalidate
@@ -346,6 +351,8 @@ const refreshLeaderboard = throttle(
           logger.error(`Data message is empty`);
           break;
         } else {
+          const blockProcessingTimer = logger.startTimer();
+
           const client = await pool.connect();
           const dao = new DAO(client);
 
@@ -365,8 +372,6 @@ const refreshLeaderboard = throttle(
             isPending =
               isPending || FieldElement.toBigInt(block.header.blockHash) === 0n;
 
-            const events = block.events;
-
             const blockTime = new Date(
               Number(parseLong(block.header.timestamp.seconds) * 1000n)
             );
@@ -376,13 +381,7 @@ const refreshLeaderboard = throttle(
               time: blockTime,
             });
 
-            for (
-              let blockEventsIndex = 0;
-              blockEventsIndex < events.length;
-              blockEventsIndex++
-            ) {
-              const { event, transaction, receipt } = events[blockEventsIndex];
-
+            for (const { event, transaction, receipt } of block.events) {
               const eventKey: EventKey = {
                 blockNumber,
                 transactionHash: FieldElement.toBigInt(transaction.meta.hash),
@@ -414,10 +413,6 @@ const refreshLeaderboard = throttle(
                   }
                 })
               );
-
-              logger.debug("Processed item", {
-                blockNumber,
-              });
             }
 
             await dao.writeCursor(Cursor.toObject(message.data.cursor));
@@ -429,19 +424,18 @@ const refreshLeaderboard = throttle(
 
             await dao.commitTransaction();
 
-            const processTimeNanos = process.hrtime.bigint() - start;
-            logger.info(`Processed to block`, {
+            client.release();
+
+            blockProcessingTimer.done({
+              message: `Processed to block`,
               blockNumber,
               isPending,
               blockTimestamp: blockTime,
               lagMilliseconds: Math.floor(
                 Date.now() - Number(blockTime.getTime())
               ),
-              processTime: `${(processTimeNanos / 1_000_000n).toString()}ms`,
             });
           }
-
-          client.release();
 
           if (isPending) {
             refreshAnalyticalViews();
