@@ -9,6 +9,19 @@ export interface EventKey {
   eventIndex: number;
 }
 
+export function eventKeyToId(key: EventKey): bigint {
+  return (
+    (BigInt(key.blockNumber) << 32n) +
+    (BigInt(key.transactionIndex) << 16n) +
+    BigInt(key.eventIndex)
+  );
+}
+
+export interface ParsedEventWithKey<T> {
+  key: EventKey;
+  parsed: T;
+}
+
 export interface EventProcessor<T> {
   filter: {
     keys: starknet.IFieldElement[];
@@ -17,5 +30,5 @@ export interface EventProcessor<T> {
 
   parser: Parser<T>;
 
-  handle(dao: DAO, result: { parsed: T; key: EventKey }): Promise<void>;
+  handle(dao: DAO, result: ParsedEventWithKey<T>): Promise<void>;
 }

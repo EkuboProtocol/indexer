@@ -63,7 +63,7 @@ export const parseProtocolFeesWithdrawnEvent = combineParsers({
   token: { index: 1, parser: parseAddress },
   amount: { index: 2, parser: parseU128 },
 });
-export type FeesWithdrawnEvent = GetParserType<
+export type ProtocolFeesWithdrawnEvent = GetParserType<
   typeof parseProtocolFeesWithdrawnEvent
 >;
 const parseSwapParameters = combineParsers({
@@ -91,12 +91,14 @@ export const parsePoolInitializedEvent = combineParsers({
 export type PoolInitializationEvent = GetParserType<
   typeof parsePoolInitializedEvent
 >;
-export const parseFeesPaidEvent = combineParsers({
+export const parseProtocolFeesPaidEvent = combineParsers({
   pool_key: { index: 0, parser: parsePoolKey },
   position_key: { index: 1, parser: parsePositionKey },
   delta: { index: 2, parser: parseDelta },
 });
-export type FeesPaidEvent = GetParserType<typeof parseFeesPaidEvent>;
+export type ProtocolFeesPaidEvent = GetParserType<
+  typeof parseProtocolFeesPaidEvent
+>;
 
 export const parseFeesAccumulatedEvent = combineParsers({
   pool_key: { index: 0, parser: parsePoolKey },

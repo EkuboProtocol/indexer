@@ -12,10 +12,10 @@ import { logger } from "./logger";
 import { parseTransferEvent, TransferEvent } from "./events/nft";
 import {
   FeesAccumulatedEvent,
-  FeesPaidEvent,
-  FeesWithdrawnEvent,
+  ProtocolFeesPaidEvent,
+  ProtocolFeesWithdrawnEvent,
   parseFeesAccumulatedEvent,
-  parseFeesPaidEvent,
+  parseProtocolFeesPaidEvent,
   parsePoolInitializedEvent,
   parsePositionFeesCollectedEvent,
   parsePositionUpdatedEvent,
@@ -158,7 +158,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertInitializationEvent(parsed, key);
     },
   },
-  <EventProcessor<FeesWithdrawnEvent>>{
+  <EventProcessor<ProtocolFeesWithdrawnEvent>>{
     filter: {
       fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
       keys: [
@@ -174,7 +174,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertProtocolFeesWithdrawn(parsed, key);
     },
   },
-  <EventProcessor<FeesPaidEvent>>{
+  <EventProcessor<ProtocolFeesPaidEvent>>{
     filter: {
       fromAddress: FieldElement.fromBigInt(process.env.CORE_ADDRESS),
       keys: [
@@ -184,7 +184,7 @@ export const EVENT_PROCESSORS = [
         ),
       ],
     },
-    parser: parseFeesPaidEvent,
+    parser: parseProtocolFeesPaidEvent,
     async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("ProtocolFeesPaid", { parsed, key });
       await dao.insertProtocolFeesPaid(parsed, key);

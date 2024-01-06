@@ -6,7 +6,7 @@ import {
   v1alpha2 as starknet,
 } from "@apibara/starknet";
 import { Cursor, StreamClient, v1alpha2 } from "@apibara/protocol";
-import { EventKey } from "./processor";
+import { EventKey, ParsedEventWithKey } from "./processor";
 import { logger } from "./logger";
 import { DAO } from "./dao";
 import { Pool } from "pg";
@@ -14,7 +14,10 @@ import { throttle } from "tadaaa";
 import { positionsContract } from "./positions";
 import { EVENT_PROCESSORS } from "./EVENT_PROCESSORS";
 import PQueue from "p-queue-cjs";
-import { FeesPaidEvent, PositionFeesCollectedEvent } from "./events/core";
+import {
+  ProtocolFeesPaidEvent,
+  PositionFeesCollectedEvent,
+} from "./events/core";
 
 const pool = new Pool({
   connectionString: process.env.PG_CONNECTION_STRING,
@@ -113,7 +116,6 @@ const refreshLeaderboard = throttle(
             ) AS position_owners ON TRUE
                  JOIN pool_keys AS pk ON pm.pool_key_hash = pk.key_hash
         WHERE owner != 0
-        LIMIT 0
     `);
 
     logger.info(
@@ -177,10 +179,30 @@ const refreshLeaderboard = throttle(
 
     logger.info(`Positions state fetched, starting leaderboard table refresh`);
 
+    const transactionHash = 0n;
+    let transactionIndex = transaction_index + 1;
+    let nextEventIndex = 0;
+
+    function nextEventKey() {
+      if (nextEventIndex >= MAX_POSTGRES_SMALLINT) {
+        nextEventIndex = 0;
+        transactionIndex++;
+      }
+      if (transactionIndex >= MAX_POSTGRES_SMALLINT) {
+        throw new Error("Event key too large");
+      }
+      return {
+        transactionIndex,
+        blockNumber,
+        transactionHash,
+        eventIndex: nextEventIndex++,
+      };
+    }
+
     const { feeWithdrawnEvents, protocolFeesPaidEvents } =
       allPositionTokenInfos.reduce<{
-        feeWithdrawnEvents: PositionFeesCollectedEvent[];
-        protocolFeesPaidEvents: FeesPaidEvent[];
+        feeWithdrawnEvents: ParsedEventWithKey<PositionFeesCollectedEvent>[];
+        protocolFeesPaidEvents: ParsedEventWithKey<ProtocolFeesPaidEvent>[];
       }>(
         (
           memo,
@@ -212,12 +234,15 @@ const refreshLeaderboard = throttle(
 
             if (fees0 > 0n || fees1 > 0n) {
               memo.feeWithdrawnEvents.push({
-                pool_key,
-                position_key,
-                delta: {
-                  amount0: fees0,
-                  amount1: fees1,
+                parsed: {
+                  pool_key,
+                  position_key,
+                  delta: {
+                    amount0: -fees0,
+                    amount1: -fees1,
+                  },
                 },
+                key: nextEventKey(),
               });
             }
 
@@ -226,12 +251,15 @@ const refreshLeaderboard = throttle(
               const protocolFees1 = (amount1 * pool_key.fee) / (1n << 128n);
               if (protocolFees0 > 0n || protocolFees1 > 0n)
                 memo.protocolFeesPaidEvents.push({
-                  pool_key,
-                  position_key,
-                  delta: {
-                    amount0: protocolFees0,
-                    amount1: protocolFees1,
+                  parsed: {
+                    pool_key,
+                    position_key,
+                    delta: {
+                      amount0: -protocolFees0,
+                      amount1: -protocolFees1,
+                    },
                   },
+                  key: nextEventKey(),
                 });
             }
           });
@@ -243,41 +271,20 @@ const refreshLeaderboard = throttle(
         }
       );
 
-    const transactionHash = 0n;
-
-    let transactionIndex = transaction_index + 1;
-    let nextEventIndex = 0;
-
-    function nextEventKey() {
-      if (nextEventIndex >= MAX_POSTGRES_SMALLINT) {
-        nextEventIndex = 0;
-        transactionIndex++;
-      }
-      if (transactionIndex >= MAX_POSTGRES_SMALLINT) {
-        throw new Error("Event key too large");
-      }
-      return {
-        transactionIndex,
-        blockNumber,
-        transactionHash,
-        eventIndex: nextEventIndex++,
-      };
-    }
-
     const dao = new DAO(client);
 
     await dao.beginTransaction();
 
-    await Promise.all(
+    await dao.batchInsertFakeFeeEvents(
+      "position_fees_collected",
+      BigInt(positionsContract.address),
       feeWithdrawnEvents
-        .map((event) =>
-          dao.insertPositionFeesCollectedEvent(event, nextEventKey())
-        )
-        .concat(
-          protocolFeesPaidEvents.map((event) =>
-            dao.insertProtocolFeesPaid(event, nextEventKey())
-          )
-        )
+    );
+
+    await dao.batchInsertFakeFeeEvents(
+      "protocol_fees_paid",
+      BigInt(positionsContract.address),
+      protocolFeesPaidEvents
     );
 
     logger.info(
