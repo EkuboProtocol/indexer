@@ -6,7 +6,7 @@ import {
   v1alpha2 as starknet,
 } from "@apibara/starknet";
 import { Cursor, StreamClient, v1alpha2 } from "@apibara/protocol";
-import { EventKey, ParsedEventWithKey } from "./processor";
+import { EventKey, eventKeyToId, ParsedEventWithKey } from "./processor";
 import { logger } from "./logger";
 import { DAO } from "./dao";
 import { Pool } from "pg";
@@ -97,6 +97,28 @@ const refreshLeaderboard = throttle(
       lower_bound: number;
       upper_bound: number;
     }>(`
+        WITH initial_transfers AS (SELECT token_id FROM position_transfers WHERE from_address = 0 AND to_address != 0),
+             positions_minted AS (SELECT token_id, owner, pool_key_hash, lower_bound, upper_bound
+                                  FROM initial_transfers
+                                           JOIN LATERAL (
+                                      SELECT to_address AS owner
+                                      FROM position_transfers AS pt
+                                      WHERE pt.token_id = initial_transfers.token_id
+                                        AND event_id <= ${latestEventId}
+                                      ORDER BY event_id DESC
+                                      LIMIT 1
+                                      ) AS position_owners ON TRUE
+                                           JOIN LATERAL (
+                                      SELECT pool_key_hash, lower_bound, upper_bound
+                                      FROM position_updates AS pu
+                                      WHERE pu.locker = ${BigInt(
+                                        positionsContract.address
+                                      )}
+                                        AND token_id::NUMERIC = pu.salt
+                                      ORDER BY event_id DESC
+                                      LIMIT 1
+                                      ) AS mint_parameters ON TRUE
+                                  WHERE owner != 0)
         SELECT token_id,
                owner,
                token0,
@@ -106,15 +128,7 @@ const refreshLeaderboard = throttle(
                extension,
                lower_bound,
                upper_bound
-        FROM position_minted AS pm
-                 LEFT JOIN LATERAL (
-            SELECT to_address AS owner
-            FROM position_transfers AS pt
-            WHERE pt.token_id = pm.token_id
-              AND event_id <= ${latestEventId}
-            ORDER BY event_id DESC
-            LIMIT 1
-            ) AS position_owners ON TRUE
+        FROM positions_minted AS pm
                  JOIN pool_keys AS pk ON pm.pool_key_hash = pk.key_hash
         WHERE owner != 0
     `);
@@ -298,7 +312,7 @@ const refreshLeaderboard = throttle(
       `Inserted ${feeWithdrawnEvents.length} phantom fee withdrawal events and ${protocolFeesPaidEvents.length} protocol fees paid events`
     );
 
-    await dao.refreshLeaderboard();
+    await dao.refreshLeaderboard(eventKeyToId(nextEventKey()));
 
     await dao.deleteFakeEvents(blockNumber);
 

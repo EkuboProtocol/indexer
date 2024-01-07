@@ -1,36 +1,34 @@
 import { EventProcessor } from "./processor";
-import {
-  DepositEvent,
-  parseDepositEvent,
-  parsePositionMintedEvent,
-  parseWithdrawEvent,
-  PositionMintedEvent,
-  WithdrawEvent,
-} from "./events/positions";
 import { FieldElement } from "@apibara/starknet";
 import { logger } from "./logger";
 import { parseTransferEvent, TransferEvent } from "./events/nft";
 import {
   FeesAccumulatedEvent,
-  ProtocolFeesPaidEvent,
-  ProtocolFeesWithdrawnEvent,
   parseFeesAccumulatedEvent,
-  parseProtocolFeesPaidEvent,
   parsePoolInitializedEvent,
   parsePositionFeesCollectedEvent,
   parsePositionUpdatedEvent,
+  parseProtocolFeesPaidEvent,
   parseProtocolFeesWithdrawnEvent,
   parseRegistrationEvent,
   parseSwappedEvent,
   PoolInitializationEvent,
   PositionFeesCollectedEvent,
   PositionUpdatedEvent,
+  ProtocolFeesPaidEvent,
+  ProtocolFeesWithdrawnEvent,
   SwappedEvent,
   TokenRegistrationEvent,
 } from "./events/core";
+import {
+  LegacyPositionMintedEvent,
+  parseLegacyPositionMintedEvent,
+  parsePositionMintedWithReferrerEvent,
+  PositionMintedWithReferrer,
+} from "./events/positions";
 
 export const EVENT_PROCESSORS = [
-  <EventProcessor<PositionMintedEvent>>{
+  <EventProcessor<LegacyPositionMintedEvent>>{
     filter: {
       fromAddress: FieldElement.fromBigInt(process.env.POSITIONS_ADDRESS),
       keys: [
@@ -40,42 +38,28 @@ export const EVENT_PROCESSORS = [
         ),
       ],
     },
-    parser: parsePositionMintedEvent,
+    parser: parseLegacyPositionMintedEvent,
     handle: async (dao, { key, parsed }) => {
       logger.debug("PositionMinted", { parsed, key });
-      await dao.insertPositionMinted(parsed, key);
+      if (parsed.referrer !== 0n) {
+        await dao.insertPositionMintedWithReferrerEvent(parsed, key);
+      }
     },
   },
-  <EventProcessor<DepositEvent>>{
+  <EventProcessor<PositionMintedWithReferrer>>{
     filter: {
       fromAddress: FieldElement.fromBigInt(process.env.POSITIONS_ADDRESS),
       keys: [
-        // Deposit
+        // PositionMintedWithReferrer
         FieldElement.fromBigInt(
-          0x9149d2123147c5f43d258257fef0b7b969db78269369ebcf5ebb9eef8592f2n
+          0x0289e57bf153052470392b578fad8d64393d2b5307e0cf1bf59f7967db3480fdn
         ),
       ],
     },
-    parser: parseDepositEvent,
-    handle: async (dao, { key, parsed }) => {
-      logger.debug("Deposit", { parsed, key });
-      await dao.insertPositionDeposit(parsed, key);
-    },
-  },
-  <EventProcessor<WithdrawEvent>>{
-    filter: {
-      fromAddress: FieldElement.fromBigInt(process.env.POSITIONS_ADDRESS),
-      keys: [
-        // Withdraw
-        FieldElement.fromBigInt(
-          0x017f87ab38a7f75a63dc465e10aadacecfca64c44ca774040b039bfb004e3367n
-        ),
-      ],
-    },
-    parser: parseWithdrawEvent,
-    handle: async (dao, { key, parsed }) => {
-      logger.debug("Withdraw", { parsed, key });
-      await dao.insertPositionWithdraw(parsed, key);
+    parser: parsePositionMintedWithReferrerEvent,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("Referral", { parsed, key });
+      await dao.insertPositionMintedWithReferrerEvent(parsed, key);
     },
   },
   <EventProcessor<TransferEvent>>{

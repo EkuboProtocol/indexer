@@ -1,15 +1,13 @@
-import { parseBounds, parseDelta, parsePoolKey } from "./core";
 import {
   backwardsCompatibleParserAdditionalArgument,
   combineParsers,
   GetParserType,
   parseAddress,
-  parseBoolean,
-  parseU128,
   parseU64,
 } from "../parse";
+import { parseBounds, parsePoolKey } from "./core";
 
-export const parsePositionMintedEvent = combineParsers({
+export const parseLegacyPositionMintedEvent = combineParsers({
   id: { index: 0, parser: parseU64 },
   pool_key: { index: 1, parser: parsePoolKey },
   bounds: { index: 2, parser: parseBounds },
@@ -18,26 +16,14 @@ export const parsePositionMintedEvent = combineParsers({
     parser: backwardsCompatibleParserAdditionalArgument(parseAddress),
   },
 });
-export type PositionMintedEvent = GetParserType<
-  typeof parsePositionMintedEvent
+export type LegacyPositionMintedEvent = GetParserType<
+  typeof parseLegacyPositionMintedEvent
 >;
 
-export const parseDepositEvent = combineParsers({
+export const parsePositionMintedWithReferrerEvent = combineParsers({
   id: { index: 0, parser: parseU64 },
-  pool_key: { index: 1, parser: parsePoolKey },
-  bounds: { index: 2, parser: parseBounds },
-  liquidity: { index: 3, parser: parseU128 },
-  delta: { index: 4, parser: parseDelta },
+  referrer: { index: 1, parser: parseAddress },
 });
-export type DepositEvent = GetParserType<typeof parseDepositEvent>;
-
-export const parseWithdrawEvent = combineParsers({
-  id: { index: 0, parser: parseU64 },
-  pool_key: { index: 1, parser: parsePoolKey },
-  bounds: { index: 2, parser: parseBounds },
-  liquidity: { index: 3, parser: parseU128 },
-  delta: { index: 4, parser: parseDelta },
-  collect_fees: { index: 5, parser: parseBoolean },
-  recipient: { index: 5, parser: parseAddress },
-});
-export type WithdrawEvent = GetParserType<typeof parseWithdrawEvent>;
+export type PositionMintedWithReferrer = GetParserType<
+  typeof parsePositionMintedWithReferrerEvent
+>;
