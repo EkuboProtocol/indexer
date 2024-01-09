@@ -1,4 +1,5 @@
 .env.goerli.local
+.env.sepolia.local
 .env.mainnet.local
 .env.local
 *.cursor.json

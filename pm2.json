@@ -1,6 +1,14 @@
 {
   "apps": [
     {
+      "name": "sepolia",
+      "script": "dist/index.js",
+      "cwd": ".",
+      "env": {
+        "NETWORK": "sepolia"
+      }
+    },
+    {
       "name": "goerli",
       "script": "dist/index.js",
       "cwd": ".",

@@ -6,8 +6,6 @@
   "description": "Indexes Ekubo data",
   "scripts": {
     "start": "NETWORK=mainnet ts-node src/index.ts",
-    "goerli": "NETWORK=goerli node ./dist/index.js",
-    "mainnet": "NETWORK=mainnet node ./dist/index.js",
     "build": "tsup src/index.ts",
     "test": "jest"
   },
