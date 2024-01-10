@@ -206,4 +206,22 @@ export const EVENT_PROCESSORS = [
       await dao.insertRegistration(parsed, key);
     },
   },
+  <EventProcessor<TokenRegistrationEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(
+        process.env.TOKEN_REGISTRY_V2_ADDRESS
+      ),
+      keys: [
+        // Registration
+        FieldElement.fromBigInt(
+          0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74n
+        ),
+      ],
+    },
+    parser: parseRegistrationEvent,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("Registration V2", { parsed, key });
+      await dao.insertRegistration(parsed, key);
+    },
+  },
 ] as const;
