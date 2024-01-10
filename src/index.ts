@@ -64,11 +64,7 @@ const refreshLeaderboard = throttle(
 
     const client = await pool.connect();
 
-    const {
-      rows: [
-        { id: latestEventId, block_number: blockNumber, transaction_index },
-      ],
-    } = await client.query<{
+    const { rows: latestBlockNumberRows } = await client.query<{
       id: string;
       block_number: number;
       transaction_index: number;
@@ -79,6 +75,14 @@ const refreshLeaderboard = throttle(
         ORDER BY id DESC
         LIMIT 1
     `);
+
+    if (!latestBlockNumberRows.length) {
+      logger.info("Not refreshing leaderboard because there are no events");
+      return;
+    }
+    const [
+      { id: latestEventId, block_number: blockNumber, transaction_index },
+    ] = latestBlockNumberRows;
 
     logger.debug("Leaderboard refresh starting at block number", {
       latestEventId,
