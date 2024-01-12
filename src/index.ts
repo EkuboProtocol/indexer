@@ -34,7 +34,11 @@ export function parseLong(long: number | Long): bigint {
 }
 
 const refreshAnalyticalTables = throttle(
-  async function (since: Date = new Date(Date.now() - 3_600_000)) {
+  async function (
+    since: Date = new Date(
+      Date.now() - parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS) * 2
+    )
+  ) {
     const timer = logger.startTimer();
     logger.info("Started refreshing analytical tables", {
       start: timer.start,
