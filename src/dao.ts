@@ -309,109 +309,25 @@ export class DAO {
             FROM pool_states_view);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_states_materialized_pool_key_hash ON pool_states_materialized USING btree (pool_key_hash);
 
-
-            CREATE OR REPLACE VIEW volume_by_token_by_hour_by_key_hash_view AS
+            CREATE TABLE IF NOT EXISTS hourly_volume_by_token
             (
-            SELECT DATE_TRUNC('hour', blocks.time)                        AS hour,
-                   key_hash,
-                   (CASE WHEN delta0 >= 0 THEN token0 ELSE token1 END)       token,
-                   SUM(CASE WHEN delta0 >= 0 THEN delta0 ELSE delta1 END) AS volume,
-                   SUM(FLOOR(((CASE WHEN delta0 >= 0 THEN delta0 ELSE delta1 END) * fee) /
-                             340282366920938463463374607431768211456))    AS fees
-            FROM swaps
-                     JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
-                     JOIN event_keys ON swaps.event_id = event_keys.id
-                     JOIN blocks ON event_keys.block_number = blocks.number
-            GROUP BY hour, key_hash, token
-                );
+                key_hash   NUMERIC,
+                hour       timestamptz,
+                token      NUMERIC,
+                volume     NUMERIC,
+                fees       NUMERIC,
+                swap_count NUMERIC,
+                PRIMARY KEY (key_hash, hour, token)
+            );
 
-            CREATE MATERIALIZED VIEW IF NOT EXISTS volume_by_token_by_hour_by_key_hash_materialized AS
+            CREATE TABLE IF NOT EXISTS hourly_tvl_delta_by_token
             (
-            SELECT hour, key_hash, token, volume, fees
-            FROM volume_by_token_by_hour_by_key_hash_view);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_volume_by_token_by_hour_by_hour_key_hash_materialized_token ON volume_by_token_by_hour_by_key_hash_materialized USING btree (key_hash, hour, token);
-
-            CREATE OR REPLACE VIEW tvl_delta_by_token_by_hour_by_key_hash_view AS
-            (
-            WITH grouped_pool_key_hash_deltas AS (SELECT pool_key_hash,
-                                                         DATE_TRUNC('hour', blocks.time) AS hour,
-                                                         SUM(delta0)                     AS delta0,
-                                                         SUM(delta1)                     AS delta1
-                                                  FROM swaps
-                                                           JOIN event_keys ON swaps.event_id = event_keys.id
-                                                           JOIN blocks ON event_keys.block_number = blocks.number
-                                                  GROUP BY pool_key_hash, hour
-
-                                                  UNION ALL
-
-                                                  SELECT pool_key_hash,
-                                                         DATE_TRUNC('hour', blocks.time) AS hour,
-                                                         SUM(delta0)                     AS delta0,
-                                                         SUM(delta1)                     AS delta1
-                                                  FROM position_updates
-                                                           JOIN event_keys ON position_updates.event_id = event_keys.id
-                                                           JOIN blocks ON event_keys.block_number = blocks.number
-                                                  GROUP BY pool_key_hash, hour
-
-                                                  UNION ALL
-
-                                                  SELECT pool_key_hash,
-                                                         DATE_TRUNC('hour', blocks.time) AS hour,
-                                                         SUM(delta0)                     AS delta0,
-                                                         SUM(delta1)                     AS delta1
-                                                  FROM position_fees_collected
-                                                           JOIN event_keys ON position_fees_collected.event_id = event_keys.id
-                                                           JOIN blocks ON event_keys.block_number = blocks.number
-                                                  GROUP BY pool_key_hash, hour
-
-                                                  UNION ALL
-
-                                                  SELECT pool_key_hash,
-                                                         DATE_TRUNC('hour', blocks.time) AS hour,
-                                                         SUM(delta0)                     AS delta0,
-                                                         SUM(delta1)                     AS delta1
-                                                  FROM protocol_fees_paid
-                                                           JOIN event_keys ON protocol_fees_paid.event_id = event_keys.id
-                                                           JOIN blocks ON event_keys.block_number = blocks.number
-                                                  GROUP BY pool_key_hash, hour
-
-                                                  UNION ALL
-
-                                                  SELECT pool_key_hash,
-                                                         DATE_TRUNC('hour', blocks.time) AS hour,
-                                                         SUM(amount0)                    AS delta0,
-                                                         SUM(amount1)                    AS delta1
-                                                  FROM fees_accumulated
-                                                           JOIN event_keys ON fees_accumulated.event_id = event_keys.id
-                                                           JOIN blocks ON event_keys.block_number = blocks.number
-                                                  GROUP BY pool_key_hash, hour),
-                 token_deltas AS (SELECT pool_key_hash, hour, pool_keys.token0 AS token, SUM(delta0) AS delta
-                                  FROM grouped_pool_key_hash_deltas
-                                           JOIN pool_keys
-                                                ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
-                                  GROUP BY pool_key_hash, hour, pool_keys.token0
-
-                                  UNION ALL
-
-                                  SELECT pool_key_hash, hour, pool_keys.token1 AS token, SUM(delta1) AS delta
-                                  FROM grouped_pool_key_hash_deltas
-                                           JOIN pool_keys
-                                                ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
-                                  GROUP BY pool_key_hash, hour, pool_keys.token1)
-            SELECT token,
-                   pool_key_hash AS key_hash,
-                   hour,
-                   SUM(delta)    AS delta
-            FROM token_deltas
-            GROUP BY token, key_hash, hour
-                );
-
-            CREATE MATERIALIZED VIEW IF NOT EXISTS tvl_delta_by_token_by_hour_by_key_hash_materialized AS
-            (
-            SELECT token, key_hash, hour, delta
-            FROM tvl_delta_by_token_by_hour_by_key_hash_view);
-
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_tvl_delta_by_token_by_hour_by_key_hash_token_hour_key_hash ON tvl_delta_by_token_by_hour_by_key_hash_materialized USING btree (key_hash, hour, token);
+                key_hash NUMERIC,
+                hour     timestamptz,
+                token    NUMERIC,
+                delta    NUMERIC,
+                PRIMARY KEY (key_hash, hour, token)
+            );
 
             CREATE OR REPLACE VIEW per_pool_per_tick_liquidity_view AS
             (
@@ -443,27 +359,6 @@ export class DAO {
 
             CREATE UNIQUE INDEX IF NOT EXISTS idx_per_pool_per_tick_liquidity_pool_key_hash_tick ON per_pool_per_tick_liquidity_materialized USING btree (pool_key_hash, tick);
 
-            CREATE OR REPLACE VIEW pair_vwap_preimages_view AS
-            (
-            SELECT date_bin('15 minutes', blocks.time, '2000-1-1') AS timestamp_start,
-                   token0,
-                   token1,
-                   SUM(delta1 * delta1)                            AS total,
-                   SUM(ABS(delta0 * delta1))                       AS k_volume
-            FROM swaps
-                     JOIN event_keys ON swaps.event_id = event_keys.id
-                     JOIN blocks ON event_keys.block_number = blocks.number
-                     JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
-            GROUP BY token0, token1, timestamp_start
-                );
-
-            CREATE MATERIALIZED VIEW IF NOT EXISTS pair_vwap_preimages_materialized AS
-            (
-            SELECT timestamp_start, token0, token1, total, k_volume
-            FROM pair_vwap_preimages_view);
-
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_pair_vwap_preimages_materialized_token0_token1_timestamp ON pair_vwap_preimages_materialized USING btree (token0, token1, timestamp_start);
-
             CREATE TABLE IF NOT EXISTS leaderboard
             (
                 collector NUMERIC  NOT NULL,
@@ -475,12 +370,128 @@ export class DAO {
         `);
   }
 
-  public async refreshAnalyticalMaterializedViews() {
-    await this.pg.query(`
-      REFRESH MATERIALIZED VIEW CONCURRENTLY volume_by_token_by_hour_by_key_hash_materialized;
-      REFRESH MATERIALIZED VIEW CONCURRENTLY tvl_delta_by_token_by_hour_by_key_hash_materialized;
-      REFRESH MATERIALIZED VIEW CONCURRENTLY pair_vwap_preimages_materialized;
-    `);
+  public async refreshAnalyticalTables({ since }: { since: Date }) {
+    await Promise.all([
+      this.pg.query({
+        text: `
+            INSERT INTO hourly_volume_by_token
+                (SELECT swaps.pool_key_hash                                                      AS   key_hash,
+                        DATE_TRUNC('hour', blocks.time)                                          AS   hour,
+                        (CASE WHEN swaps.delta0 >= 0 THEN pool_keys.token0 ELSE pool_keys.token1 END) token,
+                        SUM(CASE WHEN swaps.delta0 >= 0 THEN swaps.delta0 ELSE swaps.delta1 END) AS   volume,
+                        SUM(FLOOR(((CASE WHEN delta0 >= 0 THEN swaps.delta0 ELSE swaps.delta1 END) * pool_keys.fee) /
+                                  340282366920938463463374607431768211456))                      AS   fees,
+                        COUNT(1)                                                                 AS   swap_count
+                 FROM swaps
+                          JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
+                          JOIN event_keys ON swaps.event_id = event_keys.id
+                          JOIN blocks ON event_keys.block_number = blocks.number
+                 WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
+                 GROUP BY hour, swaps.pool_key_hash, token)
+            ON CONFLICT (key_hash, hour, token)
+                DO UPDATE SET volume     = excluded.volume,
+                              fees       = excluded.fees,
+                              swap_count = excluded.swap_count;
+        `,
+        values: [since],
+      }),
+
+      this.pg.query({
+        text: `
+            INSERT INTO hourly_tvl_delta_by_token
+                (WITH first_event_id AS (SELECT id
+                                         FROM event_keys AS ek
+                                                  JOIN blocks AS b ON ek.block_number = b.number
+                                         WHERE b.time >= DATE_TRUNC('hour', $1::timestamptz)
+                                         LIMIT 1),
+                      grouped_pool_key_hash_deltas AS (SELECT pool_key_hash,
+                                                              DATE_TRUNC('hour', blocks.time) AS hour,
+                                                              SUM(delta0)                     AS delta0,
+                                                              SUM(delta1)                     AS delta1
+                                                       FROM swaps
+                                                                JOIN event_keys ON swaps.event_id = event_keys.id
+                                                                JOIN blocks ON event_keys.block_number = blocks.number
+                                                       WHERE event_id >= (SELECT id FROM first_event_id)
+                                                       GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)
+
+                                                       UNION ALL
+
+                                                       SELECT pool_key_hash,
+                                                              DATE_TRUNC('hour', blocks.time) AS hour,
+                                                              SUM(delta0)                     AS delta0,
+                                                              SUM(delta1)                     AS delta1
+                                                       FROM position_updates
+                                                                JOIN event_keys ON position_updates.event_id = event_keys.id
+                                                                JOIN blocks ON event_keys.block_number = blocks.number
+                                                       WHERE event_id >= (SELECT id FROM first_event_id)
+                                                       GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)
+
+                                                       UNION ALL
+
+                                                       SELECT pool_key_hash,
+                                                              DATE_TRUNC('hour', blocks.time) AS hour,
+                                                              SUM(delta0)                     AS delta0,
+                                                              SUM(delta1)                     AS delta1
+                                                       FROM position_fees_collected
+                                                                JOIN event_keys ON position_fees_collected.event_id = event_keys.id
+                                                                JOIN blocks ON event_keys.block_number = blocks.number
+                                                       WHERE event_id >= (SELECT id FROM first_event_id)
+                                                       GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)
+
+                                                       UNION ALL
+
+                                                       SELECT pool_key_hash,
+                                                              DATE_TRUNC('hour', blocks.time) AS hour,
+                                                              SUM(delta0)                     AS delta0,
+                                                              SUM(delta1)                     AS delta1
+                                                       FROM protocol_fees_paid
+                                                                JOIN event_keys ON protocol_fees_paid.event_id = event_keys.id
+                                                                JOIN blocks ON event_keys.block_number = blocks.number
+                                                       WHERE event_id >= (SELECT id FROM first_event_id)
+                                                       GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)
+
+                                                       UNION ALL
+
+                                                       SELECT pool_key_hash,
+                                                              DATE_TRUNC('hour', blocks.time) AS hour,
+                                                              SUM(amount0)                    AS delta0,
+                                                              SUM(amount1)                    AS delta1
+                                                       FROM fees_accumulated
+                                                                JOIN event_keys ON fees_accumulated.event_id = event_keys.id
+                                                                JOIN blocks ON event_keys.block_number = blocks.number
+                                                       WHERE event_id >= (SELECT id FROM first_event_id)
+                                                       GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)),
+                      token_deltas AS (SELECT pool_key_hash,
+                                              grouped_pool_key_hash_deltas.hour,
+                                              pool_keys.token0 AS token,
+                                              SUM(delta0)      AS delta
+                                       FROM grouped_pool_key_hash_deltas
+                                                JOIN pool_keys
+                                                     ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
+                                       GROUP BY pool_key_hash, grouped_pool_key_hash_deltas.hour, pool_keys.token0
+
+                                       UNION ALL
+
+                                       SELECT pool_key_hash,
+                                              grouped_pool_key_hash_deltas.hour,
+                                              pool_keys.token1 AS token,
+                                              SUM(delta1)      AS delta
+                                       FROM grouped_pool_key_hash_deltas
+                                                JOIN pool_keys
+                                                     ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
+                                       GROUP BY pool_key_hash, grouped_pool_key_hash_deltas.hour, pool_keys.token1)
+                 SELECT pool_key_hash AS key_hash,
+                        token_deltas.hour,
+                        token_deltas.token,
+                        SUM(delta)    AS delta
+                 FROM token_deltas
+                 GROUP BY token_deltas.pool_key_hash, token_deltas.hour, token_deltas.token)
+            ON CONFLICT (key_hash, hour, token)
+                DO UPDATE SET delta = excluded.delta;
+        `,
+        values: [since],
+      }),
+    ]);
   }
 
   public async refreshOperationalMaterializedView() {
@@ -981,190 +992,191 @@ export class DAO {
 
   public refreshLeaderboard(maxEventIdExclusive: bigint) {
     return this.pg.query(`
-        DELETE
-        FROM leaderboard
-        WHERE TRUE;
-        INSERT INTO leaderboard(WITH all_tokens AS (SELECT token0 AS token
-                                                    FROM pool_keys
-                                                    UNION
-                                                    DISTINCT
-                                                    SELECT token1
-                                                    FROM pool_keys),
+            DELETE
+            FROM leaderboard
+            WHERE TRUE;
+            INSERT INTO leaderboard(WITH all_tokens AS (SELECT token0 AS token
+                                                        FROM pool_keys
+                                                        UNION
+                                                        DISTINCT
+                                                        SELECT token1
+                                                        FROM pool_keys),
 
-                                     pair_swap_counts_by_day
-                                         AS (SELECT date_bin(INTERVAL '1 day', b.time, '2000-01-01') AS day,
-                                                    pk.token0,
-                                                    pk.token1,
-                                                    COUNT(1)                                         AS swap_count
-                                             FROM swaps AS s
-                                                      JOIN event_keys AS ek ON s.event_id = ek.id
-                                                      JOIN blocks AS b ON ek.block_number = b.number
-                                                      JOIN pool_keys AS pk ON s.pool_key_hash = pk.key_hash
-                                             WHERE s.event_id < ${maxEventIdExclusive}
-                                             GROUP BY day, pk.token0, pk.token1),
+                                         pair_swap_counts_by_day
+                                             AS (SELECT date_bin(INTERVAL '1 day', b.time, '2000-01-01') AS day,
+                                                        pk.token0,
+                                                        pk.token1,
+                                                        COUNT(1)                                         AS swap_count
+                                                 FROM swaps AS s
+                                                          JOIN event_keys AS ek ON s.event_id = ek.id
+                                                          JOIN blocks AS b ON ek.block_number = b.number
+                                                          JOIN pool_keys AS pk ON s.pool_key_hash = pk.key_hash
+                                                 WHERE s.event_id < ${maxEventIdExclusive}
+                                                 GROUP BY day, pk.token0, pk.token1),
 
-                                     swap_counts_as_t0 AS (SELECT token0 AS token, SUM(swap_count) AS swap_count
-                                                           FROM pair_swap_counts_by_day
-                                                           WHERE day >= (NOW() - INTERVAL '30 days')
-                                                           GROUP BY token0),
+                                         swap_counts_as_t0 AS (SELECT token0 AS token, SUM(swap_count) AS swap_count
+                                                               FROM pair_swap_counts_by_day
+                                                               WHERE day >= (NOW() - INTERVAL '30 days')
+                                                               GROUP BY token0),
 
-                                     swap_counts_as_t1 AS (SELECT token1 AS token, SUM(swap_count) AS swap_count
-                                                           FROM pair_swap_counts_by_day
-                                                           WHERE day >= (NOW() - INTERVAL '30 days')
-                                                           GROUP BY token1),
+                                         swap_counts_as_t1 AS (SELECT token1 AS token, SUM(swap_count) AS swap_count
+                                                               FROM pair_swap_counts_by_day
+                                                               WHERE day >= (NOW() - INTERVAL '30 days')
+                                                               GROUP BY token1),
 
-                                     -- all the tokens and the respective total number of swaps for each token
-                                     all_tokens_with_swap_counts AS (SELECT at.token                                                  AS token,
-                                                                            (COALESCE(s0.swap_count, 0) + COALESCE(s1.swap_count, 0)) AS swap_count
-                                                                     FROM all_tokens AS at
-                                                                              LEFT JOIN
-                                                                          swap_counts_as_t0 AS s0 ON at.token = s0.token
-                                                                              LEFT JOIN
-                                                                          swap_counts_as_t1 AS s1 ON at.token = s1.token),
+                                         -- all the tokens and the respective total number of swaps for each token
+                                         all_tokens_with_swap_counts AS (SELECT at.token                                                  AS token,
+                                                                                (COALESCE(s0.swap_count, 0) + COALESCE(s1.swap_count, 0)) AS swap_count
+                                                                         FROM all_tokens AS at
+                                                                                  LEFT JOIN
+                                                                              swap_counts_as_t0 AS s0 ON at.token = s0.token
+                                                                                  LEFT JOIN
+                                                                              swap_counts_as_t1 AS s1 ON at.token = s1.token),
 
-                                     -- this boost allows users to earn more points by depositing liquidity in pools that are heavily utilized
-                                     pair_points_boost AS (SELECT token0,
-                                                                  token1,
-                                                                  (18::NUMERIC / (1 + EXP(-0.00005 * SUM(swap_count)))) - 8 AS multiplier
-                                                           FROM pair_swap_counts_by_day
-                                                           GROUP BY token0, token1),
+                                         -- this boost allows users to earn more points by depositing liquidity in pools that are heavily utilized
+                                         pair_points_boost AS (SELECT token0,
+                                                                      token1,
+                                                                      (18::NUMERIC / (1 + EXP(-0.00005 * SUM(swap_count)))) - 8 AS multiplier
+                                                               FROM pair_swap_counts_by_day
+                                                               GROUP BY token0, token1),
 
-                                     fee_to_discount_factor AS (SELECT DISTINCT fee,
-                                                                                1 - SQRT(fee / 340282366920938463463374607431768211456) AS fee_discount
-                                                                FROM pool_keys),
+                                         fee_to_discount_factor AS (SELECT DISTINCT fee,
+                                                                                    1 - SQRT(fee / 340282366920938463463374607431768211456) AS fee_discount
+                                                                    FROM pool_keys),
 
-                                     -- we compute the VWAP price in eth per token over the last month for each token we will consider
-                                     token_points_rates AS
-                                         (SELECT token,
-                                                 (CASE
-                                                      WHEN swap_count < 4000 THEN 0
-                                                      WHEN token =
-                                                           ${ETH_TOKEN_ADDRESS}
-                                                          THEN 1
-                                                      WHEN token <
-                                                           ${ETH_TOKEN_ADDRESS}
-                                                          THEN (SELECT SUM(delta1 * delta1) / SUM(ABS(delta0 * delta1))
-                                                                FROM swaps
-                                                                         JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
-                                                                         JOIN event_keys ON swaps.event_id = event_keys.id
-                                                                         JOIN blocks ON event_keys.block_number = blocks.number
-                                                                WHERE token0 = token
-                                                                  AND token1 =
-                                                                      ${ETH_TOKEN_ADDRESS}
-                                                                  AND blocks.time >= NOW() - INTERVAL '1 month'
-                                                                  AND swaps.event_id < ${maxEventIdExclusive})
-                                                      ELSE
-                                                          (SELECT SUM(ABS(delta0 * delta1)) / SUM(delta1 * delta1)
-                                                           FROM swaps
-                                                                    JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
-                                                                    JOIN event_keys ON swaps.event_id = event_keys.id
-                                                                    JOIN blocks ON event_keys.block_number = blocks.number
-                                                           WHERE token0 =
-                                                                 ${ETH_TOKEN_ADDRESS}
-                                                             AND token1 = token
-                                                             AND blocks.time >= NOW() - INTERVAL '1 month'
-                                                             AND swaps.event_id < ${maxEventIdExclusive})
-                                                     END) AS rate
-                                          FROM all_tokens_with_swap_counts),
+                                         -- we compute the VWAP price in eth per token over the last month for each token we will consider
+                                         token_points_rates AS
+                                             (SELECT token,
+                                                     (CASE
+                                                          WHEN swap_count < 4000 THEN 0
+                                                          WHEN token =
+                                                               ${ETH_TOKEN_ADDRESS}
+                                                              THEN 1
+                                                          WHEN token <
+                                                               ${ETH_TOKEN_ADDRESS}
+                                                              THEN (SELECT SUM(delta1 * delta1) / SUM(ABS(delta0 * delta1))
+                                                                    FROM swaps
+                                                                             JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
+                                                                             JOIN event_keys ON swaps.event_id = event_keys.id
+                                                                             JOIN blocks ON event_keys.block_number = blocks.number
+                                                                    WHERE token0 = token
+                                                                      AND token1 =
+                                                                          ${ETH_TOKEN_ADDRESS}
+                                                                      AND blocks.time >= NOW() - INTERVAL '1 month'
+                                                                      AND swaps.event_id < ${maxEventIdExclusive})
+                                                          ELSE
+                                                              (SELECT SUM(ABS(delta0 * delta1)) / SUM(delta1 * delta1)
+                                                               FROM swaps
+                                                                        JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
+                                                                        JOIN event_keys ON swaps.event_id = event_keys.id
+                                                                        JOIN blocks ON event_keys.block_number = blocks.number
+                                                               WHERE token0 =
+                                                                     ${ETH_TOKEN_ADDRESS}
+                                                                 AND token1 = token
+                                                                 AND blocks.time >= NOW() - INTERVAL '1 month'
+                                                                 AND swaps.event_id < ${maxEventIdExclusive})
+                                                         END) AS rate
+                                              FROM all_tokens_with_swap_counts),
 
-                                     position_multipliers AS (SELECT pt.token_id AS token_id,
-                                                                     2 *
-                                                                     EXP(GREATEST((pmb.time::DATE - '2023-09-14'::DATE), 0) * -0.01) +
-                                                                     1           AS multiplier
-                                                              FROM position_transfers AS pt
-                                                                       JOIN event_keys ON pt.event_id = event_keys.id
-                                                                       JOIN blocks AS pmb ON event_keys.block_number = pmb.number
-                                                              WHERE pt.from_address = 0),
-
-                                     points_from_mints AS (SELECT pt.token_id                    AS token_id,
-                                                                  to_address                     AS collector,
-                                                                  ((CASE
-                                                                        WHEN EXISTS (SELECT 1
-                                                                                     FROM position_updates AS pu
-                                                                                     WHERE pu.salt = pt.token_id::NUMERIC
-                                                                                       AND pu.delta0 != 0
-                                                                                       AND pu.delta1 != 0) THEN 2000
-                                                                        ELSE 0 END) *
-                                                                   multipliers.multiplier)::int8 AS points
-                                                           FROM position_transfers AS pt
-                                                                    JOIN event_keys AS ptek ON pt.event_id = ptek.id
-                                                                    JOIN position_multipliers AS multipliers
-                                                                         ON pt.token_id = multipliers.token_id
-                                                                    JOIN blocks AS ptb ON ptek.block_number = ptb.number
-                                                           WHERE pt.from_address = 0
-                                                             AND pt.event_id < ${maxEventIdExclusive}),
-
-                                     points_from_withdrawal_fees_paid AS (SELECT multipliers.token_id       AS token_id,
-                                                                                 (SELECT to_address
-                                                                                  FROM position_transfers AS pt
-                                                                                  WHERE pfp.salt::BIGINT = pt.token_id
-                                                                                    AND pt.event_id < pfp.event_id
-                                                                                  ORDER BY pt.event_id DESC
-                                                                                  LIMIT 1)                  AS collector,
-                                                                                 FLOOR(ABS(
-                                                                                               (pfp.delta0 * tp0.rate * fd.fee_discount) +
-                                                                                               (pfp.delta1 * tp1.rate * fd.fee_discount)
-                                                                                       ) * multipliers.multiplier *
-                                                                                       COALESCE(ppb.multiplier, 1) /
-                                                                                       1e12::NUMERIC)::int8 AS points
-                                                                          FROM position_multipliers AS multipliers
-                                                                                   JOIN protocol_fees_paid AS pfp
-                                                                                        ON pfp.salt =
-                                                                                           multipliers.token_id::NUMERIC AND
-                                                                                           pfp.event_id <
-                                                                                           ${maxEventIdExclusive}
-                                                                                   JOIN event_keys AS pfpek ON pfp.event_id = pfpek.id
-                                                                                   JOIN blocks AS pfpb
-                                                                                        ON pfpek.block_number = pfpb.number
-                                                                                   JOIN pool_keys AS pk ON pfp.pool_key_hash = pk.key_hash
-                                                                                   LEFT JOIN pair_points_boost AS ppb
-                                                                                             ON pk.token0 = ppb.token0 AND pk.token1 = ppb.token1
-                                                                                   JOIN token_points_rates AS tp0 ON tp0.token = pk.token0
-                                                                                   JOIN token_points_rates AS tp1 ON tp1.token = pk.token1
-                                                                                   JOIN fee_to_discount_factor AS fd ON pk.fee = fd.fee),
-
-                                     points_from_fees AS (SELECT multipliers.token_id       AS token_id,
-                                                                 (SELECT to_address
+                                         position_multipliers AS (SELECT pt.token_id AS token_id,
+                                                                         2 *
+                                                                         EXP(GREATEST((pmb.time::DATE - '2023-09-14'::DATE), 0) * -0.01) +
+                                                                         1           AS multiplier
                                                                   FROM position_transfers AS pt
-                                                                  WHERE pt.token_id = pfc.salt::BIGINT
-                                                                    AND pt.event_id < pfc.event_id
-                                                                  ORDER BY pt.event_id DESC
-                                                                  LIMIT 1)                  AS collector,
-                                                                 FLOOR(ABS(
-                                                                               (pfc.delta0 * tp0.rate * fd.fee_discount) +
-                                                                               (pfc.delta1 * tp1.rate * fd.fee_discount)
-                                                                       ) * multipliers.multiplier *
-                                                                       COALESCE(ppb.multiplier, 1) /
-                                                                       1e12::NUMERIC)::int8 AS points
-                                                          FROM position_multipliers AS multipliers
-                                                                   JOIN position_fees_collected AS pfc
-                                                                        ON pfc.salt = multipliers.token_id::NUMERIC AND
-                                                                           pfc.event_id <
-                                                                           ${maxEventIdExclusive}
-                                                                   JOIN event_keys AS pfek ON pfc.event_id = pfek.id
-                                                                   JOIN blocks AS pfb ON pfek.block_number = pfb.number
-                                                                   JOIN pool_keys AS pk ON pfc.pool_key_hash = pk.key_hash
-                                                                   LEFT JOIN pair_points_boost AS ppb
-                                                                             ON pk.token0 = ppb.token0 AND pk.token1 = ppb.token1
-                                                                   JOIN fee_to_discount_factor AS fd ON pk.fee = fd.fee
-                                                                   JOIN token_points_rates AS tp0 ON tp0.token = pk.token0
-                                                                   JOIN token_points_rates AS tp1 ON tp1.token = pk.token1),
+                                                                           JOIN event_keys ON pt.event_id = event_keys.id
+                                                                           JOIN blocks AS pmb ON event_keys.block_number = pmb.number
+                                                                  WHERE pt.from_address = 0),
 
-                                     points_by_collector_and_token_id
-                                         AS (SELECT token_id, collector, 0 AS category, points
-                                             FROM points_from_fees
-                                             UNION ALL
-                                             SELECT token_id, collector, 1 AS category, points
-                                             FROM points_from_mints
-                                             UNION ALL
-                                             SELECT token_id, collector, 2 AS category, points
-                                             FROM points_from_withdrawal_fees_paid)
+                                         points_from_mints AS (SELECT pt.token_id                    AS token_id,
+                                                                      to_address                     AS collector,
+                                                                      ((CASE
+                                                                            WHEN EXISTS (SELECT 1
+                                                                                         FROM position_updates AS pu
+                                                                                         WHERE pu.salt = pt.token_id::NUMERIC
+                                                                                           AND pu.delta0 != 0
+                                                                                           AND pu.delta1 != 0) THEN 2000
+                                                                            ELSE 0 END) *
+                                                                       multipliers.multiplier)::int8 AS points
+                                                               FROM position_transfers AS pt
+                                                                        JOIN event_keys AS ptek ON pt.event_id = ptek.id
+                                                                        JOIN position_multipliers AS multipliers
+                                                                             ON pt.token_id = multipliers.token_id
+                                                                        JOIN blocks AS ptb ON ptek.block_number = ptb.number
+                                                               WHERE pt.from_address = 0
+                                                                 AND pt.event_id < ${maxEventIdExclusive}),
 
-                                SELECT collector, token_id, category, SUM(points) AS points
-                                FROM points_by_collector_and_token_id
-                                GROUP BY collector, token_id, category
-                                ORDER BY points DESC);
-    `);
+                                         points_from_withdrawal_fees_paid AS (SELECT multipliers.token_id       AS token_id,
+                                                                                     (SELECT to_address
+                                                                                      FROM position_transfers AS pt
+                                                                                      WHERE pfp.salt::BIGINT = pt.token_id
+                                                                                        AND pt.event_id < pfp.event_id
+                                                                                      ORDER BY pt.event_id DESC
+                                                                                      LIMIT 1)                  AS collector,
+                                                                                     FLOOR(ABS(
+                                                                                                   (pfp.delta0 * tp0.rate * fd.fee_discount) +
+                                                                                                   (pfp.delta1 * tp1.rate * fd.fee_discount)
+                                                                                           ) * multipliers.multiplier *
+                                                                                           COALESCE(ppb.multiplier, 1) /
+                                                                                           1e12::NUMERIC)::int8 AS points
+                                                                              FROM position_multipliers AS multipliers
+                                                                                       JOIN protocol_fees_paid AS pfp
+                                                                                            ON pfp.salt =
+                                                                                               multipliers.token_id::NUMERIC AND
+                                                                                               pfp.event_id <
+                                                                                               ${maxEventIdExclusive}
+                                                                                       JOIN event_keys AS pfpek ON pfp.event_id = pfpek.id
+                                                                                       JOIN blocks AS pfpb
+                                                                                            ON pfpek.block_number = pfpb.number
+                                                                                       JOIN pool_keys AS pk ON pfp.pool_key_hash = pk.key_hash
+                                                                                       LEFT JOIN pair_points_boost AS ppb
+                                                                                                 ON pk.token0 = ppb.token0 AND pk.token1 = ppb.token1
+                                                                                       JOIN token_points_rates AS tp0 ON tp0.token = pk.token0
+                                                                                       JOIN token_points_rates AS tp1 ON tp1.token = pk.token1
+                                                                                       JOIN fee_to_discount_factor AS fd ON pk.fee = fd.fee),
+
+                                         points_from_fees AS (SELECT multipliers.token_id       AS token_id,
+                                                                     (SELECT to_address
+                                                                      FROM position_transfers AS pt
+                                                                      WHERE pt.token_id = pfc.salt::BIGINT
+                                                                        AND pt.event_id < pfc.event_id
+                                                                      ORDER BY pt.event_id DESC
+                                                                      LIMIT 1)                  AS collector,
+                                                                     FLOOR(ABS(
+                                                                                   (pfc.delta0 * tp0.rate * fd.fee_discount) +
+                                                                                   (pfc.delta1 * tp1.rate * fd.fee_discount)
+                                                                           ) * multipliers.multiplier *
+                                                                           COALESCE(ppb.multiplier, 1) /
+                                                                           1e12::NUMERIC)::int8 AS points
+                                                              FROM position_multipliers AS multipliers
+                                                                       JOIN position_fees_collected AS pfc
+                                                                            ON pfc.salt =
+                                                                               multipliers.token_id::NUMERIC AND
+                                                                               pfc.event_id <
+                                                                               ${maxEventIdExclusive}
+                                                                       JOIN event_keys AS pfek ON pfc.event_id = pfek.id
+                                                                       JOIN blocks AS pfb ON pfek.block_number = pfb.number
+                                                                       JOIN pool_keys AS pk ON pfc.pool_key_hash = pk.key_hash
+                                                                       LEFT JOIN pair_points_boost AS ppb
+                                                                                 ON pk.token0 = ppb.token0 AND pk.token1 = ppb.token1
+                                                                       JOIN fee_to_discount_factor AS fd ON pk.fee = fd.fee
+                                                                       JOIN token_points_rates AS tp0 ON tp0.token = pk.token0
+                                                                       JOIN token_points_rates AS tp1 ON tp1.token = pk.token1),
+
+                                         points_by_collector_and_token_id
+                                             AS (SELECT token_id, collector, 0 AS category, points
+                                                 FROM points_from_fees
+                                                 UNION ALL
+                                                 SELECT token_id, collector, 1 AS category, points
+                                                 FROM points_from_mints
+                                                 UNION ALL
+                                                 SELECT token_id, collector, 2 AS category, points
+                                                 FROM points_from_withdrawal_fees_paid)
+
+                                    SELECT collector, token_id, category, SUM(points) AS points
+                                    FROM points_by_collector_and_token_id
+                                    GROUP BY collector, token_id, category
+                                    ORDER BY points DESC);
+        `);
   }
 
   public deleteFakeEvents(blockNumber: number) {

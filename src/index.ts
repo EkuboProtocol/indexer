@@ -15,8 +15,8 @@ import { positionsContract } from "./positions";
 import { EVENT_PROCESSORS } from "./EVENT_PROCESSORS";
 import PQueue from "p-queue-cjs";
 import {
-  ProtocolFeesPaidEvent,
   PositionFeesCollectedEvent,
+  ProtocolFeesPaidEvent,
 } from "./events/core";
 
 const pool = new Pool({
@@ -33,21 +33,28 @@ export function parseLong(long: number | Long): bigint {
   return BigInt(typeof long === "number" ? long : long.toNumber());
 }
 
-const refreshAnalyticalViews = throttle(
-  async function () {
+const refreshAnalyticalTables = throttle(
+  async function (since: Date = new Date(Date.now() - 3_600_000)) {
     const timer = logger.startTimer();
-    logger.info("Started refreshing analytical views", { start: timer.start });
+    logger.info("Started refreshing analytical tables", {
+      start: timer.start,
+      since: since.toISOString(),
+    });
     const client = await pool.connect();
     const dao = new DAO(client);
-    await dao.refreshAnalyticalMaterializedViews();
+    await dao.beginTransaction();
+    await dao.refreshAnalyticalTables({
+      since,
+    });
+    await dao.commitTransaction();
     client.release();
-    timer.done({ message: "Refreshed analytical views" });
+    timer.done({ message: "Refreshed analytical tables" });
   },
   {
     delay: parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS),
     leading: true,
     async onError(err) {
-      logger.error("Failed to refresh analytical views", err);
+      logger.error("Failed to refresh analytical tables", err);
     },
   }
 );
@@ -69,12 +76,12 @@ const refreshLeaderboard = throttle(
       block_number: number;
       transaction_index: number;
     }>(`
-        SELECT id, block_number, transaction_index
-        FROM event_keys
-        WHERE block_number != (SELECT block_number FROM event_keys ORDER BY id DESC LIMIT 1)
-        ORDER BY id DESC
-        LIMIT 1
-    `);
+            SELECT id, block_number, transaction_index
+            FROM event_keys
+            WHERE block_number != (SELECT block_number FROM event_keys ORDER BY id DESC LIMIT 1)
+            ORDER BY id DESC
+            LIMIT 1
+        `);
 
     if (!latestBlockNumberRows.length) {
       logger.info("Not refreshing leaderboard because there are no events");
@@ -101,41 +108,43 @@ const refreshLeaderboard = throttle(
       lower_bound: number;
       upper_bound: number;
     }>(`
-        WITH initial_transfers AS (SELECT token_id FROM position_transfers WHERE from_address = 0 AND to_address != 0),
-             positions_minted AS (SELECT token_id, owner, pool_key_hash, lower_bound, upper_bound
-                                  FROM initial_transfers
-                                           JOIN LATERAL (
-                                      SELECT to_address AS owner
-                                      FROM position_transfers AS pt
-                                      WHERE pt.token_id = initial_transfers.token_id
-                                        AND event_id <= ${latestEventId}
-                                      ORDER BY event_id DESC
-                                      LIMIT 1
-                                      ) AS position_owners ON TRUE
-                                           JOIN LATERAL (
-                                      SELECT pool_key_hash, lower_bound, upper_bound
-                                      FROM position_updates AS pu
-                                      WHERE pu.locker = ${BigInt(
-                                        positionsContract.address
-                                      )}
-                                        AND token_id::NUMERIC = pu.salt
-                                      ORDER BY event_id DESC
-                                      LIMIT 1
-                                      ) AS mint_parameters ON TRUE
-                                  WHERE owner != 0)
-        SELECT token_id,
-               owner,
-               token0,
-               token1,
-               fee,
-               tick_spacing,
-               extension,
-               lower_bound,
-               upper_bound
-        FROM positions_minted AS pm
-                 JOIN pool_keys AS pk ON pm.pool_key_hash = pk.key_hash
-        WHERE owner != 0
-    `);
+            WITH initial_transfers AS (SELECT token_id
+                                       FROM position_transfers
+                                       WHERE from_address = 0 AND to_address != 0),
+                 positions_minted AS (SELECT token_id, owner, pool_key_hash, lower_bound, upper_bound
+                                      FROM initial_transfers
+                                               JOIN LATERAL (
+                                          SELECT to_address AS owner
+                                          FROM position_transfers AS pt
+                                          WHERE pt.token_id = initial_transfers.token_id
+                                            AND event_id <= ${latestEventId}
+                                          ORDER BY event_id DESC
+                                          LIMIT 1
+                                          ) AS position_owners ON TRUE
+                                               JOIN LATERAL (
+                                          SELECT pool_key_hash, lower_bound, upper_bound
+                                          FROM position_updates AS pu
+                                          WHERE pu.locker = ${BigInt(
+                                            positionsContract.address
+                                          )}
+                                            AND token_id::NUMERIC = pu.salt
+                                          ORDER BY event_id DESC
+                                          LIMIT 1
+                                          ) AS mint_parameters ON TRUE
+                                      WHERE owner != 0)
+            SELECT token_id,
+                   owner,
+                   token0,
+                   token1,
+                   fee,
+                   tick_spacing,
+                   extension,
+                   lower_bound,
+                   upper_bound
+            FROM positions_minted AS pm
+                     JOIN pool_keys AS pk ON pm.pool_key_hash = pk.key_hash
+            WHERE owner != 0
+        `);
 
     logger.info(
       `Leaderboard: getting position information for ${positions.length} positions`
@@ -342,13 +351,18 @@ const refreshLeaderboard = throttle(
   let databaseStartingCursor;
   {
     const client = await pool.connect();
-    databaseStartingCursor = await new DAO(client).initializeSchema();
+    const dao = new DAO(client);
+
+    const initializeTimer = logger.startTimer();
+    databaseStartingCursor = await dao.initializeSchema();
+    initializeTimer.done({
+      message: "Initialized schema",
+      startingCursor: databaseStartingCursor,
+    });
     client.release();
   }
 
-  logger.info(`Initialized`, {
-    startingCursor: databaseStartingCursor,
-  });
+  refreshAnalyticalTables(new Date(0));
 
   streamClient.configure({
     filter: EVENT_PROCESSORS.reduce((memo, value) => {
@@ -470,7 +484,7 @@ const refreshLeaderboard = throttle(
           client.release();
 
           if (isPending) {
-            refreshAnalyticalViews();
+            refreshAnalyticalTables();
             refreshLeaderboard();
           }
         }
