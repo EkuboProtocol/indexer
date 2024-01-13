@@ -1114,8 +1114,7 @@ export class DAO {
                                                                                  FLOOR(ABS(
                                                                                                (pfp.delta0 * tp0.rate * fd.fee_discount) +
                                                                                                (pfp.delta1 * tp1.rate * fd.fee_discount)
-                                                                                       ) * multipliers.multiplier *
-                                                                                       COALESCE(ppb.multiplier, 1) /
+                                                                                       ) * multipliers.multiplier /
                                                                                        1e12::NUMERIC)::int8 AS points
                                                                           FROM position_multipliers AS multipliers
                                                                                    JOIN protocol_fees_paid AS pfp
@@ -1144,7 +1143,7 @@ export class DAO {
                                                                                (pfc.delta0 * tp0.rate * fd.fee_discount) +
                                                                                (pfc.delta1 * tp1.rate * fd.fee_discount)
                                                                        ) * multipliers.multiplier *
-                                                                       COALESCE(ppb.multiplier, 1) /
+                                                                       COALESCE(ppb.multiplier, 0) /
                                                                        1e12::NUMERIC)::int8 AS points
                                                           FROM position_multipliers AS multipliers
                                                                    JOIN position_fees_collected AS pfc
