@@ -1010,6 +1010,8 @@ export class DAO {
                                                       JOIN event_keys AS ek ON s.event_id = ek.id
                                                       JOIN blocks AS b ON ek.block_number = b.number
                                              WHERE s.event_id < ${maxEventIdExclusive}
+                                               AND s.delta0 != 0
+                                               AND s.delta1 != 0
                                              GROUP BY s.pool_key_hash, day),
 
                                      swap_counts_as_t0 AS (SELECT token0 AS token, SUM(swap_count) AS swap_count
