@@ -1005,7 +1005,7 @@ export class DAO {
                                      pair_swap_counts_by_day
                                          AS (SELECT s.pool_key_hash,
                                                     date_bin(INTERVAL '1 day', b.time, '2000-01-01') AS day,
-                                                    COUNT(1)                                         AS swap_count
+                                                    COUNT(DISTINCT transaction_hash)                 AS swap_count
                                              FROM swaps AS s
                                                       JOIN event_keys AS ek ON s.event_id = ek.id
                                                       JOIN blocks AS b ON ek.block_number = b.number
