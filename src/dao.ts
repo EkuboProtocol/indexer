@@ -258,6 +258,12 @@ export class DAO {
             total_supply NUMERIC NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS account_class_hashes
+        (
+            address    NUMERIC NOT NULL PRIMARY KEY,
+            class_hash NUMERIC NOT NULL
+        );
+
         CREATE OR REPLACE VIEW pool_states_view AS
         (
         WITH lss AS (SELECT key_hash,
@@ -367,8 +373,7 @@ export class DAO {
             points    BIGINT   NOT NULL,
             PRIMARY KEY (collector, category, token_id)
         );
-
-        CREATE OR REPLACE VIEW leaderboard_view AS
+CREATE OR REPLACE VIEW leaderboard_view AS
         (
         WITH earned_points AS (SELECT collector, SUM(points) AS points
                                FROM leaderboard
@@ -1231,5 +1236,21 @@ export class DAO {
       values: [invalidatedBlockNumber],
     });
     return rowCount;
+  }
+
+  public async insertAccountClassHashes(
+    items: {
+      account: string;
+      class_hash: string;
+    }[]
+  ) {
+    await this.pg.query({
+      text: `INSERT INTO account_class_hashes (address, class_hash)
+             SELECT *
+             FROM UNNEST($1::NUMERIC[], $2::NUMERIC[])
+             ON CONFLICT (address)
+                 DO UPDATE SET class_hash = excluded.class_hash;`,
+      values: [items.map((i) => i.account), items.map((i) => i.class_hash)],
+    });
   }
 }

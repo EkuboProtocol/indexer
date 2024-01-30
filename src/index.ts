@@ -11,7 +11,7 @@ import { logger } from "./logger";
 import { DAO } from "./dao";
 import { Pool } from "pg";
 import { throttle } from "tadaaa";
-import { positionsContract } from "./positions";
+import { positionsContract, provider } from "./positions";
 import { EVENT_PROCESSORS } from "./EVENT_PROCESSORS";
 import PQueue from "p-queue-cjs";
 import {
@@ -59,6 +59,61 @@ const refreshAnalyticalTables = throttle(
     leading: true,
     async onError(err) {
       logger.error("Failed to refresh analytical tables", err);
+    },
+  }
+);
+
+let PENDING_ACCOUNT_CLASS_HASH_FETCHES: { [address: string]: true } = {};
+const ALREADY_FETCHED: { [address: string]: true } = {};
+
+const fetchClassHashes = throttle(
+  async function fetchClassHashesInner() {
+    const accounts = Object.keys(PENDING_ACCOUNT_CLASS_HASH_FETCHES).filter(
+      (a) => !ALREADY_FETCHED[a]
+    );
+    accounts.forEach((a) => (ALREADY_FETCHED[a] = true));
+    PENDING_ACCOUNT_CLASS_HASH_FETCHES = {};
+
+    if (accounts.length > 0) {
+      const timer = logger.startTimer();
+
+      logger.info(`Fetching ${accounts.length} class hashes`, {
+        start: timer.start,
+      });
+
+      try {
+        const hashes = await Promise.all(
+          accounts.map((a) => provider.getClassHashAt(a, "latest"))
+        );
+
+        const client = await pool.connect();
+        const dao = new DAO(client);
+
+        await dao.insertAccountClassHashes(
+          hashes.map((class_hash, ix) => ({
+            account: accounts[ix],
+            class_hash,
+          }))
+        );
+
+        client.release();
+
+        timer.done({
+          message: `Updated ${accounts.length} account class hashes`,
+        });
+      } catch (error) {
+        logger.error("Failed to update account class hashes", {
+          accounts,
+          error,
+        });
+      }
+    }
+  },
+  {
+    leading: false,
+    delay: 3000,
+    onError(error) {
+      logger.error("Error encountered while fetching class hashes", { error });
     },
   }
 );
@@ -439,6 +494,12 @@ const refreshLeaderboard = throttle(
                 eventIndex: Number(parseLong(event.index)),
               };
 
+              const sender = FieldElement.toHex(
+                transaction?.invokeV1?.senderAddress ??
+                  transaction?.invokeV0?.contractAddress ??
+                  transaction?.declare?.senderAddress
+              );
+
               // process each event sequentially through all the event processors in parallel
               // assumption is that none of the event processors operate on the same events, i.e. have the same filters
               // this assumption could be validated at runtime
@@ -454,6 +515,10 @@ const refreshLeaderboard = throttle(
                         FieldElement.toBigInt(filter.keys[ix])
                     )
                   ) {
+                    if (sender) {
+                      PENDING_ACCOUNT_CLASS_HASH_FETCHES[sender] = true;
+                    }
+
                     const parsed = parser(event.data, 0).value;
 
                     await handle(dao, {
@@ -486,6 +551,10 @@ const refreshLeaderboard = throttle(
           }
 
           client.release();
+
+          // Note this is not part of the transaction, and is done async, which means it can fail.
+          // These rows can be manually updated when necessary.
+          fetchClassHashes();
 
           if (isPending) {
             refreshAnalyticalTables();

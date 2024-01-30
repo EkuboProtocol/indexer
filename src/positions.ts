@@ -1,6 +1,6 @@
 import { Contract, RpcProvider } from "starknet";
 
-const provider = new RpcProvider({ nodeUrl: process.env.RPC_URL });
+export const provider = new RpcProvider({ nodeUrl: process.env.RPC_URL });
 
 export const positionsContract = new Contract(
   [
