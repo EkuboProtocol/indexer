@@ -41,7 +41,7 @@ export const EVENT_PROCESSORS = [
     parser: parseLegacyPositionMintedEvent,
     handle: async (dao, { key, parsed }) => {
       logger.debug("PositionMinted", { parsed, key });
-      if (parsed.referrer !== 0n) {
+      if (parsed.referrer !== null && parsed.referrer !== 0n) {
         await dao.insertPositionMintedWithReferrerEvent(parsed, key);
       }
     },
