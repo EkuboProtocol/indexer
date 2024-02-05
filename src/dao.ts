@@ -389,8 +389,8 @@ export class DAO {
                                                   THEN FLOOR(points * 1.2)
                                               ELSE points END) AS points
                                FROM leaderboard
-                                        JOIN position_minted_with_referrer AS pmwr
-                                             ON pmwr.token_id = leaderboard.token_id
+                                        LEFT JOIN position_minted_with_referrer AS pmwr
+                                                  ON pmwr.token_id = leaderboard.token_id
                                         LEFT JOIN account_class_hashes
                                                   ON leaderboard.collector = account_class_hashes.address
                                GROUP BY collector),
