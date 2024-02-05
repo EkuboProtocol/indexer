@@ -373,10 +373,26 @@ export class DAO {
             points    BIGINT   NOT NULL,
             PRIMARY KEY (collector, category, token_id)
         );
-CREATE OR REPLACE VIEW leaderboard_view AS
+        CREATE OR REPLACE VIEW leaderboard_view AS
         (
-        WITH earned_points AS (SELECT collector, SUM(points) AS points
+        WITH earned_points AS (SELECT collector,
+                                      SUM(CASE
+                                              WHEN class_hash IN (
+                                                                  0x01a736d6ed154502257f02b1ccdf4d9d1089f80811cd6acad48e6b6a9d1f2003,
+                                                                  0x029927c8af6bccf3f6fda035981e765a7bdbf18a2dc0d630494f8758aa908e2b,
+                                                                  0x025ec026985a3bf9d0cc1fe17326b245dfdc3ff89b8fde106542a3ea56c5a918,
+                                                                  0x071c3c99f5cf76fc19945d4b8b7d34c7c5528f22730d56192b50c6bbfd338a64,
+                                                                  0x0737ee2f87ce571a58c6c8da558ec18a07ceb64a6172d5ec46171fbc80077a48,
+                                                                  0x06e150953b26271a740bf2b6e9bca17cc52c68d765f761295de51ceb8526ee72
+                                                  ) AND referrer =
+                                                        0x064d28d1d1d53a0b5de12e3678699bc9ba32c1cb19ce1c048578581ebb7f8396
+                                                  THEN FLOOR(points * 1.2)
+                                              ELSE points END) AS points
                                FROM leaderboard
+                                        JOIN position_minted_with_referrer AS pmwr
+                                             ON pmwr.token_id = leaderboard.token_id
+                                        LEFT JOIN account_class_hashes
+                                                  ON leaderboard.collector = account_class_hashes.address
                                GROUP BY collector),
              referral_points AS (SELECT referrer AS collector, SUM(points / 5) AS points
                                  FROM leaderboard
