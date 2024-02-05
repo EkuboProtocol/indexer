@@ -494,11 +494,14 @@ const refreshLeaderboard = throttle(
                 eventIndex: Number(parseLong(event.index)),
               };
 
-              const sender = FieldElement.toHex(
+              const rawSender =
                 transaction?.invokeV1?.senderAddress ??
-                  transaction?.invokeV0?.contractAddress ??
-                  transaction?.declare?.senderAddress
-              );
+                transaction?.invokeV0?.contractAddress ??
+                transaction?.declare?.senderAddress;
+
+              const senderHex = rawSender
+                ? FieldElement.toHex(rawSender)
+                : null;
 
               // process each event sequentially through all the event processors in parallel
               // assumption is that none of the event processors operate on the same events, i.e. have the same filters
@@ -515,8 +518,8 @@ const refreshLeaderboard = throttle(
                         FieldElement.toBigInt(filter.keys[ix])
                     )
                   ) {
-                    if (sender) {
-                      PENDING_ACCOUNT_CLASS_HASH_FETCHES[sender] = true;
+                    if (senderHex) {
+                      PENDING_ACCOUNT_CLASS_HASH_FETCHES[senderHex] = true;
                     }
 
                     const parsed = parser(event.data, 0).value;
