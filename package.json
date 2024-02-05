@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@apibara/protocol": "^0.4.8",
-    "@apibara/starknet": "^0.3.1",
+    "@apibara/starknet": "^0.4.0",
     "dotenv": "^16.3.1",
     "p-queue-cjs": "^7.3.4",
     "pedersen-fast": "^0.4.0",

@@ -496,6 +496,7 @@ const refreshLeaderboard = throttle(
 
               const rawSender =
                 transaction?.invokeV1?.senderAddress ??
+                transaction.invokeV3?.senderAddress ??
                 transaction?.invokeV0?.contractAddress ??
                 transaction?.declare?.senderAddress;
 
