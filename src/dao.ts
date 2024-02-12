@@ -122,6 +122,12 @@ export class DAO {
         CREATE INDEX IF NOT EXISTS idx_event_keys_block_number_transaction_index_event_index ON event_keys USING btree (block_number, transaction_index, event_index);
         CREATE INDEX IF NOT EXISTS idx_event_keys_transaction_hash ON event_keys USING btree (transaction_hash);
 
+        CREATE TABLE IF NOT EXISTS transactions
+        (
+            transaction_hash NUMERIC NOT NULL PRIMARY KEY,
+            sender           NUMERIC NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS position_transfers
         (
             event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
@@ -1268,5 +1274,22 @@ export class DAO {
                  DO UPDATE SET class_hash = excluded.class_hash;`,
       values: [items.map((i) => i.account), items.map((i) => i.class_hash)],
     });
+  }
+
+  public async writeTransactionSenders(
+    transactionSenders: [transactionHash: string, sender: string][]
+  ) {
+    if (transactionSenders.length > 0) {
+      await this.pg.query({
+        text: `INSERT INTO transactions (transaction_hash, sender)
+               SELECT *
+               FROM UNNEST($1::NUMERIC[], $2::NUMERIC[])
+               ON CONFLICT DO NOTHING`,
+        values: [
+          transactionSenders.map(([hash]) => hash),
+          transactionSenders.map(([, sender]) => sender),
+        ],
+      });
+    }
   }
 }

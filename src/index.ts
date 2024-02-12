@@ -486,6 +486,10 @@ const refreshLeaderboard = throttle(
               time: blockTime,
             });
 
+            const transactionSenders: {
+              [transactionHash: string]: string;
+            } = {};
+
             for (const { event, transaction, receipt } of block.events) {
               const eventKey: EventKey = {
                 blockNumber,
@@ -521,6 +525,8 @@ const refreshLeaderboard = throttle(
                   ) {
                     if (senderHex) {
                       PENDING_ACCOUNT_CLASS_HASH_FETCHES[senderHex] = true;
+                      transactionSenders[eventKey.transactionHash.toString()] =
+                        senderHex;
                     }
 
                     const parsed = parser(event.data, 0).value;
@@ -535,6 +541,10 @@ const refreshLeaderboard = throttle(
             }
 
             await dao.writeCursor(Cursor.toObject(message.data.cursor));
+
+            await dao.writeTransactionSenders(
+              Object.entries(transactionSenders)
+            );
 
             // refresh operational views at the end of the batch
             if (isPending || deletedCount > 0) {
