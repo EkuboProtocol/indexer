@@ -379,7 +379,8 @@ export class DAO {
             points    BIGINT   NOT NULL,
             PRIMARY KEY (collector, category, token_id)
         );
-        CREATE OR REPLACE VIEW leaderboard_view AS
+
+        CREATE MATERIALIZED VIEW IF NOT EXISTS leaderboard_materialized_view AS
         (
         WITH earned_points AS (SELECT collector,
                                       SUM(CASE
@@ -405,15 +406,23 @@ export class DAO {
                                           JOIN position_minted_with_referrer AS pmwr
                                                ON pmwr.token_id = leaderboard.token_id
                                  WHERE referrer != 0
-                                 GROUP BY referrer)
-        SELECT COALESCE(earned_points.collector, referral_points.collector)            AS collector,
-               COALESCE(earned_points.points, 0)                                       AS earned_points,
-               COALESCE(referral_points.points, 0)                                     AS referral_points,
-               COALESCE(earned_points.points, 0) + COALESCE(referral_points.points, 0) AS total_points
-        FROM earned_points
-                 FULL OUTER JOIN referral_points ON earned_points.collector = referral_points.collector
-        ORDER BY total_points DESC
+                                 GROUP BY referrer),
+             collectors_with_scores
+                 AS (SELECT COALESCE(earned_points.collector, referral_points.collector)            AS collector,
+                            COALESCE(earned_points.points, 0)                                       AS earned_points,
+                            COALESCE(referral_points.points, 0)                                     AS referral_points,
+                            COALESCE(earned_points.points, 0) + COALESCE(referral_points.points, 0) AS total_points
+                     FROM earned_points
+                              FULL OUTER JOIN referral_points ON earned_points.collector = referral_points.collector)
+        SELECT collector,
+               ROW_NUMBER() OVER (ORDER BY total_points DESC) AS rank,
+               earned_points,
+               referral_points,
+               total_points
+        FROM collectors_with_scores
             );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_leaderboard_materialized_view_collector ON leaderboard_materialized_view USING btree (collector);
     `);
   }
 
@@ -1037,8 +1046,8 @@ export class DAO {
     });
   }
 
-  public refreshLeaderboard(maxEventIdExclusive: bigint) {
-    return this.pg.query(`
+  public async refreshLeaderboard(maxEventIdExclusive: bigint) {
+    await this.pg.query(`
         DELETE
         FROM leaderboard
         WHERE TRUE;
@@ -1232,6 +1241,10 @@ export class DAO {
                                 GROUP BY collector, token_id, category
                                 ORDER BY points DESC);
     `);
+
+    await this.pg.query(
+      `REFRESH MATERIALIZED VIEW CONCURRENTLY leaderboard_materialized_view;`
+    );
   }
 
   public deleteFakeEvents(blockNumber: number) {
