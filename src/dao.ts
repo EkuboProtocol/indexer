@@ -420,6 +420,7 @@ export class DAO {
                referral_points,
                total_points
         FROM collectors_with_scores
+        WHERE total_points != 0
             );
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_leaderboard_materialized_view_collector ON leaderboard_materialized_view USING btree (collector);
