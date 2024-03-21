@@ -4,9 +4,10 @@ import { DAO } from "./dao";
 
 export interface EventKey {
   blockNumber: number;
-  transactionHash: bigint;
   transactionIndex: number;
   eventIndex: number;
+  fromAddress: bigint;
+  transactionHash: bigint;
 }
 
 export function eventKeyToId(key: EventKey): bigint {

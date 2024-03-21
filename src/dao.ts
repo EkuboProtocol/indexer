@@ -12,10 +12,7 @@ import {
   TokenRegistrationEvent,
 } from "./events/core";
 import { TransferEvent } from "./events/nft";
-import { 
-  computeKeyHash,
-  populateCache
-} from "./pool_key_hash";
+import { computeKeyHash, populateCache } from "./pool_key_hash";
 import { PositionMintedWithReferrer } from "./events/positions";
 import {
   OrderKey,
@@ -28,6 +25,21 @@ const ETH_TOKEN_ADDRESS =
   2087021424722619777119509474943472645767659996348769578120564519014510906823n;
 
 const MAX_TICK_SPACING = 354892;
+
+function orderKeyToPoolKey(event_key: EventKey, order_key: OrderKey): PoolKey {
+  const [token0, token1]: [bigint, bigint] =
+    order_key.buy_token > order_key.sell_token
+      ? [order_key.sell_token, order_key.buy_token]
+      : [order_key.buy_token, order_key.sell_token];
+
+  return {
+    token0,
+    token1,
+    fee: order_key.fee,
+    tick_spacing: BigInt(MAX_TICK_SPACING),
+    extension: event_key.fromAddress,
+  };
+}
 
 // Data access object that manages inserts/deletes
 export class DAO {
@@ -67,9 +79,9 @@ export class DAO {
       tick_spacing: number;
       extension: number;
     }>(`
-            SELECT key_hash, token0, token1, fee, tick_spacing, extension
-            FROM pool_keys
-        `);
+        SELECT key_hash, token0, token1, fee, tick_spacing, extension
+        FROM pool_keys
+    `);
     populateCache(
       rows.map(({ token0, token1, key_hash, fee, extension, tick_spacing }) => {
         return {
@@ -817,15 +829,15 @@ export class DAO {
 
     await this.pg.query({
       text: `
-                INSERT INTO pool_keys (key_hash,
-                                       token0,
-                                       token1,
-                                       fee,
-                                       tick_spacing,
-                                       extension)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT DO NOTHING;
-            `,
+          INSERT INTO pool_keys (key_hash,
+                                 token0,
+                                 token1,
+                                 fee,
+                                 tick_spacing,
+                                 extension)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT DO NOTHING;
+      `,
       values: [
         key_hash,
         BigInt(pool_key.token0),
@@ -845,18 +857,18 @@ export class DAO {
     // The `*` operator is the PostgreSQL range intersection operator.
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                        VALUES ($1, $2, $3, $4)
-                        RETURNING id)
-                INSERT
-                INTO position_transfers
-                (event_id,
-                 token_id,
-                 from_address,
-                 to_address)
-                VALUES ((SELECT id FROM inserted_event), $5, $6, $7)
-            `,
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO position_transfers
+          (event_id,
+           token_id,
+           from_address,
+           to_address)
+          VALUES ((SELECT id FROM inserted_event), $5, $6, $7)
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -906,23 +918,23 @@ export class DAO {
 
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                        VALUES ($1, $2, $3, $4)
-                        RETURNING id)
-                INSERT
-                INTO position_updates
-                (event_id,
-                 locker,
-                 pool_key_hash,
-                 salt,
-                 lower_bound,
-                 upper_bound,
-                 liquidity_delta,
-                 delta0,
-                 delta1)
-                VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11, $12);
-            `,
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO position_updates
+          (event_id,
+           locker,
+           pool_key_hash,
+           salt,
+           lower_bound,
+           upper_bound,
+           liquidity_delta,
+           delta0,
+           delta1)
+          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11, $12);
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -1465,7 +1477,7 @@ export class DAO {
       });
     }
   }
-  
+
   public async writeReceipts(
     receipts: [
       hash: string,
@@ -1495,36 +1507,34 @@ export class DAO {
   ) {
     const { order_key } = order_updated;
 
-    const key_hash = await this.insertPoolKeyHash(this.orderKeyToPoolKey(order_key));
+    const key_hash = await this.insertPoolKeyHash(
+      orderKeyToPoolKey(key, order_key)
+    );
 
-    const [sale_rate_delta0, sale_rate_delta1] = order_key.sell_token > order_key.buy_token ?
-      [0, order_updated.sale_rate_delta] : [order_updated.sale_rate_delta, 0]
+    const [sale_rate_delta0, sale_rate_delta1] =
+      order_key.sell_token > order_key.buy_token
+        ? [0, order_updated.sale_rate_delta]
+        : [order_updated.sale_rate_delta, 0];
 
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys 
-                        (block_number, transaction_index, event_index, transaction_hash)
-                    VALUES 
-                        ($1, $2, $3, $4)
-                    RETURNING id
-                )
-                INSERT INTO twamm_order_updates
-                    (
-                        event_id,
-                        key_hash,
-                        owner,
-                        salt,
-                        sale_rate_delta0,
-                        sale_rate_delta1,
-                        start_time,
-                        end_time
-                    )
-                VALUES 
-                    (
-                        (SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11
-                    );
-            `,
+          WITH inserted_event AS (
+              INSERT INTO event_keys
+                  (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO twamm_order_updates
+          (event_id,
+           key_hash,
+           owner,
+           salt,
+           sale_rate_delta0,
+           sale_rate_delta1,
+           start_time,
+           end_time)
+          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11);
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -1537,12 +1547,8 @@ export class DAO {
         order_updated.salt,
         sale_rate_delta0,
         sale_rate_delta1,
-        new Date(
-          Number(order_key.start_time * 1000n)
-        ),
-        new Date(
-          Number(order_key.end_time * 1000n)
-        ),
+        new Date(Number(order_key.start_time * 1000n)),
+        new Date(Number(order_key.end_time * 1000n)),
       ],
     });
   }
@@ -1553,23 +1559,26 @@ export class DAO {
   ) {
     const { order_key } = order_proceeds_withdrawn;
 
-    const key_hash = await this.insertPoolKeyHash(this.orderKeyToPoolKey(order_key));
+    const key_hash = await this.insertPoolKeyHash(
+      orderKeyToPoolKey(key, order_key)
+    );
 
-    const [amount0, amount1] = order_key.sell_token > order_key.buy_token ?
-      [0, order_proceeds_withdrawn.amount] : [order_proceeds_withdrawn.amount, 0]
+    const [amount0, amount1] =
+      order_key.sell_token > order_key.buy_token
+        ? [0, order_proceeds_withdrawn.amount]
+        : [order_proceeds_withdrawn.amount, 0];
 
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                    VALUES ($1, $2, $3, $4)
-                    RETURNING id
-                )
-                INSERT INTO twamm_proceeds_withdrawals
-                    (event_id, key_hash, owner, salt, amount0, amount1, start_time, end_time)
-                VALUES
-                    ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11);
-            `,
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO twamm_proceeds_withdrawals
+          (event_id, key_hash, owner, salt, amount0, amount1, start_time, end_time)
+          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11);
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -1582,20 +1591,15 @@ export class DAO {
         order_proceeds_withdrawn.salt,
         amount0,
         amount1,
-        new Date(
-          Number(order_key.start_time * 1000n)
-        ),
-        new Date(
-          Number(order_key.end_time * 1000n)
-        )
+        new Date(Number(order_key.start_time * 1000n)),
+        new Date(Number(order_key.end_time * 1000n)),
       ],
     });
   }
 
   public async insertTWAMMVirtualOrdersExecutedEvent(
     virtual_orders_executed: VirtualOrdersExecutedEvent,
-    key: EventKey,
-    emitter: string
+    key: EventKey
   ) {
     let { key: state_key } = virtual_orders_executed;
 
@@ -1604,23 +1608,21 @@ export class DAO {
       token1: state_key.token1,
       fee: state_key.fee,
       tick_spacing: BigInt(MAX_TICK_SPACING),
-      extension: BigInt(emitter)
+      extension: key.fromAddress,
     });
 
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys 
-                        (block_number, transaction_index, event_index, transaction_hash)
-                    VALUES 
-                        ($1, $2, $3, $4)
-                    RETURNING id
-                )
-                INSERT INTO twamm_virtual_order_executions
-                    (event_id, key_hash, token0_sale_rate, token1_sale_rate, delta0, delta1)
-                VALUES
-                    ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9);
-            `,
+          WITH inserted_event AS (
+              INSERT INTO event_keys
+                  (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO twamm_virtual_order_executions
+          (event_id, key_hash, token0_sale_rate, token1_sale_rate, delta0, delta1)
+          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9);
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -1631,22 +1633,8 @@ export class DAO {
         virtual_orders_executed.token0_sale_rate,
         virtual_orders_executed.token1_sale_rate,
         virtual_orders_executed.twamm_delta.amount0,
-        virtual_orders_executed.twamm_delta.amount1
+        virtual_orders_executed.twamm_delta.amount1,
       ],
     });
-  }
-
-  private orderKeyToPoolKey(order_key: OrderKey): PoolKey {
-    const [token0, token1]: [bigint, bigint] = order_key.buy_token > order_key.sell_token ? 
-      [order_key.sell_token, order_key.buy_token] :
-      [order_key.buy_token, order_key.sell_token];
-
-    return {
-      token0,
-      token1,
-      fee: order_key.fee,
-      tick_spacing: BigInt(MAX_TICK_SPACING),
-      extension: BigInt(process.env.TWAMM_ADDRESS)
-    };
   }
 }

@@ -276,7 +276,7 @@ const refreshLeaderboard = throttle(
     let transactionIndex = transaction_index + 1;
     let nextEventIndex = 0;
 
-    function nextEventKey() {
+    function nextFakeEventKey() {
       if (nextEventIndex >= MAX_POSTGRES_SMALLINT) {
         nextEventIndex = 0;
         transactionIndex++;
@@ -285,6 +285,7 @@ const refreshLeaderboard = throttle(
         throw new Error("Event key too large");
       }
       return {
+        fromAddress: 0n,
         transactionIndex,
         blockNumber,
         transactionHash,
@@ -335,7 +336,7 @@ const refreshLeaderboard = throttle(
                     amount1: -fees1,
                   },
                 },
-                key: nextEventKey(),
+                key: nextFakeEventKey(),
               });
             }
 
@@ -352,7 +353,7 @@ const refreshLeaderboard = throttle(
                       amount1: -protocolFees1,
                     },
                   },
-                  key: nextEventKey(),
+                  key: nextFakeEventKey(),
                 });
             }
           });
@@ -384,7 +385,7 @@ const refreshLeaderboard = throttle(
       `Inserted ${feeWithdrawnEvents.length} phantom fee withdrawal events and ${protocolFeesPaidEvents.length} protocol fees paid events`
     );
 
-    await dao.refreshLeaderboard(eventKeyToId(nextEventKey()));
+    await dao.refreshLeaderboard(eventKeyToId(nextFakeEventKey()));
 
     await dao.deleteFakeEvents(blockNumber);
 
@@ -500,9 +501,10 @@ const refreshLeaderboard = throttle(
             for (const { event, transaction, receipt } of block.events) {
               const eventKey: EventKey = {
                 blockNumber,
-                transactionHash: FieldElement.toBigInt(transaction.meta.hash),
                 transactionIndex: Number(parseLong(receipt.transactionIndex)),
                 eventIndex: Number(parseLong(event.index)),
+                fromAddress: FieldElement.toBigInt(event.fromAddress),
+                transactionHash: FieldElement.toBigInt(transaction.meta.hash),
               };
 
               const rawSender =

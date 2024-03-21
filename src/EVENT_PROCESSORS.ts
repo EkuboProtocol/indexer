@@ -32,7 +32,7 @@ import {
   OrderProceedsWithdrawnEvent,
   parseOrderProceedsWithdrawn,
   VirtualOrdersExecutedEvent,
-  parseVirtualOrdersExecuted
+  parseVirtualOrdersExecuted,
 } from "./events/twamm";
 
 export const EVENT_PROCESSORS = [
@@ -234,9 +234,7 @@ export const EVENT_PROCESSORS = [
   },
   <EventProcessor<OrderUpdatedEvent>>{
     filter: {
-      fromAddress: FieldElement.fromBigInt(
-        process.env.TWAMM_ADDRESS
-      ),
+      fromAddress: FieldElement.fromBigInt(process.env.TWAMM_ADDRESS),
       keys: [
         // OrderUpdated
         FieldElement.fromBigInt(
@@ -252,9 +250,7 @@ export const EVENT_PROCESSORS = [
   },
   <EventProcessor<OrderProceedsWithdrawnEvent>>{
     filter: {
-      fromAddress: FieldElement.fromBigInt(
-        process.env.TWAMM_ADDRESS
-      ),
+      fromAddress: FieldElement.fromBigInt(process.env.TWAMM_ADDRESS),
       keys: [
         // OrderProceedsWithdrawn
         FieldElement.fromBigInt(
@@ -270,9 +266,7 @@ export const EVENT_PROCESSORS = [
   },
   <EventProcessor<VirtualOrdersExecutedEvent>>{
     filter: {
-      fromAddress: FieldElement.fromBigInt(
-        process.env.TWAMM_ADDRESS
-      ),
+      fromAddress: FieldElement.fromBigInt(process.env.TWAMM_ADDRESS),
       keys: [
         // VirtualOrdersExecuted
         FieldElement.fromBigInt(
@@ -283,7 +277,7 @@ export const EVENT_PROCESSORS = [
     parser: parseVirtualOrdersExecuted,
     async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("VirtualOrdersExecuted", { parsed, key });
-      await dao.insertTWAMMVirtualOrdersExecutedEvent(parsed, key, process.env.TWAMM_ADDRESS);
+      await dao.insertTWAMMVirtualOrdersExecutedEvent(parsed, key);
     },
   },
 ] as const;
