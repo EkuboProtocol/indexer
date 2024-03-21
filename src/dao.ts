@@ -12,11 +12,22 @@ import {
   TokenRegistrationEvent,
 } from "./events/core";
 import { TransferEvent } from "./events/nft";
-import { computeKeyHash, populateCache } from "./pool_key_hash";
+import { 
+  computeKeyHash,
+  populateCache
+} from "./pool_key_hash";
 import { PositionMintedWithReferrer } from "./events/positions";
+import {
+  OrderKey,
+  OrderUpdatedEvent,
+  OrderProceedsWithdrawnEvent,
+  VirtualOrdersExecutedEvent,
+} from "./events/twamm";
 
 const ETH_TOKEN_ADDRESS =
   2087021424722619777119509474943472645767659996348769578120564519014510906823n;
+
+const MAX_TICK_SPACING = 354892;
 
 // Data access object that manages inserts/deletes
 export class DAO {
@@ -431,6 +442,143 @@ export class DAO {
                 );
 
             CREATE UNIQUE INDEX IF NOT EXISTS idx_leaderboard_materialized_view_collector ON leaderboard_materialized_view USING btree (collector);
+             
+            CREATE TABLE IF NOT EXISTS twamm_order_updates
+            (
+                event_id          int8 NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+
+                key_hash          NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+
+                owner             NUMERIC NOT NULL,
+                salt              NUMERIC NOT NULL,
+                sale_rate_delta0  NUMERIC NOT NULL,
+                sale_rate_delta1  NUMERIC NOT NULL,
+                start_time        timestamptz NOT NULL,
+                end_time          timestamptz NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_key_hash_event_id ON twamm_order_updates USING btree (key_hash, event_id);
+            CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_key_hash_time ON twamm_order_updates USING btree (key_hash, start_time, end_time);
+            CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_owner_salt ON twamm_order_updates USING btree (owner, salt);
+            CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_salt ON twamm_order_updates USING btree (salt);
+
+            CREATE TABLE IF NOT EXISTS twamm_proceeds_withdrawals
+            (
+                event_id    int8 NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+
+                key_hash    NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+
+                owner         NUMERIC NOT NULL,
+                salt          NUMERIC NOT NULL,
+                amount0       NUMERIC NOT NULL,
+                amount1       NUMERIC NOT NULL,
+                start_time    timestamptz NOT NULL,
+                end_time      timestamptz NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_key_hash_event_id ON twamm_proceeds_withdrawals USING btree (key_hash, event_id);
+            CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_key_hash_time ON twamm_proceeds_withdrawals USING btree (key_hash, start_time, end_time);
+            CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_owner_salt ON twamm_proceeds_withdrawals USING btree (owner, salt);
+            CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_salt ON twamm_proceeds_withdrawals USING btree (salt);
+
+            CREATE TABLE IF NOT EXISTS twamm_virtual_order_executions
+            (
+                event_id          int8 NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+
+                key_hash          NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+
+                token0_sale_rate  NUMERIC NOT NULL,
+                token1_sale_rate  NUMERIC NOT NULL,
+                delta0            NUMERIC NOT NULL,
+                delta1            NUMERIC NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_twamm_virtual_order_executions_pool_key_hash_event_id ON twamm_virtual_order_executions USING btree (key_hash, event_id DESC);
+
+            CREATE OR REPLACE VIEW twamm_pool_states_view AS (
+              WITH lvoe AS (
+                  SELECT 
+                      key_hash,
+                      number as block_number,
+                      COALESCE(last_virtual_order_execution.token0_sale_rate, 0) AS token0_sale_rate,
+                      COALESCE(last_virtual_order_execution.token1_sale_rate, 0) AS token1_sale_rate,
+                      block_time 
+                  FROM
+                      pool_keys
+                      INNER JOIN LATERAL (
+                          SELECT 
+                              event_id, 
+                              token0_sale_rate, 
+                              token1_sale_rate
+                          FROM 
+                              twamm_virtual_order_executions
+                          WHERE 
+                              pool_keys.key_hash = twamm_virtual_order_executions.key_hash
+                          ORDER BY 
+                              event_id DESC
+                          LIMIT 1
+                      ) AS last_virtual_order_execution ON TRUE
+                      LEFT JOIN LATERAL (
+                          SELECT
+                              number,
+                              time as block_time
+                          FROM
+                              blocks
+                          WHERE
+                              (
+                              SELECT
+                                  block_number
+                              FROM
+                                  event_keys
+                              WHERE
+                                  id = last_virtual_order_execution.event_id
+                              LIMIT
+                                  1
+                              ) = number
+                          LIMIT
+                              1
+                      ) AS block on TRUE
+              ),
+              ou AS (
+                  SELECT 
+                      lvoe.key_hash,
+                      SUM(tou.sale_rate_delta0) AS sale_rate_delta0,
+                      SUM(tou.sale_rate_delta1) AS sale_rate_delta1
+                  FROM 
+                      lvoe
+                      INNER JOIN (
+                          SELECT 
+                              key_hash,
+                              sale_rate_delta0,
+                              sale_rate_delta1,
+                              block_number,
+                              end_time
+                          FROM twamm_order_updates 
+                          LEFT JOIN event_keys on event_id = id
+                      ) AS tou ON
+                          lvoe.key_hash = tou.key_hash AND
+                          lvoe.block_number = tou.block_number AND
+                          end_time > lvoe.block_time
+                  GROUP BY lvoe.key_hash
+              )
+              SELECT
+                  lvoe.key_hash,
+                  lvoe.block_time,
+                  lvoe.token0_sale_rate + COALESCE(ou.sale_rate_delta0, 0) AS token0_sale_rate,
+                  lvoe.token1_sale_rate + COALESCE(ou.sale_rate_delta1, 0) AS token1_sale_rate
+              FROM
+                  lvoe
+                  LEFT JOIN ou ON lvoe.key_hash = ou.key_hash
+            );
+
+            CREATE MATERIALIZED VIEW IF NOT EXISTS twamm_pool_states_materialized AS
+              (
+                SELECT 
+                  key_hash,
+                  block_time,
+                  token0_sale_rate,
+                  token1_sale_rate
+                FROM
+                  twamm_pool_states_view
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_twamm_pool_states_materialized_key_hash ON twamm_pool_states_materialized USING btree (key_hash);
         `);
   }
 
@@ -565,6 +713,7 @@ export class DAO {
     await this.pg.query(`
       REFRESH MATERIALIZED VIEW CONCURRENTLY per_pool_per_tick_liquidity_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY pool_states_materialized;
+      REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_pool_states_materialized;
     `);
   }
 
@@ -1316,7 +1465,7 @@ export class DAO {
       });
     }
   }
-
+  
   public async writeReceipts(
     receipts: [
       hash: string,
@@ -1338,5 +1487,166 @@ export class DAO {
         receipts.map(([, { feePaidUnit }]) => feePaidUnit),
       ],
     });
+  }
+
+  public async insertTWAMMOrderUpdatedEvent(
+    order_updated: OrderUpdatedEvent,
+    key: EventKey
+  ) {
+    const { order_key } = order_updated;
+
+    const key_hash = await this.insertPoolKeyHash(this.orderKeyToPoolKey(order_key));
+
+    const [sale_rate_delta0, sale_rate_delta1] = order_key.sell_token > order_key.buy_token ?
+      [0, order_updated.sale_rate_delta] : [order_updated.sale_rate_delta, 0]
+
+    await this.pg.query({
+      text: `
+                WITH inserted_event AS (
+                    INSERT INTO event_keys 
+                        (block_number, transaction_index, event_index, transaction_hash)
+                    VALUES 
+                        ($1, $2, $3, $4)
+                    RETURNING id
+                )
+                INSERT INTO twamm_order_updates
+                    (
+                        event_id,
+                        key_hash,
+                        owner,
+                        salt,
+                        sale_rate_delta0,
+                        sale_rate_delta1,
+                        start_time,
+                        end_time
+                    )
+                VALUES 
+                    (
+                        (SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11
+                    );
+            `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+
+        key_hash,
+
+        BigInt(order_updated.owner),
+        order_updated.salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        new Date(
+          Number(order_key.start_time * 1000n)
+        ),
+        new Date(
+          Number(order_key.end_time * 1000n)
+        ),
+      ],
+    });
+  }
+
+  public async insertTWAMMOrderProceedsWithdrawnEvent(
+    order_proceeds_withdrawn: OrderProceedsWithdrawnEvent,
+    key: EventKey
+  ) {
+    const { order_key } = order_proceeds_withdrawn;
+
+    const key_hash = await this.insertPoolKeyHash(this.orderKeyToPoolKey(order_key));
+
+    const [amount0, amount1] = order_key.sell_token > order_key.buy_token ?
+      [0, order_proceeds_withdrawn.amount] : [order_proceeds_withdrawn.amount, 0]
+
+    await this.pg.query({
+      text: `
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                    VALUES ($1, $2, $3, $4)
+                    RETURNING id
+                )
+                INSERT INTO twamm_proceeds_withdrawals
+                    (event_id, key_hash, owner, salt, amount0, amount1, start_time, end_time)
+                VALUES
+                    ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11);
+            `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+
+        key_hash,
+
+        BigInt(order_proceeds_withdrawn.owner),
+        order_proceeds_withdrawn.salt,
+        amount0,
+        amount1,
+        new Date(
+          Number(order_key.start_time * 1000n)
+        ),
+        new Date(
+          Number(order_key.end_time * 1000n)
+        )
+      ],
+    });
+  }
+
+  public async insertTWAMMVirtualOrdersExecutedEvent(
+    virtual_orders_executed: VirtualOrdersExecutedEvent,
+    key: EventKey,
+    emitter: string
+  ) {
+    let { key: state_key } = virtual_orders_executed;
+
+    const key_hash = await this.insertPoolKeyHash({
+      token0: state_key.token0,
+      token1: state_key.token1,
+      fee: state_key.fee,
+      tick_spacing: BigInt(MAX_TICK_SPACING),
+      extension: BigInt(emitter)
+    });
+
+    await this.pg.query({
+      text: `
+                WITH inserted_event AS (
+                    INSERT INTO event_keys 
+                        (block_number, transaction_index, event_index, transaction_hash)
+                    VALUES 
+                        ($1, $2, $3, $4)
+                    RETURNING id
+                )
+                INSERT INTO twamm_virtual_order_executions
+                    (event_id, key_hash, token0_sale_rate, token1_sale_rate, delta0, delta1)
+                VALUES
+                    ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9);
+            `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+
+        key_hash,
+        virtual_orders_executed.token0_sale_rate,
+        virtual_orders_executed.token1_sale_rate,
+        virtual_orders_executed.twamm_delta.amount0,
+        virtual_orders_executed.twamm_delta.amount1
+      ],
+    });
+  }
+
+  private orderKeyToPoolKey(order_key: OrderKey): PoolKey {
+    const [token0, token1]: [bigint, bigint] = order_key.buy_token > order_key.sell_token ? 
+      [order_key.sell_token, order_key.buy_token] :
+      [order_key.buy_token, order_key.sell_token];
+
+    return {
+      token0,
+      token1,
+      fee: order_key.fee,
+      tick_spacing: BigInt(MAX_TICK_SPACING),
+      extension: BigInt(process.env.TWAMM_ADDRESS)
+    };
   }
 }
