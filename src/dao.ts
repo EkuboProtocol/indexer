@@ -1339,7 +1339,9 @@ export class DAO {
                                                                              ON pt.token_id = multipliers.token_id
                                                                         JOIN blocks AS ptb ON ptek.block_number = ptb.number
                                                                WHERE pt.from_address = 0
-                                                                 AND pt.event_id < ${maxEventIdExclusive}),
+                                                                 AND pt.event_id < ${maxEventIdExclusive}
+                                                                 -- stop mint rewards where the mint got so cheap as to be negligible
+                                                                 AND ptb.number < 608892),
 
                                          points_from_withdrawal_fees_paid AS (SELECT multipliers.token_id       AS token_id,
                                                                                      (SELECT to_address
