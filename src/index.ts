@@ -82,19 +82,21 @@ const fetchClassHashes = throttle(
       });
 
       try {
-        const hashes = await Promise.all(
-          accounts.map((a) => provider.getClassHashAt(a, "latest"))
-        );
+        const accountsWithHashes: { account: string; class_hash: string }[] = (
+          await Promise.all(
+            accounts.map((a) =>
+              provider
+                .getClassHashAt(a, "latest")
+                .then((class_hash) => ({ class_hash, account: a }))
+                .catch(() => null)
+            )
+          )
+        ).filter((x): x is Exclude<typeof x, null> => x !== null);
 
         const client = await pool.connect();
         const dao = new DAO(client);
 
-        await dao.insertAccountClassHashes(
-          hashes.map((class_hash, ix) => ({
-            account: accounts[ix],
-            class_hash,
-          }))
-        );
+        await dao.insertAccountClassHashes(accountsWithHashes);
 
         client.release();
 
