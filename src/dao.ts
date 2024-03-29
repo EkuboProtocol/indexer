@@ -506,62 +506,55 @@ export class DAO {
 
         CREATE OR REPLACE VIEW twamm_pool_states_view AS
         (
-        WITH lvoe AS (SELECT key_hash,
-                             number                                                     AS block_number,
-                             COALESCE(last_virtual_order_execution.token0_sale_rate, 0) AS token0_sale_rate,
-                             COALESCE(last_virtual_order_execution.token1_sale_rate, 0) AS token1_sale_rate,
-                             block_time
-                      FROM pool_keys
-                               INNER JOIN LATERAL (
-                          SELECT event_id,
-                                 token0_sale_rate,
-                                 token1_sale_rate
-                          FROM twamm_virtual_order_executions
-                          WHERE pool_keys.key_hash = twamm_virtual_order_executions.key_hash
-                          ORDER BY event_id DESC
-                          LIMIT 1
-                          ) AS last_virtual_order_execution ON TRUE
-                               LEFT JOIN LATERAL (
-                          SELECT number,
-                                 time AS block_time
-                          FROM blocks
-                          WHERE (SELECT block_number
-                                 FROM event_keys
-                                 WHERE id = last_virtual_order_execution.event_id
-                                 LIMIT 1) = number
-                          LIMIT 1
-                          ) AS block ON TRUE),
-             ou AS (SELECT lvoe.key_hash,
-                           SUM(tou.sale_rate_delta0) AS sale_rate_delta0,
-                           SUM(tou.sale_rate_delta1) AS sale_rate_delta1
-                    FROM lvoe
-                             INNER JOIN (SELECT key_hash,
-                                                sale_rate_delta0,
-                                                sale_rate_delta1,
-                                                block_number,
-                                                end_time
-                                         FROM twamm_order_updates
-                                                  LEFT JOIN event_keys ON event_id = id) AS tou ON
-                        lvoe.key_hash = tou.key_hash AND
-                        lvoe.block_number = tou.block_number AND
-                        end_time > lvoe.block_time
-                    GROUP BY lvoe.key_hash)
-        SELECT lvoe.key_hash,
-               lvoe.block_time,
-               lvoe.token0_sale_rate + COALESCE(ou.sale_rate_delta0, 0) AS token0_sale_rate,
-               lvoe.token1_sale_rate + COALESCE(ou.sale_rate_delta1, 0) AS token1_sale_rate
-        FROM lvoe
-                 LEFT JOIN ou ON lvoe.key_hash = ou.key_hash
+        WITH last_virtual_order_execution AS
+                 (SELECT key_hash,
+                         lvoe.token0_sale_rate AS token0_sale_rate,
+                         lvoe.token1_sale_rate AS token1_sale_rate,
+                         event_id              AS last_virtual_order_execution_event_id,
+                         last_virtual_execution_time
+                  FROM pool_keys
+                           INNER JOIN LATERAL (SELECT tvoe.event_id,
+                                                      tvoe.token0_sale_rate,
+                                                      tvoe.token1_sale_rate,
+                                                      b.time AS last_virtual_execution_time
+                                               FROM twamm_virtual_order_executions tvoe
+                                                        JOIN event_keys ek ON tvoe.event_id = ek.id
+                                                        JOIN blocks b ON ek.block_number = b.number
+                                               WHERE pool_keys.key_hash = tvoe.key_hash
+                                               ORDER BY event_id DESC
+                                               LIMIT 1)
+                      AS lvoe ON TRUE),
+             active_order_updates_after_lvoe AS
+                 (SELECT lvoe.key_hash,
+                         SUM(tou.sale_rate_delta0) AS sale_rate_delta0,
+                         SUM(tou.sale_rate_delta1) AS sale_rate_delta1,
+                         MAX(tou.event_id)         AS last_order_update_event_id
+                  FROM last_virtual_order_execution lvoe
+                           JOIN twamm_order_updates tou
+                                ON tou.key_hash = lvoe.key_hash AND
+                                   tou.event_id > lvoe.last_virtual_order_execution_event_id
+                                    AND tou.start_time <= lvoe.last_virtual_execution_time AND
+                                   tou.end_time > lvoe.last_virtual_execution_time
+                  GROUP BY lvoe.key_hash)
+        SELECT lvoe.key_hash                                                 AS pool_key_hash,
+               lvoe.token0_sale_rate + COALESCE(ou_lvoe.sale_rate_delta0, 0) AS token0_sale_rate,
+               lvoe.token1_sale_rate + COALESCE(ou_lvoe.sale_rate_delta1, 0) AS token1_sale_rate,
+               lvoe.last_virtual_execution_time                              AS last_virtual_execution_time,
+               GREATEST(COALESCE(ou_lvoe.last_order_update_event_id, lvoe.last_virtual_order_execution_event_id),
+                        psm.last_event_id)                                   AS last_event_id
+        FROM last_virtual_order_execution lvoe
+                 JOIN pool_states_materialized psm ON lvoe.key_hash = psm.pool_key_hash
+                 LEFT JOIN active_order_updates_after_lvoe ou_lvoe ON lvoe.key_hash = ou_lvoe.key_hash
             );
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS twamm_pool_states_materialized AS
         (
-        SELECT key_hash,
-               block_time,
+        SELECT pool_key_hash,
                token0_sale_rate,
-               token1_sale_rate
-        FROM twamm_pool_states_view
-            );
+               token1_sale_rate,
+               last_virtual_execution_time,
+               last_event_id
+        FROM twamm_pool_states_view);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_twamm_pool_states_materialized_key_hash ON twamm_pool_states_materialized USING btree (key_hash);
 
         CREATE OR REPLACE VIEW twamm_sale_rate_deltas_view AS
