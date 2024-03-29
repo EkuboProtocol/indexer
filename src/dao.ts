@@ -555,7 +555,7 @@ export class DAO {
                last_virtual_execution_time,
                last_event_id
         FROM twamm_pool_states_view);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_twamm_pool_states_materialized_key_hash ON twamm_pool_states_materialized USING btree (key_hash);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_twamm_pool_states_materialized_key_hash ON twamm_pool_states_materialized USING btree (pool_key_hash);
 
         CREATE OR REPLACE VIEW twamm_sale_rate_deltas_view AS
         (
