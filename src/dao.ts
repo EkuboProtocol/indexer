@@ -589,7 +589,7 @@ export class DAO {
         SELECT tsrdv.pool_key_hash, tsrdv.time, tsrdv.net_sale_rate_delta0, tsrdv.net_sale_rate_delta1
         FROM twamm_sale_rate_deltas_view AS tsrdv
                  JOIN twamm_pool_states_materialized tpsm
-                      ON tpsm.pool_key_hash = tsrdv.pool_key_hash AND tpsm.block_time < tsrdv.time);
+                      ON tpsm.pool_key_hash = tsrdv.pool_key_hash AND tpsm.last_virtual_execution_time < tsrdv.time);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_twamm_sale_rate_deltas_materialized_pool_key_hash_time ON twamm_sale_rate_deltas_materialized USING btree (pool_key_hash, time);
     `);
   }
