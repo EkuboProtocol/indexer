@@ -401,7 +401,7 @@ const refreshLeaderboard = throttle(
   },
   {
     delay: parseInt(process.env.REFRESH_RATE_LEADERBOARD),
-    leading: true,
+    leading: false,
     async onError(err) {
       logger.error("Failed to refresh leaderboard", err);
     },
