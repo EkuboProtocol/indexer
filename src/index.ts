@@ -169,43 +169,43 @@ const refreshLeaderboard = throttle(
       lower_bound: number;
       upper_bound: number;
     }>(`
-            WITH initial_transfers AS (SELECT token_id
-                                       FROM position_transfers
-                                       WHERE from_address = 0 AND to_address != 0),
-                 positions_minted AS (SELECT token_id, owner, pool_key_hash, lower_bound, upper_bound
-                                      FROM initial_transfers
-                                               JOIN LATERAL (
-                                          SELECT to_address AS owner
-                                          FROM position_transfers AS pt
-                                          WHERE pt.token_id = initial_transfers.token_id
-                                            AND event_id <= ${latestEventId}
-                                          ORDER BY event_id DESC
-                                          LIMIT 1
-                                          ) AS position_owners ON TRUE
-                                               JOIN LATERAL (
-                                          SELECT pool_key_hash, lower_bound, upper_bound
-                                          FROM position_updates AS pu
-                                          WHERE pu.locker = ${BigInt(
-                                            positionsContract.address
-                                          )}
-                                            AND token_id::NUMERIC = pu.salt
-                                          ORDER BY event_id DESC
-                                          LIMIT 1
-                                          ) AS mint_parameters ON TRUE
-                                      WHERE owner != 0)
-            SELECT token_id,
-                   owner,
-                   token0,
-                   token1,
-                   fee,
-                   tick_spacing,
-                   extension,
-                   lower_bound,
-                   upper_bound
-            FROM positions_minted AS pm
-                     JOIN pool_keys AS pk ON pm.pool_key_hash = pk.key_hash
-            WHERE owner != 0
-        `);
+        WITH initial_transfers AS (SELECT token_id
+                                   FROM position_transfers
+                                   WHERE from_address = 0
+                                     AND to_address != 0),
+             positions_minted AS (SELECT token_id, owner, pool_key_hash, lower_bound, upper_bound, liquidity
+                                  FROM initial_transfers
+                                           JOIN LATERAL (
+                                      SELECT to_address AS owner
+                                      FROM position_transfers AS pt
+                                      WHERE pt.token_id = initial_transfers.token_id
+                                        AND event_id <= ${latestEventId}
+                                      ORDER BY event_id DESC
+                                      LIMIT 1
+                                      ) AS position_owners ON TRUE
+                                           JOIN LATERAL (
+                                      SELECT pool_key_hash, lower_bound, upper_bound, SUM(liquidity_delta) AS liquidity
+                                      FROM position_updates AS pu
+                                      WHERE pu.locker = ${BigInt(
+                                        positionsContract.address
+                                      )}
+                                        AND token_id::NUMERIC = pu.salt
+                                      GROUP BY pool_key_hash, lower_bound, upper_bound
+                                      ) AS liquidities ON TRUE
+                                  WHERE owner != 0
+                                    AND liquidity != 0)
+        SELECT token_id,
+               owner,
+               token0,
+               token1,
+               fee,
+               tick_spacing,
+               extension,
+               lower_bound,
+               upper_bound
+        FROM positions_minted AS pm
+                 JOIN pool_keys AS pk ON pm.pool_key_hash = pk.key_hash
+    `);
 
     logger.info(
       `Leaderboard: getting position information for ${positions.length} positions`

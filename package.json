@@ -6,6 +6,7 @@
   "description": "Indexes Ekubo data",
   "scripts": {
     "start": "NETWORK=mainnet ts-node src/index.ts",
+    "start:sepolia": "NETWORK=sepolia ts-node src/index.ts",
     "build": "tsup src/index.ts",
     "test": "jest"
   },

@@ -175,7 +175,7 @@ export class DAO {
             locker          NUMERIC NOT NULL,
 
             pool_key_hash   NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
-
+            
             salt            NUMERIC NOT NULL,
             lower_bound     int4    NOT NULL,
             upper_bound     int4    NOT NULL,
@@ -1341,37 +1341,67 @@ export class DAO {
                                                              -- stop mint rewards where the mint got so cheap as to be negligible
                                                              AND ptb.number < 608892),
 
-                                     latest_block_time AS (SELECT time FROM blocks ORDER BY number DESC LIMIT 1),
-                                     
-                                     twamm_sold_amounts AS (SELECT owner,
-                                                                   salt,
-                                                                   pk.token0   AS token,
-                                                                   SUM(sale_rate_delta0 * EXTRACT(EPOCH FROM
-                                                                                                  (LEAST(end_time, latest_block_time.time) -
-                                                                                                   GREATEST(b.time, start_time)))) /
-                                                                   0x100000000 AS sold_amount
-                                                            FROM twamm_order_updates tou
-                                                                     JOIN pool_keys pk ON tou.key_hash = pk.key_hash
-                                                                     JOIN event_keys ek ON event_id = id
-                                                                     JOIN blocks b ON block_number = number,
-                                                                 latest_block_time
-                                                            WHERE sale_rate_delta0 != 0
-                                                            GROUP BY owner, salt, token
-                                                            UNION ALL
-                                                            SELECT owner,
-                                                                   salt,
-                                                                   pk.token1   AS token,
-                                                                   SUM(sale_rate_delta1 * EXTRACT(EPOCH FROM
-                                                                                                  (LEAST(end_time, latest_block_time.time) -
-                                                                                                   GREATEST(b.time, start_time)))) /
-                                                                   0x100000000 AS sold_amount
-                                                            FROM twamm_order_updates tou
-                                                                     JOIN pool_keys pk ON tou.key_hash = pk.key_hash
-                                                                     JOIN event_keys ek ON event_id = id
-                                                                     JOIN blocks b ON block_number = number,
-                                                                 latest_block_time
-                                                            WHERE sale_rate_delta1 != 0
-                                                            GROUP BY owner, salt, token),
+
+                                     latest_block_time AS (SELECT time
+                                                           FROM blocks
+                                                           WHERE number <= (SELECT block_number
+                                                                            FROM event_keys
+                                                                            WHERE id < ${maxEventIdExclusive}
+                                                                            ORDER BY id DESC
+                                                                            LIMIT 1)
+                                                           ORDER BY number DESC
+                                                           LIMIT 1),
+
+                                     twamm_order_fee_potential AS (SELECT owner,
+                                                                          salt,
+                                                                          pk.token0                                                      AS token,
+                                                                          MAX(event_id)                                                  AS event_id,
+                                                                          FLOOR(SUM(pk.fee * sale_rate_delta0 *
+                                                                                    GREATEST(0, EXTRACT(EPOCH FROM
+                                                                                                        (LEAST(end_time, latest_block_time.time) -
+                                                                                                         GREATEST(b.time, start_time))))) /
+                                                                                (0x100000000 * 340282366920938463463374607431768211456)) AS fee_amount
+                                                                   FROM twamm_order_updates tou
+                                                                            JOIN pool_keys pk ON tou.key_hash = pk.key_hash
+                                                                            JOIN event_keys ek ON event_id = id
+                                                                            JOIN blocks b ON block_number = number,
+                                                                        latest_block_time
+                                                                   WHERE sale_rate_delta0 != 0
+                                                                   GROUP BY owner, salt, token
+                                                                   UNION ALL
+                                                                   SELECT owner,
+                                                                          salt,
+                                                                          pk.token1                                                      AS token,
+                                                                          MAX(event_id)                                                  AS event_id,
+                                                                          FLOOR(SUM(pk.fee * sale_rate_delta1 *
+                                                                                    GREATEST(EXTRACT(EPOCH FROM
+                                                                                                     (LEAST(end_time, latest_block_time.time) -
+                                                                                                      GREATEST(b.time, start_time))),
+                                                                                             0)) /
+                                                                                (0x100000000 * 340282366920938463463374607431768211456)) AS fee_amount
+                                                                   FROM twamm_order_updates tou
+                                                                            JOIN pool_keys pk ON tou.key_hash = pk.key_hash
+                                                                            JOIN event_keys ek ON event_id = id
+                                                                            JOIN blocks b ON block_number = number,
+                                                                        latest_block_time
+                                                                   WHERE sale_rate_delta1 != 0
+                                                                   GROUP BY owner, salt, token),
+
+                                     points_from_twamm_fee_potential AS (SELECT multipliers.token_id       AS token_id,
+                                                                                (SELECT to_address
+                                                                                 FROM position_transfers AS pt
+                                                                                 WHERE tofp.salt::BIGINT = pt.token_id
+                                                                                   AND pt.event_id < tofp.event_id
+                                                                                 ORDER BY pt.event_id DESC
+                                                                                 LIMIT 1)                  AS collector,
+                                                                                FLOOR(tofp.fee_amount * tp.rate *
+                                                                                      multipliers.multiplier /
+                                                                                      1e12::NUMERIC)::int8 AS points
+                                                                         FROM position_multipliers AS multipliers
+                                                                                  JOIN twamm_order_fee_potential AS tofp
+                                                                                       ON tofp.salt =
+                                                                                          multipliers.token_id::NUMERIC
+                                                                                  JOIN token_points_rates AS tp ON tp.token = tofp.token),
 
                                      points_from_withdrawal_fees_paid AS (SELECT multipliers.token_id       AS token_id,
                                                                                  (SELECT to_address
@@ -1438,7 +1468,10 @@ export class DAO {
                                              FROM points_from_mints
                                              UNION ALL
                                              SELECT token_id, collector, 2 AS category, points
-                                             FROM points_from_withdrawal_fees_paid)
+                                             FROM points_from_withdrawal_fees_paid
+                                             UNION ALL
+                                             SELECT token_id, collector, 3 AS category, points
+                                             FROM points_from_twamm_fee_potential)
 
                                 SELECT collector, token_id, category, SUM(points) AS points
                                 FROM points_by_collector_and_token_id
