@@ -1354,13 +1354,13 @@ export class DAO {
 
                                      twamm_order_fee_potential AS (SELECT owner,
                                                                           salt,
-                                                                          pk.token0                                                      AS token,
-                                                                          MAX(event_id)                                                  AS event_id,
+                                                                          pk.token0                                                                        AS token,
+                                                                          MAX(event_id)                                                                    AS event_id,
                                                                           FLOOR(SUM(pk.fee * sale_rate_delta0 *
                                                                                     GREATEST(0, EXTRACT(EPOCH FROM
                                                                                                         (LEAST(end_time, latest_block_time.time) -
                                                                                                          GREATEST(b.time, start_time))))) /
-                                                                                (0x100000000 * 340282366920938463463374607431768211456)) AS fee_amount
+                                                                                (0x100000000::NUMERIC * 340282366920938463463374607431768211456::NUMERIC)) AS fee_amount
                                                                    FROM twamm_order_updates tou
                                                                             JOIN pool_keys pk ON tou.key_hash = pk.key_hash
                                                                             JOIN event_keys ek ON event_id = id
@@ -1371,14 +1371,14 @@ export class DAO {
                                                                    UNION ALL
                                                                    SELECT owner,
                                                                           salt,
-                                                                          pk.token1                                                      AS token,
-                                                                          MAX(event_id)                                                  AS event_id,
+                                                                          pk.token1                                                                        AS token,
+                                                                          MAX(event_id)                                                                    AS event_id,
                                                                           FLOOR(SUM(pk.fee * sale_rate_delta1 *
                                                                                     GREATEST(EXTRACT(EPOCH FROM
                                                                                                      (LEAST(end_time, latest_block_time.time) -
                                                                                                       GREATEST(b.time, start_time))),
                                                                                              0)) /
-                                                                                (0x100000000 * 340282366920938463463374607431768211456)) AS fee_amount
+                                                                                (0x100000000::NUMERIC * 340282366920938463463374607431768211456::NUMERIC)) AS fee_amount
                                                                    FROM twamm_order_updates tou
                                                                             JOIN pool_keys pk ON tou.key_hash = pk.key_hash
                                                                             JOIN event_keys ek ON event_id = id
