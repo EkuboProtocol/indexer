@@ -9,14 +9,6 @@
       }
     },
     {
-      "name": "goerli",
-      "script": "dist/index.js",
-      "cwd": ".",
-      "env": {
-        "NETWORK": "goerli"
-      }
-    },
-    {
       "name": "mainnet",
       "script": "dist/index.js",
       "cwd": ".",
