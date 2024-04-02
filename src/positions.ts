@@ -6,40 +6,8 @@ export const positionsContract = new Contract(
   [
     {
       type: "impl",
-      name: "PositionsHasInterface",
-      interface_name: "ekubo::components::upgradeable::IHasInterface",
-    },
-    {
-      type: "interface",
-      name: "ekubo::components::upgradeable::IHasInterface",
-      items: [
-        {
-          type: "function",
-          name: "get_primary_interface_id",
-          inputs: [],
-          outputs: [
-            {
-              type: "core::felt252",
-            },
-          ],
-          state_mutability: "view",
-        },
-      ],
-    },
-    {
-      type: "impl",
       name: "ILockerImpl",
       interface_name: "ekubo::interfaces::core::ILocker",
-    },
-    {
-      type: "struct",
-      name: "core::array::Span::<core::felt252>",
-      members: [
-        {
-          name: "snapshot",
-          type: "@core::array::Array::<core::felt252>",
-        },
-      ],
     },
     {
       type: "interface",
@@ -55,12 +23,12 @@ export const positionsContract = new Contract(
             },
             {
               name: "data",
-              type: "core::array::Span::<core::felt252>",
+              type: "core::array::Array::<core::felt252>",
             },
           ],
           outputs: [
             {
-              type: "core::array::Span::<core::felt252>",
+              type: "core::array::Array::<core::felt252>",
             },
           ],
           state_mutability: "external",
@@ -160,16 +128,6 @@ export const positionsContract = new Contract(
     },
     {
       type: "struct",
-      name: "core::array::Span::<ekubo::interfaces::positions::GetTokenInfoRequest>",
-      members: [
-        {
-          name: "snapshot",
-          type: "@core::array::Array::<ekubo::interfaces::positions::GetTokenInfoRequest>",
-        },
-      ],
-    },
-    {
-      type: "struct",
       name: "core::integer::u256",
       members: [
         {
@@ -184,6 +142,32 @@ export const positionsContract = new Contract(
     },
     {
       type: "struct",
+      name: "ekubo::types::call_points::CallPoints",
+      members: [
+        {
+          name: "after_initialize_pool",
+          type: "core::bool",
+        },
+        {
+          name: "before_swap",
+          type: "core::bool",
+        },
+        {
+          name: "after_swap",
+          type: "core::bool",
+        },
+        {
+          name: "before_update_position",
+          type: "core::bool",
+        },
+        {
+          name: "after_update_position",
+          type: "core::bool",
+        },
+      ],
+    },
+    {
+      type: "struct",
       name: "ekubo::types::pool_price::PoolPrice",
       members: [
         {
@@ -193,6 +177,10 @@ export const positionsContract = new Contract(
         {
           name: "tick",
           type: "ekubo::types::i129::i129",
+        },
+        {
+          name: "call_points",
+          type: "ekubo::types::call_points::CallPoints",
         },
       ],
     },
@@ -227,80 +215,6 @@ export const positionsContract = new Contract(
       ],
     },
     {
-      type: "struct",
-      name: "core::array::Span::<ekubo::interfaces::positions::GetTokenInfoResult>",
-      members: [
-        {
-          name: "snapshot",
-          type: "@core::array::Array::<ekubo::interfaces::positions::GetTokenInfoResult>",
-        },
-      ],
-    },
-    {
-      type: "struct",
-      name: "ekubo::extensions::interfaces::twamm::OrderKey",
-      members: [
-        {
-          name: "sell_token",
-          type: "core::starknet::contract_address::ContractAddress",
-        },
-        {
-          name: "buy_token",
-          type: "core::starknet::contract_address::ContractAddress",
-        },
-        {
-          name: "fee",
-          type: "core::integer::u128",
-        },
-        {
-          name: "start_time",
-          type: "core::integer::u64",
-        },
-        {
-          name: "end_time",
-          type: "core::integer::u64",
-        },
-      ],
-    },
-    {
-      type: "struct",
-      name: "core::array::Span::<(core::integer::u64, ekubo::extensions::interfaces::twamm::OrderKey)>",
-      members: [
-        {
-          name: "snapshot",
-          type: "@core::array::Array::<(core::integer::u64, ekubo::extensions::interfaces::twamm::OrderKey)>",
-        },
-      ],
-    },
-    {
-      type: "struct",
-      name: "ekubo::extensions::interfaces::twamm::OrderInfo",
-      members: [
-        {
-          name: "sale_rate",
-          type: "core::integer::u128",
-        },
-        {
-          name: "remaining_sell_amount",
-          type: "core::integer::u128",
-        },
-        {
-          name: "purchased_amount",
-          type: "core::integer::u128",
-        },
-      ],
-    },
-    {
-      type: "struct",
-      name: "core::array::Span::<ekubo::extensions::interfaces::twamm::OrderInfo>",
-      members: [
-        {
-          name: "snapshot",
-          type: "@core::array::Array::<ekubo::extensions::interfaces::twamm::OrderInfo>",
-        },
-      ],
-    },
-    {
       type: "interface",
       name: "ekubo::interfaces::positions::IPositions",
       items: [
@@ -317,51 +231,16 @@ export const positionsContract = new Contract(
         },
         {
           type: "function",
-          name: "upgrade_nft",
-          inputs: [
-            {
-              name: "class_hash",
-              type: "core::starknet::class_hash::ClassHash",
-            },
-          ],
-          outputs: [],
-          state_mutability: "external",
-        },
-        {
-          type: "function",
-          name: "set_twamm",
-          inputs: [
-            {
-              name: "twamm_address",
-              type: "core::starknet::contract_address::ContractAddress",
-            },
-          ],
-          outputs: [],
-          state_mutability: "external",
-        },
-        {
-          type: "function",
-          name: "get_twamm_address",
-          inputs: [],
-          outputs: [
-            {
-              type: "core::starknet::contract_address::ContractAddress",
-            },
-          ],
-          state_mutability: "view",
-        },
-        {
-          type: "function",
           name: "get_tokens_info",
           inputs: [
             {
               name: "params",
-              type: "core::array::Span::<ekubo::interfaces::positions::GetTokenInfoRequest>",
+              type: "core::array::Array::<ekubo::interfaces::positions::GetTokenInfoRequest>",
             },
           ],
           outputs: [
             {
-              type: "core::array::Span::<ekubo::interfaces::positions::GetTokenInfoResult>",
+              type: "core::array::Array::<ekubo::interfaces::positions::GetTokenInfoResult>",
             },
           ],
           state_mutability: "view",
@@ -386,42 +265,6 @@ export const positionsContract = new Contract(
           outputs: [
             {
               type: "ekubo::interfaces::positions::GetTokenInfoResult",
-            },
-          ],
-          state_mutability: "view",
-        },
-        {
-          type: "function",
-          name: "get_orders_info",
-          inputs: [
-            {
-              name: "params",
-              type: "core::array::Span::<(core::integer::u64, ekubo::extensions::interfaces::twamm::OrderKey)>",
-            },
-          ],
-          outputs: [
-            {
-              type: "core::array::Span::<ekubo::extensions::interfaces::twamm::OrderInfo>",
-            },
-          ],
-          state_mutability: "view",
-        },
-        {
-          type: "function",
-          name: "get_order_info",
-          inputs: [
-            {
-              name: "id",
-              type: "core::integer::u64",
-            },
-            {
-              name: "order_key",
-              type: "ekubo::extensions::interfaces::twamm::OrderKey",
-            },
-          ],
-          outputs: [
-            {
-              type: "ekubo::extensions::interfaces::twamm::OrderInfo",
             },
           ],
           state_mutability: "view",
@@ -472,42 +315,6 @@ export const positionsContract = new Contract(
         },
         {
           type: "function",
-          name: "mint_v2",
-          inputs: [
-            {
-              name: "referrer",
-              type: "core::starknet::contract_address::ContractAddress",
-            },
-          ],
-          outputs: [
-            {
-              type: "core::integer::u64",
-            },
-          ],
-          state_mutability: "external",
-        },
-        {
-          type: "function",
-          name: "check_liquidity_is_zero",
-          inputs: [
-            {
-              name: "id",
-              type: "core::integer::u64",
-            },
-            {
-              name: "pool_key",
-              type: "ekubo::types::keys::PoolKey",
-            },
-            {
-              name: "bounds",
-              type: "ekubo::types::bounds::Bounds",
-            },
-          ],
-          outputs: [],
-          state_mutability: "view",
-        },
-        {
-          type: "function",
           name: "unsafe_burn",
           inputs: [
             {
@@ -544,38 +351,6 @@ export const positionsContract = new Contract(
         },
         {
           type: "function",
-          name: "deposit_amounts_last",
-          inputs: [
-            {
-              name: "pool_key",
-              type: "ekubo::types::keys::PoolKey",
-            },
-            {
-              name: "bounds",
-              type: "ekubo::types::bounds::Bounds",
-            },
-            {
-              name: "amount0",
-              type: "core::integer::u128",
-            },
-            {
-              name: "amount1",
-              type: "core::integer::u128",
-            },
-            {
-              name: "min_liquidity",
-              type: "core::integer::u128",
-            },
-          ],
-          outputs: [
-            {
-              type: "core::integer::u128",
-            },
-          ],
-          state_mutability: "external",
-        },
-        {
-          type: "function",
           name: "deposit",
           inputs: [
             {
@@ -589,42 +364,6 @@ export const positionsContract = new Contract(
             {
               name: "bounds",
               type: "ekubo::types::bounds::Bounds",
-            },
-            {
-              name: "min_liquidity",
-              type: "core::integer::u128",
-            },
-          ],
-          outputs: [
-            {
-              type: "core::integer::u128",
-            },
-          ],
-          state_mutability: "external",
-        },
-        {
-          type: "function",
-          name: "deposit_amounts",
-          inputs: [
-            {
-              name: "id",
-              type: "core::integer::u64",
-            },
-            {
-              name: "pool_key",
-              type: "ekubo::types::keys::PoolKey",
-            },
-            {
-              name: "bounds",
-              type: "ekubo::types::bounds::Bounds",
-            },
-            {
-              name: "amount0",
-              type: "core::integer::u128",
-            },
-            {
-              name: "amount1",
-              type: "core::integer::u128",
             },
             {
               name: "min_liquidity",
@@ -716,30 +455,6 @@ export const positionsContract = new Contract(
         },
         {
           type: "function",
-          name: "collect_fees",
-          inputs: [
-            {
-              name: "id",
-              type: "core::integer::u64",
-            },
-            {
-              name: "pool_key",
-              type: "ekubo::types::keys::PoolKey",
-            },
-            {
-              name: "bounds",
-              type: "ekubo::types::bounds::Bounds",
-            },
-          ],
-          outputs: [
-            {
-              type: "(core::integer::u128, core::integer::u128)",
-            },
-          ],
-          state_mutability: "external",
-        },
-        {
-          type: "function",
           name: "withdraw",
           inputs: [
             {
@@ -778,192 +493,6 @@ export const positionsContract = new Contract(
           ],
           state_mutability: "external",
         },
-        {
-          type: "function",
-          name: "withdraw_v2",
-          inputs: [
-            {
-              name: "id",
-              type: "core::integer::u64",
-            },
-            {
-              name: "pool_key",
-              type: "ekubo::types::keys::PoolKey",
-            },
-            {
-              name: "bounds",
-              type: "ekubo::types::bounds::Bounds",
-            },
-            {
-              name: "liquidity",
-              type: "core::integer::u128",
-            },
-            {
-              name: "min_token0",
-              type: "core::integer::u128",
-            },
-            {
-              name: "min_token1",
-              type: "core::integer::u128",
-            },
-          ],
-          outputs: [
-            {
-              type: "(core::integer::u128, core::integer::u128)",
-            },
-          ],
-          state_mutability: "external",
-        },
-        {
-          type: "function",
-          name: "get_pool_price",
-          inputs: [
-            {
-              name: "pool_key",
-              type: "ekubo::types::keys::PoolKey",
-            },
-          ],
-          outputs: [
-            {
-              type: "ekubo::types::pool_price::PoolPrice",
-            },
-          ],
-          state_mutability: "view",
-        },
-        {
-          type: "function",
-          name: "mint_and_increase_sell_amount",
-          inputs: [
-            {
-              name: "order_key",
-              type: "ekubo::extensions::interfaces::twamm::OrderKey",
-            },
-            {
-              name: "amount",
-              type: "core::integer::u128",
-            },
-          ],
-          outputs: [
-            {
-              type: "(core::integer::u64, core::integer::u128)",
-            },
-          ],
-          state_mutability: "external",
-        },
-        {
-          type: "function",
-          name: "increase_sell_amount_last",
-          inputs: [
-            {
-              name: "order_key",
-              type: "ekubo::extensions::interfaces::twamm::OrderKey",
-            },
-            {
-              name: "amount",
-              type: "core::integer::u128",
-            },
-          ],
-          outputs: [
-            {
-              type: "core::integer::u128",
-            },
-          ],
-          state_mutability: "external",
-        },
-        {
-          type: "function",
-          name: "increase_sell_amount",
-          inputs: [
-            {
-              name: "id",
-              type: "core::integer::u64",
-            },
-            {
-              name: "order_key",
-              type: "ekubo::extensions::interfaces::twamm::OrderKey",
-            },
-            {
-              name: "amount",
-              type: "core::integer::u128",
-            },
-          ],
-          outputs: [
-            {
-              type: "core::integer::u128",
-            },
-          ],
-          state_mutability: "external",
-        },
-        {
-          type: "function",
-          name: "decrease_sale_rate",
-          inputs: [
-            {
-              name: "id",
-              type: "core::integer::u64",
-            },
-            {
-              name: "order_key",
-              type: "ekubo::extensions::interfaces::twamm::OrderKey",
-            },
-            {
-              name: "sale_rate_delta",
-              type: "core::integer::u128",
-            },
-          ],
-          outputs: [],
-          state_mutability: "external",
-        },
-        {
-          type: "function",
-          name: "withdraw_proceeds_from_sale",
-          inputs: [
-            {
-              name: "id",
-              type: "core::integer::u64",
-            },
-            {
-              name: "order_key",
-              type: "ekubo::extensions::interfaces::twamm::OrderKey",
-            },
-          ],
-          outputs: [],
-          state_mutability: "external",
-        },
-      ],
-    },
-    {
-      type: "impl",
-      name: "Owned",
-      interface_name: "ekubo::components::owned::IOwned",
-    },
-    {
-      type: "interface",
-      name: "ekubo::components::owned::IOwned",
-      items: [
-        {
-          type: "function",
-          name: "get_owner",
-          inputs: [],
-          outputs: [
-            {
-              type: "core::starknet::contract_address::ContractAddress",
-            },
-          ],
-          state_mutability: "view",
-        },
-        {
-          type: "function",
-          name: "transfer_ownership",
-          inputs: [
-            {
-              name: "new_owner",
-              type: "core::starknet::contract_address::ContractAddress",
-            },
-          ],
-          outputs: [],
-          state_mutability: "external",
-        },
       ],
     },
     {
@@ -992,7 +521,7 @@ export const positionsContract = new Contract(
     {
       type: "impl",
       name: "Clear",
-      interface_name: "ekubo::components::clear::IClear",
+      interface_name: "ekubo::clear::IClear",
     },
     {
       type: "struct",
@@ -1006,7 +535,7 @@ export const positionsContract = new Contract(
     },
     {
       type: "interface",
-      name: "ekubo::components::clear::IClear",
+      name: "ekubo::clear::IClear",
       items: [
         {
           type: "function",
@@ -1022,73 +551,6 @@ export const positionsContract = new Contract(
               type: "core::integer::u256",
             },
           ],
-          state_mutability: "view",
-        },
-        {
-          type: "function",
-          name: "clear_minimum",
-          inputs: [
-            {
-              name: "token",
-              type: "ekubo::interfaces::erc20::IERC20Dispatcher",
-            },
-            {
-              name: "minimum",
-              type: "core::integer::u256",
-            },
-          ],
-          outputs: [
-            {
-              type: "core::integer::u256",
-            },
-          ],
-          state_mutability: "view",
-        },
-        {
-          type: "function",
-          name: "clear_minimum_to_recipient",
-          inputs: [
-            {
-              name: "token",
-              type: "ekubo::interfaces::erc20::IERC20Dispatcher",
-            },
-            {
-              name: "minimum",
-              type: "core::integer::u256",
-            },
-            {
-              name: "recipient",
-              type: "core::starknet::contract_address::ContractAddress",
-            },
-          ],
-          outputs: [
-            {
-              type: "core::integer::u256",
-            },
-          ],
-          state_mutability: "view",
-        },
-      ],
-    },
-    {
-      type: "impl",
-      name: "Expires",
-      interface_name: "ekubo::components::expires::IExpires",
-    },
-    {
-      type: "interface",
-      name: "ekubo::components::expires::IExpires",
-      items: [
-        {
-          type: "function",
-          name: "expires",
-          inputs: [
-            {
-              name: "at",
-              type: "core::integer::u64",
-            },
-          ],
-          outputs: [],
           state_mutability: "view",
         },
       ],
@@ -1108,10 +570,6 @@ export const positionsContract = new Contract(
       name: "constructor",
       inputs: [
         {
-          name: "owner",
-          type: "core::starknet::contract_address::ContractAddress",
-        },
-        {
           name: "core",
           type: "ekubo::interfaces::core::ICoreDispatcher",
         },
@@ -1127,7 +585,7 @@ export const positionsContract = new Contract(
     },
     {
       type: "event",
-      name: "ekubo::components::upgradeable::Upgradeable::ClassHashReplaced",
+      name: "ekubo::upgradeable::Upgradeable::ClassHashReplaced",
       kind: "struct",
       members: [
         {
@@ -1139,53 +597,122 @@ export const positionsContract = new Contract(
     },
     {
       type: "event",
-      name: "ekubo::components::upgradeable::Upgradeable::Event",
+      name: "ekubo::upgradeable::Upgradeable::Event",
       kind: "enum",
       variants: [
         {
           name: "ClassHashReplaced",
-          type: "ekubo::components::upgradeable::Upgradeable::ClassHashReplaced",
+          type: "ekubo::upgradeable::Upgradeable::ClassHashReplaced",
           kind: "nested",
         },
       ],
     },
     {
-      type: "event",
-      name: "ekubo::components::owned::Owned::OwnershipTransferred",
-      kind: "struct",
+      type: "struct",
+      name: "ekubo::types::delta::Delta",
       members: [
         {
-          name: "old_owner",
-          type: "core::starknet::contract_address::ContractAddress",
-          kind: "data",
+          name: "amount0",
+          type: "ekubo::types::i129::i129",
         },
         {
-          name: "new_owner",
-          type: "core::starknet::contract_address::ContractAddress",
-          kind: "data",
+          name: "amount1",
+          type: "ekubo::types::i129::i129",
         },
       ],
     },
     {
       type: "event",
-      name: "ekubo::components::owned::Owned::Event",
-      kind: "enum",
-      variants: [
-        {
-          name: "OwnershipTransferred",
-          type: "ekubo::components::owned::Owned::OwnershipTransferred",
-          kind: "nested",
-        },
-      ],
-    },
-    {
-      type: "event",
-      name: "ekubo::positions::Positions::PositionMintedWithReferrer",
+      name: "ekubo::positions::Positions::Deposit",
       kind: "struct",
       members: [
         {
           name: "id",
           type: "core::integer::u64",
+          kind: "data",
+        },
+        {
+          name: "pool_key",
+          type: "ekubo::types::keys::PoolKey",
+          kind: "data",
+        },
+        {
+          name: "bounds",
+          type: "ekubo::types::bounds::Bounds",
+          kind: "data",
+        },
+        {
+          name: "liquidity",
+          type: "core::integer::u128",
+          kind: "data",
+        },
+        {
+          name: "delta",
+          type: "ekubo::types::delta::Delta",
+          kind: "data",
+        },
+      ],
+    },
+    {
+      type: "event",
+      name: "ekubo::positions::Positions::Withdraw",
+      kind: "struct",
+      members: [
+        {
+          name: "id",
+          type: "core::integer::u64",
+          kind: "data",
+        },
+        {
+          name: "pool_key",
+          type: "ekubo::types::keys::PoolKey",
+          kind: "data",
+        },
+        {
+          name: "bounds",
+          type: "ekubo::types::bounds::Bounds",
+          kind: "data",
+        },
+        {
+          name: "liquidity",
+          type: "core::integer::u128",
+          kind: "data",
+        },
+        {
+          name: "delta",
+          type: "ekubo::types::delta::Delta",
+          kind: "data",
+        },
+        {
+          name: "collect_fees",
+          type: "core::bool",
+          kind: "data",
+        },
+        {
+          name: "recipient",
+          type: "core::starknet::contract_address::ContractAddress",
+          kind: "data",
+        },
+      ],
+    },
+    {
+      type: "event",
+      name: "ekubo::positions::Positions::PositionMinted",
+      kind: "struct",
+      members: [
+        {
+          name: "id",
+          type: "core::integer::u64",
+          kind: "data",
+        },
+        {
+          name: "pool_key",
+          type: "ekubo::types::keys::PoolKey",
+          kind: "data",
+        },
+        {
+          name: "bounds",
+          type: "ekubo::types::bounds::Bounds",
           kind: "data",
         },
         {
@@ -1202,17 +729,22 @@ export const positionsContract = new Contract(
       variants: [
         {
           name: "UpgradeableEvent",
-          type: "ekubo::components::upgradeable::Upgradeable::Event",
+          type: "ekubo::upgradeable::Upgradeable::Event",
           kind: "flat",
         },
         {
-          name: "OwnedEvent",
-          type: "ekubo::components::owned::Owned::Event",
+          name: "Deposit",
+          type: "ekubo::positions::Positions::Deposit",
           kind: "nested",
         },
         {
-          name: "PositionMintedWithReferrer",
-          type: "ekubo::positions::Positions::PositionMintedWithReferrer",
+          name: "Withdraw",
+          type: "ekubo::positions::Positions::Withdraw",
+          kind: "nested",
+        },
+        {
+          name: "PositionMinted",
+          type: "ekubo::positions::Positions::PositionMinted",
           kind: "nested",
         },
       ],
