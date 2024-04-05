@@ -1394,9 +1394,10 @@ export class DAO {
                                                                                    AND pt.event_id < tofp.event_id
                                                                                  ORDER BY pt.event_id DESC
                                                                                  LIMIT 1)                  AS collector,
-                                                                                FLOOR(tofp.fee_amount * tp.rate *
+                                                                             -- note dividing by 1e11 instead of 1e12 for the 10x multiplier 
+                                                                             FLOOR(tofp.fee_amount * tp.rate *
                                                                                       multipliers.multiplier /
-                                                                                      1e12::NUMERIC)::int8 AS points
+                                                                                      1e11::NUMERIC)::int8 AS points
                                                                          FROM position_multipliers AS multipliers
                                                                                   JOIN twamm_order_fee_potential AS tofp
                                                                                        ON tofp.salt =
