@@ -1281,35 +1281,38 @@ export class DAO {
                                      -- we compute the VWAP price in eth per token over the last month for each token we will consider
                                      token_points_rates AS
                                          (SELECT token,
-                                                 (CASE
-                                                      WHEN swap_count < 4000 THEN 0
-                                                      WHEN token =
-                                                           ${ETH_TOKEN_ADDRESS}
-                                                          THEN 1
-                                                      WHEN token <
-                                                           ${ETH_TOKEN_ADDRESS}
-                                                          THEN (SELECT SUM(delta1 * delta1) / SUM(ABS(delta0 * delta1))
-                                                                FROM swaps
-                                                                         JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
-                                                                         JOIN event_keys ON swaps.event_id = event_keys.id
-                                                                         JOIN blocks ON event_keys.block_number = blocks.number
-                                                                WHERE token0 = token
-                                                                  AND token1 =
-                                                                      ${ETH_TOKEN_ADDRESS}
-                                                                  AND blocks.time >= NOW() - INTERVAL '1 month'
-                                                                  AND swaps.event_id < ${maxEventIdExclusive})
-                                                      ELSE
-                                                          (SELECT SUM(ABS(delta0 * delta1)) / SUM(delta1 * delta1)
-                                                           FROM swaps
-                                                                    JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
-                                                                    JOIN event_keys ON swaps.event_id = event_keys.id
-                                                                    JOIN blocks ON event_keys.block_number = blocks.number
-                                                           WHERE token0 =
-                                                                 ${ETH_TOKEN_ADDRESS}
-                                                             AND token1 = token
-                                                             AND blocks.time >= NOW() - INTERVAL '1 month'
-                                                             AND swaps.event_id < ${maxEventIdExclusive})
-                                                     END) AS rate
+                                                 COALESCE(
+                                                         (CASE
+                                                              WHEN swap_count < 4000 THEN 0
+                                                              WHEN token =
+                                                                   ${ETH_TOKEN_ADDRESS}
+                                                                  THEN 1
+                                                              WHEN token <
+                                                                   ${ETH_TOKEN_ADDRESS}
+                                                                  THEN (SELECT SUM(delta1 * delta1) / SUM(ABS(delta0 * delta1))
+                                                                        FROM swaps
+                                                                                 JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
+                                                                                 JOIN event_keys ON swaps.event_id = event_keys.id
+                                                                                 JOIN blocks ON event_keys.block_number = blocks.number
+                                                                        WHERE token0 = token
+                                                                          AND token1 =
+                                                                              ${ETH_TOKEN_ADDRESS}
+                                                                          AND blocks.time >= NOW() - INTERVAL '1 month'
+                                                                          AND swaps.event_id < ${maxEventIdExclusive})
+                                                              ELSE
+                                                                  (SELECT SUM(ABS(delta0 * delta1)) / SUM(delta1 * delta1)
+                                                                   FROM swaps
+                                                                            JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
+                                                                            JOIN event_keys ON swaps.event_id = event_keys.id
+                                                                            JOIN blocks ON event_keys.block_number = blocks.number
+                                                                   WHERE token0 =
+                                                                         ${ETH_TOKEN_ADDRESS}
+                                                                     AND token1 = token
+                                                                     AND blocks.time >= NOW() - INTERVAL '1 month'
+                                                                     AND swaps.event_id < ${maxEventIdExclusive})
+                                                             END),
+                                                         0
+                                                 ) AS rate
                                           FROM all_tokens_with_swap_counts),
 
                                      position_multipliers AS (SELECT pt.token_id AS token_id,
@@ -1394,8 +1397,8 @@ export class DAO {
                                                                                    AND pt.event_id < tofp.event_id
                                                                                  ORDER BY pt.event_id DESC
                                                                                  LIMIT 1)                  AS collector,
-                                                                             -- note dividing by 1e11 instead of 1e12 for the 10x multiplier 
-                                                                             FLOOR(tofp.fee_amount * tp.rate *
+                                                                                -- note dividing by 1e11 instead of 1e12 for the 10x multiplier 
+                                                                                FLOOR(tofp.fee_amount * tp.rate *
                                                                                       multipliers.multiplier /
                                                                                       1e11::NUMERIC)::int8 AS points
                                                                          FROM position_multipliers AS multipliers
