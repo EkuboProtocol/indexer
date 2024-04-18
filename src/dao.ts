@@ -1526,7 +1526,10 @@ export class DAO {
                    FROM UNNEST($1::NUMERIC[], $2::NUMERIC[])
                    ON CONFLICT (address)
                        DO UPDATE SET class_hash = excluded.class_hash;`,
-      values: [items.map((i) => i.account), items.map((i) => i.class_hash)],
+      values: [
+        items.map((i) => BigInt(i.account)),
+        items.map((i) => BigInt(i.class_hash)),
+      ],
     });
   }
 
@@ -1540,8 +1543,8 @@ export class DAO {
                        FROM UNNEST($1::NUMERIC[], $2::NUMERIC[])
                        ON CONFLICT DO NOTHING`,
         values: [
-          transactionSenders.map(([hash]) => hash),
-          transactionSenders.map(([, sender]) => sender),
+          transactionSenders.map(([hash]) => BigInt(hash)),
+          transactionSenders.map(([, sender]) => BigInt(sender)),
         ],
       });
     }
