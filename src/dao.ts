@@ -175,7 +175,7 @@ export class DAO {
             locker          NUMERIC NOT NULL,
 
             pool_key_hash   NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
-            
+
             salt            NUMERIC NOT NULL,
             lower_bound     int4    NOT NULL,
             upper_bound     int4    NOT NULL,
@@ -248,10 +248,10 @@ export class DAO {
         (
             event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            pool_key_hash NUMERIC  NOT NULL REFERENCES pool_keys (key_hash),
+            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-            tick          int4     NOT NULL,
-            sqrt_ratio    NUMERIC  NOT NULL
+            tick          int4    NOT NULL,
+            sqrt_ratio    NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_pool_initializations_pool_key_hash ON pool_initializations (pool_key_hash);
 
@@ -505,42 +505,43 @@ export class DAO {
 
         CREATE OR REPLACE VIEW twamm_pool_states_view AS
         (
-        WITH last_virtual_order_execution AS
-                 (SELECT key_hash,
-                         lvoe.token0_sale_rate AS token0_sale_rate,
-                         lvoe.token1_sale_rate AS token1_sale_rate,
-                         event_id              AS last_virtual_order_execution_event_id,
-                         last_virtual_execution_time
-                  FROM pool_keys
-                           INNER JOIN LATERAL (SELECT tvoe.event_id,
-                                                      tvoe.token0_sale_rate,
-                                                      tvoe.token1_sale_rate,
-                                                      b.time AS last_virtual_execution_time
-                                               FROM twamm_virtual_order_executions tvoe
-                                                        JOIN event_keys ek ON tvoe.event_id = ek.id
-                                                        JOIN blocks b ON ek.block_number = b.number
-                                               WHERE pool_keys.key_hash = tvoe.key_hash
-                                               ORDER BY event_id DESC
-                                               LIMIT 1)
-                      AS lvoe ON TRUE),
-             active_order_updates_after_lvoe AS
-                 (SELECT lvoe.key_hash,
-                         SUM(tou.sale_rate_delta0) AS sale_rate_delta0,
-                         SUM(tou.sale_rate_delta1) AS sale_rate_delta1,
-                         MAX(tou.event_id)         AS last_order_update_event_id
-                  FROM last_virtual_order_execution lvoe
-                           JOIN twamm_order_updates tou
-                                ON tou.key_hash = lvoe.key_hash AND
-                                   tou.event_id > lvoe.last_virtual_order_execution_event_id
-                                    AND tou.start_time <= lvoe.last_virtual_execution_time AND
-                                   tou.end_time > lvoe.last_virtual_execution_time
-                  GROUP BY lvoe.key_hash)
-        SELECT lvoe.key_hash                                                 AS pool_key_hash,
-               lvoe.token0_sale_rate + COALESCE(ou_lvoe.sale_rate_delta0, 0) AS token0_sale_rate,
-               lvoe.token1_sale_rate + COALESCE(ou_lvoe.sale_rate_delta1, 0) AS token1_sale_rate,
-               lvoe.last_virtual_execution_time                              AS last_virtual_execution_time,
+        WITH last_virtual_order_execution AS (SELECT pk.key_hash,
+                                                     last_voe.token0_sale_rate,
+                                                     last_voe.token1_sale_rate,
+                                                     last_voe.event_id AS last_virtual_order_execution_event_id,
+                                                     last_voe.last_virtual_execution_time
+                                              FROM pool_keys pk
+                                                       JOIN LATERAL (SELECT tvoe.event_id,
+                                                                            tvoe.token0_sale_rate,
+                                                                            tvoe.token1_sale_rate,
+                                                                            b."time" AS last_virtual_execution_time
+                                                                     FROM twamm_virtual_order_executions tvoe
+                                                                              JOIN event_keys ek ON tvoe.event_id = ek.id
+                                                                              JOIN blocks b ON ek.block_number = b.number
+                                                                     WHERE pk.key_hash = tvoe.key_hash
+                                                                     ORDER BY tvoe.event_id DESC
+                                                                     LIMIT 1) last_voe ON TRUE
+                                              WHERE pk.extension != 0),
+             active_order_updates_after_lvoe AS (SELECT lvoe_1.key_hash,
+                                                        SUM(tou.sale_rate_delta0) AS sale_rate_delta0,
+                                                        SUM(tou.sale_rate_delta1) AS sale_rate_delta1,
+                                                        MAX(tou.event_id)         AS last_order_update_event_id
+                                                 FROM last_virtual_order_execution lvoe_1
+                                                          JOIN twamm_order_updates tou
+                                                               ON tou.key_hash = lvoe_1.key_hash AND
+                                                                  tou.event_id >
+                                                                  lvoe_1.last_virtual_order_execution_event_id AND
+                                                                  tou.start_time <=
+                                                                  lvoe_1.last_virtual_execution_time AND
+                                                                  tou.end_time >
+                                                                  lvoe_1.last_virtual_execution_time
+                                                 GROUP BY lvoe_1.key_hash)
+        SELECT lvoe.key_hash                                                          AS pool_key_hash,
+               lvoe.token0_sale_rate + COALESCE(ou_lvoe.sale_rate_delta0, 0::NUMERIC) AS token0_sale_rate,
+               lvoe.token1_sale_rate + COALESCE(ou_lvoe.sale_rate_delta1, 0::NUMERIC) AS token1_sale_rate,
+               lvoe.last_virtual_execution_time,
                GREATEST(COALESCE(ou_lvoe.last_order_update_event_id, lvoe.last_virtual_order_execution_event_id),
-                        psm.last_event_id)                                   AS last_event_id
+                        psm.last_event_id)                                            AS last_event_id
         FROM last_virtual_order_execution lvoe
                  JOIN pool_states_materialized psm ON lvoe.key_hash = psm.pool_key_hash
                  LEFT JOIN active_order_updates_after_lvoe ou_lvoe ON lvoe.key_hash = ou_lvoe.key_hash
