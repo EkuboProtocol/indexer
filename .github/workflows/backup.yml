@@ -1,0 +1,34 @@
+name: Create backup
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+concurrency: dump
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    name: Run
+    steps:
+      - name: Setup PostgreSQL
+        uses: tj-actions/install-postgresql@v3
+        with:
+          postgresql-version: 16
+
+      - name: Dump
+        env:
+          PGHOST: ${{ secrets.PGHOST }}
+          PGPORT: ${{ secrets.PGPORT }}
+          PGDATABASE: ${{ secrets.PGDATABASE }}
+          PGUSER: ${{ secrets.PGUSER }}
+          PGPASSWORD: ${{ secrets.PGPASSWORD }}
+          PGSSLMODE: require
+        run: |
+          pg_dump --dbname=${{secrets.PGDATABASE}} --file="dump.bin" --clean --format=c --inserts -v
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Backup
+          path: dump.bin
