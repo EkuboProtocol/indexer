@@ -26,9 +26,9 @@ jobs:
           PGPASSWORD: ${{ secrets.PGPASSWORD }}
           PGSSLMODE: require
         run: |
-          pg_dump --dbname=${{secrets.PGDATABASE}} --file="dump.bin" --clean --format=c --inserts -v
+          pg_dump --dbname=${{secrets.PGDATABASE}} --file="data" --clean --format=d --inserts --verbose --jobs=8
 
       - uses: actions/upload-artifact@v4
         with:
           name: Backup
-          path: dump.bin
+          path: data
