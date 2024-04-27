@@ -19,6 +19,6 @@ of `pg_restore`. To utilize the backup:
 
 - Download the `Backup.zip` artifact from the latest workflow run
 - Extract the directory
-- `pg_restore --dbname=mainnet ~/Downloads/Backup --jobs=16`
+- `pg_restore --dbname=mainnet --format=d --jobs=16 --no-owner --no-privileges --disable-triggers ~/Downloads/Backup`
 
 After restoring from the backup, you can start the indexer and it should begin at the last block that was synced before the backup started.
