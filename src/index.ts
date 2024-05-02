@@ -52,7 +52,10 @@ const refreshAnalyticalTables = throttle(
     });
     await dao.commitTransaction();
     client.release();
-    timer.done({ message: "Refreshed analytical tables" });
+    timer.done({
+      message: "Refreshed analytical tables",
+      since: since.toISOString(),
+    });
   },
   {
     delay: parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS),
