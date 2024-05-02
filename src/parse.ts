@@ -1,9 +1,30 @@
 import { FieldElement, v1alpha2 as starknet } from "@apibara/starknet";
+import { CallType, parseCall } from "./events/governor";
 
 export interface Parser<T> {
   (data: starknet.IFieldElement[], startingFrom: number): {
     value: T;
     next: number;
+  };
+}
+
+export function parseSpanOf<T>(type: Parser<T>): Parser<T[]> {
+  return (data, startingFrom) => {
+    const numElements = Number(FieldElement.toBigInt(data[startingFrom]));
+
+    const elements: T[] = [];
+    let index = startingFrom + 1;
+
+    while (elements.length < numElements) {
+      const { value, next } = type(data, index);
+      index = next;
+      elements.push(value);
+    }
+
+    return {
+      value: elements,
+      next: index,
+    };
   };
 }
 
