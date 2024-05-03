@@ -34,6 +34,12 @@ import {
   VirtualOrdersExecutedEvent,
   parseVirtualOrdersExecuted,
 } from "./events/twamm";
+import {
+  parseStakedEvent,
+  parseWithdrawnEvent,
+  StakedEvent,
+  WithdrawnEvent,
+} from "./events/staker";
 
 export const EVENT_PROCESSORS = [
   <EventProcessor<LegacyPositionMintedEvent>>{
@@ -278,6 +284,38 @@ export const EVENT_PROCESSORS = [
     async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("VirtualOrdersExecuted", { parsed, key });
       await dao.insertTWAMMVirtualOrdersExecutedEvent(parsed, key);
+    },
+  },
+  <EventProcessor<StakedEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.STAKER_ADDRESS),
+      keys: [
+        // Staked
+        FieldElement.fromBigInt(
+          0x024fdaadc324c3bb8e59febfb2e8a399331e58193489e54ac40fec46745a9eben
+        ),
+      ],
+    },
+    parser: parseStakedEvent,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("Staked", { parsed, key });
+      await dao.insertStakerStakedEvent(parsed, key);
+    },
+  },
+  <EventProcessor<WithdrawnEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.STAKER_ADDRESS),
+      keys: [
+        // Withdrawn
+        FieldElement.fromBigInt(
+          0x036a4d15ab9e146faab90d4abc1c0cad17c4ded24551c781ba100392b5a70248n
+        ),
+      ],
+    },
+    parser: parseWithdrawnEvent,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("WithdrawnEvent", { parsed, key });
+      await dao.insertStakerWithdrawnEvent(parsed, key);
     },
   },
 ] as const;

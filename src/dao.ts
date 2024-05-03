@@ -20,6 +20,7 @@ import {
   OrderProceedsWithdrawnEvent,
   VirtualOrdersExecutedEvent,
 } from "./events/twamm";
+import { StakedEvent, WithdrawnEvent } from "./events/staker";
 
 const ETH_TOKEN_ADDRESS =
   2087021424722619777119509474943472645767659996348769578120564519014510906823n;
@@ -298,6 +299,29 @@ export class DAO {
             address    NUMERIC NOT NULL PRIMARY KEY,
             class_hash NUMERIC NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS staker_staked
+        (
+            event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            from_address NUMERIC NOT NULL,
+            amount       NUMERIC NOT NULL,
+            delegate     NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_staker_staked_delegate_from_address ON staker_staked USING btree (delegate, from_address);
+        CREATE INDEX IF NOT EXISTS idx_staker_staked_from_address_delegate ON staker_staked USING btree (from_address, delegate);
+
+        CREATE TABLE IF NOT EXISTS staker_withdrawn
+        (
+            event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            from_address NUMERIC NOT NULL,
+            amount       NUMERIC NOT NULL,
+            recipient    NUMERIC NOT NULL,
+            delegate     NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_staker_withdrawn_delegate_from_address ON staker_staked USING btree (delegate, from_address);
+        CREATE INDEX IF NOT EXISTS idx_staker_withdrawn_from_address_delegate ON staker_staked USING btree (from_address, delegate);
 
         CREATE OR REPLACE VIEW pool_states_view AS
         (
@@ -886,7 +910,6 @@ export class DAO {
     minted: PositionMintedWithReferrer,
     key: EventKey
   ) {
-    // The `*` operator is the PostgreSQL range intersection operator.
     await this.pg.query({
       text: `
                 WITH inserted_event AS (
@@ -1707,6 +1730,61 @@ export class DAO {
         virtual_orders_executed.token1_sale_rate,
         virtual_orders_executed.twamm_delta.amount0,
         virtual_orders_executed.twamm_delta.amount1,
+      ],
+    });
+  }
+
+  async insertStakerStakedEvent(parsed: StakedEvent, key: EventKey) {
+    await this.pg.query({
+      text: `
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO staker_staked
+          (event_id,
+           from_address,
+           delegate,
+           amount)
+          VALUES ((SELECT id FROM inserted_event), $5, $6, $7)
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        parsed.from,
+        parsed.delegate,
+        parsed.amount,
+      ],
+    });
+  }
+  async insertStakerWithdrawnEvent(parsed: WithdrawnEvent, key: EventKey) {
+    await this.pg.query({
+      text: `
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO staker_withdrawn
+          (event_id,
+           from_address,
+           delegate,
+           amount, 
+           recipient)
+          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8)
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        parsed.from,
+        parsed.delegate,
+        parsed.amount,
+        parsed.to,
       ],
     });
   }
