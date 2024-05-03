@@ -13,7 +13,6 @@
   "author": "Moody Salem",
   "devDependencies": {
     "@types/pg": "^8.10.2",
-    "ts-jest": "^29.1.1",
     "ts-node": "^10.9.1",
     "tsup": "^7.1.0",
     "typescript": "^5.1.6",

@@ -51,7 +51,6 @@ import {
   ProposedEvent,
   VotedEvent,
 } from "./events/governor";
-import Describe = jest.Describe;
 
 export const EVENT_PROCESSORS = [
   <EventProcessor<LegacyPositionMintedEvent>>{
