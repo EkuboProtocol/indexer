@@ -26,24 +26,28 @@ export const parseProposedEvent = combineParsers({
 });
 export type ProposedEvent = GetParserType<typeof parseProposedEvent>;
 
-export const parseVotedEvent = combineParsers({
+export const parseGovernorVotedEvent = combineParsers({
   id: { index: 0, parser: parseFelt252 },
   voter: { index: 1, parser: parseAddress },
   weight: { index: 2, parser: parseU128 },
   yea: { index: 3, parser: parseBoolean },
 });
-export type VotedEvent = GetParserType<typeof parseVotedEvent>;
+export type VotedEvent = GetParserType<typeof parseGovernorVotedEvent>;
 
-export const parseCanceledEvent = combineParsers({
+export const parseGovernorCanceledEvent = combineParsers({
   id: { index: 0, parser: parseFelt252 },
   breach_timestamp: { index: 1, parser: parseU64 },
 });
-export type CanceledEvent = GetParserType<typeof parseCanceledEvent>;
+export type GovernorCanceledEvent = GetParserType<
+  typeof parseGovernorCanceledEvent
+>;
 
-export const parseExecutedEvent = combineParsers({
+export const parseGovernorExecutedEvent = combineParsers({
   id: { index: 0, parser: parseFelt252 },
 });
-export type ExecutedEvent = GetParserType<typeof parseExecutedEvent>;
+export type GovernorExecutedEvent = GetParserType<
+  typeof parseGovernorExecutedEvent
+>;
 
 export const parseByteArray: Parser<string> = (data, startingFrom) => {
   const numWholeWords = Number(FieldElement.toBigInt(data[startingFrom]));

@@ -6,18 +6,24 @@ import {
 } from "../parse";
 import { parseCall } from "./governor";
 
-export const parseQueuedEvent = combineParsers({
+export const parseTimelockQueuedEvent = combineParsers({
   id: { index: 0, parser: parseFelt252 },
   calls: { index: 1, parser: parseSpanOf(parseCall) },
 });
-export type QueuedEvent = GetParserType<typeof parseQueuedEvent>;
+export type TimelockQueuedEvent = GetParserType<
+  typeof parseTimelockQueuedEvent
+>;
 
-export const parseCanceledEvent = combineParsers({
+export const parseTimelockCanceledEvent = combineParsers({
   id: { index: 0, parser: parseFelt252 },
 });
-export type CanceledEvent = GetParserType<typeof parseCanceledEvent>;
+export type TimelockCanceledEvent = GetParserType<
+  typeof parseTimelockCanceledEvent
+>;
 
-export const parseExecutedEvent = combineParsers({
+export const parseTimelockExecutedEvent = combineParsers({
   id: { index: 0, parser: parseFelt252 },
 });
-export type ExecutedEvent = GetParserType<typeof parseExecutedEvent>;
+export type TimelockExecutedEvent = GetParserType<
+  typeof parseTimelockExecutedEvent
+>;
