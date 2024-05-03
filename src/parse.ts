@@ -1,5 +1,4 @@
 import { FieldElement, v1alpha2 as starknet } from "@apibara/starknet";
-import { CallType, parseCall } from "./events/governor";
 
 export interface Parser<T> {
   (data: starknet.IFieldElement[], startingFrom: number): {

@@ -1,8 +1,9 @@
 import { FieldElement } from "@apibara/starknet";
-import { parsePoolKey, PoolKey } from "./events/core";
+import { parsePoolKey } from "./events/core";
+import { describe, it, expect } from "vitest";
 
 describe("parse", () => {
-  describe("parsePoolKey", () => {
+  describe(parsePoolKey, () => {
     it("works correctly for random data from 0", () => {
       const result = parsePoolKey(
         [
