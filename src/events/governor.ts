@@ -9,6 +9,8 @@ import {
   parseU128,
   parseU64,
 } from "../parse";
+import { FieldElement } from "@apibara/starknet";
+import { num, shortString } from "starknet";
 
 export const parseCall = combineParsers({
   to: { index: 0, parser: parseAddress },
@@ -43,12 +45,28 @@ export const parseExecutedEvent = combineParsers({
 });
 export type ExecutedEvent = GetParserType<typeof parseExecutedEvent>;
 
-export const parseByteArrayString: Parser<string> = (data, startingFrom) => {
-  throw new Error("todo");
+export const parseByteArray: Parser<string> = (data, startingFrom) => {
+  const numWholeWords = Number(FieldElement.toBigInt(data[startingFrom]));
+  const pendingWord = FieldElement.toBigInt(
+    data[startingFrom + 1 + numWholeWords]
+  );
+  // not actually used
+  // const pendingWordLength = data[startingFrom + 1 + numWholeWords + 1];
+  const value =
+    data
+      .slice(startingFrom + 1, startingFrom + 1 + numWholeWords)
+      .map((element) =>
+        shortString.decodeShortString(num.toHex(FieldElement.toBigInt(element)))
+      )
+      .join("") + shortString.decodeShortString(num.toHex(pendingWord));
+  return {
+    next: startingFrom + 1 + numWholeWords + 1 + 1,
+    value,
+  };
 };
 
 export const parseDescribedEvent = combineParsers({
   id: { index: 0, parser: parseFelt252 },
-  description: { index: 1, parser: parseByteArrayString },
+  description: { index: 1, parser: parseByteArray },
 });
 export type DescribedEvent = GetParserType<typeof parseDescribedEvent>;

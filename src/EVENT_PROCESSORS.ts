@@ -40,6 +40,18 @@ import {
   StakedEvent,
   WithdrawnEvent,
 } from "./events/staker";
+import {
+  CanceledEvent,
+  DescribedEvent,
+  ExecutedEvent,
+  parseCanceledEvent,
+  parseDescribedEvent,
+  parseProposedEvent,
+  parseVotedEvent,
+  ProposedEvent,
+  VotedEvent,
+} from "./events/governor";
+import Describe = jest.Describe;
 
 export const EVENT_PROCESSORS = [
   <EventProcessor<LegacyPositionMintedEvent>>{
@@ -316,6 +328,86 @@ export const EVENT_PROCESSORS = [
     async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("WithdrawnEvent", { parsed, key });
       await dao.insertStakerWithdrawnEvent(parsed, key);
+    },
+  },
+  <EventProcessor<ProposedEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.GOVERNOR_ADDRESS),
+      keys: [
+        // Proposed
+        FieldElement.fromBigInt(
+          0x02a98c37f5b13fe14803e72b284c81be9ebbedc6cf74ed8d1489ed74951cba3fn
+        ),
+      ],
+    },
+    parser: parseProposedEvent,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("Proposed", { parsed, key });
+      await dao.insertGovernorProposedEvent(parsed, key);
+    },
+  },
+  <EventProcessor<CanceledEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.GOVERNOR_ADDRESS),
+      keys: [
+        // Canceled
+        FieldElement.fromBigInt(
+          0xad1f80a0e6ac2d42f6ce99670de84817aef2368cd22a19f85fcb721f689192n
+        ),
+      ],
+    },
+    parser: parseCanceledEvent,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("Canceled", { parsed, key });
+      await dao.insertGovernorCanceledEvent(parsed, key);
+    },
+  },
+  <EventProcessor<VotedEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.GOVERNOR_ADDRESS),
+      keys: [
+        // Voted
+        FieldElement.fromBigInt(
+          0x5c9afac1c510b50d3e0004024ba7b8e190864f1543dd8025d08f88410fb162n
+        ),
+      ],
+    },
+    parser: parseVotedEvent,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("Voted", { parsed, key });
+      await dao.insertGovernorVotedEvent(parsed, key);
+    },
+  },
+  <EventProcessor<ExecutedEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.GOVERNOR_ADDRESS),
+      keys: [
+        // Executed
+        FieldElement.fromBigInt(
+          0xf6e2d429ffbebb53f7887cee88a1d335b5a9c13cd37e2d1a2bf0769be29b2fn
+        ),
+      ],
+    },
+    parser: parseVotedEvent,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("Executed", { parsed, key });
+      await dao.insertGovernorExecutedEvent(parsed, key);
+    },
+  },
+  <EventProcessor<DescribedEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.GOVERNOR_ADDRESS),
+      keys: [
+        // Described
+        FieldElement.fromBigInt(
+          0x8643a1c8a461189d5b77de7576b06aa9148c9127101228f02816d13768e7a9n
+        ),
+      ],
+    },
+    parser: parseDescribedEvent,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("Described", { parsed, key });
+      await dao.insertGovernorProposalDescribedEvent(parsed, key);
     },
   },
 ] as const;

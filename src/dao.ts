@@ -21,6 +21,13 @@ import {
   VirtualOrdersExecutedEvent,
 } from "./events/twamm";
 import { StakedEvent, WithdrawnEvent } from "./events/staker";
+import {
+  CanceledEvent,
+  DescribedEvent,
+  ExecutedEvent,
+  ProposedEvent,
+  VotedEvent,
+} from "./events/governor";
 
 const ETH_TOKEN_ADDRESS =
   2087021424722619777119509474943472645767659996348769578120564519014510906823n;
@@ -322,6 +329,50 @@ export class DAO {
         );
         CREATE INDEX IF NOT EXISTS idx_staker_withdrawn_delegate_from_address ON staker_staked USING btree (delegate, from_address);
         CREATE INDEX IF NOT EXISTS idx_staker_withdrawn_from_address_delegate ON staker_staked USING btree (from_address, delegate);
+
+        CREATE TABLE IF NOT EXISTS governor_proposed
+        (
+            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            id            NUMERIC   NOT NULL,
+            proposer      NUMERIC   NOT NULL,
+            call_to       NUMERIC   NOT NULL,
+            call_selector NUMERIC   NOT NULL,
+            call_calldata NUMERIC[] NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS governor_canceled
+        (
+            event_id         int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            id               NUMERIC     NOT NULL,
+            breach_timestamp timestamptz NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS governor_voted
+        (
+            event_id int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            id       NUMERIC NOT NULL,
+            voter    NUMERIC NOT NULL,
+            weight   NUMERIC NOT NULL,
+            yea      BOOLEAN NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS governor_executed
+        (
+            event_id int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            id       NUMERIC NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS governor_proposal_described
+        (
+            event_id    int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            id          NUMERIC NOT NULL,
+            description NUMERIC NOT NULL
+        );
 
         CREATE OR REPLACE VIEW pool_states_view AS
         (
@@ -1760,6 +1811,7 @@ export class DAO {
       ],
     });
   }
+
   async insertStakerWithdrawnEvent(parsed: WithdrawnEvent, key: EventKey) {
     await this.pg.query({
       text: `
@@ -1785,6 +1837,133 @@ export class DAO {
         parsed.delegate,
         parsed.amount,
         parsed.to,
+      ],
+    });
+  }
+
+  async insertGovernorProposedEvent(parsed: ProposedEvent, key: EventKey) {
+    await this.pg.query({
+      text: `
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO governor_proposed
+          (event_id,
+           id,
+           proposer,
+           call_to, 
+           call_selector,
+           call_calldata)
+          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9)
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        parsed.id,
+        parsed.proposer,
+        parsed.call.to,
+        parsed.call.selector,
+        parsed.call.calldata,
+      ],
+    });
+  }
+
+  async insertGovernorCanceledEvent(parsed: CanceledEvent, key: EventKey) {
+    await this.pg.query({
+      text: `
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO governor_canceled
+              (event_id, id, breach_timestamp)
+          VALUES ((SELECT id FROM inserted_event), $5, $6)
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        parsed.id,
+        new Date(Number(parsed.breach_timestamp * 1000n)),
+      ],
+    });
+  }
+
+  async insertGovernorVotedEvent(parsed: VotedEvent, key: EventKey) {
+    await this.pg.query({
+      text: `
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO governor_voted
+              (event_id, id, voter, weight, yea)
+          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8)
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        parsed.id,
+        parsed.voter,
+        parsed.weight,
+        parsed.yea,
+      ],
+    });
+  }
+
+  async insertGovernorExecutedEvent(parsed: ExecutedEvent, key: EventKey) {
+    await this.pg.query({
+      text: `
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO governor_executed
+              (event_id, id)
+          VALUES ((SELECT id FROM inserted_event), $5)
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        parsed.id,
+      ],
+    });
+  }
+
+  async insertGovernorProposalDescribedEvent(
+    parsed: DescribedEvent,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO governor_proposal_described
+              (event_id, id)
+          VALUES ((SELECT id FROM inserted_event), $5, $6)
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        parsed.id,
+        parsed.description,
       ],
     });
   }
