@@ -52,6 +52,7 @@ import {
   VotedEvent,
 } from "./events/governor";
 import {
+  parseTimelockCanceledEvent,
   parseTimelockExecutedEvent,
   parseTimelockQueuedEvent,
   TimelockCanceledEvent,
@@ -442,7 +443,7 @@ export const EVENT_PROCESSORS = [
         ),
       ],
     },
-    parser: parseTimelockQueuedEvent,
+    parser: parseTimelockCanceledEvent,
     async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("TimelockCanceled", { parsed, key });
       await dao.insertTimelockCanceledEvent(parsed, key);
@@ -452,7 +453,7 @@ export const EVENT_PROCESSORS = [
     filter: {
       fromAddress: FieldElement.fromBigInt(process.env.TIMELOCK_ADDRESS),
       keys: [
-        // Canceled
+        // Executed
         FieldElement.fromBigInt(
           0x01f4317aae43f6c24b2b85c6d8b21d5fa0a28cee0476cd52ca5d60d4787aab78n
         ),
