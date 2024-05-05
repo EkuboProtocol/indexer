@@ -376,7 +376,7 @@ export class DAO {
                 event_id    int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
                 id          NUMERIC NOT NULL,
-                description NUMERIC NOT NULL
+                description TEXT    NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS timelock_queued
