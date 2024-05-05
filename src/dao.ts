@@ -1988,7 +1988,7 @@ export class DAO {
                         RETURNING id)
                 INSERT
                 INTO governor_proposal_described
-                    (event_id, id)
+                    (event_id, id, description)
                 VALUES ((SELECT id FROM inserted_event), $5, $6)
             `,
       values: [
