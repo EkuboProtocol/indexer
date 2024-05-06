@@ -5,10 +5,13 @@ import {
   parseBoolean,
   parseFelt252,
   parseI129,
+  Parser,
   parseU128,
   parseU256,
   parseU8,
 } from "../parse";
+import { FieldElement } from "@apibara/starknet";
+import { num, shortString } from "starknet";
 
 export const parsePoolKey = combineParsers({
   token0: { index: 0, parser: parseAddress },
@@ -118,3 +121,23 @@ export const parseRegistrationEvent = combineParsers({
 export type TokenRegistrationEvent = GetParserType<
   typeof parseRegistrationEvent
 >;
+
+export const parseByteArray: Parser<string> = (data, startingFrom) => {
+  const numWholeWords = Number(FieldElement.toBigInt(data[startingFrom]));
+  const pendingWord = FieldElement.toBigInt(
+    data[startingFrom + 1 + numWholeWords]
+  );
+  // not actually used
+  // const pendingWordLength = data[startingFrom + 1 + numWholeWords + 1];
+  const value =
+    data
+      .slice(startingFrom + 1, startingFrom + 1 + numWholeWords)
+      .map((element) =>
+        shortString.decodeShortString(num.toHex(FieldElement.toBigInt(element)))
+      )
+      .join("") + shortString.decodeShortString(num.toHex(pendingWord));
+  return {
+    next: startingFrom + 1 + numWholeWords + 1 + 1,
+    value,
+  };
+};

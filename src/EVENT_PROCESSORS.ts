@@ -27,12 +27,12 @@ import {
   PositionMintedWithReferrer,
 } from "./events/positions";
 import {
-  OrderUpdatedEvent,
-  parseOrderUpdated,
   OrderProceedsWithdrawnEvent,
+  OrderUpdatedEvent,
   parseOrderProceedsWithdrawn,
-  VirtualOrdersExecutedEvent,
+  parseOrderUpdated,
   parseVirtualOrdersExecuted,
+  VirtualOrdersExecutedEvent,
 } from "./events/twamm";
 import {
   parseStakedEvent,
@@ -41,24 +41,17 @@ import {
   WithdrawnEvent,
 } from "./events/staker";
 import {
-  GovernorCanceledEvent,
   DescribedEvent,
+  GovernorCanceledEvent,
   GovernorExecutedEvent,
-  parseGovernorCanceledEvent,
   parseDescribedEvent,
-  parseProposedEvent,
+  parseGovernorCanceledEvent,
   parseGovernorVotedEvent,
-  ProposedEvent,
-  VotedEvent,
+  parseGovernorProposedEvent,
+  GovernorProposedEvent,
+  GovernorVotedEvent,
+  parseGovernorExecutedEvent,
 } from "./events/governor";
-import {
-  parseTimelockCanceledEvent,
-  parseTimelockExecutedEvent,
-  parseTimelockQueuedEvent,
-  TimelockCanceledEvent,
-  TimelockExecutedEvent,
-  TimelockQueuedEvent,
-} from "./events/timelock";
 
 export const EVENT_PROCESSORS = [
   <EventProcessor<LegacyPositionMintedEvent>>{
@@ -337,7 +330,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertStakerWithdrawnEvent(parsed, key);
     },
   },
-  <EventProcessor<ProposedEvent>>{
+  <EventProcessor<GovernorProposedEvent>>{
     filter: {
       fromAddress: FieldElement.fromBigInt(process.env.GOVERNOR_ADDRESS),
       keys: [
@@ -347,7 +340,7 @@ export const EVENT_PROCESSORS = [
         ),
       ],
     },
-    parser: parseProposedEvent,
+    parser: parseGovernorProposedEvent,
     async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("GovernorProposed", { parsed, key });
       await dao.insertGovernorProposedEvent(parsed, key);
@@ -369,7 +362,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertGovernorCanceledEvent(parsed, key);
     },
   },
-  <EventProcessor<VotedEvent>>{
+  <EventProcessor<GovernorVotedEvent>>{
     filter: {
       fromAddress: FieldElement.fromBigInt(process.env.GOVERNOR_ADDRESS),
       keys: [
@@ -395,7 +388,7 @@ export const EVENT_PROCESSORS = [
         ),
       ],
     },
-    parser: parseGovernorVotedEvent,
+    parser: parseGovernorExecutedEvent,
     async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("GovernorExecuted", { parsed, key });
       await dao.insertGovernorExecutedEvent(parsed, key);
@@ -415,54 +408,6 @@ export const EVENT_PROCESSORS = [
     async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("GovernorProposalDescribed", { parsed, key });
       await dao.insertGovernorProposalDescribedEvent(parsed, key);
-    },
-  },
-  <EventProcessor<TimelockQueuedEvent>>{
-    filter: {
-      fromAddress: FieldElement.fromBigInt(process.env.TIMELOCK_ADDRESS),
-      keys: [
-        // Queued
-        FieldElement.fromBigInt(
-          0x142ce010ca6c759938299fa1ca4b416597ae88ee3406b40992d2428cd2a140n
-        ),
-      ],
-    },
-    parser: parseTimelockQueuedEvent,
-    async handle(dao, { parsed, key }): Promise<void> {
-      logger.debug("TimelockQueued", { parsed, key });
-      await dao.insertTimelockQueuedEvent(parsed, key);
-    },
-  },
-  <EventProcessor<TimelockCanceledEvent>>{
-    filter: {
-      fromAddress: FieldElement.fromBigInt(process.env.TIMELOCK_ADDRESS),
-      keys: [
-        // Canceled
-        FieldElement.fromBigInt(
-          0xad1f80a0e6ac2d42f6ce99670de84817aef2368cd22a19f85fcb721f689192n
-        ),
-      ],
-    },
-    parser: parseTimelockCanceledEvent,
-    async handle(dao, { parsed, key }): Promise<void> {
-      logger.debug("TimelockCanceled", { parsed, key });
-      await dao.insertTimelockCanceledEvent(parsed, key);
-    },
-  },
-  <EventProcessor<TimelockExecutedEvent>>{
-    filter: {
-      fromAddress: FieldElement.fromBigInt(process.env.TIMELOCK_ADDRESS),
-      keys: [
-        // Executed
-        FieldElement.fromBigInt(
-          0x01f4317aae43f6c24b2b85c6d8b21d5fa0a28cee0476cd52ca5d60d4787aab78n
-        ),
-      ],
-    },
-    parser: parseTimelockExecutedEvent,
-    async handle(dao, { parsed, key }): Promise<void> {
-      logger.debug("TimelockExecuted", { parsed, key });
-      await dao.insertTimelockExecutedEvent(parsed, key);
     },
   },
 ] as const;

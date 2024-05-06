@@ -4,13 +4,11 @@ import {
   parseAddress,
   parseBoolean,
   parseFelt252,
-  Parser,
   parseSpanOf,
   parseU128,
   parseU64,
 } from "../parse";
-import { FieldElement } from "@apibara/starknet";
-import { num, shortString } from "starknet";
+import { parseByteArray } from "./core";
 
 export const parseCall = combineParsers({
   to: { index: 0, parser: parseAddress },
@@ -19,12 +17,14 @@ export const parseCall = combineParsers({
 });
 export type CallType = GetParserType<typeof parseCall>;
 
-export const parseProposedEvent = combineParsers({
+export const parseGovernorProposedEvent = combineParsers({
   id: { index: 0, parser: parseFelt252 },
   proposer: { index: 1, parser: parseAddress },
-  call: { index: 2, parser: parseCall },
+  calls: { index: 2, parser: parseSpanOf(parseCall) },
 });
-export type ProposedEvent = GetParserType<typeof parseProposedEvent>;
+export type GovernorProposedEvent = GetParserType<
+  typeof parseGovernorProposedEvent
+>;
 
 export const parseGovernorVotedEvent = combineParsers({
   id: { index: 0, parser: parseFelt252 },
@@ -32,7 +32,7 @@ export const parseGovernorVotedEvent = combineParsers({
   weight: { index: 2, parser: parseU128 },
   yea: { index: 3, parser: parseBoolean },
 });
-export type VotedEvent = GetParserType<typeof parseGovernorVotedEvent>;
+export type GovernorVotedEvent = GetParserType<typeof parseGovernorVotedEvent>;
 
 export const parseGovernorCanceledEvent = combineParsers({
   id: { index: 0, parser: parseFelt252 },
@@ -44,30 +44,11 @@ export type GovernorCanceledEvent = GetParserType<
 
 export const parseGovernorExecutedEvent = combineParsers({
   id: { index: 0, parser: parseFelt252 },
+  result_data: { index: 1, parser: parseSpanOf(parseSpanOf(parseFelt252)) },
 });
 export type GovernorExecutedEvent = GetParserType<
   typeof parseGovernorExecutedEvent
 >;
-
-export const parseByteArray: Parser<string> = (data, startingFrom) => {
-  const numWholeWords = Number(FieldElement.toBigInt(data[startingFrom]));
-  const pendingWord = FieldElement.toBigInt(
-    data[startingFrom + 1 + numWholeWords]
-  );
-  // not actually used
-  // const pendingWordLength = data[startingFrom + 1 + numWholeWords + 1];
-  const value =
-    data
-      .slice(startingFrom + 1, startingFrom + 1 + numWholeWords)
-      .map((element) =>
-        shortString.decodeShortString(num.toHex(FieldElement.toBigInt(element)))
-      )
-      .join("") + shortString.decodeShortString(num.toHex(pendingWord));
-  return {
-    next: startingFrom + 1 + numWholeWords + 1 + 1,
-    value,
-  };
-};
 
 export const parseDescribedEvent = combineParsers({
   id: { index: 0, parser: parseFelt252 },

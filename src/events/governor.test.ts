@@ -1,6 +1,6 @@
-import { parseByteArray } from "./governor";
 import { describe, expect, it } from "vitest";
 import { FieldElement } from "@apibara/starknet";
+import { parseByteArray } from "./core";
 
 describe(parseByteArray, () => {
   it.each([
