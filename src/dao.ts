@@ -16,14 +16,14 @@ import { computeKeyHash, populateCache } from "./pool_key_hash";
 import { PositionMintedWithReferrer } from "./events/positions";
 import {
   OrderKey,
-  OrderUpdatedEvent,
   OrderProceedsWithdrawnEvent,
+  OrderUpdatedEvent,
   VirtualOrdersExecutedEvent,
 } from "./events/twamm";
 import { StakedEvent, WithdrawnEvent } from "./events/staker";
 import {
-  GovernorCanceledEvent,
   DescribedEvent,
+  GovernorCanceledEvent,
   GovernorExecutedEvent,
   ProposedEvent,
   VotedEvent,
@@ -381,12 +381,20 @@ export class DAO {
 
             CREATE TABLE IF NOT EXISTS timelock_queued
             (
-                event_id        int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+                event_id int8 REFERENCES event_keys (id) ON DELETE CASCADE,
 
-                id              NUMERIC     NOT NULL,
-                calls_tos       NUMERIC[]   NOT NULL,
-                calls_selectors NUMERIC[]   NOT NULL,
-                calls_calldatas NUMERIC[][] NOT NULL
+                id       NUMERIC NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_timelock_queued_id ON timelock_queued USING btree (id);
+
+            CREATE TABLE IF NOT EXISTS timelock_queued_calls
+            (
+                set_id   NUMERIC   NOT NULL REFERENCES timelock_queued (id) ON DELETE CASCADE,
+                index    int2      NOT NULL,
+                call_to  NUMERIC   NOT NULL,
+                selector NUMERIC   NOT NULL,
+                calldata NUMERIC[] NOT NULL,
+                PRIMARY KEY (set_id, index)
             );
 
             CREATE TABLE IF NOT EXISTS timelock_executed
@@ -2003,26 +2011,36 @@ export class DAO {
   }
 
   async insertTimelockQueuedEvent(parsed: TimelockQueuedEvent, key: EventKey) {
+    const query = `
+            WITH inserted_event AS (
+                INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                    VALUES ($1, $2, $3, $4)
+                    RETURNING id),
+                 inserted_timelock_queued AS (
+                     INSERT
+                         INTO timelock_queued
+                             (event_id, id)
+                             VALUES ((SELECT id FROM inserted_event), $5))
+            INSERT
+            INTO timelock_queued_calls (set_id, index, call_to, selector, calldata)
+            VALUES
+            ${parsed.calls
+              .map(
+                (call, ix) =>
+                  `($5, ${ix}, ${call.to}, ${call.selector}, '{${call.calldata
+                    .map((c) => c.toString())
+                    .join(",")}}')`
+              )
+              .join(",")};
+        `;
     await this.pg.query({
-      text: `
-          WITH inserted_event AS (
-              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                  VALUES ($1, $2, $3, $4)
-                  RETURNING id)
-          INSERT
-          INTO timelock_queued
-              (event_id, id, calls_tos, calls_selectors, calls_calldatas)
-          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8)
-      `,
+      text: query,
       values: [
         key.blockNumber,
         key.transactionIndex,
         key.eventIndex,
         key.transactionHash,
         parsed.id,
-        parsed.calls.map((c) => c.to),
-        parsed.calls.map((c) => c.selector),
-        parsed.calls.map((c) => c.calldata),
       ],
     });
   }
