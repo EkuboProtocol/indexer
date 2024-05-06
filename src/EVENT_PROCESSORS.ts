@@ -384,7 +384,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // Executed
         FieldElement.fromBigInt(
-          0xf6e2d429ffbebb53f7887cee88a1d335b5a9c13cd37e2d1a2bf0769be29b2fn
+          0x01f4317aae43f6c24b2b85c6d8b21d5fa0a28cee0476cd52ca5d60d4787aab78n
         ),
       ],
     },
