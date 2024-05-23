@@ -29,9 +29,6 @@ import {
   GovernorVotedEvent,
 } from "./events/governor";
 
-const ETH_TOKEN_ADDRESS =
-  2087021424722619777119509474943472645767659996348769578120564519014510906823n;
-
 const MAX_TICK_SPACING = 354892;
 
 function orderKeyToPoolKey(event_key: EventKey, order_key: OrderKey): PoolKey {
@@ -485,60 +482,6 @@ export class DAO {
         FROM per_pool_per_tick_liquidity_view);
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_per_pool_per_tick_liquidity_pool_key_hash_tick ON per_pool_per_tick_liquidity_materialized USING btree (pool_key_hash, tick);
-
-        CREATE TABLE IF NOT EXISTS leaderboard
-        (
-            collector NUMERIC  NOT NULL,
-            token_id  BIGINT   NOT NULL,
-            category  SMALLINT NOT NULL,
-            points    BIGINT   NOT NULL,
-            PRIMARY KEY (collector, category, token_id)
-        );
-
-        CREATE MATERIALIZED VIEW IF NOT EXISTS leaderboard_materialized_view AS
-        (
-        WITH earned_points AS (SELECT collector,
-                                      SUM(CASE
-                                              WHEN class_hash IN (
-                                                                  0x01a736d6ed154502257f02b1ccdf4d9d1089f80811cd6acad48e6b6a9d1f2003,
-                                                                  0x029927c8af6bccf3f6fda035981e765a7bdbf18a2dc0d630494f8758aa908e2b,
-                                                                  0x025ec026985a3bf9d0cc1fe17326b245dfdc3ff89b8fde106542a3ea56c5a918,
-                                                                  0x071c3c99f5cf76fc19945d4b8b7d34c7c5528f22730d56192b50c6bbfd338a64,
-                                                                  0x0737ee2f87ce571a58c6c8da558ec18a07ceb64a6172d5ec46171fbc80077a48,
-                                                                  0x06e150953b26271a740bf2b6e9bca17cc52c68d765f761295de51ceb8526ee72
-                                                  ) AND referrer =
-                                                        0x064d28d1d1d53a0b5de12e3678699bc9ba32c1cb19ce1c048578581ebb7f8396
-                                                  THEN FLOOR(points * 1.2)
-                                              ELSE points END) AS points
-                               FROM leaderboard
-                                        LEFT JOIN position_minted_with_referrer AS pmwr
-                                                  ON pmwr.token_id = leaderboard.token_id
-                                        LEFT JOIN account_class_hashes
-                                                  ON leaderboard.collector = account_class_hashes.address
-                               GROUP BY collector),
-             referral_points AS (SELECT referrer AS collector, SUM(points / 5) AS points
-                                 FROM leaderboard
-                                          JOIN position_minted_with_referrer AS pmwr
-                                               ON pmwr.token_id = leaderboard.token_id
-                                 WHERE referrer != 0
-                                 GROUP BY referrer),
-             collectors_with_scores
-                 AS (SELECT COALESCE(earned_points.collector, referral_points.collector)            AS collector,
-                            COALESCE(earned_points.points, 0)                                       AS earned_points,
-                            COALESCE(referral_points.points, 0)                                     AS referral_points,
-                            COALESCE(earned_points.points, 0) + COALESCE(referral_points.points, 0) AS total_points
-                     FROM earned_points
-                              FULL OUTER JOIN referral_points ON earned_points.collector = referral_points.collector)
-        SELECT collector,
-               ROW_NUMBER() OVER (ORDER BY total_points DESC) AS rank,
-               earned_points,
-               referral_points,
-               total_points
-        FROM collectors_with_scores
-        WHERE total_points != 0
-            );
-
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_leaderboard_materialized_view_collector ON leaderboard_materialized_view USING btree (collector);
 
         CREATE TABLE IF NOT EXISTS twamm_order_updates
         (
