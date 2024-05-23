@@ -301,12 +301,6 @@ export class DAO {
             total_supply NUMERIC NOT NULL
         );
 
-        CREATE TABLE IF NOT EXISTS account_class_hashes
-        (
-            address    NUMERIC NOT NULL PRIMARY KEY,
-            class_hash NUMERIC NOT NULL
-        );
-
         CREATE TABLE IF NOT EXISTS staker_staked
         (
             event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
@@ -387,7 +381,7 @@ export class DAO {
         (
             event_id    int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            id NUMERIC NOT NULL,
+            id          NUMERIC NOT NULL,
             description TEXT    NOT NULL
         );
 
@@ -1323,25 +1317,6 @@ export class DAO {
       values: [invalidatedBlockNumber],
     });
     return rowCount;
-  }
-
-  public async insertAccountClassHashes(
-    items: {
-      account: string;
-      class_hash: string;
-    }[]
-  ) {
-    await this.pg.query({
-      text: `INSERT INTO account_class_hashes (address, class_hash)
-                   SELECT *
-                   FROM UNNEST($1::NUMERIC[], $2::NUMERIC[])
-                   ON CONFLICT (address)
-                       DO UPDATE SET class_hash = excluded.class_hash;`,
-      values: [
-        items.map((i) => BigInt(i.account)),
-        items.map((i) => BigInt(i.class_hash)),
-      ],
-    });
   }
 
   public async writeTransactionSenders(

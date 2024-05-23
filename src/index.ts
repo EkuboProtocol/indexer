@@ -11,7 +11,6 @@ import { logger } from "./logger";
 import { DAO } from "./dao";
 import { Pool } from "pg";
 import { throttle } from "tadaaa";
-import { provider } from "./positions";
 import { EVENT_PROCESSORS } from "./EVENT_PROCESSORS";
 
 const pool = new Pool({
@@ -57,63 +56,6 @@ const refreshAnalyticalTables = throttle(
     leading: true,
     async onError(err) {
       logger.error("Failed to refresh analytical tables", err);
-    },
-  }
-);
-
-let PENDING_ACCOUNT_CLASS_HASH_FETCHES: { [address: string]: true } = {};
-const ALREADY_FETCHED: { [address: string]: true } = {};
-
-const fetchClassHashes = throttle(
-  async function fetchClassHashesInner() {
-    const accounts = Object.keys(PENDING_ACCOUNT_CLASS_HASH_FETCHES).filter(
-      (a) => !ALREADY_FETCHED[a]
-    );
-    accounts.forEach((a) => (ALREADY_FETCHED[a] = true));
-    PENDING_ACCOUNT_CLASS_HASH_FETCHES = {};
-
-    if (accounts.length > 0) {
-      const timer = logger.startTimer();
-
-      logger.info(`Fetching ${accounts.length} class hashes`, {
-        start: timer.start,
-      });
-
-      try {
-        const accountsWithHashes: { account: string; class_hash: string }[] = (
-          await Promise.all(
-            accounts.map((a) =>
-              provider
-                .getClassHashAt(a, "latest")
-                .then((class_hash) => ({ class_hash, account: a }))
-                .catch(() => null)
-            )
-          )
-        ).filter((x): x is Exclude<typeof x, null> => x !== null);
-
-        const client = await pool.connect();
-        const dao = new DAO(client);
-
-        await dao.insertAccountClassHashes(accountsWithHashes);
-
-        client.release();
-
-        timer.done({
-          message: `Updated ${accounts.length} account class hashes`,
-        });
-      } catch (error) {
-        logger.error("Failed to update account class hashes", {
-          accounts,
-          error,
-        });
-      }
-    }
-  },
-  {
-    leading: false,
-    delay: 3000,
-    onError(error) {
-      logger.error("Error encountered while fetching class hashes", { error });
     },
   }
 );
@@ -254,7 +196,6 @@ const fetchClassHashes = throttle(
                     const transactionMapKey =
                       eventKey.transactionHash.toString();
                     if (senderHex) {
-                      PENDING_ACCOUNT_CLASS_HASH_FETCHES[senderHex] = true;
                       transactionSenders[transactionMapKey] = senderHex;
                     }
 
@@ -302,10 +243,6 @@ const fetchClassHashes = throttle(
           }
 
           client.release();
-
-          // Note this is not part of the transaction, and is done async, which means it can fail.
-          // These rows can be manually updated when necessary.
-          fetchClassHashes();
 
           if (isPending) {
             refreshAnalyticalTables();
