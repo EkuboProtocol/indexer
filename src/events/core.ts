@@ -6,12 +6,13 @@ import {
   parseFelt252,
   parseI129,
   Parser,
+  parseSpanOf,
   parseU128,
   parseU256,
   parseU8,
 } from "../parse";
 import { FieldElement } from "@apibara/starknet";
-import { num, shortString } from "starknet";
+import { byteArray, num, shortString } from "starknet";
 
 export const parsePoolKey = combineParsers({
   token0: { index: 0, parser: parseAddress },
@@ -122,22 +123,20 @@ export type TokenRegistrationEvent = GetParserType<
   typeof parseRegistrationEvent
 >;
 
+const wordsParser = parseSpanOf(parseFelt252);
 export const parseByteArray: Parser<string> = (data, startingFrom) => {
-  const numWholeWords = Number(FieldElement.toBigInt(data[startingFrom]));
-  const pendingWord = FieldElement.toBigInt(
-    data[startingFrom + 1 + numWholeWords]
-  );
-  // not actually used
-  // const pendingWordLength = data[startingFrom + 1 + numWholeWords + 1];
-  const value =
-    data
-      .slice(startingFrom + 1, startingFrom + 1 + numWholeWords)
-      .map((element) =>
-        shortString.decodeShortString(num.toHex(FieldElement.toBigInt(element)))
-      )
-      .join("") + shortString.decodeShortString(num.toHex(pendingWord));
+  const words = wordsParser(data, startingFrom);
+
+  const value = byteArray
+    .stringFromByteArray({
+      data: words.value,
+      pending_word: FieldElement.toBigInt(data[words.next]),
+      pending_word_len: FieldElement.toBigInt(data[words.next + 1]),
+    })
+    .replaceAll("\u0000", "?");
+
   return {
-    next: startingFrom + 1 + numWholeWords + 1 + 1,
+    next: words.next + 2,
     value,
   };
 };
