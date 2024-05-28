@@ -32,7 +32,9 @@ export const parseOrderProceedsWithdrawn = combineParsers({
   order_key: { index: 2, parser: parseOrderKey },
   amount: { index: 3, parser: parseU128 },
 });
-export type OrderProceedsWithdrawnEvent = GetParserType<typeof parseOrderProceedsWithdrawn>;
+export type OrderProceedsWithdrawnEvent = GetParserType<
+  typeof parseOrderProceedsWithdrawn
+>;
 
 export const parseStateKey = combineParsers({
   token0: { index: 0, parser: parseAddress },
@@ -47,4 +49,6 @@ export const parseVirtualOrdersExecuted = combineParsers({
   token1_sale_rate: { index: 2, parser: parseU128 },
   twamm_delta: { index: 3, parser: parseDelta },
 });
-export type VirtualOrdersExecutedEvent = GetParserType<typeof parseVirtualOrdersExecuted>;
+export type VirtualOrdersExecutedEvent = GetParserType<
+  typeof parseVirtualOrdersExecuted
+>;

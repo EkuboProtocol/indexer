@@ -9,7 +9,6 @@ import {
   ProtocolFeesPaidEvent,
   ProtocolFeesWithdrawnEvent,
   SwappedEvent,
-  TokenRegistrationEvent,
 } from "./events/core";
 import { TransferEvent } from "./events/nft";
 import { computeKeyHash, populateCache } from "./pool_key_hash";
@@ -28,6 +27,7 @@ import {
   GovernorProposedEvent,
   GovernorVotedEvent,
 } from "./events/governor";
+import { TokenRegistrationEvent } from "./events/tokenRegistry";
 
 const MAX_TICK_SPACING = 354892;
 
@@ -1502,37 +1502,39 @@ export class DAO {
     const query =
       parsed.calls.length > 0
         ? `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                VALUES ($1, $2, $3, $4)
-                RETURNING id),
-             inserted_governor_proposed AS (
-                 INSERT
-                     INTO governor_proposed
-                         (event_id, id, proposer)
-                         VALUES ((SELECT id FROM inserted_event), $5, $6))
-        INSERT
-        INTO governor_proposed_calls (proposal_id, index, to_address, selector, calldata)
-        VALUES
-        ${parsed.calls
-          .map(
-            (call, ix) =>
-              `($5, ${ix}, ${call.to}, ${call.selector}, '{${call.calldata
-                .map((c) => c.toString())
-                .join(",")}}')`
-          )
-          .join(",")};
-    `
+                        WITH inserted_event AS (
+                            INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                                VALUES ($1, $2, $3, $4)
+                                RETURNING id),
+                             inserted_governor_proposed AS (
+                                 INSERT
+                                     INTO governor_proposed
+                                         (event_id, id, proposer)
+                                         VALUES ((SELECT id FROM inserted_event), $5, $6))
+                        INSERT
+                        INTO governor_proposed_calls (proposal_id, index, to_address, selector, calldata)
+                        VALUES
+                        ${parsed.calls
+                          .map(
+                            (call, ix) =>
+                              `($5, ${ix}, ${call.to}, ${
+                                call.selector
+                              }, '{${call.calldata
+                                .map((c) => c.toString())
+                                .join(",")}}')`
+                          )
+                          .join(",")};
+                `
         : `
-                  WITH inserted_event AS (
-                      INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                          VALUES ($1, $2, $3, $4)
-                          RETURNING id)
-                  INSERT
-                  INTO governor_proposed
-                      (event_id, id, proposer)
-                  VALUES ((SELECT id FROM inserted_event), $5, $6);
-          `;
+                        WITH inserted_event AS (
+                            INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                                VALUES ($1, $2, $3, $4)
+                                RETURNING id)
+                        INSERT
+                        INTO governor_proposed
+                            (event_id, id, proposer)
+                        VALUES ((SELECT id FROM inserted_event), $5, $6);
+                `;
     await this.pg.query({
       text: query,
       values: [
@@ -1553,38 +1555,38 @@ export class DAO {
     const query =
       parsed.result_data.length > 0
         ? `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                VALUES ($1, $2, $3, $4)
-                RETURNING id),
-             inserted_governor_executed AS (
-                 INSERT
-                     INTO governor_executed
-                         (event_id, id)
-                         VALUES ((SELECT id FROM inserted_event), $5))
-        INSERT
-        INTO governor_executed_results (proposal_id, index, results)
-        VALUES
-            ${parsed.result_data
-              .map(
-                (results, ix) =>
-                  `($5, ${ix}, '{${results
-                    .map((c) => c.toString())
-                    .join(",")}}')`
-              )
-              .join(",")};
-    `
+                        WITH inserted_event AS (
+                            INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                                VALUES ($1, $2, $3, $4)
+                                RETURNING id),
+                             inserted_governor_executed AS (
+                                 INSERT
+                                     INTO governor_executed
+                                         (event_id, id)
+                                         VALUES ((SELECT id FROM inserted_event), $5))
+                        INSERT
+                        INTO governor_executed_results (proposal_id, index, results)
+                        VALUES
+                        ${parsed.result_data
+                          .map(
+                            (results, ix) =>
+                              `($5, ${ix}, '{${results
+                                .map((c) => c.toString())
+                                .join(",")}}')`
+                          )
+                          .join(",")};
+                `
         : `
 
-                  WITH inserted_event AS (
-                      INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                          VALUES ($1, $2, $3, $4)
-                          RETURNING id)
-                  INSERT
-                  INTO governor_executed
-                      (event_id, id)
-                  VALUES ((SELECT id FROM inserted_event), $5)
-          `;
+                        WITH inserted_event AS (
+                            INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                                VALUES ($1, $2, $3, $4)
+                                RETURNING id)
+                        INSERT
+                        INTO governor_executed
+                            (event_id, id)
+                        VALUES ((SELECT id FROM inserted_event), $5)
+                `;
 
     await this.pg.query({
       text: query,
@@ -1601,15 +1603,15 @@ export class DAO {
   async insertGovernorVotedEvent(parsed: GovernorVotedEvent, key: EventKey) {
     await this.pg.query({
       text: `
-          WITH inserted_event AS (
-              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                  VALUES ($1, $2, $3, $4)
-                  RETURNING id)
-          INSERT
-          INTO governor_voted
-              (event_id, id, voter, weight, yea)
-          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8)
-      `,
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id)
+                INSERT
+                INTO governor_voted
+                    (event_id, id, voter, weight, yea)
+                VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8)
+            `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -1670,7 +1672,8 @@ export class DAO {
         key.eventIndex,
         key.transactionHash,
         parsed.id,
-        parsed.description,
+        // postgres does not support null characters
+        parsed.description.replaceAll("\u0000", "?"),
       ],
     });
   }

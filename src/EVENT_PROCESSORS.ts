@@ -10,7 +10,6 @@ import {
   parsePositionUpdatedEvent,
   parseProtocolFeesPaidEvent,
   parseProtocolFeesWithdrawnEvent,
-  parseRegistrationEvent,
   parseSwappedEvent,
   PoolInitializationEvent,
   PositionFeesCollectedEvent,
@@ -18,7 +17,6 @@ import {
   ProtocolFeesPaidEvent,
   ProtocolFeesWithdrawnEvent,
   SwappedEvent,
-  TokenRegistrationEvent,
 } from "./events/core";
 import {
   LegacyPositionMintedEvent,
@@ -44,14 +42,18 @@ import {
   DescribedEvent,
   GovernorCanceledEvent,
   GovernorExecutedEvent,
-  parseDescribedEvent,
-  parseGovernorCanceledEvent,
-  parseGovernorVotedEvent,
-  parseGovernorProposedEvent,
   GovernorProposedEvent,
   GovernorVotedEvent,
+  parseDescribedEvent,
+  parseGovernorCanceledEvent,
   parseGovernorExecutedEvent,
+  parseGovernorProposedEvent,
+  parseGovernorVotedEvent,
 } from "./events/governor";
+import {
+  parseRegistrationEvent,
+  TokenRegistrationEvent,
+} from "./events/tokenRegistry";
 
 export const EVENT_PROCESSORS = [
   <EventProcessor<LegacyPositionMintedEvent>>{
