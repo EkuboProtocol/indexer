@@ -3,12 +3,12 @@ import {
   GetParserType,
   parseAddress,
   parseBoolean,
+  parseByteArray,
   parseFelt252,
   parseSpanOf,
   parseU128,
   parseU64,
 } from "../parse";
-import { parseByteArray } from "./core";
 
 export const parseCall = combineParsers({
   to: { index: 0, parser: parseAddress },

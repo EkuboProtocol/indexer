@@ -3,16 +3,10 @@ import {
   GetParserType,
   parseAddress,
   parseBoolean,
-  parseFelt252,
   parseI129,
-  Parser,
-  parseSpanOf,
   parseU128,
   parseU256,
-  parseU8,
 } from "../parse";
-import { FieldElement } from "@apibara/starknet";
-import { byteArray, num, shortString } from "starknet";
 
 export const parsePoolKey = combineParsers({
   token0: { index: 0, parser: parseAddress },
@@ -111,32 +105,3 @@ export const parseFeesAccumulatedEvent = combineParsers({
 export type FeesAccumulatedEvent = GetParserType<
   typeof parseFeesAccumulatedEvent
 >;
-
-export const parseRegistrationEvent = combineParsers({
-  address: { index: 0, parser: parseAddress },
-  name: { index: 1, parser: parseFelt252 },
-  symbol: { index: 2, parser: parseFelt252 },
-  decimals: { index: 2, parser: parseU8 },
-  total_supply: { index: 2, parser: parseU128 },
-});
-export type TokenRegistrationEvent = GetParserType<
-  typeof parseRegistrationEvent
->;
-
-const wordsParser = parseSpanOf(parseFelt252);
-export const parseByteArray: Parser<string> = (data, startingFrom) => {
-  const words = wordsParser(data, startingFrom);
-
-  const value = byteArray
-    .stringFromByteArray({
-      data: words.value,
-      pending_word: FieldElement.toBigInt(data[words.next]),
-      pending_word_len: FieldElement.toBigInt(data[words.next + 1]),
-    })
-    .replaceAll("\u0000", "?");
-
-  return {
-    next: words.next + 2,
-    value,
-  };
-};

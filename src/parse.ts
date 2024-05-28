@@ -138,3 +138,40 @@ export function combineParsers<
       next: number;
     };
 }
+
+export const parseUint8Array: Parser<Uint8Array> = (data, startingFrom) => {
+  const { next, value } = parseFelt252(data, startingFrom);
+
+  const result: number[] = [];
+  for (let i = 0; i < 31; i++) {
+    const position = BigInt(i * 8);
+    const byte = (value & (255n << position)) >> position;
+    if (byte === 0n) {
+      break;
+    }
+    result.unshift(Number(byte));
+  }
+
+  return {
+    value: new Uint8Array(result),
+    next,
+  };
+};
+const parseByteArrayWords = parseSpanOf(parseUint8Array);
+export const parseByteArray: Parser<string> = (data, startingFrom) => {
+  const words = parseByteArrayWords(data, startingFrom);
+
+  const value = new TextDecoder().decode(
+    Buffer.concat([
+      ...words.value,
+      // pending word
+      parseUint8Array(data, words.next).value,
+    ])
+  );
+
+  return {
+    // pending word length is not used
+    next: words.next + 2,
+    value,
+  };
+};
