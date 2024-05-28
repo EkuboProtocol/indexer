@@ -24,6 +24,7 @@ import { StakedEvent, WithdrawnEvent } from "./events/staker";
 import {
   DescribedEvent,
   GovernorCanceledEvent,
+  GovernorCreationThresholdBreached,
   GovernorExecutedEvent,
   GovernorProposedEvent,
   GovernorVotedEvent,
@@ -344,8 +345,13 @@ export class DAO {
         (
             event_id         int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            id               NUMERIC     NOT NULL,
-            breach_timestamp timestamptz NOT NULL
+            id               NUMERIC     NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS governor_creation_threshold_breached
+        (
+            governor_canceled_event_id int8 REFERENCES governor_canceled (id) ON DELETE CASCADE PRIMARY KEY,
+            breach_timestamp           timestamptz NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS governor_voted
@@ -1635,8 +1641,38 @@ export class DAO {
                   RETURNING id)
           INSERT
           INTO governor_canceled
-              (event_id, id, breach_timestamp)
-          VALUES ((SELECT id FROM inserted_event), $5, $6)
+              (event_id, id)
+          VALUES ((SELECT id FROM inserted_event), $5)
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        parsed.id,
+      ],
+    });
+  }
+
+  async insertGovernorCreationThresholdBreachedEvent(
+    parsed: GovernorCreationThresholdBreached,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id),
+               inserted_governor_canceled AS (
+                   INSERT
+                       INTO governor_canceled
+                           (event_id, id)
+                           VALUES ((SELECT id FROM inserted_event), $5))
+          INSERT
+          INTO governor_creation_threshold_breached
+              (governor_canceled_event_id, breach_timestamp)
+          VALUES ((SELECT id FROM inserted_event), $6)
       `,
       values: [
         key.blockNumber,

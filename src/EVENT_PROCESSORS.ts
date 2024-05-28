@@ -51,6 +51,8 @@ import {
   GovernorProposedEvent,
   GovernorVotedEvent,
   parseGovernorExecutedEvent,
+  GovernorCreationThresholdBreached,
+  parseGovernorCreationThresholdBreached,
 } from "./events/governor";
 
 export const EVENT_PROCESSORS = [
@@ -360,6 +362,22 @@ export const EVENT_PROCESSORS = [
     async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("GovernorCanceled", { parsed, key });
       await dao.insertGovernorCanceledEvent(parsed, key);
+    },
+  },
+  <EventProcessor<GovernorCreationThresholdBreached>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.GOVERNOR_ADDRESS),
+      keys: [
+        // CreationThresholdBreached
+        FieldElement.fromBigInt(
+          0xda0eb1cb71bdbfac21648d8b87024714f7eb6207978c7eb359a20144a99bafn
+        ),
+      ],
+    },
+    parser: parseGovernorCreationThresholdBreached,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("GovernorCreationThresholdBreached", { parsed, key });
+      await dao.insertGovernorCreationThresholdBreachedEvent(parsed, key);
     },
   },
   <EventProcessor<GovernorVotedEvent>>{
