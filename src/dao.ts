@@ -347,6 +347,7 @@ export class DAO {
 
             id               NUMERIC     NOT NULL
         );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_governor_canceled_id ON governor_canceled USING btree (id);
 
         CREATE TABLE IF NOT EXISTS governor_creation_threshold_breached
         (
