@@ -26,6 +26,7 @@ import {
   GovernorCreationThresholdBreached,
   GovernorExecutedEvent,
   GovernorProposedEvent,
+  GovernorReconfiguredEvent,
   GovernorVotedEvent,
 } from "./events/governor";
 import { TokenRegistrationEvent } from "./events/tokenRegistry";
@@ -322,12 +323,29 @@ export class DAO {
         CREATE INDEX IF NOT EXISTS idx_staker_withdrawn_delegate_from_address ON staker_staked USING btree (delegate, from_address);
         CREATE INDEX IF NOT EXISTS idx_staker_withdrawn_from_address_delegate ON staker_staked USING btree (from_address, delegate);
 
+        CREATE TABLE IF NOT EXISTS governor_reconfigured
+        (
+            event_id                         int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            version                          BIGINT  NOT NULL,
+
+            voting_start_delay               BIGINT  NOT NULL,
+            voting_period                    BIGINT  NOT NULL,
+            voting_weight_smoothing_duration BIGINT  NOT NULL,
+            quorum                           NUMERIC NOT NULL,
+            proposal_creation_threshold      NUMERIC NOT NULL,
+            execution_delay                  BIGINT  NOT NULL,
+            execution_window                 BIGINT  NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_governor_reconfigured_version ON governor_reconfigured USING btree (version);
+
         CREATE TABLE IF NOT EXISTS governor_proposed
         (
-            event_id int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+            event_id       int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            id       NUMERIC NOT NULL,
-            proposer NUMERIC NOT NULL
+            id             NUMERIC NOT NULL,
+            proposer       NUMERIC NOT NULL,
+            config_version BIGINT REFERENCES governor_reconfigured (version) ON DELETE CASCADE
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_governor_proposed_id ON governor_proposed USING btree (id);
 
@@ -343,9 +361,9 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS governor_canceled
         (
-            event_id         int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+            event_id int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            id               NUMERIC     NOT NULL
+            id       NUMERIC NOT NULL
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_governor_canceled_id ON governor_canceled USING btree (id);
 
@@ -1516,8 +1534,8 @@ export class DAO {
                              inserted_governor_proposed AS (
                                  INSERT
                                      INTO governor_proposed
-                                         (event_id, id, proposer)
-                                         VALUES ((SELECT id FROM inserted_event), $5, $6))
+                                         (event_id, id, proposer, config_version)
+                                         VALUES ((SELECT id FROM inserted_event), $5, $6, $7))
                         INSERT
                         INTO governor_proposed_calls (proposal_id, index, to_address, selector, calldata)
                         VALUES
@@ -1539,8 +1557,8 @@ export class DAO {
                                 RETURNING id)
                         INSERT
                         INTO governor_proposed
-                            (event_id, id, proposer)
-                        VALUES ((SELECT id FROM inserted_event), $5, $6);
+                            (event_id, id, proposer, config_version)
+                        VALUES ((SELECT id FROM inserted_event), $5, $6, $7);
                 `;
     await this.pg.query({
       text: query,
@@ -1551,6 +1569,7 @@ export class DAO {
         key.transactionHash,
         parsed.id,
         parsed.proposer,
+        parsed.config_version,
       ],
     });
   }
@@ -1711,6 +1730,39 @@ export class DAO {
         parsed.id,
         // postgres does not support null characters
         parsed.description.replaceAll("\u0000", "?"),
+      ],
+    });
+  }
+
+  async insertGovernorReconfiguredEvent(
+    parsed: GovernorReconfiguredEvent,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO governor_reconfigured
+          (event_id, version, voting_start_delay, voting_period, voting_weight_smoothing_duration, quorum,
+           proposal_creation_threshold, execution_delay, execution_window)
+          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11, $12)
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        parsed.version,
+        parsed.new_config.voting_start_delay,
+        parsed.new_config.voting_period,
+        parsed.new_config.voting_weight_smoothing_duration,
+        parsed.new_config.quorum,
+        parsed.new_config.proposal_creation_threshold,
+        parsed.new_config.execution_delay,
+        parsed.new_config.execution_window,
       ],
     });
   }

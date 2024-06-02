@@ -1,4 +1,5 @@
 import {
+  backwardsCompatibleParserAdditionalArgument,
   combineParsers,
   GetParserType,
   parseAddress,
@@ -21,6 +22,10 @@ export const parseGovernorProposedEvent = combineParsers({
   id: { index: 0, parser: parseFelt252 },
   proposer: { index: 1, parser: parseAddress },
   calls: { index: 2, parser: parseSpanOf(parseCall) },
+  config_version: {
+    index: 3,
+    parser: backwardsCompatibleParserAdditionalArgument(parseU64),
+  },
 });
 export type GovernorProposedEvent = GetParserType<
   typeof parseGovernorProposedEvent
@@ -62,3 +67,22 @@ export const parseDescribedEvent = combineParsers({
   description: { index: 1, parser: parseByteArray },
 });
 export type DescribedEvent = GetParserType<typeof parseDescribedEvent>;
+
+export const parseGovernorConfig = combineParsers({
+  voting_start_delay: { index: 0, parser: parseU64 },
+  voting_period: { index: 1, parser: parseU64 },
+  voting_weight_smoothing_duration: { index: 2, parser: parseU64 },
+  quorum: { index: 3, parser: parseU128 },
+  proposal_creation_threshold: { index: 4, parser: parseU128 },
+  execution_delay: { index: 5, parser: parseU64 },
+  execution_window: { index: 6, parser: parseU64 },
+});
+export type GovernorConfig = GetParserType<typeof parseGovernorConfig>;
+
+export const parseGovernorReconfigured = combineParsers({
+  new_config: { index: 0, parser: parseGovernorConfig },
+  version: { index: 1, parser: parseU64 },
+});
+export type GovernorReconfiguredEvent = GetParserType<
+  typeof parseGovernorReconfigured
+>;

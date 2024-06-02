@@ -40,6 +40,7 @@ import {
 } from "./events/staker";
 import {
   DescribedEvent,
+  GovernorReconfiguredEvent,
   GovernorCanceledEvent,
   GovernorCreationThresholdBreached,
   GovernorExecutedEvent,
@@ -51,6 +52,7 @@ import {
   parseGovernorExecutedEvent,
   parseGovernorProposedEvent,
   parseGovernorVotedEvent,
+  parseGovernorReconfigured,
 } from "./events/governor";
 import {
   parseRegistrationEvent,
@@ -428,6 +430,22 @@ export const EVENT_PROCESSORS = [
     async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("GovernorProposalDescribed", { parsed, key });
       await dao.insertGovernorProposalDescribedEvent(parsed, key);
+    },
+  },
+  <EventProcessor<GovernorReconfiguredEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.GOVERNOR_ADDRESS),
+      keys: [
+        // Reconfigured
+        FieldElement.fromBigInt(
+          0x02b9973fd701ab68169e139e241db74576eca4e885bad73d016982a59f1ac9fbn
+        ),
+      ],
+    },
+    parser: parseGovernorReconfigured,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("GovernorReconfigured", { parsed, key });
+      await dao.insertGovernorReconfiguredEvent(parsed, key);
     },
   },
 ] as const;
