@@ -23,7 +23,6 @@ import { StakedEvent, WithdrawnEvent } from "./events/staker";
 import {
   DescribedEvent,
   GovernorCanceledEvent,
-  GovernorCreationThresholdBreached,
   GovernorExecutedEvent,
   GovernorProposedEvent,
   GovernorReconfiguredEvent,
@@ -366,12 +365,6 @@ export class DAO {
             id       NUMERIC NOT NULL
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_governor_canceled_id ON governor_canceled USING btree (id);
-
-        CREATE TABLE IF NOT EXISTS governor_creation_threshold_breached
-        (
-            governor_canceled_event_id int8 REFERENCES governor_canceled (id) ON DELETE CASCADE PRIMARY KEY,
-            breach_timestamp           timestamptz NOT NULL
-        );
 
         CREATE TABLE IF NOT EXISTS governor_voted
         (
@@ -1672,37 +1665,6 @@ export class DAO {
         key.eventIndex,
         key.transactionHash,
         parsed.id,
-      ],
-    });
-  }
-
-  async insertGovernorCreationThresholdBreachedEvent(
-    parsed: GovernorCreationThresholdBreached,
-    key: EventKey
-  ) {
-    await this.pg.query({
-      text: `
-          WITH inserted_event AS (
-              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                  VALUES ($1, $2, $3, $4)
-                  RETURNING id),
-               inserted_governor_canceled AS (
-                   INSERT
-                       INTO governor_canceled
-                           (event_id, id)
-                           VALUES ((SELECT id FROM inserted_event), $5))
-          INSERT
-          INTO governor_creation_threshold_breached
-              (governor_canceled_event_id, breach_timestamp)
-          VALUES ((SELECT id FROM inserted_event), $6)
-      `,
-      values: [
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        parsed.id,
-        new Date(Number(parsed.breach_timestamp * 1000n)),
       ],
     });
   }
