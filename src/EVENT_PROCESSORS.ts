@@ -381,7 +381,8 @@ export const EVENT_PROCESSORS = [
     parser: parseGovernorCreationThresholdBreached,
     async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("GovernorCreationThresholdBreached", { parsed, key });
-      await dao.insertGovernorCreationThresholdBreachedEvent(parsed, key);
+      // just use the canceled table
+      await dao.insertGovernorCanceledEvent(parsed, key);
     },
   },
   <EventProcessor<GovernorVotedEvent>>{
