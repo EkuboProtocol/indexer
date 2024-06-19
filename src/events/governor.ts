@@ -46,6 +46,14 @@ export type GovernorCanceledEvent = GetParserType<
   typeof parseGovernorCanceledEvent
 >;
 
+export const parseGovernorCreationThresholdBreached = combineParsers({
+  id: { index: 0, parser: parseFelt252 },
+  breach_timestamp: { index: 0, parser: parseU64 },
+});
+export type GovernorCreationThresholdBreached = GetParserType<
+  typeof parseGovernorCreationThresholdBreached
+>;
+
 export const parseGovernorExecutedEvent = combineParsers({
   id: { index: 0, parser: parseFelt252 },
   result_data: { index: 1, parser: parseSpanOf(parseSpanOf(parseFelt252)) },
