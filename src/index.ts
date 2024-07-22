@@ -1,11 +1,6 @@
 import "./config";
-import {
-  FieldElement,
-  Filter,
-  StarkNetCursor,
-  v1alpha2 as starknet,
-} from "@apibara/starknet";
-import { Cursor, StreamClient, v1alpha2 } from "@apibara/protocol";
+import { FieldElement, Filter, StarknetStream } from "@apibara/starknet";
+import { Cursor, createClient } from "@apibara/protocol";
 import { EventKey } from "./processor";
 import { logger } from "./logger";
 import { DAO } from "./dao";
@@ -18,12 +13,9 @@ const pool = new Pool({
   connectionTimeoutMillis: 1000,
 });
 
-const streamClient = new StreamClient({
-  url: process.env.APIBARA_URL,
-  token: process.env.APIBARA_AUTH_TOKEN,
-});
+const streamClient = createClient(StarknetStream, process.env.APIBARA_URL);
 
-export function parseLong(long: number | Long): bigint {
+export function parseLong(long: number): bigint {
   return BigInt(typeof long === "number" ? long : long.toNumber());
 }
 
@@ -61,6 +53,11 @@ const refreshAnalyticalTables = throttle(
 );
 
 (async function () {
+  {
+    const status = await streamClient.status();
+    console.log(status);
+  }
+
   // first set up the schema
   let databaseStartingCursor;
   {
