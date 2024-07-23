@@ -19,8 +19,8 @@
     "vitest": "^1.5.3"
   },
   "dependencies": {
-    "@apibara/protocol": "^2.0.0-beta.0",
-    "@apibara/starknet": "^2.0.0-beta.0",
+    "@apibara/protocol": "^2.0.0-beta.1",
+    "@apibara/starknet": "^2.0.0-beta.1",
     "dotenv": "^16.3.1",
     "p-queue-cjs": "^7.3.4",
     "pedersen-fast": "^0.4.0",
