@@ -1,4 +1,3 @@
-import { v1alpha2 as starknet } from "@apibara/starknet";
 import { Parser } from "./parse";
 import { DAO } from "./dao";
 
@@ -25,8 +24,8 @@ export interface ParsedEventWithKey<T> {
 
 export interface EventProcessor<T> {
   filter: {
-    keys: starknet.IFieldElement[];
-    fromAddress: starknet.IFieldElement;
+    keys: `0x${string}`[];
+    fromAddress: `0x${string}`;
   };
 
   parser: Parser<T>;

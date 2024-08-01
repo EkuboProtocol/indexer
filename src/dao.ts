@@ -30,6 +30,7 @@ import {
   GovernorVotedEvent,
 } from "./events/governor";
 import { TokenRegistrationEvent } from "./events/tokenRegistry";
+import { Cursor } from "@apibara/protocol";
 
 const MAX_TICK_SPACING = 354892;
 
@@ -779,10 +780,14 @@ export class DAO {
     `);
   }
 
-  private async loadCursor(): Promise<{
-    orderKey: string;
-    uniqueKey: string;
-  } | null> {
+  private async loadCursor(): Promise<
+    | {
+        orderKey: bigint;
+        uniqueKey: `0x${string}`;
+      }
+    | { orderKey: bigint }
+    | null
+  > {
     const { rows } = await this.pg.query({
       text: `SELECT order_key, unique_key
                    FROM cursor
@@ -791,16 +796,22 @@ export class DAO {
     if (rows.length === 1) {
       const { order_key, unique_key } = rows[0];
 
-      return {
-        orderKey: order_key,
-        uniqueKey: unique_key,
-      };
+      if (BigInt(unique_key) === 0n) {
+        return {
+          orderKey: BigInt(order_key),
+        };
+      } else {
+        return {
+          orderKey: BigInt(order_key),
+          uniqueKey: unique_key,
+        };
+      }
     } else {
       return null;
     }
   }
 
-  public async writeCursor(cursor: { orderKey: string; uniqueKey: string }) {
+  public async writeCursor(cursor: { orderKey: bigint; uniqueKey?: string }) {
     await this.pg.query({
       text: `
                 INSERT INTO cursor (id, order_key, unique_key, last_updated)
@@ -809,7 +820,7 @@ export class DAO {
                                                unique_key   = $2,
                                                last_updated = NOW();
             `,
-      values: [BigInt(cursor.orderKey), cursor.uniqueKey],
+      values: [cursor.orderKey, BigInt(cursor.uniqueKey ?? 0)],
     });
   }
 
