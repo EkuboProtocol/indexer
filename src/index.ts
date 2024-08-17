@@ -12,6 +12,7 @@ import { DAO } from "./dao";
 import { Pool } from "pg";
 import { throttle } from "tadaaa";
 import { EVENT_PROCESSORS } from "./EVENT_PROCESSORS";
+import Long from "long";
 
 const pool = new Pool({
   connectionString: process.env.PG_CONNECTION_STRING,

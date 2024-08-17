@@ -639,6 +639,62 @@ export class DAO {
                           ON tpsm.pool_key_hash = tsrdv.pool_key_hash AND
                              tpsm.last_virtual_execution_time < tsrdv.time);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_twamm_sale_rate_deltas_materialized_pool_key_hash_time ON twamm_sale_rate_deltas_materialized USING btree (pool_key_hash, time);
+
+            CREATE OR REPLACE VIEW last_24h_pool_stats_view AS
+            (
+            WITH volume AS (SELECT vbt.key_hash,
+                                   SUM(CASE WHEN vbt.token = token0 THEN vbt.volume ELSE 0 END) AS volume0,
+                                   SUM(CASE WHEN vbt.token = token1 THEN vbt.volume ELSE 0 END) AS volume1,
+                                   SUM(CASE WHEN vbt.token = token0 THEN vbt.fees ELSE 0 END)   AS fees0,
+                                   SUM(CASE WHEN vbt.token = token1 THEN vbt.fees ELSE 0 END)   AS fees1
+                            FROM hourly_volume_by_token vbt
+                                     JOIN pool_keys ON vbt.key_hash = pool_keys.key_hash
+                            WHERE hour >= NOW() - INTERVAL '24 hours'
+                            GROUP BY vbt.key_hash),
+                 tvl_total AS (SELECT tbt.key_hash,
+                                      SUM(CASE WHEN token = token0 THEN delta ELSE 0 END) AS tvl0,
+                                      SUM(CASE WHEN token = token1 THEN delta ELSE 0 END) AS tvl1
+                               FROM hourly_tvl_delta_by_token tbt
+                                        JOIN pool_keys pk ON tbt.key_hash = pk.key_hash
+                               GROUP BY tbt.key_hash),
+                 tvl_delta_24h AS (SELECT tbt.key_hash,
+                                          SUM(CASE WHEN token = token0 THEN delta ELSE 0 END) AS tvl0,
+                                          SUM(CASE WHEN token = token1 THEN delta ELSE 0 END) AS tvl1
+                                   FROM hourly_tvl_delta_by_token tbt
+                                            JOIN pool_keys pk ON tbt.key_hash = pk.key_hash
+                                   WHERE hour >= NOW() - INTERVAL '24 hours'
+                                   GROUP BY tbt.key_hash)
+            SELECT pool_keys.key_hash,
+                   COALESCE(volume.volume0, 0)     AS volume0_24h,
+                   COALESCE(volume.volume1, 0)     AS volume1_24h,
+                   COALESCE(volume.fees0, 0)       AS fees0_24h,
+                   COALESCE(volume.fees1, 0)       AS fees1_24h,
+                   COALESCE(tvl_total.tvl0, 0)     AS tvl0_total,
+                   COALESCE(tvl_total.tvl1, 0)     AS tvl1_total,
+                   COALESCE(tvl_delta_24h.tvl0, 0) AS tvl0_delta_24h,
+                   COALESCE(tvl_delta_24h.tvl1, 0) AS tvl1_delta_24h
+            FROM pool_keys
+                     LEFT JOIN volume ON volume.key_hash = pool_keys.key_hash
+                     LEFT JOIN
+                 tvl_total ON pool_keys.key_hash = tvl_total.key_hash
+                     LEFT JOIN tvl_delta_24h
+                               ON tvl_delta_24h.key_hash = pool_keys.key_hash
+                );
+
+            CREATE MATERIALIZED VIEW IF NOT EXISTS last_24h_pool_stats_materialized AS
+            (
+            SELECT key_hash,
+                   volume0_24h,
+                   volume1_24h,
+                   fees0_24h,
+                   fees1_24h,
+                   tvl0_total,
+                   tvl1_total,
+                   tvl0_delta_24h,
+                   tvl1_delta_24h
+            FROM last_24h_pool_stats_view
+                );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_last_24h_pool_stats_materialized_key_hash ON last_24h_pool_stats_materialized USING btree (key_hash);
         `);
   }
 
@@ -670,145 +726,149 @@ export class DAO {
 
     await this.pg.query({
       text: `
-          INSERT INTO hourly_volume_by_token
-              (SELECT fa.pool_key_hash                AS key_hash,
-                      DATE_TRUNC('hour', blocks.time) AS hour,
-                      pool_keys.token0                AS token,
-                      0                               AS volume,
-                      SUM(fa.amount0)                 AS fees,
-                      0                               AS swap_count
-               FROM fees_accumulated fa
-                        JOIN pool_keys ON fa.pool_key_hash = pool_keys.key_hash
-                        JOIN event_keys ON fa.event_id = event_keys.id
-                        JOIN blocks ON event_keys.block_number = blocks.number
-               WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
-                 AND fa.amount0 > 0
-               GROUP BY hour, fa.pool_key_hash, token)
-          ON CONFLICT (key_hash, hour, token)
-              DO UPDATE SET fees = excluded.fees + hourly_volume_by_token.fees;
-      `,
+                INSERT INTO hourly_volume_by_token
+                    (SELECT fa.pool_key_hash                AS key_hash,
+                            DATE_TRUNC('hour', blocks.time) AS hour,
+                            pool_keys.token0                AS token,
+                            0                               AS volume,
+                            SUM(fa.amount0)                 AS fees,
+                            0                               AS swap_count
+                     FROM fees_accumulated fa
+                              JOIN pool_keys ON fa.pool_key_hash = pool_keys.key_hash
+                              JOIN event_keys ON fa.event_id = event_keys.id
+                              JOIN blocks ON event_keys.block_number = blocks.number
+                     WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
+                       AND fa.amount0 > 0
+                     GROUP BY hour, fa.pool_key_hash, token)
+                ON CONFLICT (key_hash, hour, token)
+                    DO UPDATE SET fees = excluded.fees + hourly_volume_by_token.fees;
+            `,
       values: [since],
     });
 
     await this.pg.query({
       text: `
-          INSERT INTO hourly_volume_by_token
-              (SELECT fa.pool_key_hash                AS key_hash,
-                      DATE_TRUNC('hour', blocks.time) AS hour,
-                      pool_keys.token1                AS token,
-                      0                               AS volume,
-                      SUM(fa.amount1)                 AS fees,
-                      0                               AS swap_count
-               FROM fees_accumulated fa
-                        JOIN pool_keys ON fa.pool_key_hash = pool_keys.key_hash
-                        JOIN event_keys ON fa.event_id = event_keys.id
-                        JOIN blocks ON event_keys.block_number = blocks.number
-               WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
-                 AND fa.amount1 > 0
-               GROUP BY hour, fa.pool_key_hash, token)
-          ON CONFLICT (key_hash, hour, token)
-              DO UPDATE SET fees = excluded.fees + hourly_volume_by_token.fees;
-      `,
+                INSERT INTO hourly_volume_by_token
+                    (SELECT fa.pool_key_hash                AS key_hash,
+                            DATE_TRUNC('hour', blocks.time) AS hour,
+                            pool_keys.token1                AS token,
+                            0                               AS volume,
+                            SUM(fa.amount1)                 AS fees,
+                            0                               AS swap_count
+                     FROM fees_accumulated fa
+                              JOIN pool_keys ON fa.pool_key_hash = pool_keys.key_hash
+                              JOIN event_keys ON fa.event_id = event_keys.id
+                              JOIN blocks ON event_keys.block_number = blocks.number
+                     WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
+                       AND fa.amount1 > 0
+                     GROUP BY hour, fa.pool_key_hash, token)
+                ON CONFLICT (key_hash, hour, token)
+                    DO UPDATE SET fees = excluded.fees + hourly_volume_by_token.fees;
+            `,
       values: [since],
     });
 
     await this.pg.query({
       text: `
-          INSERT INTO hourly_tvl_delta_by_token
-              (WITH first_event_id AS (SELECT id
-                                       FROM event_keys AS ek
-                                                JOIN blocks AS b ON ek.block_number = b.number
-                                       WHERE b.time >= DATE_TRUNC('hour', $1::timestamptz)
-                                       LIMIT 1),
-                    grouped_pool_key_hash_deltas AS (SELECT pool_key_hash,
-                                                            DATE_TRUNC('hour', blocks.time) AS hour,
-                                                            SUM(delta0)                     AS delta0,
-                                                            SUM(delta1)                     AS delta1
-                                                     FROM swaps
-                                                              JOIN event_keys ON swaps.event_id = event_keys.id
-                                                              JOIN blocks ON event_keys.block_number = blocks.number
-                                                     WHERE event_id >= (SELECT id FROM first_event_id)
-                                                     GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)
+                INSERT INTO hourly_tvl_delta_by_token
+                    (WITH first_event_id AS (SELECT id
+                                             FROM event_keys AS ek
+                                                      JOIN blocks AS b ON ek.block_number = b.number
+                                             WHERE b.time >= DATE_TRUNC('hour', $1::timestamptz)
+                                             LIMIT 1),
+                          grouped_pool_key_hash_deltas AS (SELECT pool_key_hash,
+                                                                  DATE_TRUNC('hour', blocks.time) AS hour,
+                                                                  SUM(delta0)                     AS delta0,
+                                                                  SUM(delta1)                     AS delta1
+                                                           FROM swaps
+                                                                    JOIN event_keys ON swaps.event_id = event_keys.id
+                                                                    JOIN blocks ON event_keys.block_number = blocks.number
+                                                           WHERE event_id >= (SELECT id FROM first_event_id)
+                                                           GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)
 
-                                                     UNION ALL
+                                                           UNION ALL
 
-                                                     SELECT pool_key_hash,
-                                                            DATE_TRUNC('hour', blocks.time) AS hour,
-                                                            SUM(delta0)                     AS delta0,
-                                                            SUM(delta1)                     AS delta1
-                                                     FROM position_updates
-                                                              JOIN event_keys ON position_updates.event_id = event_keys.id
-                                                              JOIN blocks ON event_keys.block_number = blocks.number
-                                                     WHERE event_id >= (SELECT id FROM first_event_id)
-                                                     GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)
+                                                           SELECT pool_key_hash,
+                                                                  DATE_TRUNC('hour', blocks.time) AS hour,
+                                                                  SUM(delta0)                     AS delta0,
+                                                                  SUM(delta1)                     AS delta1
+                                                           FROM position_updates
+                                                                    JOIN event_keys ON position_updates.event_id = event_keys.id
+                                                                    JOIN blocks ON event_keys.block_number = blocks.number
+                                                           WHERE event_id >= (SELECT id FROM first_event_id)
+                                                           GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)
 
-                                                     UNION ALL
+                                                           UNION ALL
 
-                                                     SELECT pool_key_hash,
-                                                            DATE_TRUNC('hour', blocks.time) AS hour,
-                                                            SUM(delta0)                     AS delta0,
-                                                            SUM(delta1)                     AS delta1
-                                                     FROM position_fees_collected
-                                                              JOIN event_keys ON position_fees_collected.event_id = event_keys.id
-                                                              JOIN blocks ON event_keys.block_number = blocks.number
-                                                     WHERE event_id >= (SELECT id FROM first_event_id)
-                                                     GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)
+                                                           SELECT pool_key_hash,
+                                                                  DATE_TRUNC('hour', blocks.time) AS hour,
+                                                                  SUM(delta0)                     AS delta0,
+                                                                  SUM(delta1)                     AS delta1
+                                                           FROM position_fees_collected
+                                                                    JOIN event_keys ON position_fees_collected.event_id = event_keys.id
+                                                                    JOIN blocks ON event_keys.block_number = blocks.number
+                                                           WHERE event_id >= (SELECT id FROM first_event_id)
+                                                           GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)
 
-                                                     UNION ALL
+                                                           UNION ALL
 
-                                                     SELECT pool_key_hash,
-                                                            DATE_TRUNC('hour', blocks.time) AS hour,
-                                                            SUM(delta0)                     AS delta0,
-                                                            SUM(delta1)                     AS delta1
-                                                     FROM protocol_fees_paid
-                                                              JOIN event_keys ON protocol_fees_paid.event_id = event_keys.id
-                                                              JOIN blocks ON event_keys.block_number = blocks.number
-                                                     WHERE event_id >= (SELECT id FROM first_event_id)
-                                                     GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)
+                                                           SELECT pool_key_hash,
+                                                                  DATE_TRUNC('hour', blocks.time) AS hour,
+                                                                  SUM(delta0)                     AS delta0,
+                                                                  SUM(delta1)                     AS delta1
+                                                           FROM protocol_fees_paid
+                                                                    JOIN event_keys ON protocol_fees_paid.event_id = event_keys.id
+                                                                    JOIN blocks ON event_keys.block_number = blocks.number
+                                                           WHERE event_id >= (SELECT id FROM first_event_id)
+                                                           GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)
 
-                                                     UNION ALL
+                                                           UNION ALL
 
-                                                     SELECT pool_key_hash,
-                                                            DATE_TRUNC('hour', blocks.time) AS hour,
-                                                            SUM(amount0)                    AS delta0,
-                                                            SUM(amount1)                    AS delta1
-                                                     FROM fees_accumulated
-                                                              JOIN event_keys ON fees_accumulated.event_id = event_keys.id
-                                                              JOIN blocks ON event_keys.block_number = blocks.number
-                                                     WHERE event_id >= (SELECT id FROM first_event_id)
-                                                     GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)),
-                    token_deltas AS (SELECT pool_key_hash,
-                                            grouped_pool_key_hash_deltas.hour,
-                                            pool_keys.token0 AS token,
-                                            SUM(delta0)      AS delta
-                                     FROM grouped_pool_key_hash_deltas
-                                              JOIN pool_keys
-                                                   ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
-                                     GROUP BY pool_key_hash, grouped_pool_key_hash_deltas.hour,
-                                              pool_keys.token0
+                                                           SELECT pool_key_hash,
+                                                                  DATE_TRUNC('hour', blocks.time) AS hour,
+                                                                  SUM(amount0)                    AS delta0,
+                                                                  SUM(amount1)                    AS delta1
+                                                           FROM fees_accumulated
+                                                                    JOIN event_keys ON fees_accumulated.event_id = event_keys.id
+                                                                    JOIN blocks ON event_keys.block_number = blocks.number
+                                                           WHERE event_id >= (SELECT id FROM first_event_id)
+                                                           GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)),
+                          token_deltas AS (SELECT pool_key_hash,
+                                                  grouped_pool_key_hash_deltas.hour,
+                                                  pool_keys.token0 AS token,
+                                                  SUM(delta0)      AS delta
+                                           FROM grouped_pool_key_hash_deltas
+                                                    JOIN pool_keys
+                                                         ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
+                                           GROUP BY pool_key_hash, grouped_pool_key_hash_deltas.hour,
+                                                    pool_keys.token0
 
-                                     UNION ALL
+                                           UNION ALL
 
-                                     SELECT pool_key_hash,
-                                            grouped_pool_key_hash_deltas.hour,
-                                            pool_keys.token1 AS token,
-                                            SUM(delta1)      AS delta
-                                     FROM grouped_pool_key_hash_deltas
-                                              JOIN pool_keys
-                                                   ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
-                                     GROUP BY pool_key_hash, grouped_pool_key_hash_deltas.hour,
-                                              pool_keys.token1)
-               SELECT pool_key_hash AS key_hash,
-                      token_deltas.hour,
-                      token_deltas.token,
-                      SUM(delta)    AS delta
-               FROM token_deltas
-               GROUP BY token_deltas.pool_key_hash, token_deltas.hour, token_deltas.token)
-          ON CONFLICT (key_hash, hour, token)
-              DO UPDATE SET delta = excluded.delta;
-      `,
+                                           SELECT pool_key_hash,
+                                                  grouped_pool_key_hash_deltas.hour,
+                                                  pool_keys.token1 AS token,
+                                                  SUM(delta1)      AS delta
+                                           FROM grouped_pool_key_hash_deltas
+                                                    JOIN pool_keys
+                                                         ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
+                                           GROUP BY pool_key_hash, grouped_pool_key_hash_deltas.hour,
+                                                    pool_keys.token1)
+                     SELECT pool_key_hash AS key_hash,
+                            token_deltas.hour,
+                            token_deltas.token,
+                            SUM(delta)    AS delta
+                     FROM token_deltas
+                     GROUP BY token_deltas.pool_key_hash, token_deltas.hour, token_deltas.token)
+                ON CONFLICT (key_hash, hour, token)
+                    DO UPDATE SET delta = excluded.delta;
+            `,
       values: [since],
     });
+
+    await this.pg.query(
+      `REFRESH MATERIALIZED VIEW CONCURRENTLY last_24h_pool_stats_materialized;`
+    );
   }
 
   public async refreshOperationalMaterializedView() {
