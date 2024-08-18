@@ -173,6 +173,7 @@ export class DAO {
                 to_address   NUMERIC NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_position_transfers_token_id_from_to ON position_transfers (token_id, from_address, to_address);
+            CREATE INDEX IF NOT EXISTS idx_position_transfers_to_address ON position_transfers (to_address);
 
             CREATE TABLE IF NOT EXISTS position_updates
             (
