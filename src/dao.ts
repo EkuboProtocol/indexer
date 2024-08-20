@@ -835,8 +835,8 @@ export class DAO {
                       pk.token1                                                    AS token1,
                       date_bin(INTERVAL '1 hour', b.time,
                                '2000-01-01 00:00:00'::TIMESTAMP WITHOUT TIME ZONE) AS hour,
-                      SUM(delta1 * delta1)                                         AS k_volume,
-                      SUM(ABS(delta1 * delta0))                                    AS total,
+                      SUM(ABS(delta1 * delta0))                                    AS k_volume,
+                      SUM(delta1 * delta1)                                         AS total,
                       COUNT(1)                                                     AS swap_count
                FROM swaps s
                         JOIN event_keys ek ON s.event_id = ek.id
