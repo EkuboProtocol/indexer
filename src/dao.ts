@@ -737,6 +737,7 @@ export class DAO {
                           ON lk.address = tr.address
                               AND lk.last_registration_id = tr.event_id
             ORDER BY address);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_latest_token_registrations_by_address ON latest_token_registrations USING btree (address);
         `);
   }
 
