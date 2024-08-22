@@ -29,6 +29,7 @@ import {
   GovernorVotedEvent,
 } from "./events/governor";
 import { TokenRegistrationEvent } from "./events/tokenRegistry";
+import { SnapshotEvent } from "./events/oracle";
 
 const MAX_TICK_SPACING = 354892;
 
@@ -106,639 +107,666 @@ export class DAO {
 
   private async createSchema(): Promise<void> {
     await this.pg.query(`
-            CREATE TABLE IF NOT EXISTS cursor
-            (
-                id           INT         NOT NULL UNIQUE CHECK (id = 1), -- only one row.
-                order_key    NUMERIC     NOT NULL,
-                unique_key   TEXT        NOT NULL,
-                last_updated timestamptz NOT NULL
+        CREATE TABLE IF NOT EXISTS cursor
+        (
+            id           INT         NOT NULL UNIQUE CHECK (id = 1), -- only one row.
+            order_key    NUMERIC     NOT NULL,
+            unique_key   TEXT        NOT NULL,
+            last_updated timestamptz NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS blocks
+        (
+            -- int4 blocks represents over a thousand years at 12 second blocks
+            number   int4        NOT NULL PRIMARY KEY,
+            hash     NUMERIC     NOT NULL,
+            time     timestamptz NOT NULL,
+            inserted timestamptz NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_blocks_time ON blocks USING btree (time);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_blocks_hash ON blocks USING btree (hash);
+
+        CREATE TABLE IF NOT EXISTS pool_keys
+        (
+            key_hash     NUMERIC NOT NULL PRIMARY KEY,
+            token0       NUMERIC NOT NULL,
+            token1       NUMERIC NOT NULL,
+            fee          NUMERIC NOT NULL,
+            tick_spacing INT     NOT NULL,
+            extension    NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_pool_keys_token0 ON pool_keys USING btree (token0);
+        CREATE INDEX IF NOT EXISTS idx_pool_keys_token1 ON pool_keys USING btree (token1);
+        CREATE INDEX IF NOT EXISTS idx_pool_keys_token0_token1 ON pool_keys USING btree (token0, token1);
+        CREATE INDEX IF NOT EXISTS idx_pool_keys_extension ON pool_keys USING btree (extension);
+
+        -- all events reference an event id which contains the metadata of the event
+        CREATE TABLE IF NOT EXISTS event_keys
+        (
+            id                int8 GENERATED ALWAYS AS (block_number * 4294967296 + transaction_index * 65536 + event_index) STORED PRIMARY KEY,
+            transaction_hash  NUMERIC NOT NULL,
+            block_number      int4    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
+            transaction_index int2    NOT NULL,
+            event_index       int2    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_event_keys_block_number_transaction_index_event_index ON event_keys USING btree (block_number, transaction_index, event_index);
+        CREATE INDEX IF NOT EXISTS idx_event_keys_transaction_hash ON event_keys USING btree (transaction_hash);
+
+        CREATE TABLE IF NOT EXISTS transactions
+        (
+            transaction_hash NUMERIC NOT NULL PRIMARY KEY,
+            sender           NUMERIC NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS transaction_receipts
+        (
+            transaction_hash NUMERIC  NOT NULL PRIMARY KEY,
+            fee_paid         NUMERIC  NOT NULL,
+            fee_paid_unit    SMALLINT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS position_transfers
+        (
+            event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            token_id     int8    NOT NULL,
+            from_address NUMERIC NOT NULL,
+            to_address   NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_position_transfers_token_id_from_to ON position_transfers (token_id, from_address, to_address);
+        CREATE INDEX IF NOT EXISTS idx_position_transfers_to_address ON position_transfers (to_address);
+
+        CREATE TABLE IF NOT EXISTS position_updates
+        (
+            event_id        int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            locker          NUMERIC NOT NULL,
+
+            pool_key_hash   NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+
+            salt            NUMERIC NOT NULL,
+            lower_bound     int4    NOT NULL,
+            upper_bound     int4    NOT NULL,
+
+            liquidity_delta NUMERIC NOT NULL,
+            delta0          NUMERIC NOT NULL,
+            delta1          NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_position_updates_pool_key_hash_event_id ON position_updates USING btree (pool_key_hash, event_id);
+        CREATE INDEX IF NOT EXISTS idx_position_updates_locker_salt ON position_updates USING btree (locker, salt);
+        CREATE INDEX IF NOT EXISTS idx_position_updates_salt ON position_updates USING btree (salt);
+
+        CREATE TABLE IF NOT EXISTS position_fees_collected
+        (
+            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+
+            owner         NUMERIC NOT NULL,
+            salt          NUMERIC NOT NULL,
+            lower_bound   int4    NOT NULL,
+            upper_bound   int4    NOT NULL,
+
+            delta0        NUMERIC NOT NULL,
+            delta1        NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_position_fees_collected_pool_key_hash ON position_fees_collected (pool_key_hash);
+        CREATE INDEX IF NOT EXISTS idx_position_fees_collected_salt ON position_fees_collected USING btree (salt);
+
+
+        CREATE TABLE IF NOT EXISTS protocol_fees_withdrawn
+        (
+            event_id  int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            recipient NUMERIC NOT NULL,
+            token     NUMERIC NOT NULL,
+            amount    NUMERIC NOT NULL
+        );
+
+
+        CREATE TABLE IF NOT EXISTS protocol_fees_paid
+        (
+            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+
+            owner         NUMERIC NOT NULL,
+            salt          NUMERIC NOT NULL,
+            lower_bound   int4    NOT NULL,
+            upper_bound   int4    NOT NULL,
+
+            delta0        NUMERIC NOT NULL,
+            delta1        NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_protocol_fees_paid_pool_key_hash ON protocol_fees_paid (pool_key_hash);
+        CREATE INDEX IF NOT EXISTS idx_protocol_fees_paid_salt ON protocol_fees_paid USING btree (salt);
+
+        CREATE TABLE IF NOT EXISTS fees_accumulated
+        (
+            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+
+            amount0       NUMERIC NOT NULL,
+            amount1       NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_fees_accumulated_pool_key_hash ON fees_accumulated (pool_key_hash);
+
+        CREATE TABLE IF NOT EXISTS pool_initializations
+        (
+            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+
+            tick          int4    NOT NULL,
+            sqrt_ratio    NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_pool_initializations_pool_key_hash ON pool_initializations (pool_key_hash);
+
+
+        CREATE TABLE IF NOT EXISTS swaps
+        (
+            event_id         int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            locker           NUMERIC NOT NULL,
+            pool_key_hash    NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+
+            delta0           NUMERIC NOT NULL,
+            delta1           NUMERIC NOT NULL,
+
+            sqrt_ratio_after NUMERIC NOT NULL,
+            tick_after       int4    NOT NULL,
+            liquidity_after  NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_event_id ON swaps USING btree (pool_key_hash, event_id);
+
+        CREATE TABLE IF NOT EXISTS position_minted_with_referrer
+        (
+            event_id int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            token_id int8    NOT NULL,
+            referrer NUMERIC NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_position_minted_with_referrer_token_id ON position_minted_with_referrer USING btree (token_id);
+
+        CREATE TABLE IF NOT EXISTS token_registrations
+        (
+            event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            address      NUMERIC NOT NULL,
+
+            name         NUMERIC NOT NULL,
+            symbol       NUMERIC NOT NULL,
+            decimals     INT     NOT NULL,
+            total_supply NUMERIC NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS staker_staked
+        (
+            event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            from_address NUMERIC NOT NULL,
+            amount       NUMERIC NOT NULL,
+            delegate     NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_staker_staked_delegate_from_address ON staker_staked USING btree (delegate, from_address);
+        CREATE INDEX IF NOT EXISTS idx_staker_staked_from_address_delegate ON staker_staked USING btree (from_address, delegate);
+
+        CREATE TABLE IF NOT EXISTS staker_withdrawn
+        (
+            event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            from_address NUMERIC NOT NULL,
+            amount       NUMERIC NOT NULL,
+            recipient    NUMERIC NOT NULL,
+            delegate     NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_staker_withdrawn_delegate_from_address ON staker_staked USING btree (delegate, from_address);
+        CREATE INDEX IF NOT EXISTS idx_staker_withdrawn_from_address_delegate ON staker_staked USING btree (from_address, delegate);
+
+        CREATE TABLE IF NOT EXISTS governor_reconfigured
+        (
+            event_id                         int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            version                          BIGINT  NOT NULL,
+
+            voting_start_delay               BIGINT  NOT NULL,
+            voting_period                    BIGINT  NOT NULL,
+            voting_weight_smoothing_duration BIGINT  NOT NULL,
+            quorum                           NUMERIC NOT NULL,
+            proposal_creation_threshold      NUMERIC NOT NULL,
+            execution_delay                  BIGINT  NOT NULL,
+            execution_window                 BIGINT  NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_governor_reconfigured_version ON governor_reconfigured USING btree (version);
+
+        CREATE TABLE IF NOT EXISTS governor_proposed
+        (
+            event_id       int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            id             NUMERIC NOT NULL,
+            proposer       NUMERIC NOT NULL,
+            config_version BIGINT REFERENCES governor_reconfigured (version) ON DELETE CASCADE
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_governor_proposed_id ON governor_proposed USING btree (id);
+
+        CREATE TABLE IF NOT EXISTS governor_proposed_calls
+        (
+            proposal_id NUMERIC   NOT NULL REFERENCES governor_proposed (id) ON DELETE CASCADE,
+            index       int2      NOT NULL,
+            to_address  NUMERIC   NOT NULL,
+            selector    NUMERIC   NOT NULL,
+            calldata    NUMERIC[] NOT NULL,
+            PRIMARY KEY (proposal_id, index)
+        );
+
+        CREATE TABLE IF NOT EXISTS governor_canceled
+        (
+            event_id int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            id       NUMERIC NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_governor_canceled_id ON governor_canceled USING btree (id);
+
+        CREATE TABLE IF NOT EXISTS governor_voted
+        (
+            event_id int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            id       NUMERIC NOT NULL,
+            voter    NUMERIC NOT NULL,
+            weight   NUMERIC NOT NULL,
+            yea      BOOLEAN NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS governor_executed
+        (
+            event_id int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            id       NUMERIC NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_governor_executed_id ON governor_executed USING btree (id);
+
+        CREATE TABLE IF NOT EXISTS governor_executed_results
+        (
+            proposal_id NUMERIC   NOT NULL REFERENCES governor_executed (id) ON DELETE CASCADE,
+            index       int2      NOT NULL,
+            results     NUMERIC[] NOT NULL,
+            PRIMARY KEY (proposal_id, index)
+        );
+
+        CREATE TABLE IF NOT EXISTS governor_proposal_described
+        (
+            event_id    int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            id          NUMERIC NOT NULL,
+            description TEXT    NOT NULL
+        );
+
+        CREATE OR REPLACE VIEW pool_states_view AS
+        (
+        WITH lss AS (SELECT key_hash,
+                            COALESCE(last_swap.event_id, pi.event_id)           AS last_swap_event_id,
+                            COALESCE(last_swap.sqrt_ratio_after, pi.sqrt_ratio) AS sqrt_ratio,
+                            COALESCE(last_swap.tick_after, pi.tick)             AS tick,
+                            COALESCE(last_swap.liquidity_after, 0)              AS liquidity_last
+                     FROM pool_keys
+                              LEFT JOIN LATERAL (
+                         SELECT event_id, sqrt_ratio_after, tick_after, liquidity_after
+                         FROM swaps
+                         WHERE pool_keys.key_hash = swaps.pool_key_hash
+                         ORDER BY event_id DESC
+                         LIMIT 1
+                         ) AS last_swap ON TRUE
+                              LEFT JOIN LATERAL (
+                         SELECT event_id, sqrt_ratio, tick
+                         FROM pool_initializations
+                         WHERE pool_initializations.pool_key_hash = pool_keys.key_hash
+                         ORDER BY event_id DESC
+                         LIMIT 1
+                         ) AS pi ON TRUE),
+             pl AS (SELECT key_hash,
+                           (SELECT event_id
+                            FROM position_updates
+                            WHERE key_hash = position_updates.pool_key_hash
+                            ORDER BY event_id DESC
+                            LIMIT 1)                                   AS last_update_event_id,
+                           (COALESCE(liquidity_last, 0) + COALESCE((SELECT SUM(liquidity_delta)
+                                                                    FROM position_updates AS pu
+                                                                    WHERE lss.last_swap_event_id < pu.event_id
+                                                                      AND pu.pool_key_hash = lss.key_hash
+                                                                      AND lss.tick BETWEEN pu.lower_bound AND (pu.upper_bound - 1)),
+                                                                   0)) AS liquidity
+                    FROM lss)
+        SELECT lss.key_hash                                              AS pool_key_hash,
+               sqrt_ratio,
+               tick,
+               liquidity,
+               GREATEST(lss.last_swap_event_id, pl.last_update_event_id) AS last_event_id,
+               pl.last_update_event_id                                   AS last_liquidity_update_event_id
+        FROM lss
+                 JOIN pl ON lss.key_hash = pl.key_hash
             );
 
-            CREATE TABLE IF NOT EXISTS blocks
-            (
-                -- int4 blocks represents over a thousand years at 12 second blocks
-                number   int4        NOT NULL PRIMARY KEY,
-                hash     NUMERIC     NOT NULL,
-                time     timestamptz NOT NULL,
-                inserted timestamptz NOT NULL DEFAULT NOW()
-            );
-            CREATE INDEX IF NOT EXISTS idx_blocks_time ON blocks USING btree (time);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_blocks_hash ON blocks USING btree (hash);
+        CREATE MATERIALIZED VIEW IF NOT EXISTS pool_states_materialized AS
+        (
+        SELECT pool_key_hash, last_event_id, last_liquidity_update_event_id, sqrt_ratio, liquidity, tick
+        FROM pool_states_view);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_states_materialized_pool_key_hash ON pool_states_materialized USING btree (pool_key_hash);
 
-            CREATE TABLE IF NOT EXISTS pool_keys
-            (
-                key_hash     NUMERIC NOT NULL PRIMARY KEY,
-                token0       NUMERIC NOT NULL,
-                token1       NUMERIC NOT NULL,
-                fee          NUMERIC NOT NULL,
-                tick_spacing INT     NOT NULL,
-                extension    NUMERIC NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_pool_keys_token0 ON pool_keys USING btree (token0);
-            CREATE INDEX IF NOT EXISTS idx_pool_keys_token1 ON pool_keys USING btree (token1);
-            CREATE INDEX IF NOT EXISTS idx_pool_keys_token0_token1 ON pool_keys USING btree (token0, token1);
-            CREATE INDEX IF NOT EXISTS idx_pool_keys_extension ON pool_keys USING btree (extension);
+        CREATE TABLE IF NOT EXISTS hourly_volume_by_token
+        (
+            key_hash   NUMERIC,
+            hour       timestamptz,
+            token      NUMERIC,
+            volume     NUMERIC,
+            fees       NUMERIC,
+            swap_count NUMERIC,
+            PRIMARY KEY (key_hash, hour, token)
+        );
 
-            -- all events reference an event id which contains the metadata of the event
-            CREATE TABLE IF NOT EXISTS event_keys
-            (
-                id                int8 GENERATED ALWAYS AS (block_number * 4294967296 + transaction_index * 65536 + event_index) STORED PRIMARY KEY,
-                transaction_hash  NUMERIC NOT NULL,
-                block_number      int4    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
-                transaction_index int2    NOT NULL,
-                event_index       int2    NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_event_keys_block_number_transaction_index_event_index ON event_keys USING btree (block_number, transaction_index, event_index);
-            CREATE INDEX IF NOT EXISTS idx_event_keys_transaction_hash ON event_keys USING btree (transaction_hash);
+        CREATE TABLE IF NOT EXISTS hourly_price_data
+        (
+            token0     NUMERIC,
+            token1     NUMERIC,
+            hour       timestamptz,
+            k_volume   NUMERIC,
+            total      NUMERIC,
+            swap_count NUMERIC,
+            PRIMARY KEY (token0, token1, hour)
+        );
 
-            CREATE TABLE IF NOT EXISTS transactions
-            (
-                transaction_hash NUMERIC NOT NULL PRIMARY KEY,
-                sender           NUMERIC NOT NULL
-            );
+        CREATE TABLE IF NOT EXISTS hourly_tvl_delta_by_token
+        (
+            key_hash NUMERIC,
+            hour     timestamptz,
+            token    NUMERIC,
+            delta    NUMERIC,
+            PRIMARY KEY (key_hash, hour, token)
+        );
 
-            CREATE TABLE IF NOT EXISTS transaction_receipts
-            (
-                transaction_hash NUMERIC  NOT NULL PRIMARY KEY,
-                fee_paid         NUMERIC  NOT NULL,
-                fee_paid_unit    SMALLINT NOT NULL
-            );
+        CREATE TABLE IF NOT EXISTS hourly_revenue_by_token
+        (
+            key_hash NUMERIC,
+            hour     timestamptz,
+            token    NUMERIC,
+            revenue  NUMERIC,
+            PRIMARY KEY (key_hash, hour, token)
+        );
 
-            CREATE TABLE IF NOT EXISTS position_transfers
-            (
-                event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+        CREATE OR REPLACE VIEW per_pool_per_tick_liquidity_view AS
+        (
+        WITH all_tick_deltas AS (SELECT pool_key_hash,
+                                        lower_bound AS       tick,
+                                        SUM(liquidity_delta) net_liquidity_delta
+                                 FROM position_updates
+                                 GROUP BY pool_key_hash, lower_bound
+                                 UNION ALL
+                                 SELECT pool_key_hash,
+                                        upper_bound AS        tick,
+                                        SUM(-liquidity_delta) net_liquidity_delta
+                                 FROM position_updates
+                                 GROUP BY pool_key_hash, upper_bound),
+             summed AS (SELECT pool_key_hash,
+                               tick,
+                               SUM(net_liquidity_delta) AS net_liquidity_delta_diff
+                        FROM all_tick_deltas
+                        GROUP BY pool_key_hash, tick)
+        SELECT pool_key_hash, tick, net_liquidity_delta_diff
+        FROM summed
+        WHERE net_liquidity_delta_diff != 0
+        ORDER BY tick);
 
-                token_id     int8    NOT NULL,
-                from_address NUMERIC NOT NULL,
-                to_address   NUMERIC NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_position_transfers_token_id_from_to ON position_transfers (token_id, from_address, to_address);
-            CREATE INDEX IF NOT EXISTS idx_position_transfers_to_address ON position_transfers (to_address);
+        CREATE MATERIALIZED VIEW IF NOT EXISTS per_pool_per_tick_liquidity_materialized AS
+        (
+        SELECT pool_key_hash, tick, net_liquidity_delta_diff
+        FROM per_pool_per_tick_liquidity_view);
 
-            CREATE TABLE IF NOT EXISTS position_updates
-            (
-                event_id        int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_per_pool_per_tick_liquidity_pool_key_hash_tick ON per_pool_per_tick_liquidity_materialized USING btree (pool_key_hash, tick);
 
-                locker          NUMERIC NOT NULL,
+        CREATE TABLE IF NOT EXISTS twamm_order_updates
+        (
+            event_id         int8        NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
 
-                pool_key_hash   NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            key_hash         NUMERIC     NOT NULL REFERENCES pool_keys (key_hash),
 
-                salt            NUMERIC NOT NULL,
-                lower_bound     int4    NOT NULL,
-                upper_bound     int4    NOT NULL,
+            owner            NUMERIC     NOT NULL,
+            salt             NUMERIC     NOT NULL,
+            sale_rate_delta0 NUMERIC     NOT NULL,
+            sale_rate_delta1 NUMERIC     NOT NULL,
+            start_time       timestamptz NOT NULL,
+            end_time         timestamptz NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_key_hash_event_id ON twamm_order_updates USING btree (key_hash, event_id);
+        CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_key_hash_time ON twamm_order_updates USING btree (key_hash, start_time, end_time);
+        CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_owner_salt ON twamm_order_updates USING btree (owner, salt);
+        CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_salt ON twamm_order_updates USING btree (salt);
 
-                liquidity_delta NUMERIC NOT NULL,
-                delta0          NUMERIC NOT NULL,
-                delta1          NUMERIC NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_position_updates_pool_key_hash_event_id ON position_updates USING btree (pool_key_hash, event_id);
-            CREATE INDEX IF NOT EXISTS idx_position_updates_locker_salt ON position_updates USING btree (locker, salt);
-            CREATE INDEX IF NOT EXISTS idx_position_updates_salt ON position_updates USING btree (salt);
+        CREATE TABLE IF NOT EXISTS twamm_proceeds_withdrawals
+        (
+            event_id   int8        NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
 
-            CREATE TABLE IF NOT EXISTS position_fees_collected
-            (
-                event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+            key_hash   NUMERIC     NOT NULL REFERENCES pool_keys (key_hash),
 
-                pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            owner      NUMERIC     NOT NULL,
+            salt       NUMERIC     NOT NULL,
+            amount0    NUMERIC     NOT NULL,
+            amount1    NUMERIC     NOT NULL,
+            start_time timestamptz NOT NULL,
+            end_time   timestamptz NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_key_hash_event_id ON twamm_proceeds_withdrawals USING btree (key_hash, event_id);
+        CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_key_hash_time ON twamm_proceeds_withdrawals USING btree (key_hash, start_time, end_time);
+        CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_owner_salt ON twamm_proceeds_withdrawals USING btree (owner, salt);
+        CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_salt ON twamm_proceeds_withdrawals USING btree (salt);
 
-                owner         NUMERIC NOT NULL,
-                salt          NUMERIC NOT NULL,
-                lower_bound   int4    NOT NULL,
-                upper_bound   int4    NOT NULL,
+        CREATE TABLE IF NOT EXISTS twamm_virtual_order_executions
+        (
+            event_id         int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
 
-                delta0        NUMERIC NOT NULL,
-                delta1        NUMERIC NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_position_fees_collected_pool_key_hash ON position_fees_collected (pool_key_hash);
-            CREATE INDEX IF NOT EXISTS idx_position_fees_collected_salt ON position_fees_collected USING btree (salt);
+            key_hash         NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
+            token0_sale_rate NUMERIC NOT NULL,
+            token1_sale_rate NUMERIC NOT NULL,
+            delta0           NUMERIC NOT NULL,
+            delta1           NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_twamm_virtual_order_executions_pool_key_hash_event_id ON twamm_virtual_order_executions USING btree (key_hash, event_id DESC);
 
-            CREATE TABLE IF NOT EXISTS protocol_fees_withdrawn
-            (
-                event_id  int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS oracle_snapshots
+        (
+            event_id                 int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
 
-                recipient NUMERIC NOT NULL,
-                token     NUMERIC NOT NULL,
-                amount    NUMERIC NOT NULL
-            );
+            key_hash                 NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
+            token0                   NUMERIC NOT NULL,
+            token1                   NUMERIC NOT NULL,
+            index                    int8    NOT NULL,
+            snapshot_block_timestamp int8    NOT NULL,
+            snapshot_tick_cumulative NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_oracle_snapshots_token0_token1_index ON oracle_snapshots USING btree (token0, token1, index);
 
-            CREATE TABLE IF NOT EXISTS protocol_fees_paid
-            (
-                event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
-
-                pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
-
-                owner         NUMERIC NOT NULL,
-                salt          NUMERIC NOT NULL,
-                lower_bound   int4    NOT NULL,
-                upper_bound   int4    NOT NULL,
-
-                delta0        NUMERIC NOT NULL,
-                delta1        NUMERIC NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_protocol_fees_paid_pool_key_hash ON protocol_fees_paid (pool_key_hash);
-            CREATE INDEX IF NOT EXISTS idx_protocol_fees_paid_salt ON protocol_fees_paid USING btree (salt);
-
-            CREATE TABLE IF NOT EXISTS fees_accumulated
-            (
-                event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
-
-                pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
-
-                amount0       NUMERIC NOT NULL,
-                amount1       NUMERIC NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_fees_accumulated_pool_key_hash ON fees_accumulated (pool_key_hash);
-
-            CREATE TABLE IF NOT EXISTS pool_initializations
-            (
-                event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
-
-                pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
-
-                tick          int4    NOT NULL,
-                sqrt_ratio    NUMERIC NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_pool_initializations_pool_key_hash ON pool_initializations (pool_key_hash);
-
-
-            CREATE TABLE IF NOT EXISTS swaps
-            (
-                event_id         int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
-
-                locker           NUMERIC NOT NULL,
-                pool_key_hash    NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
-
-                delta0           NUMERIC NOT NULL,
-                delta1           NUMERIC NOT NULL,
-
-                sqrt_ratio_after NUMERIC NOT NULL,
-                tick_after       int4    NOT NULL,
-                liquidity_after  NUMERIC NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_event_id ON swaps USING btree (pool_key_hash, event_id);
-
-            CREATE TABLE IF NOT EXISTS position_minted_with_referrer
-            (
-                event_id int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
-
-                token_id int8    NOT NULL,
-                referrer NUMERIC NOT NULL
-            );
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_position_minted_with_referrer_token_id ON position_minted_with_referrer USING btree (token_id);
-
-            CREATE TABLE IF NOT EXISTS token_registrations
-            (
-                event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
-
-                address      NUMERIC NOT NULL,
-
-                name         NUMERIC NOT NULL,
-                symbol       NUMERIC NOT NULL,
-                decimals     INT     NOT NULL,
-                total_supply NUMERIC NOT NULL
+        CREATE OR REPLACE VIEW twamm_pool_states_view AS
+        (
+        WITH last_virtual_order_execution AS (SELECT pk.key_hash,
+                                                     last_voe.token0_sale_rate,
+                                                     last_voe.token1_sale_rate,
+                                                     last_voe.event_id AS last_virtual_order_execution_event_id,
+                                                     last_voe.last_virtual_execution_time
+                                              FROM pool_keys pk
+                                                       JOIN LATERAL (SELECT tvoe.event_id,
+                                                                            tvoe.token0_sale_rate,
+                                                                            tvoe.token1_sale_rate,
+                                                                            b."time" AS last_virtual_execution_time
+                                                                     FROM twamm_virtual_order_executions tvoe
+                                                                              JOIN event_keys ek ON tvoe.event_id = ek.id
+                                                                              JOIN blocks b ON ek.block_number = b.number
+                                                                     WHERE pk.key_hash = tvoe.key_hash
+                                                                     ORDER BY tvoe.event_id DESC
+                                                                     LIMIT 1) last_voe ON TRUE
+                                              WHERE pk.extension != 0),
+             active_order_updates_after_lvoe AS (SELECT lvoe_1.key_hash,
+                                                        SUM(tou.sale_rate_delta0) AS sale_rate_delta0,
+                                                        SUM(tou.sale_rate_delta1) AS sale_rate_delta1,
+                                                        MAX(tou.event_id)         AS last_order_update_event_id
+                                                 FROM last_virtual_order_execution lvoe_1
+                                                          JOIN twamm_order_updates tou
+                                                               ON tou.key_hash = lvoe_1.key_hash AND
+                                                                  tou.event_id >
+                                                                  lvoe_1.last_virtual_order_execution_event_id AND
+                                                                  tou.start_time <=
+                                                                  lvoe_1.last_virtual_execution_time AND
+                                                                  tou.end_time >
+                                                                  lvoe_1.last_virtual_execution_time
+                                                 GROUP BY lvoe_1.key_hash)
+        SELECT lvoe.key_hash                                                          AS pool_key_hash,
+               lvoe.token0_sale_rate + COALESCE(ou_lvoe.sale_rate_delta0, 0::NUMERIC) AS token0_sale_rate,
+               lvoe.token1_sale_rate + COALESCE(ou_lvoe.sale_rate_delta1, 0::NUMERIC) AS token1_sale_rate,
+               lvoe.last_virtual_execution_time,
+               GREATEST(COALESCE(ou_lvoe.last_order_update_event_id, lvoe.last_virtual_order_execution_event_id),
+                        psm.last_event_id)                                            AS last_event_id
+        FROM last_virtual_order_execution lvoe
+                 JOIN pool_states_materialized psm ON lvoe.key_hash = psm.pool_key_hash
+                 LEFT JOIN active_order_updates_after_lvoe ou_lvoe ON lvoe.key_hash = ou_lvoe.key_hash
             );
 
-            CREATE TABLE IF NOT EXISTS staker_staked
-            (
-                event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+        CREATE MATERIALIZED VIEW IF NOT EXISTS twamm_pool_states_materialized AS
+        (
+        SELECT pool_key_hash,
+               token0_sale_rate,
+               token1_sale_rate,
+               last_virtual_execution_time,
+               last_event_id
+        FROM twamm_pool_states_view);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_twamm_pool_states_materialized_key_hash ON twamm_pool_states_materialized USING btree (pool_key_hash);
 
-                from_address NUMERIC NOT NULL,
-                amount       NUMERIC NOT NULL,
-                delegate     NUMERIC NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_staker_staked_delegate_from_address ON staker_staked USING btree (delegate, from_address);
-            CREATE INDEX IF NOT EXISTS idx_staker_staked_from_address_delegate ON staker_staked USING btree (from_address, delegate);
+        CREATE OR REPLACE VIEW twamm_sale_rate_deltas_view AS
+        (
+        WITH all_order_deltas AS (SELECT key_hash,
+                                         start_time AS         time,
+                                         SUM(sale_rate_delta0) net_sale_rate_delta0,
+                                         SUM(sale_rate_delta1) net_sale_rate_delta1
+                                  FROM twamm_order_updates
+                                  GROUP BY key_hash, start_time
+                                  UNION ALL
+                                  SELECT key_hash,
+                                         end_time AS            time,
+                                         -SUM(sale_rate_delta0) net_sale_rate_delta0,
+                                         -SUM(sale_rate_delta1) net_sale_rate_delta1
+                                  FROM twamm_order_updates
+                                  GROUP BY key_hash, end_time),
+             summed AS (SELECT key_hash,
+                               time,
+                               SUM(net_sale_rate_delta0) AS net_sale_rate_delta0,
+                               SUM(net_sale_rate_delta1) AS net_sale_rate_delta1
+                        FROM all_order_deltas
+                        GROUP BY key_hash, time)
+        SELECT key_hash AS pool_key_hash, time, net_sale_rate_delta0, net_sale_rate_delta1
+        FROM summed
+        WHERE net_sale_rate_delta0 != 0
+           OR net_sale_rate_delta1 != 0
+        ORDER BY key_hash, time);
 
-            CREATE TABLE IF NOT EXISTS staker_withdrawn
-            (
-                event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+        CREATE MATERIALIZED VIEW IF NOT EXISTS twamm_sale_rate_deltas_materialized AS
+        (
+        SELECT tsrdv.pool_key_hash, tsrdv.time, tsrdv.net_sale_rate_delta0, tsrdv.net_sale_rate_delta1
+        FROM twamm_sale_rate_deltas_view AS tsrdv
+                 JOIN twamm_pool_states_materialized tpsm
+                      ON tpsm.pool_key_hash = tsrdv.pool_key_hash AND
+                         tpsm.last_virtual_execution_time < tsrdv.time);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_twamm_sale_rate_deltas_materialized_pool_key_hash_time ON twamm_sale_rate_deltas_materialized USING btree (pool_key_hash, time);
 
-                from_address NUMERIC NOT NULL,
-                amount       NUMERIC NOT NULL,
-                recipient    NUMERIC NOT NULL,
-                delegate     NUMERIC NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_staker_withdrawn_delegate_from_address ON staker_staked USING btree (delegate, from_address);
-            CREATE INDEX IF NOT EXISTS idx_staker_withdrawn_from_address_delegate ON staker_staked USING btree (from_address, delegate);
-
-            CREATE TABLE IF NOT EXISTS governor_reconfigured
-            (
-                event_id                         int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
-
-                version                          BIGINT  NOT NULL,
-
-                voting_start_delay               BIGINT  NOT NULL,
-                voting_period                    BIGINT  NOT NULL,
-                voting_weight_smoothing_duration BIGINT  NOT NULL,
-                quorum                           NUMERIC NOT NULL,
-                proposal_creation_threshold      NUMERIC NOT NULL,
-                execution_delay                  BIGINT  NOT NULL,
-                execution_window                 BIGINT  NOT NULL
-            );
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_governor_reconfigured_version ON governor_reconfigured USING btree (version);
-
-            CREATE TABLE IF NOT EXISTS governor_proposed
-            (
-                event_id       int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
-
-                id             NUMERIC NOT NULL,
-                proposer       NUMERIC NOT NULL,
-                config_version BIGINT REFERENCES governor_reconfigured (version) ON DELETE CASCADE
-            );
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_governor_proposed_id ON governor_proposed USING btree (id);
-
-            CREATE TABLE IF NOT EXISTS governor_proposed_calls
-            (
-                proposal_id NUMERIC   NOT NULL REFERENCES governor_proposed (id) ON DELETE CASCADE,
-                index       int2      NOT NULL,
-                to_address  NUMERIC   NOT NULL,
-                selector    NUMERIC   NOT NULL,
-                calldata    NUMERIC[] NOT NULL,
-                PRIMARY KEY (proposal_id, index)
-            );
-
-            CREATE TABLE IF NOT EXISTS governor_canceled
-            (
-                event_id int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
-
-                id       NUMERIC NOT NULL
-            );
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_governor_canceled_id ON governor_canceled USING btree (id);
-
-            CREATE TABLE IF NOT EXISTS governor_voted
-            (
-                event_id int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
-
-                id       NUMERIC NOT NULL,
-                voter    NUMERIC NOT NULL,
-                weight   NUMERIC NOT NULL,
-                yea      BOOLEAN NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS governor_executed
-            (
-                event_id int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
-
-                id       NUMERIC NOT NULL
-            );
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_governor_executed_id ON governor_executed USING btree (id);
-
-            CREATE TABLE IF NOT EXISTS governor_executed_results
-            (
-                proposal_id NUMERIC   NOT NULL REFERENCES governor_executed (id) ON DELETE CASCADE,
-                index       int2      NOT NULL,
-                results     NUMERIC[] NOT NULL,
-                PRIMARY KEY (proposal_id, index)
-            );
-
-            CREATE TABLE IF NOT EXISTS governor_proposal_described
-            (
-                event_id    int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
-
-                id          NUMERIC NOT NULL,
-                description TEXT    NOT NULL
-            );
-
-            CREATE OR REPLACE VIEW pool_states_view AS
-            (
-            WITH lss AS (SELECT key_hash,
-                                COALESCE(last_swap.event_id, pi.event_id)           AS last_swap_event_id,
-                                COALESCE(last_swap.sqrt_ratio_after, pi.sqrt_ratio) AS sqrt_ratio,
-                                COALESCE(last_swap.tick_after, pi.tick)             AS tick,
-                                COALESCE(last_swap.liquidity_after, 0)              AS liquidity_last
-                         FROM pool_keys
-                                  LEFT JOIN LATERAL (
-                             SELECT event_id, sqrt_ratio_after, tick_after, liquidity_after
-                             FROM swaps
-                             WHERE pool_keys.key_hash = swaps.pool_key_hash
-                             ORDER BY event_id DESC
-                             LIMIT 1
-                             ) AS last_swap ON TRUE
-                                  LEFT JOIN LATERAL (
-                             SELECT event_id, sqrt_ratio, tick
-                             FROM pool_initializations
-                             WHERE pool_initializations.pool_key_hash = pool_keys.key_hash
-                             ORDER BY event_id DESC
-                             LIMIT 1
-                             ) AS pi ON TRUE),
-                 pl AS (SELECT key_hash,
-                               (SELECT event_id
-                                FROM position_updates
-                                WHERE key_hash = position_updates.pool_key_hash
-                                ORDER BY event_id DESC
-                                LIMIT 1)                                   AS last_update_event_id,
-                               (COALESCE(liquidity_last, 0) + COALESCE((SELECT SUM(liquidity_delta)
-                                                                        FROM position_updates AS pu
-                                                                        WHERE lss.last_swap_event_id < pu.event_id
-                                                                          AND pu.pool_key_hash = lss.key_hash
-                                                                          AND lss.tick BETWEEN pu.lower_bound AND (pu.upper_bound - 1)),
-                                                                       0)) AS liquidity
-                        FROM lss)
-            SELECT lss.key_hash                                              AS pool_key_hash,
-                   sqrt_ratio,
-                   tick,
-                   liquidity,
-                   GREATEST(lss.last_swap_event_id, pl.last_update_event_id) AS last_event_id,
-                   pl.last_update_event_id                                   AS last_liquidity_update_event_id
-            FROM lss
-                     JOIN pl ON lss.key_hash = pl.key_hash
-                );
-
-            CREATE MATERIALIZED VIEW IF NOT EXISTS pool_states_materialized AS
-            (
-            SELECT pool_key_hash, last_event_id, last_liquidity_update_event_id, sqrt_ratio, liquidity, tick
-            FROM pool_states_view);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_states_materialized_pool_key_hash ON pool_states_materialized USING btree (pool_key_hash);
-
-            CREATE TABLE IF NOT EXISTS hourly_volume_by_token
-            (
-                key_hash   NUMERIC,
-                hour       timestamptz,
-                token      NUMERIC,
-                volume     NUMERIC,
-                fees       NUMERIC,
-                swap_count NUMERIC,
-                PRIMARY KEY (key_hash, hour, token)
-            );
-
-            CREATE TABLE IF NOT EXISTS hourly_price_data
-            (
-                token0     NUMERIC,
-                token1     NUMERIC,
-                hour       timestamptz,
-                k_volume   NUMERIC,
-                total      NUMERIC,
-                swap_count NUMERIC,
-                PRIMARY KEY (token0, token1, hour)
-            );
-
-            CREATE TABLE IF NOT EXISTS hourly_tvl_delta_by_token
-            (
-                key_hash NUMERIC,
-                hour     timestamptz,
-                token    NUMERIC,
-                delta    NUMERIC,
-                PRIMARY KEY (key_hash, hour, token)
-            );
-
-            CREATE TABLE IF NOT EXISTS hourly_revenue_by_token
-            (
-                key_hash NUMERIC,
-                hour     timestamptz,
-                token    NUMERIC,
-                revenue  NUMERIC,
-                PRIMARY KEY (key_hash, hour, token)
-            );
-
-            CREATE OR REPLACE VIEW per_pool_per_tick_liquidity_view AS
-            (
-            WITH all_tick_deltas AS (SELECT pool_key_hash,
-                                            lower_bound AS       tick,
-                                            SUM(liquidity_delta) net_liquidity_delta
-                                     FROM position_updates
-                                     GROUP BY pool_key_hash, lower_bound
-                                     UNION ALL
-                                     SELECT pool_key_hash,
-                                            upper_bound AS        tick,
-                                            SUM(-liquidity_delta) net_liquidity_delta
-                                     FROM position_updates
-                                     GROUP BY pool_key_hash, upper_bound),
-                 summed AS (SELECT pool_key_hash,
-                                   tick,
-                                   SUM(net_liquidity_delta) AS net_liquidity_delta_diff
-                            FROM all_tick_deltas
-                            GROUP BY pool_key_hash, tick)
-            SELECT pool_key_hash, tick, net_liquidity_delta_diff
-            FROM summed
-            WHERE net_liquidity_delta_diff != 0
-            ORDER BY tick);
-
-            CREATE MATERIALIZED VIEW IF NOT EXISTS per_pool_per_tick_liquidity_materialized AS
-            (
-            SELECT pool_key_hash, tick, net_liquidity_delta_diff
-            FROM per_pool_per_tick_liquidity_view);
-
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_per_pool_per_tick_liquidity_pool_key_hash_tick ON per_pool_per_tick_liquidity_materialized USING btree (pool_key_hash, tick);
-
-            CREATE TABLE IF NOT EXISTS twamm_order_updates
-            (
-                event_id         int8        NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
-
-                key_hash         NUMERIC     NOT NULL REFERENCES pool_keys (key_hash),
-
-                owner            NUMERIC     NOT NULL,
-                salt             NUMERIC     NOT NULL,
-                sale_rate_delta0 NUMERIC     NOT NULL,
-                sale_rate_delta1 NUMERIC     NOT NULL,
-                start_time       timestamptz NOT NULL,
-                end_time         timestamptz NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_key_hash_event_id ON twamm_order_updates USING btree (key_hash, event_id);
-            CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_key_hash_time ON twamm_order_updates USING btree (key_hash, start_time, end_time);
-            CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_owner_salt ON twamm_order_updates USING btree (owner, salt);
-            CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_salt ON twamm_order_updates USING btree (salt);
-
-            CREATE TABLE IF NOT EXISTS twamm_proceeds_withdrawals
-            (
-                event_id   int8        NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
-
-                key_hash   NUMERIC     NOT NULL REFERENCES pool_keys (key_hash),
-
-                owner      NUMERIC     NOT NULL,
-                salt       NUMERIC     NOT NULL,
-                amount0    NUMERIC     NOT NULL,
-                amount1    NUMERIC     NOT NULL,
-                start_time timestamptz NOT NULL,
-                end_time   timestamptz NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_key_hash_event_id ON twamm_proceeds_withdrawals USING btree (key_hash, event_id);
-            CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_key_hash_time ON twamm_proceeds_withdrawals USING btree (key_hash, start_time, end_time);
-            CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_owner_salt ON twamm_proceeds_withdrawals USING btree (owner, salt);
-            CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_salt ON twamm_proceeds_withdrawals USING btree (salt);
-
-            CREATE TABLE IF NOT EXISTS twamm_virtual_order_executions
-            (
-                event_id         int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
-
-                key_hash         NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
-
-                token0_sale_rate NUMERIC NOT NULL,
-                token1_sale_rate NUMERIC NOT NULL,
-                delta0           NUMERIC NOT NULL,
-                delta1           NUMERIC NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_twamm_virtual_order_executions_pool_key_hash_event_id ON twamm_virtual_order_executions USING btree (key_hash, event_id DESC);
-
-            CREATE OR REPLACE VIEW twamm_pool_states_view AS
-            (
-            WITH last_virtual_order_execution AS (SELECT pk.key_hash,
-                                                         last_voe.token0_sale_rate,
-                                                         last_voe.token1_sale_rate,
-                                                         last_voe.event_id AS last_virtual_order_execution_event_id,
-                                                         last_voe.last_virtual_execution_time
-                                                  FROM pool_keys pk
-                                                           JOIN LATERAL (SELECT tvoe.event_id,
-                                                                                tvoe.token0_sale_rate,
-                                                                                tvoe.token1_sale_rate,
-                                                                                b."time" AS last_virtual_execution_time
-                                                                         FROM twamm_virtual_order_executions tvoe
-                                                                                  JOIN event_keys ek ON tvoe.event_id = ek.id
-                                                                                  JOIN blocks b ON ek.block_number = b.number
-                                                                         WHERE pk.key_hash = tvoe.key_hash
-                                                                         ORDER BY tvoe.event_id DESC
-                                                                         LIMIT 1) last_voe ON TRUE
-                                                  WHERE pk.extension != 0),
-                 active_order_updates_after_lvoe AS (SELECT lvoe_1.key_hash,
-                                                            SUM(tou.sale_rate_delta0) AS sale_rate_delta0,
-                                                            SUM(tou.sale_rate_delta1) AS sale_rate_delta1,
-                                                            MAX(tou.event_id)         AS last_order_update_event_id
-                                                     FROM last_virtual_order_execution lvoe_1
-                                                              JOIN twamm_order_updates tou
-                                                                   ON tou.key_hash = lvoe_1.key_hash AND
-                                                                      tou.event_id >
-                                                                      lvoe_1.last_virtual_order_execution_event_id AND
-                                                                      tou.start_time <=
-                                                                      lvoe_1.last_virtual_execution_time AND
-                                                                      tou.end_time >
-                                                                      lvoe_1.last_virtual_execution_time
-                                                     GROUP BY lvoe_1.key_hash)
-            SELECT lvoe.key_hash                                                          AS pool_key_hash,
-                   lvoe.token0_sale_rate + COALESCE(ou_lvoe.sale_rate_delta0, 0::NUMERIC) AS token0_sale_rate,
-                   lvoe.token1_sale_rate + COALESCE(ou_lvoe.sale_rate_delta1, 0::NUMERIC) AS token1_sale_rate,
-                   lvoe.last_virtual_execution_time,
-                   GREATEST(COALESCE(ou_lvoe.last_order_update_event_id, lvoe.last_virtual_order_execution_event_id),
-                            psm.last_event_id)                                            AS last_event_id
-            FROM last_virtual_order_execution lvoe
-                     JOIN pool_states_materialized psm ON lvoe.key_hash = psm.pool_key_hash
-                     LEFT JOIN active_order_updates_after_lvoe ou_lvoe ON lvoe.key_hash = ou_lvoe.key_hash
-                );
-
-            CREATE MATERIALIZED VIEW IF NOT EXISTS twamm_pool_states_materialized AS
-            (
-            SELECT pool_key_hash,
-                   token0_sale_rate,
-                   token1_sale_rate,
-                   last_virtual_execution_time,
-                   last_event_id
-            FROM twamm_pool_states_view);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_twamm_pool_states_materialized_key_hash ON twamm_pool_states_materialized USING btree (pool_key_hash);
-
-            CREATE OR REPLACE VIEW twamm_sale_rate_deltas_view AS
-            (
-            WITH all_order_deltas AS (SELECT key_hash,
-                                             start_time AS         time,
-                                             SUM(sale_rate_delta0) net_sale_rate_delta0,
-                                             SUM(sale_rate_delta1) net_sale_rate_delta1
-                                      FROM twamm_order_updates
-                                      GROUP BY key_hash, start_time
-                                      UNION ALL
-                                      SELECT key_hash,
-                                             end_time AS            time,
-                                             -SUM(sale_rate_delta0) net_sale_rate_delta0,
-                                             -SUM(sale_rate_delta1) net_sale_rate_delta1
-                                      FROM twamm_order_updates
-                                      GROUP BY key_hash, end_time),
-                 summed AS (SELECT key_hash,
-                                   time,
-                                   SUM(net_sale_rate_delta0) AS net_sale_rate_delta0,
-                                   SUM(net_sale_rate_delta1) AS net_sale_rate_delta1
-                            FROM all_order_deltas
-                            GROUP BY key_hash, time)
-            SELECT key_hash AS pool_key_hash, time, net_sale_rate_delta0, net_sale_rate_delta1
-            FROM summed
-            WHERE net_sale_rate_delta0 != 0
-               OR net_sale_rate_delta1 != 0
-            ORDER BY key_hash, time);
-
-            CREATE MATERIALIZED VIEW IF NOT EXISTS twamm_sale_rate_deltas_materialized AS
-            (
-            SELECT tsrdv.pool_key_hash, tsrdv.time, tsrdv.net_sale_rate_delta0, tsrdv.net_sale_rate_delta1
-            FROM twamm_sale_rate_deltas_view AS tsrdv
-                     JOIN twamm_pool_states_materialized tpsm
-                          ON tpsm.pool_key_hash = tsrdv.pool_key_hash AND
-                             tpsm.last_virtual_execution_time < tsrdv.time);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_twamm_sale_rate_deltas_materialized_pool_key_hash_time ON twamm_sale_rate_deltas_materialized USING btree (pool_key_hash, time);
-
-            CREATE OR REPLACE VIEW last_24h_pool_stats_view AS
-            (
-            WITH volume AS (SELECT vbt.key_hash,
-                                   SUM(CASE WHEN vbt.token = token0 THEN vbt.volume ELSE 0 END) AS volume0,
-                                   SUM(CASE WHEN vbt.token = token1 THEN vbt.volume ELSE 0 END) AS volume1,
-                                   SUM(CASE WHEN vbt.token = token0 THEN vbt.fees ELSE 0 END)   AS fees0,
-                                   SUM(CASE WHEN vbt.token = token1 THEN vbt.fees ELSE 0 END)   AS fees1
-                            FROM hourly_volume_by_token vbt
-                                     JOIN pool_keys ON vbt.key_hash = pool_keys.key_hash
-                            WHERE hour >= NOW() - INTERVAL '24 hours'
-                            GROUP BY vbt.key_hash),
-                 tvl_total AS (SELECT tbt.key_hash,
+        CREATE OR REPLACE VIEW last_24h_pool_stats_view AS
+        (
+        WITH volume AS (SELECT vbt.key_hash,
+                               SUM(CASE WHEN vbt.token = token0 THEN vbt.volume ELSE 0 END) AS volume0,
+                               SUM(CASE WHEN vbt.token = token1 THEN vbt.volume ELSE 0 END) AS volume1,
+                               SUM(CASE WHEN vbt.token = token0 THEN vbt.fees ELSE 0 END)   AS fees0,
+                               SUM(CASE WHEN vbt.token = token1 THEN vbt.fees ELSE 0 END)   AS fees1
+                        FROM hourly_volume_by_token vbt
+                                 JOIN pool_keys ON vbt.key_hash = pool_keys.key_hash
+                        WHERE hour >= NOW() - INTERVAL '24 hours'
+                        GROUP BY vbt.key_hash),
+             tvl_total AS (SELECT tbt.key_hash,
+                                  SUM(CASE WHEN token = token0 THEN delta ELSE 0 END) AS tvl0,
+                                  SUM(CASE WHEN token = token1 THEN delta ELSE 0 END) AS tvl1
+                           FROM hourly_tvl_delta_by_token tbt
+                                    JOIN pool_keys pk ON tbt.key_hash = pk.key_hash
+                           GROUP BY tbt.key_hash),
+             tvl_delta_24h AS (SELECT tbt.key_hash,
                                       SUM(CASE WHEN token = token0 THEN delta ELSE 0 END) AS tvl0,
                                       SUM(CASE WHEN token = token1 THEN delta ELSE 0 END) AS tvl1
                                FROM hourly_tvl_delta_by_token tbt
                                         JOIN pool_keys pk ON tbt.key_hash = pk.key_hash
-                               GROUP BY tbt.key_hash),
-                 tvl_delta_24h AS (SELECT tbt.key_hash,
-                                          SUM(CASE WHEN token = token0 THEN delta ELSE 0 END) AS tvl0,
-                                          SUM(CASE WHEN token = token1 THEN delta ELSE 0 END) AS tvl1
-                                   FROM hourly_tvl_delta_by_token tbt
-                                            JOIN pool_keys pk ON tbt.key_hash = pk.key_hash
-                                   WHERE hour >= NOW() - INTERVAL '24 hours'
-                                   GROUP BY tbt.key_hash)
-            SELECT pool_keys.key_hash,
-                   COALESCE(volume.volume0, 0)     AS volume0_24h,
-                   COALESCE(volume.volume1, 0)     AS volume1_24h,
-                   COALESCE(volume.fees0, 0)       AS fees0_24h,
-                   COALESCE(volume.fees1, 0)       AS fees1_24h,
-                   COALESCE(tvl_total.tvl0, 0)     AS tvl0_total,
-                   COALESCE(tvl_total.tvl1, 0)     AS tvl1_total,
-                   COALESCE(tvl_delta_24h.tvl0, 0) AS tvl0_delta_24h,
-                   COALESCE(tvl_delta_24h.tvl1, 0) AS tvl1_delta_24h
-            FROM pool_keys
-                     LEFT JOIN volume ON volume.key_hash = pool_keys.key_hash
-                     LEFT JOIN
-                 tvl_total ON pool_keys.key_hash = tvl_total.key_hash
-                     LEFT JOIN tvl_delta_24h
-                               ON tvl_delta_24h.key_hash = pool_keys.key_hash
-                );
+                               WHERE hour >= NOW() - INTERVAL '24 hours'
+                               GROUP BY tbt.key_hash)
+        SELECT pool_keys.key_hash,
+               COALESCE(volume.volume0, 0)     AS volume0_24h,
+               COALESCE(volume.volume1, 0)     AS volume1_24h,
+               COALESCE(volume.fees0, 0)       AS fees0_24h,
+               COALESCE(volume.fees1, 0)       AS fees1_24h,
+               COALESCE(tvl_total.tvl0, 0)     AS tvl0_total,
+               COALESCE(tvl_total.tvl1, 0)     AS tvl1_total,
+               COALESCE(tvl_delta_24h.tvl0, 0) AS tvl0_delta_24h,
+               COALESCE(tvl_delta_24h.tvl1, 0) AS tvl1_delta_24h
+        FROM pool_keys
+                 LEFT JOIN volume ON volume.key_hash = pool_keys.key_hash
+                 LEFT JOIN
+             tvl_total ON pool_keys.key_hash = tvl_total.key_hash
+                 LEFT JOIN tvl_delta_24h
+                           ON tvl_delta_24h.key_hash = pool_keys.key_hash
+            );
 
-            CREATE MATERIALIZED VIEW IF NOT EXISTS last_24h_pool_stats_materialized AS
-            (
-            SELECT key_hash,
-                   volume0_24h,
-                   volume1_24h,
-                   fees0_24h,
-                   fees1_24h,
-                   tvl0_total,
-                   tvl1_total,
-                   tvl0_delta_24h,
-                   tvl1_delta_24h
-            FROM last_24h_pool_stats_view
-                );
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_last_24h_pool_stats_materialized_key_hash ON last_24h_pool_stats_materialized USING btree (key_hash);
+        CREATE MATERIALIZED VIEW IF NOT EXISTS last_24h_pool_stats_materialized AS
+        (
+        SELECT key_hash,
+               volume0_24h,
+               volume1_24h,
+               fees0_24h,
+               fees1_24h,
+               tvl0_total,
+               tvl1_total,
+               tvl0_delta_24h,
+               tvl1_delta_24h
+        FROM last_24h_pool_stats_view
+            );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_last_24h_pool_stats_materialized_key_hash ON last_24h_pool_stats_materialized USING btree (key_hash);
 
-            CREATE MATERIALIZED VIEW IF NOT EXISTS latest_token_registrations AS
-            (
-            WITH last_key_per_address AS (SELECT address,
-                                                 (SELECT event_id
-                                                  FROM token_registrations AS trr
-                                                  WHERE trr.address = tr.address
-                                                  ORDER BY event_id DESC
-                                                  LIMIT 1) AS last_registration_id
-                                          FROM token_registrations tr
-                                          GROUP BY address)
-            SELECT lk.address,
-                   tr.name,
-                   tr.symbol,
-                   tr.decimals,
-                   tr.total_supply
-            FROM last_key_per_address AS lk
-                     JOIN token_registrations AS tr
-                          ON lk.address = tr.address
-                              AND lk.last_registration_id = tr.event_id
-            ORDER BY address);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_latest_token_registrations_by_address ON latest_token_registrations USING btree (address);
-        `);
+        CREATE MATERIALIZED VIEW IF NOT EXISTS latest_token_registrations AS
+        (
+        WITH last_key_per_address AS (SELECT address,
+                                             (SELECT event_id
+                                              FROM token_registrations AS trr
+                                              WHERE trr.address = tr.address
+                                              ORDER BY event_id DESC
+                                              LIMIT 1) AS last_registration_id
+                                      FROM token_registrations tr
+                                      GROUP BY address)
+        SELECT lk.address,
+               tr.name,
+               tr.symbol,
+               tr.decimals,
+               tr.total_supply
+        FROM last_key_per_address AS lk
+                 JOIN token_registrations AS tr
+                      ON lk.address = tr.address
+                          AND lk.last_registration_id = tr.event_id
+        ORDER BY address);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_latest_token_registrations_by_address ON latest_token_registrations USING btree (address);
+
+        CREATE OR REPLACE VIEW oracle_pool_states_view AS
+        (
+        SELECT key_hash AS pool_key_hash, MAX(snapshot_block_timestamp) AS last_snapshot_block_timestamp
+        FROM oracle_snapshots
+        GROUP BY key_hash);
+
+        CREATE MATERIALIZED VIEW IF NOT EXISTS oracle_pool_states_materialized AS
+        (
+        SELECT pool_key_hash,
+               last_snapshot_block_timestamp
+        FROM oracle_pool_states_view);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_oracle_pool_states_materialized_pool_key_hash ON oracle_pool_states_materialized USING btree (pool_key_hash);
+    `);
   }
 
   public async refreshAnalyticalTables({ since }: { since: Date }) {
@@ -986,6 +1014,7 @@ export class DAO {
       REFRESH MATERIALIZED VIEW CONCURRENTLY pool_states_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_pool_states_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_sale_rate_deltas_materialized;
+      REFRESH MATERIALIZED VIEW CONCURRENTLY oracle_pool_states_materialized;
     `);
   }
 
@@ -1936,6 +1965,40 @@ export class DAO {
         parsed.new_config.proposal_creation_threshold,
         parsed.new_config.execution_delay,
         parsed.new_config.execution_window,
+      ],
+    });
+  }
+
+  async insertOracleSnapshotEvent(parsed: SnapshotEvent, key: EventKey) {
+    const poolKeyHash = await this.insertPoolKeyHash({
+      fee: 0n,
+      tick_spacing: BigInt(MAX_TICK_SPACING),
+      extension: key.fromAddress,
+      token0: parsed.token0,
+      token1: parsed.token1,
+    });
+    await this.pg.query({
+      text: `
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO oracle_snapshots
+          (event_id, key_hash, token0, token1, index, snapshot_block_timestamp, snapshot_tick_cumulative)
+          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10)
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        poolKeyHash,
+        parsed.token0,
+        parsed.token1,
+        parsed.index,
+        parsed.snapshot.block_timestamp,
+        parsed.snapshot.tick_cumulative,
       ],
     });
   }
