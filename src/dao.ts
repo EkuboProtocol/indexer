@@ -588,23 +588,21 @@ export class DAO {
 
         CREATE OR REPLACE VIEW twamm_pool_states_view AS
         (
-        WITH last_virtual_order_execution AS (SELECT pk.key_hash,
+        WITH lvoe_id AS (SELECT key_hash, MAX(event_id) AS event_id
+                         FROM twamm_virtual_order_executions
+                         GROUP BY key_hash),
+
+             last_virtual_order_execution AS (SELECT pk.key_hash,
                                                      last_voe.token0_sale_rate,
                                                      last_voe.token1_sale_rate,
                                                      last_voe.event_id AS last_virtual_order_execution_event_id,
-                                                     last_voe.last_virtual_execution_time
+                                                     b.time            AS last_virtual_execution_time
                                               FROM pool_keys pk
-                                                       JOIN LATERAL (SELECT tvoe.event_id,
-                                                                            tvoe.token0_sale_rate,
-                                                                            tvoe.token1_sale_rate,
-                                                                            b."time" AS last_virtual_execution_time
-                                                                     FROM twamm_virtual_order_executions tvoe
-                                                                              JOIN event_keys ek ON tvoe.event_id = ek.id
-                                                                              JOIN blocks b ON ek.block_number = b.number
-                                                                     WHERE pk.key_hash = tvoe.key_hash
-                                                                     ORDER BY tvoe.event_id DESC
-                                                                     LIMIT 1) last_voe ON TRUE
-                                              WHERE pk.extension != 0),
+                                                       JOIN lvoe_id ON lvoe_id.key_hash = pk.key_hash
+                                                       JOIN twamm_virtual_order_executions last_voe
+                                                            ON last_voe.event_id = lvoe_id.event_id
+                                                       JOIN event_keys ek ON last_voe.event_id = ek.id
+                                                       JOIN blocks b ON ek.block_number = b.number),
              active_order_updates_after_lvoe AS (SELECT lvoe_1.key_hash,
                                                         SUM(tou.sale_rate_delta0) AS sale_rate_delta0,
                                                         SUM(tou.sale_rate_delta1) AS sale_rate_delta1,
