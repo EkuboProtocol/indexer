@@ -1113,7 +1113,6 @@ export class DAO {
 
   public async refreshOperationalMaterializedView() {
     await this.pg.query(`
-      REFRESH MATERIALIZED VIEW CONCURRENTLY per_pool_per_tick_liquidity_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY pool_states_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_pool_states_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_sale_rate_deltas_materialized;
