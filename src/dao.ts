@@ -516,12 +516,117 @@ export class DAO {
         WHERE net_liquidity_delta_diff != 0
         ORDER BY tick);
 
-        CREATE MATERIALIZED VIEW IF NOT EXISTS per_pool_per_tick_liquidity_materialized AS
+        CREATE TABLE IF NOT EXISTS per_pool_per_tick_liquidity_incremental_view
         (
-        SELECT pool_key_hash, tick, net_liquidity_delta_diff
-        FROM per_pool_per_tick_liquidity_view);
+            pool_key_hash            NUMERIC,
+            tick                     int4,
+            net_liquidity_delta_diff NUMERIC,
+            PRIMARY KEY (pool_key_hash, tick)
+        );
 
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_per_pool_per_tick_liquidity_pool_key_hash_tick ON per_pool_per_tick_liquidity_materialized USING btree (pool_key_hash, tick);
+        DELETE
+        FROM per_pool_per_tick_liquidity_incremental_view;
+        INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
+            (SELECT pool_key_hash, tick, net_liquidity_delta_diff FROM per_pool_per_tick_liquidity_view);
+
+        CREATE OR REPLACE FUNCTION net_liquidity_deltas_after_insert()
+            RETURNS TRIGGER AS $$
+        BEGIN
+            -- Update or insert for lower_bound
+            UPDATE per_pool_per_tick_liquidity_incremental_view
+            SET net_liquidity_delta_diff = net_liquidity_delta_diff + new.liquidity_delta
+            WHERE pool_key_hash = new.pool_key_hash AND tick = new.lower_bound;
+
+            IF NOT found THEN
+                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
+                VALUES (new.pool_key_hash, new.lower_bound, new.liquidity_delta);
+            END IF;
+
+            -- Delete if net_liquidity_delta_diff is zero
+            DELETE FROM per_pool_per_tick_liquidity_incremental_view
+            WHERE pool_key_hash = new.pool_key_hash AND tick = new.lower_bound AND net_liquidity_delta_diff = 0;
+
+            -- Update or insert for upper_bound
+            UPDATE per_pool_per_tick_liquidity_incremental_view
+            SET net_liquidity_delta_diff = net_liquidity_delta_diff - new.liquidity_delta
+            WHERE pool_key_hash = new.pool_key_hash AND tick = new.upper_bound;
+
+            IF NOT found THEN
+                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
+                VALUES (new.pool_key_hash, new.upper_bound, -new.liquidity_delta);
+            END IF;
+
+            -- Delete if net_liquidity_delta_diff is zero
+            DELETE FROM per_pool_per_tick_liquidity_incremental_view
+            WHERE pool_key_hash = new.pool_key_hash AND tick = new.upper_bound AND net_liquidity_delta_diff = 0;
+
+            RETURN NULL;
+        END;
+        $$ LANGUAGE plpgsql;
+
+        CREATE OR REPLACE FUNCTION net_liquidity_deltas_after_delete()
+            RETURNS TRIGGER AS $$
+        BEGIN
+            -- Reverse effect for lower_bound
+            UPDATE per_pool_per_tick_liquidity_incremental_view
+            SET net_liquidity_delta_diff = net_liquidity_delta_diff - old.liquidity_delta
+            WHERE pool_key_hash = old.pool_key_hash AND tick = old.lower_bound;
+
+            IF NOT found THEN
+                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
+                VALUES (old.pool_key_hash, old.lower_bound, -old.liquidity_delta);
+            END IF;
+
+            -- Delete if net_liquidity_delta_diff is zero
+            DELETE FROM per_pool_per_tick_liquidity_incremental_view
+            WHERE pool_key_hash = old.pool_key_hash AND tick = old.lower_bound AND net_liquidity_delta_diff = 0;
+
+            -- Reverse effect for upper_bound
+            UPDATE per_pool_per_tick_liquidity_incremental_view
+            SET net_liquidity_delta_diff = net_liquidity_delta_diff + old.liquidity_delta
+            WHERE pool_key_hash = old.pool_key_hash AND tick = old.upper_bound;
+
+            IF NOT found THEN
+                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
+                VALUES (old.pool_key_hash, old.upper_bound, old.liquidity_delta);
+            END IF;
+
+            -- Delete if net_liquidity_delta_diff is zero
+            DELETE FROM per_pool_per_tick_liquidity_incremental_view
+            WHERE pool_key_hash = old.pool_key_hash AND tick = old.upper_bound AND net_liquidity_delta_diff = 0;
+
+            RETURN NULL;
+        END;
+        $$ LANGUAGE plpgsql;
+
+        CREATE OR REPLACE FUNCTION net_liquidity_deltas_after_update()
+            RETURNS TRIGGER AS $$
+        BEGIN
+            -- Reverse OLD row effects (similar to DELETE)
+            PERFORM net_liquidity_deltas_after_delete();
+
+            -- Apply NEW row effects (similar to INSERT)
+            PERFORM net_liquidity_deltas_after_insert();
+
+            RETURN NULL;
+        END;
+        $$ LANGUAGE plpgsql;
+
+        CREATE OR REPLACE TRIGGER net_liquidity_deltas_after_insert
+            AFTER INSERT ON position_updates
+            FOR EACH ROW
+        EXECUTE FUNCTION net_liquidity_deltas_after_insert();
+
+        CREATE OR REPLACE TRIGGER net_liquidity_deltas_after_delete
+            AFTER DELETE ON position_updates
+            FOR EACH ROW
+        EXECUTE FUNCTION net_liquidity_deltas_after_delete();
+
+        CREATE OR REPLACE TRIGGER net_liquidity_deltas_after_update
+            AFTER UPDATE ON position_updates
+            FOR EACH ROW
+        EXECUTE FUNCTION net_liquidity_deltas_after_update();
+
 
         CREATE TABLE IF NOT EXISTS twamm_order_updates
         (
