@@ -57,6 +57,7 @@ import {
   parseRegistrationEvent,
   TokenRegistrationEvent,
 } from "./events/tokenRegistry";
+import { parseSnapshotEvent, SnapshotEvent } from "./events/oracle";
 
 export const EVENT_PROCESSORS = [
   <EventProcessor<LegacyPositionMintedEvent>>{
@@ -396,6 +397,22 @@ export const EVENT_PROCESSORS = [
     async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("GovernorReconfigured", { parsed, key });
       await dao.insertGovernorReconfiguredEvent(parsed, key);
+    },
+  },
+  <EventProcessor<SnapshotEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.ORACLE_ADDRESS),
+      keys: [
+        // SnapshotEvent
+        FieldElement.fromBigInt(
+          0x0385e1b60fdfb8aeee9212a69cdb72415cef7b24ec07a60cdd65b65d0582238bn
+        ),
+      ],
+    },
+    parser: parseSnapshotEvent,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("Snapshot", { parsed, key });
+      await dao.insertOracleSnapshotEvent(parsed, key);
     },
   },
 ] as const;
