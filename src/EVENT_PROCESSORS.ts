@@ -401,12 +401,10 @@ export const EVENT_PROCESSORS = [
   },
   <EventProcessor<SnapshotEvent>>{
     filter: {
-      fromAddress: FieldElement.fromBigInt(process.env.ORACLE_ADDRESS),
+      fromAddress: process.env.ORACLE_ADDRESS,
       keys: [
         // SnapshotEvent
-        FieldElement.fromBigInt(
-          0x0385e1b60fdfb8aeee9212a69cdb72415cef7b24ec07a60cdd65b65d0582238bn
-        ),
+        "0x0385e1b60fdfb8aeee9212a69cdb72415cef7b24ec07a60cdd65b65d0582238b",
       ],
     },
     parser: parseSnapshotEvent,
