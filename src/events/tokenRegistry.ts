@@ -2,6 +2,7 @@ import {
   combineParsers,
   GetParserType,
   parseAddress,
+  parseByteArray,
   parseFelt252,
   parseU128,
   parseU8,
@@ -16,4 +17,15 @@ export const parseRegistrationEvent = combineParsers({
 });
 export type TokenRegistrationEvent = GetParserType<
   typeof parseRegistrationEvent
+>;
+
+export const parseRegistrationEventV3 = combineParsers({
+  address: { index: 0, parser: parseAddress },
+  name: { index: 1, parser: parseByteArray },
+  symbol: { index: 2, parser: parseByteArray },
+  decimals: { index: 2, parser: parseU8 },
+  total_supply: { index: 2, parser: parseU128 },
+});
+export type TokenRegistrationEventV3 = GetParserType<
+  typeof parseRegistrationEventV3
 >;

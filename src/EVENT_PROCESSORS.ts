@@ -56,7 +56,9 @@ import {
 } from "./events/governor";
 import {
   parseRegistrationEvent,
+  parseRegistrationEventV3,
   TokenRegistrationEvent,
+  TokenRegistrationEventV3,
 } from "./events/tokenRegistry";
 import { parseSnapshotEvent, SnapshotEvent } from "./events/oracle";
 
@@ -235,7 +237,7 @@ export const EVENT_PROCESSORS = [
     },
     parser: parseRegistrationEvent,
     async handle(dao, { parsed, key }): Promise<void> {
-      logger.debug("Registration", { parsed, key });
+      logger.debug("Registration from V1 Registry", { parsed, key });
       await dao.insertRegistration(parsed, key);
     },
   },
@@ -253,8 +255,29 @@ export const EVENT_PROCESSORS = [
     },
     parser: parseRegistrationEvent,
     async handle(dao, { parsed, key }): Promise<void> {
-      logger.debug("Registration V2", { parsed, key });
+      logger.debug("Registration from V2 Registry", {
+        parsed,
+        key,
+      });
       await dao.insertRegistration(parsed, key);
+    },
+  },
+  <EventProcessor<TokenRegistrationEventV3>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(
+        process.env.TOKEN_REGISTRY_V3_ADDRESS
+      ),
+      keys: [
+        // Registration
+        FieldElement.fromBigInt(
+          0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74n
+        ),
+      ],
+    },
+    parser: parseRegistrationEventV3,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("Registration event from V3 Registry", { parsed, key });
+      await dao.insertRegistrationV3(parsed, key);
     },
   },
   <EventProcessor<OrderUpdatedEvent>>{

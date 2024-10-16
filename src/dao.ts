@@ -28,7 +28,10 @@ import {
   GovernorReconfiguredEvent,
   GovernorVotedEvent,
 } from "./events/governor";
-import { TokenRegistrationEvent } from "./events/tokenRegistry";
+import {
+  TokenRegistrationEvent,
+  TokenRegistrationEventV3,
+} from "./events/tokenRegistry";
 import { SnapshotEvent } from "./events/oracle";
 
 const MAX_TICK_SPACING = 354892;
@@ -301,6 +304,18 @@ export class DAO {
             total_supply NUMERIC NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS token_registrations_v3
+        (
+            event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            address      NUMERIC NOT NULL,
+
+            name         VARCHAR NOT NULL,
+            symbol       VARCHAR NOT NULL,
+            decimals     INT     NOT NULL,
+            total_supply NUMERIC NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS staker_staked
         (
             event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
@@ -530,12 +545,14 @@ export class DAO {
             (SELECT pool_key_hash, tick, net_liquidity_delta_diff FROM per_pool_per_tick_liquidity_view);
 
         CREATE OR REPLACE FUNCTION net_liquidity_deltas_after_insert()
-            RETURNS TRIGGER AS $$
+            RETURNS TRIGGER AS
+        $$
         BEGIN
             -- Update or insert for lower_bound
             UPDATE per_pool_per_tick_liquidity_incremental_view
             SET net_liquidity_delta_diff = net_liquidity_delta_diff + new.liquidity_delta
-            WHERE pool_key_hash = new.pool_key_hash AND tick = new.lower_bound;
+            WHERE pool_key_hash = new.pool_key_hash
+              AND tick = new.lower_bound;
 
             IF NOT found THEN
                 INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
@@ -543,13 +560,17 @@ export class DAO {
             END IF;
 
             -- Delete if net_liquidity_delta_diff is zero
-            DELETE FROM per_pool_per_tick_liquidity_incremental_view
-            WHERE pool_key_hash = new.pool_key_hash AND tick = new.lower_bound AND net_liquidity_delta_diff = 0;
+            DELETE
+            FROM per_pool_per_tick_liquidity_incremental_view
+            WHERE pool_key_hash = new.pool_key_hash
+              AND tick = new.lower_bound
+              AND net_liquidity_delta_diff = 0;
 
             -- Update or insert for upper_bound
             UPDATE per_pool_per_tick_liquidity_incremental_view
             SET net_liquidity_delta_diff = net_liquidity_delta_diff - new.liquidity_delta
-            WHERE pool_key_hash = new.pool_key_hash AND tick = new.upper_bound;
+            WHERE pool_key_hash = new.pool_key_hash
+              AND tick = new.upper_bound;
 
             IF NOT found THEN
                 INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
@@ -557,20 +578,25 @@ export class DAO {
             END IF;
 
             -- Delete if net_liquidity_delta_diff is zero
-            DELETE FROM per_pool_per_tick_liquidity_incremental_view
-            WHERE pool_key_hash = new.pool_key_hash AND tick = new.upper_bound AND net_liquidity_delta_diff = 0;
+            DELETE
+            FROM per_pool_per_tick_liquidity_incremental_view
+            WHERE pool_key_hash = new.pool_key_hash
+              AND tick = new.upper_bound
+              AND net_liquidity_delta_diff = 0;
 
             RETURN NULL;
         END;
         $$ LANGUAGE plpgsql;
 
         CREATE OR REPLACE FUNCTION net_liquidity_deltas_after_delete()
-            RETURNS TRIGGER AS $$
+            RETURNS TRIGGER AS
+        $$
         BEGIN
             -- Reverse effect for lower_bound
             UPDATE per_pool_per_tick_liquidity_incremental_view
             SET net_liquidity_delta_diff = net_liquidity_delta_diff - old.liquidity_delta
-            WHERE pool_key_hash = old.pool_key_hash AND tick = old.lower_bound;
+            WHERE pool_key_hash = old.pool_key_hash
+              AND tick = old.lower_bound;
 
             IF NOT found THEN
                 INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
@@ -578,13 +604,17 @@ export class DAO {
             END IF;
 
             -- Delete if net_liquidity_delta_diff is zero
-            DELETE FROM per_pool_per_tick_liquidity_incremental_view
-            WHERE pool_key_hash = old.pool_key_hash AND tick = old.lower_bound AND net_liquidity_delta_diff = 0;
+            DELETE
+            FROM per_pool_per_tick_liquidity_incremental_view
+            WHERE pool_key_hash = old.pool_key_hash
+              AND tick = old.lower_bound
+              AND net_liquidity_delta_diff = 0;
 
             -- Reverse effect for upper_bound
             UPDATE per_pool_per_tick_liquidity_incremental_view
             SET net_liquidity_delta_diff = net_liquidity_delta_diff + old.liquidity_delta
-            WHERE pool_key_hash = old.pool_key_hash AND tick = old.upper_bound;
+            WHERE pool_key_hash = old.pool_key_hash
+              AND tick = old.upper_bound;
 
             IF NOT found THEN
                 INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
@@ -592,15 +622,19 @@ export class DAO {
             END IF;
 
             -- Delete if net_liquidity_delta_diff is zero
-            DELETE FROM per_pool_per_tick_liquidity_incremental_view
-            WHERE pool_key_hash = old.pool_key_hash AND tick = old.upper_bound AND net_liquidity_delta_diff = 0;
+            DELETE
+            FROM per_pool_per_tick_liquidity_incremental_view
+            WHERE pool_key_hash = old.pool_key_hash
+              AND tick = old.upper_bound
+              AND net_liquidity_delta_diff = 0;
 
             RETURN NULL;
         END;
         $$ LANGUAGE plpgsql;
 
         CREATE OR REPLACE FUNCTION net_liquidity_deltas_after_update()
-            RETURNS TRIGGER AS $$
+            RETURNS TRIGGER AS
+        $$
         BEGIN
             -- Reverse OLD row effects (similar to DELETE)
             PERFORM net_liquidity_deltas_after_delete();
@@ -613,17 +647,20 @@ export class DAO {
         $$ LANGUAGE plpgsql;
 
         CREATE OR REPLACE TRIGGER net_liquidity_deltas_after_insert
-            AFTER INSERT ON position_updates
+            AFTER INSERT
+            ON position_updates
             FOR EACH ROW
         EXECUTE FUNCTION net_liquidity_deltas_after_insert();
 
         CREATE OR REPLACE TRIGGER net_liquidity_deltas_after_delete
-            AFTER DELETE ON position_updates
+            AFTER DELETE
+            ON position_updates
             FOR EACH ROW
         EXECUTE FUNCTION net_liquidity_deltas_after_delete();
 
         CREATE OR REPLACE TRIGGER net_liquidity_deltas_after_update
-            AFTER UPDATE ON position_updates
+            AFTER UPDATE
+            ON position_updates
             FOR EACH ROW
         EXECUTE FUNCTION net_liquidity_deltas_after_update();
 
@@ -1544,6 +1581,41 @@ export class DAO {
                         RETURNING id)
                 INSERT
                 INTO token_registrations
+                (event_id,
+                 address,
+                 decimals,
+                 name,
+                 symbol,
+                 total_supply)
+                VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9);
+            `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+
+        event.address,
+        event.decimals,
+        event.name,
+        event.symbol,
+        event.total_supply,
+      ],
+    });
+  }
+
+  public async insertRegistrationV3(
+    event: TokenRegistrationEventV3,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id)
+                INSERT
+                INTO token_registrations_v3
                 (event_id,
                  address,
                  decimals,
