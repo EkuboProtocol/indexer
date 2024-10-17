@@ -872,26 +872,91 @@ export class DAO {
             );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_last_24h_pool_stats_materialized_key_hash ON last_24h_pool_stats_materialized USING btree (key_hash);
 
+        CREATE OR REPLACE FUNCTION parse_short_string(numeric_value NUMERIC) RETURNS VARCHAR AS
+        $$
+        DECLARE
+            result_text TEXT    := '';
+            byte_value  INTEGER;
+            ascii_char  TEXT;
+            n           NUMERIC := numeric_value;
+        BEGIN
+            IF n < 0 THEN
+                RETURN NULL;
+            END IF;
+            
+            IF n % 1 != 0 THEN 
+                RETURN NULL;
+            END IF;
+
+            IF n = 0 THEN
+                RETURN '';
+            END IF;
+
+            WHILE n > 0
+                LOOP
+                    byte_value := MOD(n, 256)::INTEGER;
+                    ascii_char := CHR(byte_value);
+                    result_text := ascii_char || result_text; -- Prepend to maintain correct order
+                    n := FLOOR(n / 256);
+                END LOOP;
+
+            RETURN result_text;
+        END;
+        $$ LANGUAGE plpgsql;
+
+        CREATE OR REPLACE VIEW latest_token_registrations_view AS
+        (
+        WITH all_token_registrations AS (SELECT address,
+                                                event_id,
+                                                parse_short_string(name)   AS name,
+                                                parse_short_string(symbol) AS symbol,
+                                                decimals,
+                                                total_supply
+                                         FROM token_registrations tr
+                                         UNION ALL
+                                         SELECT address,
+                                                event_id,
+                                                name,
+                                                symbol,
+                                                decimals,
+                                                total_supply
+                                         FROM token_registrations_v3 tr_v3),
+             validated_registrations AS (SELECT *
+                                         FROM all_token_registrations
+                                         WHERE LENGTH(symbol) > 1
+                                           AND LENGTH(symbol) < 10
+                                           AND REGEXP_LIKE(symbol, '^[\\x00-\\x7F]*$', 'i')
+                                           AND LENGTH(name) < 128
+                                           AND REGEXP_LIKE(name, '^[\\x00-\\x7F]*$', 'i')),
+             event_ids_per_address AS (SELECT address,
+                                              MIN(event_id) AS first_registration_id,
+                                              MAX(event_id) AS last_registration_id
+                                       FROM validated_registrations vr
+                                       GROUP BY address),
+             first_registration_of_each_symbol AS (SELECT LOWER(symbol) AS lower_symbol, MIN(event_id) first_id
+                                                   FROM validated_registrations
+                                                   GROUP BY 1)
+        SELECT iba.address,
+               vr.name,
+               vr.symbol,
+               vr.decimals,
+               vr.total_supply
+        FROM event_ids_per_address AS iba
+                 JOIN validated_registrations AS vr
+                      ON iba.address = vr.address
+                          AND iba.last_registration_id = vr.event_id
+                 JOIN first_registration_of_each_symbol fr
+                      ON fr.lower_symbol = LOWER(vr.symbol) AND iba.first_registration_id = fr.first_id
+            );
+
         CREATE MATERIALIZED VIEW IF NOT EXISTS latest_token_registrations AS
         (
-        WITH last_key_per_address AS (SELECT address,
-                                             (SELECT event_id
-                                              FROM token_registrations AS trr
-                                              WHERE trr.address = tr.address
-                                              ORDER BY event_id DESC
-                                              LIMIT 1) AS last_registration_id
-                                      FROM token_registrations tr
-                                      GROUP BY address)
-        SELECT lk.address,
-               tr.name,
-               tr.symbol,
-               tr.decimals,
-               tr.total_supply
-        FROM last_key_per_address AS lk
-                 JOIN token_registrations AS tr
-                      ON lk.address = tr.address
-                          AND lk.last_registration_id = tr.event_id
-        ORDER BY address);
+        SELECT address,
+               name,
+               symbol,
+               decimals,
+               total_supply
+        FROM latest_token_registrations_view);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_latest_token_registrations_by_address ON latest_token_registrations USING btree (address);
 
         CREATE OR REPLACE VIEW oracle_pool_states_view AS
