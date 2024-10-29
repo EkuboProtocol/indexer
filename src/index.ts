@@ -126,6 +126,10 @@ const refreshAnalyticalTables = throttle(
           for (const encodedBlockData of message.data.data) {
             const block = starknet.Block.decode(encodedBlockData);
 
+            const blockTime = new Date(
+              Number(parseLong(block.header.timestamp.seconds) * 1000n)
+            );
+
             const blockNumber = Number(parseLong(block.header.blockNumber));
             deletedCount += await dao.deleteOldBlockNumbers(blockNumber);
 
@@ -134,12 +138,8 @@ const refreshAnalyticalTables = throttle(
               isPending ||
               FieldElement.toBigInt(block.header.blockHash) === 0n ||
               // blocks in the last 5 minutes are considered pending
-              parseLong(block.header.timestamp.seconds) >
-                Date.now() / 1000 - 300;
+              blockTime.getTime() > Date.now() - 300_000;
 
-            const blockTime = new Date(
-              Number(parseLong(block.header.timestamp.seconds) * 1000n)
-            );
             await dao.insertBlock({
               hash: FieldElement.toBigInt(block.header.blockHash),
               number: parseLong(block.header.blockNumber),
