@@ -119,7 +119,7 @@ const refreshAnalyticalTables = throttle(
 
           await dao.beginTransaction();
 
-          let isPending: boolean = true;
+          let isPending: boolean = false;
 
           let deletedCount: number = 0;
 
@@ -131,7 +131,11 @@ const refreshAnalyticalTables = throttle(
 
             // for pending blocks we update operational materialized views before we commit
             isPending =
-              isPending || FieldElement.toBigInt(block.header.blockHash) === 0n;
+              isPending ||
+              FieldElement.toBigInt(block.header.blockHash) === 0n ||
+              // blocks in the last 5 minutes are considered pending
+              parseLong(block.header.timestamp.seconds) >
+                Date.now() / 1000 - 300;
 
             const blockTime = new Date(
               Number(parseLong(block.header.timestamp.seconds) * 1000n)
