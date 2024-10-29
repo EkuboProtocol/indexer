@@ -119,7 +119,7 @@ const refreshAnalyticalTables = throttle(
 
           await dao.beginTransaction();
 
-          let isPending: boolean = false;
+          let isPending: boolean = true;
 
           let deletedCount: number = 0;
 
