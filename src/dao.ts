@@ -512,21 +512,24 @@ export class DAO {
         (
         WITH all_tick_deltas AS (SELECT pool_key_hash,
                                         lower_bound AS       tick,
-                                        SUM(liquidity_delta) net_liquidity_delta
+                                        SUM(liquidity_delta) net_liquidity_delta,
+                                        SUM(liquidity_delta) total_liquidity_on_tick
                                  FROM position_updates
                                  GROUP BY pool_key_hash, lower_bound
                                  UNION ALL
                                  SELECT pool_key_hash,
                                         upper_bound AS        tick,
-                                        SUM(-liquidity_delta) net_liquidity_delta
+                                        SUM(-liquidity_delta) net_liquidity_delta,
+                                        SUM(liquidity_delta) total_liquidity_on_tick
                                  FROM position_updates
                                  GROUP BY pool_key_hash, upper_bound),
              summed AS (SELECT pool_key_hash,
                                tick,
-                               SUM(net_liquidity_delta) AS net_liquidity_delta_diff
+                               SUM(net_liquidity_delta) AS net_liquidity_delta_diff,
+                               SUM(total_liquidity_on_tick) as total_liquidity_on_tick
                         FROM all_tick_deltas
                         GROUP BY pool_key_hash, tick)
-        SELECT pool_key_hash, tick, net_liquidity_delta_diff
+        SELECT pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick
         FROM summed
         WHERE net_liquidity_delta_diff != 0
         ORDER BY tick);
@@ -536,13 +539,14 @@ export class DAO {
             pool_key_hash            NUMERIC,
             tick                     int4,
             net_liquidity_delta_diff NUMERIC,
+            total_liquidity_on_tick  NUMERIC,
             PRIMARY KEY (pool_key_hash, tick)
         );
 
         DELETE
         FROM per_pool_per_tick_liquidity_incremental_view;
-        INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
-            (SELECT pool_key_hash, tick, net_liquidity_delta_diff FROM per_pool_per_tick_liquidity_view);
+        INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick)
+            (SELECT pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick FROM per_pool_per_tick_liquidity_view);
 
         CREATE OR REPLACE FUNCTION net_liquidity_deltas_after_insert()
             RETURNS TRIGGER AS
@@ -550,31 +554,33 @@ export class DAO {
         BEGIN
             -- Update or insert for lower_bound
             UPDATE per_pool_per_tick_liquidity_incremental_view
-            SET net_liquidity_delta_diff = net_liquidity_delta_diff + new.liquidity_delta
+            SET net_liquidity_delta_diff = net_liquidity_delta_diff + new.liquidity_delta,
+                total_liquidity_on_tick = total_liquidity_on_tick + new.liquidity_delta
             WHERE pool_key_hash = new.pool_key_hash
               AND tick = new.lower_bound;
 
             IF NOT found THEN
-                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
-                VALUES (new.pool_key_hash, new.lower_bound, new.liquidity_delta);
+                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick)
+                VALUES (new.pool_key_hash, new.lower_bound, new.liquidity_delta, new.liquidity_delta);
             END IF;
 
-            -- Delete if net_liquidity_delta_diff is zero
+            -- Delete if total_liquidity_on_tick is zero
             DELETE
             FROM per_pool_per_tick_liquidity_incremental_view
             WHERE pool_key_hash = new.pool_key_hash
               AND tick = new.lower_bound
-              AND net_liquidity_delta_diff = 0;
+              AND total_liquidity_on_tick = 0;
 
             -- Update or insert for upper_bound
             UPDATE per_pool_per_tick_liquidity_incremental_view
-            SET net_liquidity_delta_diff = net_liquidity_delta_diff - new.liquidity_delta
+            SET net_liquidity_delta_diff = net_liquidity_delta_diff - new.liquidity_delta,
+                total_liquidity_on_tick = total_liquidity_on_tick + new.liquidity_delta
             WHERE pool_key_hash = new.pool_key_hash
               AND tick = new.upper_bound;
 
             IF NOT found THEN
-                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
-                VALUES (new.pool_key_hash, new.upper_bound, -new.liquidity_delta);
+                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick)
+                VALUES (new.pool_key_hash, new.upper_bound, -new.liquidity_delta, new.liquidity_delta);
             END IF;
 
             -- Delete if net_liquidity_delta_diff is zero
@@ -582,7 +588,7 @@ export class DAO {
             FROM per_pool_per_tick_liquidity_incremental_view
             WHERE pool_key_hash = new.pool_key_hash
               AND tick = new.upper_bound
-              AND net_liquidity_delta_diff = 0;
+              AND total_liquidity_on_tick = 0;
 
             RETURN NULL;
         END;
@@ -594,13 +600,14 @@ export class DAO {
         BEGIN
             -- Reverse effect for lower_bound
             UPDATE per_pool_per_tick_liquidity_incremental_view
-            SET net_liquidity_delta_diff = net_liquidity_delta_diff - old.liquidity_delta
+            SET net_liquidity_delta_diff = net_liquidity_delta_diff - old.liquidity_delta,
+                total_liquidity_on_tick = total_liquidity_on_tick - old.liquidity_delta
             WHERE pool_key_hash = old.pool_key_hash
               AND tick = old.lower_bound;
 
             IF NOT found THEN
-                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
-                VALUES (old.pool_key_hash, old.lower_bound, -old.liquidity_delta);
+                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick)
+                VALUES (old.pool_key_hash, old.lower_bound, -old.liquidity_delta, -old.liquidity_delta);
             END IF;
 
             -- Delete if net_liquidity_delta_diff is zero
@@ -608,17 +615,18 @@ export class DAO {
             FROM per_pool_per_tick_liquidity_incremental_view
             WHERE pool_key_hash = old.pool_key_hash
               AND tick = old.lower_bound
-              AND net_liquidity_delta_diff = 0;
+              AND total_liquidity_on_tick = 0;
 
             -- Reverse effect for upper_bound
             UPDATE per_pool_per_tick_liquidity_incremental_view
-            SET net_liquidity_delta_diff = net_liquidity_delta_diff + old.liquidity_delta
+            SET net_liquidity_delta_diff = net_liquidity_delta_diff + old.liquidity_delta,
+                total_liquidity_on_tick = total_liquidity_on_tick - old.liquidity_delta
             WHERE pool_key_hash = old.pool_key_hash
               AND tick = old.upper_bound;
 
             IF NOT found THEN
-                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
-                VALUES (old.pool_key_hash, old.upper_bound, old.liquidity_delta);
+                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick)
+                VALUES (old.pool_key_hash, old.upper_bound, old.liquidity_delta, -old.liquidity_delta);
             END IF;
 
             -- Delete if net_liquidity_delta_diff is zero
@@ -626,7 +634,7 @@ export class DAO {
             FROM per_pool_per_tick_liquidity_incremental_view
             WHERE pool_key_hash = old.pool_key_hash
               AND tick = old.upper_bound
-              AND net_liquidity_delta_diff = 0;
+              AND total_liquidity_on_tick = 0;
 
             RETURN NULL;
         END;
@@ -883,8 +891,8 @@ export class DAO {
             IF n < 0 THEN
                 RETURN NULL;
             END IF;
-            
-            IF n % 1 != 0 THEN 
+
+            IF n % 1 != 0 THEN
                 RETURN NULL;
             END IF;
 
