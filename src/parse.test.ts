@@ -15,7 +15,7 @@ describe("parse", () => {
           FieldElement.fromBigInt(0x1n),
           FieldElement.fromBigInt(0x0n),
         ],
-        0
+        0,
       );
 
       expect(result).toEqual({
@@ -42,7 +42,7 @@ describe("parse", () => {
           FieldElement.fromBigInt(0x3n),
           FieldElement.fromBigInt(0x4n),
         ],
-        3
+        3,
       );
 
       expect(result).toEqual({
@@ -94,12 +94,12 @@ describe("parse", () => {
       `parseUint8Array($args.data, $args.startingFrom) = $expected.value`,
       ({ args: { data, startingFrom }, expected }) => {
         expect(
-          parseUint8Array(data.map(FieldElement.fromBigInt), startingFrom)
+          parseUint8Array(data.map(FieldElement.fromBigInt), startingFrom),
         ).toEqual({
           value: new TextEncoder().encode(expected.value),
           next: expected.next,
         });
-      }
+      },
     );
   });
 
@@ -168,10 +168,10 @@ not really`,
         expect(
           parseByteArray(
             data.map((x) => FieldElement.fromBigInt(x)),
-            startingFrom
-          )
+            startingFrom,
+          ),
         ).toEqual(expected);
-      }
+      },
     );
   });
 });

@@ -33,8 +33,10 @@ import {
   TokenRegistrationEventV3,
 } from "./events/tokenRegistry";
 import { SnapshotEvent } from "./events/oracle";
+import { OrderClosedEvent, OrderPlacedEvent } from "./events/limit_orders";
 
 const MAX_TICK_SPACING = 354892;
+const LIMIT_ORDER_TICK_SPACING = 128;
 
 function orderKeyToPoolKey(event_key: EventKey, order_key: OrderKey): PoolKey {
   const [token0, token1]: [bigint, bigint] =
@@ -104,7 +106,7 @@ export class DAO {
           },
           hash: BigInt(key_hash),
         };
-      })
+      }),
     );
   }
 
@@ -520,13 +522,13 @@ export class DAO {
                                  SELECT pool_key_hash,
                                         upper_bound AS        tick,
                                         SUM(-liquidity_delta) net_liquidity_delta,
-                                        SUM(liquidity_delta) total_liquidity_on_tick
+                                        SUM(liquidity_delta)  total_liquidity_on_tick
                                  FROM position_updates
                                  GROUP BY pool_key_hash, upper_bound),
              summed AS (SELECT pool_key_hash,
                                tick,
-                               SUM(net_liquidity_delta) AS net_liquidity_delta_diff,
-                               SUM(total_liquidity_on_tick) as total_liquidity_on_tick
+                               SUM(net_liquidity_delta)     AS net_liquidity_delta_diff,
+                               SUM(total_liquidity_on_tick) AS total_liquidity_on_tick
                         FROM all_tick_deltas
                         GROUP BY pool_key_hash, tick)
         SELECT pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick
@@ -545,8 +547,10 @@ export class DAO {
 
         DELETE
         FROM per_pool_per_tick_liquidity_incremental_view;
-        INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick)
-            (SELECT pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick FROM per_pool_per_tick_liquidity_view);
+        INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff,
+                                                                  total_liquidity_on_tick)
+            (SELECT pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick
+             FROM per_pool_per_tick_liquidity_view);
 
         CREATE OR REPLACE FUNCTION net_liquidity_deltas_after_insert()
             RETURNS TRIGGER AS
@@ -555,12 +559,13 @@ export class DAO {
             -- Update or insert for lower_bound
             UPDATE per_pool_per_tick_liquidity_incremental_view
             SET net_liquidity_delta_diff = net_liquidity_delta_diff + new.liquidity_delta,
-                total_liquidity_on_tick = total_liquidity_on_tick + new.liquidity_delta
+                total_liquidity_on_tick  = total_liquidity_on_tick + new.liquidity_delta
             WHERE pool_key_hash = new.pool_key_hash
               AND tick = new.lower_bound;
 
             IF NOT found THEN
-                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick)
+                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff,
+                                                                          total_liquidity_on_tick)
                 VALUES (new.pool_key_hash, new.lower_bound, new.liquidity_delta, new.liquidity_delta);
             END IF;
 
@@ -574,12 +579,13 @@ export class DAO {
             -- Update or insert for upper_bound
             UPDATE per_pool_per_tick_liquidity_incremental_view
             SET net_liquidity_delta_diff = net_liquidity_delta_diff - new.liquidity_delta,
-                total_liquidity_on_tick = total_liquidity_on_tick + new.liquidity_delta
+                total_liquidity_on_tick  = total_liquidity_on_tick + new.liquidity_delta
             WHERE pool_key_hash = new.pool_key_hash
               AND tick = new.upper_bound;
 
             IF NOT found THEN
-                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick)
+                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff,
+                                                                          total_liquidity_on_tick)
                 VALUES (new.pool_key_hash, new.upper_bound, -new.liquidity_delta, new.liquidity_delta);
             END IF;
 
@@ -601,12 +607,13 @@ export class DAO {
             -- Reverse effect for lower_bound
             UPDATE per_pool_per_tick_liquidity_incremental_view
             SET net_liquidity_delta_diff = net_liquidity_delta_diff - old.liquidity_delta,
-                total_liquidity_on_tick = total_liquidity_on_tick - old.liquidity_delta
+                total_liquidity_on_tick  = total_liquidity_on_tick - old.liquidity_delta
             WHERE pool_key_hash = old.pool_key_hash
               AND tick = old.lower_bound;
 
             IF NOT found THEN
-                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick)
+                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff,
+                                                                          total_liquidity_on_tick)
                 VALUES (old.pool_key_hash, old.lower_bound, -old.liquidity_delta, -old.liquidity_delta);
             END IF;
 
@@ -620,12 +627,13 @@ export class DAO {
             -- Reverse effect for upper_bound
             UPDATE per_pool_per_tick_liquidity_incremental_view
             SET net_liquidity_delta_diff = net_liquidity_delta_diff + old.liquidity_delta,
-                total_liquidity_on_tick = total_liquidity_on_tick - old.liquidity_delta
+                total_liquidity_on_tick  = total_liquidity_on_tick - old.liquidity_delta
             WHERE pool_key_hash = old.pool_key_hash
               AND tick = old.upper_bound;
 
             IF NOT found THEN
-                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick)
+                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff,
+                                                                          total_liquidity_on_tick)
                 VALUES (old.pool_key_hash, old.upper_bound, old.liquidity_delta, -old.liquidity_delta);
             END IF;
 
@@ -735,6 +743,38 @@ export class DAO {
             snapshot_tick_cumulative NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_oracle_snapshots_token0_token1_index ON oracle_snapshots USING btree (token0, token1, index);
+
+        CREATE TABLE IF NOT EXISTS limit_order_placed
+        (
+            event_id  int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+
+            key_hash  NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+
+            owner     NUMERIC NOT NULL,
+            salt      NUMERIC NOT NULL,
+            token0    NUMERIC NOT NULL,
+            token1    NUMERIC NOT NULL,
+            tick      int4    NOT NULL,
+            liquidity NUMERIC NOT NULL,
+            amount    NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_limit_order_placed_owner_salt ON limit_order_placed USING btree (owner, salt);
+
+        CREATE TABLE IF NOT EXISTS limit_order_closed
+        (
+            event_id int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+
+            key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+
+            owner    NUMERIC NOT NULL,
+            salt     NUMERIC NOT NULL,
+            token0   NUMERIC NOT NULL,
+            token1   NUMERIC NOT NULL,
+            tick     int4    NOT NULL,
+            amount0  NUMERIC NOT NULL,
+            amount1  NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_limit_order_closed ON limit_order_closed USING btree (owner, salt);
 
         CREATE OR REPLACE VIEW twamm_pool_states_view AS
         (
@@ -1301,7 +1341,7 @@ export class DAO {
     owner: BigInt,
     events:
       | ParsedEventWithKey<PositionFeesCollectedEvent>[]
-      | ParsedEventWithKey<ProtocolFeesPaidEvent>[]
+      | ParsedEventWithKey<ProtocolFeesPaidEvent>[],
   ) {
     await this.batchInsertFakeEventKeys(events.map((e) => e.key));
     await this.pg.query({
@@ -1353,7 +1393,7 @@ export class DAO {
 
   public async insertPositionTransferEvent(
     transfer: TransferEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     // The `*` operator is the PostgreSQL range intersection operator.
     await this.pg.query({
@@ -1384,7 +1424,7 @@ export class DAO {
 
   public async insertPositionMintedWithReferrerEvent(
     minted: PositionMintedWithReferrer,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -1412,7 +1452,7 @@ export class DAO {
 
   public async insertPositionUpdatedEvent(
     event: PositionUpdatedEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
@@ -1458,7 +1498,7 @@ export class DAO {
 
   public async insertPositionFeesCollectedEvent(
     event: PositionFeesCollectedEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
@@ -1502,7 +1542,7 @@ export class DAO {
 
   public async insertInitializationEvent(
     event: PoolInitializationEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
@@ -1536,7 +1576,7 @@ export class DAO {
 
   public async insertProtocolFeesWithdrawn(
     event: ProtocolFeesWithdrawnEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -1566,7 +1606,7 @@ export class DAO {
 
   public async insertProtocolFeesPaid(
     event: ProtocolFeesPaidEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
@@ -1610,7 +1650,7 @@ export class DAO {
 
   public async insertFeesAccumulatedEvent(
     event: FeesAccumulatedEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
@@ -1644,7 +1684,7 @@ export class DAO {
 
   public async insertRegistration(
     event: TokenRegistrationEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -1679,7 +1719,7 @@ export class DAO {
 
   public async insertRegistrationV3(
     event: TokenRegistrationEventV3,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -1768,7 +1808,7 @@ export class DAO {
   }
 
   public async writeTransactionSenders(
-    transactionSenders: [transactionHash: string, sender: string][]
+    transactionSenders: [transactionHash: string, sender: string][],
   ) {
     if (transactionSenders.length > 0) {
       await this.pg.query({
@@ -1787,8 +1827,8 @@ export class DAO {
   public async writeReceipts(
     receipts: [
       hash: string,
-      receiptData: { feePaid: bigint; feePaidUnit: 0 | 1 | 2 }
-    ][]
+      receiptData: { feePaid: bigint; feePaidUnit: 0 | 1 | 2 },
+    ][],
   ) {
     await this.pg.query({
       text: `
@@ -1809,12 +1849,12 @@ export class DAO {
 
   public async insertTWAMMOrderUpdatedEvent(
     order_updated: OrderUpdatedEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const { order_key } = order_updated;
 
     const key_hash = await this.insertPoolKeyHash(
-      orderKeyToPoolKey(key, order_key)
+      orderKeyToPoolKey(key, order_key),
     );
 
     const [sale_rate_delta0, sale_rate_delta1] =
@@ -1861,12 +1901,12 @@ export class DAO {
 
   public async insertTWAMMOrderProceedsWithdrawnEvent(
     order_proceeds_withdrawn: OrderProceedsWithdrawnEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const { order_key } = order_proceeds_withdrawn;
 
     const key_hash = await this.insertPoolKeyHash(
-      orderKeyToPoolKey(key, order_key)
+      orderKeyToPoolKey(key, order_key),
     );
 
     const [amount0, amount1] =
@@ -1905,7 +1945,7 @@ export class DAO {
 
   public async insertTWAMMVirtualOrdersExecutedEvent(
     virtual_orders_executed: VirtualOrdersExecutedEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     let { key: state_key } = virtual_orders_executed;
 
@@ -2002,7 +2042,7 @@ export class DAO {
 
   async insertGovernorProposedEvent(
     parsed: GovernorProposedEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const query =
       parsed.calls.length > 0
@@ -2026,7 +2066,7 @@ export class DAO {
                                 call.selector
                               }, '{${call.calldata
                                 .map((c) => c.toString())
-                                .join(",")}}')`
+                                .join(",")}}')`,
                           )
                           .join(",")};
                 `
@@ -2056,7 +2096,7 @@ export class DAO {
 
   async insertGovernorExecutedEvent(
     parsed: GovernorExecutedEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const query =
       parsed.result_data.length > 0
@@ -2078,7 +2118,7 @@ export class DAO {
                             (results, ix) =>
                               `($5, ${ix}, '{${results
                                 .map((c) => c.toString())
-                                .join(",")}}')`
+                                .join(",")}}')`,
                           )
                           .join(",")};
                 `
@@ -2133,7 +2173,7 @@ export class DAO {
 
   async insertGovernorCanceledEvent(
     parsed: GovernorCanceledEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -2158,7 +2198,7 @@ export class DAO {
 
   async insertGovernorProposalDescribedEvent(
     parsed: DescribedEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -2185,7 +2225,7 @@ export class DAO {
 
   async insertGovernorReconfiguredEvent(
     parsed: GovernorReconfiguredEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -2246,6 +2286,78 @@ export class DAO {
         parsed.index,
         parsed.snapshot.block_timestamp,
         parsed.snapshot.tick_cumulative,
+      ],
+    });
+  }
+
+  async insertOrderPlacedEvent(parsed: OrderPlacedEvent, key: EventKey) {
+    const poolKeyHash = await this.insertPoolKeyHash({
+      fee: 0n,
+      tick_spacing: BigInt(LIMIT_ORDER_TICK_SPACING),
+      extension: key.fromAddress,
+      token0: parsed.order_key.token0,
+      token1: parsed.order_key.token1,
+    });
+    await this.pg.query({
+      text: `
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO limit_order_placed
+          (event_id, key_hash, owner, salt, token0, token1, tick, liquidity, amount)
+          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11, $12)
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        poolKeyHash,
+        parsed.owner,
+        parsed.salt,
+        parsed.order_key.token0,
+        parsed.order_key.token1,
+        parsed.order_key.tick,
+        parsed.liquidity,
+        parsed.amount,
+      ],
+    });
+  }
+
+  async insertOrderClosedEvent(parsed: OrderClosedEvent, key: EventKey) {
+    const poolKeyHash = await this.insertPoolKeyHash({
+      fee: 0n,
+      tick_spacing: BigInt(LIMIT_ORDER_TICK_SPACING),
+      extension: key.fromAddress,
+      token0: parsed.order_key.token0,
+      token1: parsed.order_key.token1,
+    });
+    await this.pg.query({
+      text: `
+              WITH inserted_event AS (
+                  INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                      VALUES ($1, $2, $3, $4)
+                      RETURNING id)
+              INSERT
+              INTO limit_order_closed
+              (event_id, key_hash, owner, salt, token0, token1, tick, amount0, amount1)
+              VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11, $12)
+          `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        poolKeyHash,
+        parsed.owner,
+        parsed.salt,
+        parsed.order_key.token0,
+        parsed.order_key.token1,
+        parsed.order_key.tick,
+        parsed.amount0,
+        parsed.amount1,
       ],
     });
   }

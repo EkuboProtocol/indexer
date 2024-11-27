@@ -31,8 +31,8 @@ export function parseLong(long: number | Long): bigint {
 const refreshAnalyticalTables = throttle(
   async function (
     since: Date = new Date(
-      Date.now() - parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS) * 2
-    )
+      Date.now() - parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS) * 2,
+    ),
   ) {
     const timer = logger.startTimer();
     logger.info("Started refreshing analytical tables", {
@@ -58,7 +58,7 @@ const refreshAnalyticalTables = throttle(
     async onError(err) {
       logger.error("Failed to refresh analytical tables", err);
     },
-  }
+  },
 );
 
 (async function () {
@@ -80,20 +80,23 @@ const refreshAnalyticalTables = throttle(
   refreshAnalyticalTables(new Date(0));
 
   streamClient.configure({
-    filter: EVENT_PROCESSORS.reduce((memo, value) => {
-      return memo.addEvent((ev) =>
-        ev
-          .withKeys(value.filter.keys)
-          .withIncludeReceipt(true)
-          .withFromAddress(value.filter.fromAddress)
-      );
-    }, Filter.create().withHeader({ weak: true })).encode(),
+    filter: EVENT_PROCESSORS.reduce(
+      (memo, value) => {
+        return memo.addEvent((ev) =>
+          ev
+            .withKeys(value.filter.keys)
+            .withIncludeReceipt(true)
+            .withFromAddress(value.filter.fromAddress),
+        );
+      },
+      Filter.create().withHeader({ weak: true }),
+    ).encode(),
     batchSize: 1,
     finality: v1alpha2.DataFinality.DATA_STATUS_PENDING,
     cursor: databaseStartingCursor
       ? Cursor.fromObject(databaseStartingCursor)
       : StarkNetCursor.createWithBlockNumber(
-          Number(process.env.STARTING_CURSOR_BLOCK_NUMBER ?? 0)
+          Number(process.env.STARTING_CURSOR_BLOCK_NUMBER ?? 0),
         ),
   });
 
@@ -101,10 +104,10 @@ const refreshAnalyticalTables = throttle(
     let messageType = !!message.heartbeat
       ? "heartbeat"
       : !!message.invalidate
-      ? "invalidate"
-      : !!message.data
-      ? "data"
-      : "unknown";
+        ? "invalidate"
+        : !!message.data
+          ? "data"
+          : "unknown";
 
     switch (messageType) {
       case "data": {
@@ -127,7 +130,7 @@ const refreshAnalyticalTables = throttle(
             const block = starknet.Block.decode(encodedBlockData);
 
             const blockTime = new Date(
-              Number(parseLong(block.header.timestamp.seconds) * 1000n)
+              Number(parseLong(block.header.timestamp.seconds) * 1000n),
             );
 
             const blockNumber = Number(parseLong(block.header.blockNumber));
@@ -177,7 +180,7 @@ const refreshAnalyticalTables = throttle(
                 : null;
 
               const feePaid = FieldElement.toBigInt(
-                receipt.actualFee ?? receipt.actualFeePaid?.amount
+                receipt.actualFee ?? receipt.actualFeePaid?.amount,
               );
               const feePaidUnit =
                 receipt.actualFeePaid?.unit ??
@@ -195,7 +198,7 @@ const refreshAnalyticalTables = throttle(
                     event.keys.every(
                       (key, ix) =>
                         FieldElement.toBigInt(key) ===
-                        FieldElement.toBigInt(filter.keys[ix])
+                        FieldElement.toBigInt(filter.keys[ix]),
                     )
                   ) {
                     const transactionMapKey =
@@ -217,14 +220,14 @@ const refreshAnalyticalTables = throttle(
                       key: eventKey,
                     });
                   }
-                })
+                }),
               );
             }
 
             await dao.writeCursor(Cursor.toObject(message.data.cursor));
 
             await dao.writeTransactionSenders(
-              Object.entries(transactionSenders)
+              Object.entries(transactionSenders),
             );
 
             await dao.writeReceipts(Object.entries(transactionReceipts));
@@ -242,7 +245,7 @@ const refreshAnalyticalTables = throttle(
               isPending,
               blockTimestamp: blockTime,
               lagMilliseconds: Math.floor(
-                Date.now() - Number(blockTime.getTime())
+                Date.now() - Number(blockTime.getTime()),
               ),
             });
           }

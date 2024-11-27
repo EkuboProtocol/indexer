@@ -61,6 +61,12 @@ import {
   TokenRegistrationEventV3,
 } from "./events/tokenRegistry";
 import { parseSnapshotEvent, SnapshotEvent } from "./events/oracle";
+import {
+  OrderClosedEvent,
+  OrderPlacedEvent,
+  parseOrderClosed,
+  parseOrderPlaced,
+} from "./events/limit_orders";
 
 export const EVENT_PROCESSORS = [
   <EventProcessor<LegacyPositionMintedEvent>>{
@@ -69,7 +75,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // PositionMinted
         FieldElement.fromBigInt(
-          0x2a9157ea1542bfe11220258bf15d8aa02d791e7f94426446ec85b94159929fn
+          0x2a9157ea1542bfe11220258bf15d8aa02d791e7f94426446ec85b94159929fn,
         ),
       ],
     },
@@ -87,7 +93,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // PositionMintedWithReferrer
         FieldElement.fromBigInt(
-          0x0289e57bf153052470392b578fad8d64393d2b5307e0cf1bf59f7967db3480fdn
+          0x0289e57bf153052470392b578fad8d64393d2b5307e0cf1bf59f7967db3480fdn,
         ),
       ],
     },
@@ -103,7 +109,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // Transfer
         FieldElement.fromBigInt(
-          0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9n
+          0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9n,
         ),
       ],
     },
@@ -119,7 +125,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // PositionUpdated
         FieldElement.fromBigInt(
-          0x03a7adca3546c213ce791fabf3b04090c163e419c808c9830fb343a4a395946en
+          0x03a7adca3546c213ce791fabf3b04090c163e419c808c9830fb343a4a395946en,
         ),
       ],
     },
@@ -135,7 +141,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // PositionFeesCollected
         FieldElement.fromBigInt(
-          0x96982abd597114bdaa4a60612f87fabfcc7206aa12d61c50e7ba1e6c291100n
+          0x96982abd597114bdaa4a60612f87fabfcc7206aa12d61c50e7ba1e6c291100n,
         ),
       ],
     },
@@ -151,7 +157,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // Swapped
         FieldElement.fromBigInt(
-          0x157717768aca88da4ac4279765f09f4d0151823d573537fbbeb950cdbd9a870n
+          0x157717768aca88da4ac4279765f09f4d0151823d573537fbbeb950cdbd9a870n,
         ),
       ],
     },
@@ -167,7 +173,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // PoolInitialized
         FieldElement.fromBigInt(
-          0x025ccf80ee62b2ca9b97c76ccea317c7f450fd6efb6ed6ea56da21d7bb9da5f1n
+          0x025ccf80ee62b2ca9b97c76ccea317c7f450fd6efb6ed6ea56da21d7bb9da5f1n,
         ),
       ],
     },
@@ -183,7 +189,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // ProtocolFeesWithdrawn
         FieldElement.fromBigInt(
-          0x291697c8230383d5c3cc8dc39443356a7da6b0735605fb0ee0f7bfbb7b824an
+          0x291697c8230383d5c3cc8dc39443356a7da6b0735605fb0ee0f7bfbb7b824an,
         ),
       ],
     },
@@ -199,7 +205,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // ProtocolFeesPaid
         FieldElement.fromBigInt(
-          0x5dacf59794364ad1555bb3c9b2346afa81e57e5c19bb6bae0d22721c96c4e5n
+          0x5dacf59794364ad1555bb3c9b2346afa81e57e5c19bb6bae0d22721c96c4e5n,
         ),
       ],
     },
@@ -215,7 +221,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // FeesAccumulated
         FieldElement.fromBigInt(
-          0x0237e5e0677822acfc9117ed0f7ba4810b2c6b539a2359e8d73f9025d56957aan
+          0x0237e5e0677822acfc9117ed0f7ba4810b2c6b539a2359e8d73f9025d56957aan,
         ),
       ],
     },
@@ -231,7 +237,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // Registration
         FieldElement.fromBigInt(
-          0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74n
+          0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74n,
         ),
       ],
     },
@@ -244,12 +250,12 @@ export const EVENT_PROCESSORS = [
   <EventProcessor<TokenRegistrationEvent>>{
     filter: {
       fromAddress: FieldElement.fromBigInt(
-        process.env.TOKEN_REGISTRY_V2_ADDRESS
+        process.env.TOKEN_REGISTRY_V2_ADDRESS,
       ),
       keys: [
         // Registration
         FieldElement.fromBigInt(
-          0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74n
+          0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74n,
         ),
       ],
     },
@@ -265,12 +271,12 @@ export const EVENT_PROCESSORS = [
   <EventProcessor<TokenRegistrationEventV3>>{
     filter: {
       fromAddress: FieldElement.fromBigInt(
-        process.env.TOKEN_REGISTRY_V3_ADDRESS
+        process.env.TOKEN_REGISTRY_V3_ADDRESS,
       ),
       keys: [
         // Registration
         FieldElement.fromBigInt(
-          0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74n
+          0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74n,
         ),
       ],
     },
@@ -286,7 +292,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // OrderUpdated
         FieldElement.fromBigInt(
-          0xb670ed7b7ee8ccb350963a7dea39493daff6e7a43ab021a0e4ac2d652d359en
+          0xb670ed7b7ee8ccb350963a7dea39493daff6e7a43ab021a0e4ac2d652d359en,
         ),
       ],
     },
@@ -302,7 +308,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // OrderProceedsWithdrawn
         FieldElement.fromBigInt(
-          0x3e074150c5906b2e323cea942b41f67f3639fcae5dc1fe4cf19c6801dff89b5n
+          0x3e074150c5906b2e323cea942b41f67f3639fcae5dc1fe4cf19c6801dff89b5n,
         ),
       ],
     },
@@ -318,7 +324,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // VirtualOrdersExecuted
         FieldElement.fromBigInt(
-          0x29416aa69fb4a5270dd3c2b3e6d05f457dc0dbf96f423db1f86c5b7b2e6840fn
+          0x29416aa69fb4a5270dd3c2b3e6d05f457dc0dbf96f423db1f86c5b7b2e6840fn,
         ),
       ],
     },
@@ -334,7 +340,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // Staked
         FieldElement.fromBigInt(
-          0x024fdaadc324c3bb8e59febfb2e8a399331e58193489e54ac40fec46745a9eben
+          0x024fdaadc324c3bb8e59febfb2e8a399331e58193489e54ac40fec46745a9eben,
         ),
       ],
     },
@@ -350,7 +356,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // Withdrawn
         FieldElement.fromBigInt(
-          0x036a4d15ab9e146faab90d4abc1c0cad17c4ded24551c781ba100392b5a70248n
+          0x036a4d15ab9e146faab90d4abc1c0cad17c4ded24551c781ba100392b5a70248n,
         ),
       ],
     },
@@ -366,7 +372,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // Proposed
         FieldElement.fromBigInt(
-          0x02a98c37f5b13fe14803e72b284c81be9ebbedc6cf74ed8d1489ed74951cba3fn
+          0x02a98c37f5b13fe14803e72b284c81be9ebbedc6cf74ed8d1489ed74951cba3fn,
         ),
       ],
     },
@@ -382,7 +388,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // Canceled
         FieldElement.fromBigInt(
-          0xad1f80a0e6ac2d42f6ce99670de84817aef2368cd22a19f85fcb721f689192n
+          0xad1f80a0e6ac2d42f6ce99670de84817aef2368cd22a19f85fcb721f689192n,
         ),
       ],
     },
@@ -398,7 +404,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // CreationThresholdBreached
         FieldElement.fromBigInt(
-          0xda0eb1cb71bdbfac21648d8b87024714f7eb6207978c7eb359a20144a99bafn
+          0xda0eb1cb71bdbfac21648d8b87024714f7eb6207978c7eb359a20144a99bafn,
         ),
       ],
     },
@@ -415,7 +421,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // Voted
         FieldElement.fromBigInt(
-          0x5c9afac1c510b50d3e0004024ba7b8e190864f1543dd8025d08f88410fb162n
+          0x5c9afac1c510b50d3e0004024ba7b8e190864f1543dd8025d08f88410fb162n,
         ),
       ],
     },
@@ -431,7 +437,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // Executed
         FieldElement.fromBigInt(
-          0x01f4317aae43f6c24b2b85c6d8b21d5fa0a28cee0476cd52ca5d60d4787aab78n
+          0x01f4317aae43f6c24b2b85c6d8b21d5fa0a28cee0476cd52ca5d60d4787aab78n,
         ),
       ],
     },
@@ -447,7 +453,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // Described
         FieldElement.fromBigInt(
-          0x8643a1c8a461189d5b77de7576b06aa9148c9127101228f02816d13768e7a9n
+          0x8643a1c8a461189d5b77de7576b06aa9148c9127101228f02816d13768e7a9n,
         ),
       ],
     },
@@ -463,7 +469,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // Reconfigured
         FieldElement.fromBigInt(
-          0x02b9973fd701ab68169e139e241db74576eca4e885bad73d016982a59f1ac9fbn
+          0x02b9973fd701ab68169e139e241db74576eca4e885bad73d016982a59f1ac9fbn,
         ),
       ],
     },
@@ -479,7 +485,7 @@ export const EVENT_PROCESSORS = [
       keys: [
         // SnapshotEvent
         FieldElement.fromBigInt(
-          0x0385e1b60fdfb8aeee9212a69cdb72415cef7b24ec07a60cdd65b65d0582238bn
+          0x0385e1b60fdfb8aeee9212a69cdb72415cef7b24ec07a60cdd65b65d0582238bn,
         ),
       ],
     },
@@ -487,6 +493,38 @@ export const EVENT_PROCESSORS = [
     async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("Snapshot", { parsed, key });
       await dao.insertOracleSnapshotEvent(parsed, key);
+    },
+  },
+  <EventProcessor<OrderPlacedEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.LIMIT_ORDERS_ADDRESS),
+      keys: [
+        // OrderPlaced
+        FieldElement.fromBigInt(
+          0x03b935dbbdb7f463a394fc8729e7e26e30edebbc3bd5617bf1d7cf9e1ce6f7cbn,
+        ),
+      ],
+    },
+    parser: parseOrderPlaced,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("OrderPlaced", { parsed, key });
+      await dao.insertOrderPlacedEvent(parsed, key);
+    },
+  },
+  <EventProcessor<OrderClosedEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.LIMIT_ORDERS_ADDRESS),
+      keys: [
+        // OrderClosed
+        FieldElement.fromBigInt(
+          0x0196e77c6eab92283e3fc303198bb0a523c0c7d93b4de1d8bf636eab7517c4aen,
+        ),
+      ],
+    },
+    parser: parseOrderClosed,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("OrderClosed", { parsed, key });
+      await dao.insertOrderClosedEvent(parsed, key);
     },
   },
 ] as const;
