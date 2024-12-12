@@ -866,6 +866,27 @@ export class DAO {
                          tpsm.last_virtual_execution_time < tsrdv.time);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_twamm_sale_rate_deltas_materialized_pool_key_hash_time ON twamm_sale_rate_deltas_materialized USING btree (pool_key_hash, time);
 
+        CREATE OR REPLACE VIEW limit_order_pool_states_view AS
+        (
+        WITH last_limit_order_placed AS (SELECT key_hash, MAX(event_id) AS event_id
+                                         FROM limit_order_placed
+                                         GROUP BY key_hash),
+             last_limit_order_closed AS (SELECT key_hash, MAX(event_id) AS event_id
+                                         FROM limit_order_closed
+                                         GROUP BY key_hash)
+        SELECT COALESCE(llop.key_hash, lloc.key_hash) AS pool_key_hash,
+               GREATEST(GREATEST(llop.event_id, COALESCE(lloc.event_id, 0)),
+                        psm.last_event_id)            AS last_event_id
+        FROM last_limit_order_placed llop
+                 JOIN pool_states_materialized psm ON llop.key_hash = psm.pool_key_hash
+                 LEFT JOIN last_limit_order_closed lloc ON llop.key_hash = lloc.key_hash
+            );
+
+        CREATE MATERIALIZED VIEW IF NOT EXISTS limit_order_pool_states_materialized AS
+        (
+        SELECT pool_key_hash, last_event_id
+        FROM limit_order_pool_states_view);
+
         CREATE OR REPLACE VIEW last_24h_pool_stats_view AS
         (
         WITH volume AS (SELECT vbt.key_hash,
@@ -1478,6 +1499,7 @@ export class DAO {
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_pool_states_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_sale_rate_deltas_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY oracle_pool_states_materialized;
+      REFRESH MATERIALIZED VIEW CONCURRENTLY limit_order_pool_states_materialized;
     `);
   }
 
