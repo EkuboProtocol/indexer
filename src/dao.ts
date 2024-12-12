@@ -886,6 +886,7 @@ export class DAO {
         (
         SELECT pool_key_hash, last_event_id
         FROM limit_order_pool_states_view);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_limit_order_pool_states_materialized_pool_key_hash ON limit_order_pool_states_materialized USING btree (pool_key_hash);
 
         CREATE OR REPLACE VIEW last_24h_pool_stats_view AS
         (
