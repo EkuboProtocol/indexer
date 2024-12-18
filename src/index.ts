@@ -22,6 +22,7 @@ const pool = new Pool({
 const streamClient = new StreamClient({
   url: process.env.APIBARA_URL,
   token: process.env.APIBARA_AUTH_TOKEN,
+  timeout: 120_000,
 });
 
 export function parseLong(long: number | Long): bigint {
