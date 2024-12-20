@@ -23,6 +23,9 @@ const streamClient = new StreamClient({
   url: process.env.APIBARA_URL,
   token: process.env.APIBARA_AUTH_TOKEN,
   timeout: 120_000,
+  clientOptions: {
+    "grpc.max_receive_message_length": 142381042 * 2,
+  },
 });
 
 export function parseLong(long: number | Long): bigint {
