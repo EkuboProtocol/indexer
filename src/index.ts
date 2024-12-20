@@ -22,9 +22,9 @@ const pool = new Pool({
 const streamClient = new StreamClient({
   url: process.env.APIBARA_URL,
   token: process.env.APIBARA_AUTH_TOKEN,
-  timeout: 120_000,
+  timeout: 300_000,
   clientOptions: {
-    "grpc.max_receive_message_length": 142381042 * 2,
+    "grpc.max_receive_message_length": 250_000_000,
   },
 });
 
