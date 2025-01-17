@@ -5,7 +5,7 @@ export interface EventKey {
   blockNumber: number;
   transactionIndex: number;
   eventIndex: number;
-  fromAddress: bigint;
+  emitter: bigint;
   transactionHash: bigint;
 }
 

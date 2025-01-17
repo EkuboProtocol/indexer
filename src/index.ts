@@ -154,7 +154,7 @@ const refreshAnalyticalTables = throttle(
               blockNumber,
               transactionIndex: event.transactionIndex,
               eventIndex: event.eventIndex,
-              fromAddress: BigInt(event.address),
+              emitter: BigInt(event.address),
               transactionHash: BigInt(event.transactionHash),
             };
 
