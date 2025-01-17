@@ -12,18 +12,19 @@
   "author": "Moody Salem",
   "type": "module",
   "devDependencies": {
+    "@types/bun": "^1.1.17",
     "@types/pg": "^8.11.10",
-    "typescript": "^5.1.6",
-    "vitest": "^1.5.3"
+    "typescript": "^5.7.3",
+    "vitest": "^1.6.0"
   },
   "dependencies": {
-    "@apibara/protocol": "^2.0.0-beta.30",
-    "@apibara/starknet": "^2.0.0-beta.30",
-    "dotenv": "^16.3.1",
+    "@apibara/protocol": "^2.0.0-beta.31",
+    "@apibara/starknet": "^2.0.0-beta.31",
+    "dotenv": "^16.4.7",
     "pedersen-fast": "^0.4.0",
     "pg": "^8.13.1",
-    "starknet": "^6.9.0",
+    "starknet": "^6.11.0",
     "tadaaa": "^1.0.1",
-    "winston": "^3.10.0"
+    "winston": "^3.17.0"
   }
 }

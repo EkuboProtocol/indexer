@@ -156,16 +156,20 @@ export const parseUint8Array: Parser<Uint8Array> = (data, startingFrom) => {
     next,
   };
 };
+
 const parseByteArrayWords = parseSpanOf(parseUint8Array);
+
 export const parseByteArray: Parser<string> = (data, startingFrom) => {
   const words = parseByteArrayWords(data, startingFrom);
 
   const value = new TextDecoder().decode(
-    Buffer.concat([
-      ...words.value,
-      // pending word
-      parseUint8Array(data, words.next).value,
-    ]),
+    new Uint8Array(
+      Buffer.concat([
+        ...words.value,
+        // pending word
+        parseUint8Array(data, words.next).value,
+      ]),
+    ),
   );
 
   return {

@@ -74,6 +74,7 @@ const refreshAnalyticalTables = throttle(
           id: ix + 1,
           address: ep.filter.fromAddress,
           keys: ep.filter.keys,
+
           includeReceipt: true,
           includeTransaction: true,
         })),
@@ -87,6 +88,18 @@ const refreshAnalyticalTables = throttle(
     switch (message._tag) {
       case "heartbeat": {
         logger.info(`Heartbeat`);
+        break;
+      }
+
+      case "systemMessage": {
+        switch (message.systemMessage.output?._tag) {
+          case "stderr":
+            logger.error(`System message: ${message.systemMessage.output}`);
+            break;
+          case "stdout":
+            logger.info(`System message: ${message.systemMessage.output}`);
+            break;
+        }
         break;
       }
 
@@ -201,7 +214,7 @@ const refreshAnalyticalTables = throttle(
       }
 
       default: {
-        logger.error(`Unknown message type: ${message._tag}`);
+        logger.error(`Unhandled message type: ${message._tag}`);
         break;
       }
     }
