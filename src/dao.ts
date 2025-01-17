@@ -1,5 +1,5 @@
 import { Client, PoolClient } from "pg";
-import { EventKey, eventKeyToId, ParsedEventWithKey } from "./processor";
+import { EventKey } from "./processor";
 import {
   FeesAccumulatedEvent,
   PoolInitializationEvent,
@@ -1598,23 +1598,24 @@ export class DAO {
     // The `*` operator is the PostgreSQL range intersection operator.
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                        VALUES ($1, $2, $3, $4)
-                        RETURNING id)
-                INSERT
-                INTO position_transfers
-                (event_id,
-                 token_id,
-                 from_address,
-                 to_address)
-                VALUES ((SELECT id FROM inserted_event), $5, $6, $7)
-            `,
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
+                  VALUES ($1, $2, $3, $4, $5)
+                  RETURNING id)
+          INSERT
+          INTO position_transfers
+          (event_id,
+           token_id,
+           from_address,
+           to_address)
+          VALUES ((SELECT id FROM inserted_event), $6, $7, $8)
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
         key.eventIndex,
         key.transactionHash,
+        key.fromAddress,
         transfer.id,
         transfer.from,
         transfer.to,
@@ -1628,22 +1629,23 @@ export class DAO {
   ) {
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                        VALUES ($1, $2, $3, $4)
-                        RETURNING id)
-                INSERT
-                INTO position_minted_with_referrer
-                (event_id,
-                 token_id,
-                 referrer)
-                VALUES ((SELECT id FROM inserted_event), $5, $6)
-            `,
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
+                  VALUES ($1, $2, $3, $4, $5)
+                  RETURNING id)
+          INSERT
+          INTO position_minted_with_referrer
+          (event_id,
+           token_id,
+           referrer)
+          VALUES ((SELECT id FROM inserted_event), $6, $7)
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
         key.eventIndex,
         key.transactionHash,
+        key.fromAddress,
         minted.id,
         minted.referrer,
       ],
@@ -1658,28 +1660,29 @@ export class DAO {
 
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                        VALUES ($1, $2, $3, $4)
-                        RETURNING id)
-                INSERT
-                INTO position_updates
-                (event_id,
-                 locker,
-                 pool_key_hash,
-                 salt,
-                 lower_bound,
-                 upper_bound,
-                 liquidity_delta,
-                 delta0,
-                 delta1)
-                VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11, $12);
-            `,
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
+                  VALUES ($1, $2, $3, $4, $5)
+                  RETURNING id)
+          INSERT
+          INTO position_updates
+          (event_id,
+           locker,
+           pool_key_hash,
+           salt,
+           lower_bound,
+           upper_bound,
+           liquidity_delta,
+           delta0,
+           delta1)
+          VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9, $10, $11, $12, $13);
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
         key.eventIndex,
         key.transactionHash,
+        key.fromAddress,
 
         event.locker,
 
@@ -1705,27 +1708,28 @@ export class DAO {
     await this.pg.query({
       name: "insert-position-fees-collected",
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                        VALUES ($1, $2, $3, $4)
-                        RETURNING id)
-                INSERT
-                INTO position_fees_collected
-                (event_id,
-                 pool_key_hash,
-                 owner,
-                 salt,
-                 lower_bound,
-                 upper_bound,
-                 delta0,
-                 delta1)
-                VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11);
-            `,
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
+                  VALUES ($1, $2, $3, $4, $5)
+                  RETURNING id)
+          INSERT
+          INTO position_fees_collected
+          (event_id,
+           pool_key_hash,
+           owner,
+           salt,
+           lower_bound,
+           upper_bound,
+           delta0,
+           delta1)
+          VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9, $10, $11, $12);
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
         key.eventIndex,
         key.transactionHash,
+        key.fromAddress,
 
         pool_key_hash,
 

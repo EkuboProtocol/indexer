@@ -9,14 +9,6 @@ export interface EventKey {
   transactionHash: bigint;
 }
 
-export function eventKeyToId(key: EventKey): bigint {
-  return (
-    (BigInt(key.blockNumber) << 32n) +
-    (BigInt(key.transactionIndex) << 16n) +
-    BigInt(key.eventIndex)
-  );
-}
-
 export interface ParsedEventWithKey<T> {
   key: EventKey;
   parsed: T;
