@@ -153,15 +153,14 @@ const refreshAnalyticalTables = throttle(
             // assumption is that none of the event processors operate on the same events, i.e. have the same filters
             // this assumption could be validated at runtime
             await Promise.all(
-              EVENT_PROCESSORS.map(async ({ parser, handle, filter }, ix) => {
-                if (event.filterIds.includes(ix)) {
-                  const parsed = parser(event.data, 0).value;
+              event.filterIds.map(async (processorIndex) => {
+                const { parser, handle } = EVENT_PROCESSORS[processorIndex];
+                const parsed = parser(event.data, 0).value;
 
-                  await handle(dao, {
-                    parsed: parsed as any,
-                    key: eventKey,
-                  });
-                }
+                await handle(dao, {
+                  parsed: parsed as any,
+                  key: eventKey,
+                });
               }),
             );
           }
