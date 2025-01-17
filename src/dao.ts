@@ -28,11 +28,16 @@ import {
   GovernorReconfiguredEvent,
   GovernorVotedEvent,
 } from "./events/governor";
-import { TokenRegistrationEvent } from "./events/tokenRegistry";
+import {
+  TokenRegistrationEvent,
+  TokenRegistrationEventV3,
+} from "./events/tokenRegistry";
 import { SnapshotEvent } from "./events/oracle";
+import { OrderClosedEvent, OrderPlacedEvent } from "./events/limit_orders";
 import { Cursor } from "@apibara/protocol";
 
 const MAX_TICK_SPACING = 354892;
+const LIMIT_ORDER_TICK_SPACING = 128;
 
 function orderKeyToPoolKey(event_key: EventKey, order_key: OrderKey): PoolKey {
   const [token0, token1]: [bigint, bigint] =
@@ -102,7 +107,7 @@ export class DAO {
           },
           hash: BigInt(key_hash),
         };
-      })
+      }),
     );
   }
 
@@ -298,6 +303,18 @@ export class DAO {
 
             name         NUMERIC NOT NULL,
             symbol       NUMERIC NOT NULL,
+            decimals     INT     NOT NULL,
+            total_supply NUMERIC NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS token_registrations_v3
+        (
+            event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            address      NUMERIC NOT NULL,
+
+            name         VARCHAR NOT NULL,
+            symbol       VARCHAR NOT NULL,
             decimals     INT     NOT NULL,
             total_supply NUMERIC NOT NULL
         );
@@ -498,21 +515,24 @@ export class DAO {
         (
         WITH all_tick_deltas AS (SELECT pool_key_hash,
                                         lower_bound AS       tick,
-                                        SUM(liquidity_delta) net_liquidity_delta
+                                        SUM(liquidity_delta) net_liquidity_delta,
+                                        SUM(liquidity_delta) total_liquidity_on_tick
                                  FROM position_updates
                                  GROUP BY pool_key_hash, lower_bound
                                  UNION ALL
                                  SELECT pool_key_hash,
                                         upper_bound AS        tick,
-                                        SUM(-liquidity_delta) net_liquidity_delta
+                                        SUM(-liquidity_delta) net_liquidity_delta,
+                                        SUM(liquidity_delta)  total_liquidity_on_tick
                                  FROM position_updates
                                  GROUP BY pool_key_hash, upper_bound),
              summed AS (SELECT pool_key_hash,
                                tick,
-                               SUM(net_liquidity_delta) AS net_liquidity_delta_diff
+                               SUM(net_liquidity_delta)     AS net_liquidity_delta_diff,
+                               SUM(total_liquidity_on_tick) AS total_liquidity_on_tick
                         FROM all_tick_deltas
                         GROUP BY pool_key_hash, tick)
-        SELECT pool_key_hash, tick, net_liquidity_delta_diff
+        SELECT pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick
         FROM summed
         WHERE net_liquidity_delta_diff != 0
         ORDER BY tick);
@@ -522,86 +542,116 @@ export class DAO {
             pool_key_hash            NUMERIC,
             tick                     int4,
             net_liquidity_delta_diff NUMERIC,
+            total_liquidity_on_tick  NUMERIC,
             PRIMARY KEY (pool_key_hash, tick)
         );
 
         DELETE
         FROM per_pool_per_tick_liquidity_incremental_view;
-        INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
-            (SELECT pool_key_hash, tick, net_liquidity_delta_diff FROM per_pool_per_tick_liquidity_view);
+        INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff,
+                                                                  total_liquidity_on_tick)
+            (SELECT pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick
+             FROM per_pool_per_tick_liquidity_view);
 
         CREATE OR REPLACE FUNCTION net_liquidity_deltas_after_insert()
-            RETURNS TRIGGER AS $$
+            RETURNS TRIGGER AS
+        $$
         BEGIN
             -- Update or insert for lower_bound
             UPDATE per_pool_per_tick_liquidity_incremental_view
-            SET net_liquidity_delta_diff = net_liquidity_delta_diff + new.liquidity_delta
-            WHERE pool_key_hash = new.pool_key_hash AND tick = new.lower_bound;
+            SET net_liquidity_delta_diff = net_liquidity_delta_diff + new.liquidity_delta,
+                total_liquidity_on_tick  = total_liquidity_on_tick + new.liquidity_delta
+            WHERE pool_key_hash = new.pool_key_hash
+              AND tick = new.lower_bound;
 
             IF NOT found THEN
-                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
-                VALUES (new.pool_key_hash, new.lower_bound, new.liquidity_delta);
+                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff,
+                                                                          total_liquidity_on_tick)
+                VALUES (new.pool_key_hash, new.lower_bound, new.liquidity_delta, new.liquidity_delta);
             END IF;
 
-            -- Delete if net_liquidity_delta_diff is zero
-            DELETE FROM per_pool_per_tick_liquidity_incremental_view
-            WHERE pool_key_hash = new.pool_key_hash AND tick = new.lower_bound AND net_liquidity_delta_diff = 0;
+            -- Delete if total_liquidity_on_tick is zero
+            DELETE
+            FROM per_pool_per_tick_liquidity_incremental_view
+            WHERE pool_key_hash = new.pool_key_hash
+              AND tick = new.lower_bound
+              AND total_liquidity_on_tick = 0;
 
             -- Update or insert for upper_bound
             UPDATE per_pool_per_tick_liquidity_incremental_view
-            SET net_liquidity_delta_diff = net_liquidity_delta_diff - new.liquidity_delta
-            WHERE pool_key_hash = new.pool_key_hash AND tick = new.upper_bound;
+            SET net_liquidity_delta_diff = net_liquidity_delta_diff - new.liquidity_delta,
+                total_liquidity_on_tick  = total_liquidity_on_tick + new.liquidity_delta
+            WHERE pool_key_hash = new.pool_key_hash
+              AND tick = new.upper_bound;
 
             IF NOT found THEN
-                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
-                VALUES (new.pool_key_hash, new.upper_bound, -new.liquidity_delta);
+                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff,
+                                                                          total_liquidity_on_tick)
+                VALUES (new.pool_key_hash, new.upper_bound, -new.liquidity_delta, new.liquidity_delta);
             END IF;
 
             -- Delete if net_liquidity_delta_diff is zero
-            DELETE FROM per_pool_per_tick_liquidity_incremental_view
-            WHERE pool_key_hash = new.pool_key_hash AND tick = new.upper_bound AND net_liquidity_delta_diff = 0;
+            DELETE
+            FROM per_pool_per_tick_liquidity_incremental_view
+            WHERE pool_key_hash = new.pool_key_hash
+              AND tick = new.upper_bound
+              AND total_liquidity_on_tick = 0;
 
             RETURN NULL;
         END;
         $$ LANGUAGE plpgsql;
 
         CREATE OR REPLACE FUNCTION net_liquidity_deltas_after_delete()
-            RETURNS TRIGGER AS $$
+            RETURNS TRIGGER AS
+        $$
         BEGIN
             -- Reverse effect for lower_bound
             UPDATE per_pool_per_tick_liquidity_incremental_view
-            SET net_liquidity_delta_diff = net_liquidity_delta_diff - old.liquidity_delta
-            WHERE pool_key_hash = old.pool_key_hash AND tick = old.lower_bound;
+            SET net_liquidity_delta_diff = net_liquidity_delta_diff - old.liquidity_delta,
+                total_liquidity_on_tick  = total_liquidity_on_tick - old.liquidity_delta
+            WHERE pool_key_hash = old.pool_key_hash
+              AND tick = old.lower_bound;
 
             IF NOT found THEN
-                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
-                VALUES (old.pool_key_hash, old.lower_bound, -old.liquidity_delta);
+                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff,
+                                                                          total_liquidity_on_tick)
+                VALUES (old.pool_key_hash, old.lower_bound, -old.liquidity_delta, -old.liquidity_delta);
             END IF;
 
             -- Delete if net_liquidity_delta_diff is zero
-            DELETE FROM per_pool_per_tick_liquidity_incremental_view
-            WHERE pool_key_hash = old.pool_key_hash AND tick = old.lower_bound AND net_liquidity_delta_diff = 0;
+            DELETE
+            FROM per_pool_per_tick_liquidity_incremental_view
+            WHERE pool_key_hash = old.pool_key_hash
+              AND tick = old.lower_bound
+              AND total_liquidity_on_tick = 0;
 
             -- Reverse effect for upper_bound
             UPDATE per_pool_per_tick_liquidity_incremental_view
-            SET net_liquidity_delta_diff = net_liquidity_delta_diff + old.liquidity_delta
-            WHERE pool_key_hash = old.pool_key_hash AND tick = old.upper_bound;
+            SET net_liquidity_delta_diff = net_liquidity_delta_diff + old.liquidity_delta,
+                total_liquidity_on_tick  = total_liquidity_on_tick - old.liquidity_delta
+            WHERE pool_key_hash = old.pool_key_hash
+              AND tick = old.upper_bound;
 
             IF NOT found THEN
-                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff)
-                VALUES (old.pool_key_hash, old.upper_bound, old.liquidity_delta);
+                INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff,
+                                                                          total_liquidity_on_tick)
+                VALUES (old.pool_key_hash, old.upper_bound, old.liquidity_delta, -old.liquidity_delta);
             END IF;
 
             -- Delete if net_liquidity_delta_diff is zero
-            DELETE FROM per_pool_per_tick_liquidity_incremental_view
-            WHERE pool_key_hash = old.pool_key_hash AND tick = old.upper_bound AND net_liquidity_delta_diff = 0;
+            DELETE
+            FROM per_pool_per_tick_liquidity_incremental_view
+            WHERE pool_key_hash = old.pool_key_hash
+              AND tick = old.upper_bound
+              AND total_liquidity_on_tick = 0;
 
             RETURN NULL;
         END;
         $$ LANGUAGE plpgsql;
 
         CREATE OR REPLACE FUNCTION net_liquidity_deltas_after_update()
-            RETURNS TRIGGER AS $$
+            RETURNS TRIGGER AS
+        $$
         BEGIN
             -- Reverse OLD row effects (similar to DELETE)
             PERFORM net_liquidity_deltas_after_delete();
@@ -614,17 +664,20 @@ export class DAO {
         $$ LANGUAGE plpgsql;
 
         CREATE OR REPLACE TRIGGER net_liquidity_deltas_after_insert
-            AFTER INSERT ON position_updates
+            AFTER INSERT
+            ON position_updates
             FOR EACH ROW
         EXECUTE FUNCTION net_liquidity_deltas_after_insert();
 
         CREATE OR REPLACE TRIGGER net_liquidity_deltas_after_delete
-            AFTER DELETE ON position_updates
+            AFTER DELETE
+            ON position_updates
             FOR EACH ROW
         EXECUTE FUNCTION net_liquidity_deltas_after_delete();
 
         CREATE OR REPLACE TRIGGER net_liquidity_deltas_after_update
-            AFTER UPDATE ON position_updates
+            AFTER UPDATE
+            ON position_updates
             FOR EACH ROW
         EXECUTE FUNCTION net_liquidity_deltas_after_update();
 
@@ -646,6 +699,7 @@ export class DAO {
         CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_key_hash_time ON twamm_order_updates USING btree (key_hash, start_time, end_time);
         CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_owner_salt ON twamm_order_updates USING btree (owner, salt);
         CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_salt ON twamm_order_updates USING btree (salt);
+        CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_salt_key_hash_start_end_owner_event_id ON twamm_order_updates (salt, key_hash, start_time, end_time, owner, event_id);
 
         CREATE TABLE IF NOT EXISTS twamm_proceeds_withdrawals
         (
@@ -664,6 +718,7 @@ export class DAO {
         CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_key_hash_time ON twamm_proceeds_withdrawals USING btree (key_hash, start_time, end_time);
         CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_owner_salt ON twamm_proceeds_withdrawals USING btree (owner, salt);
         CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_salt ON twamm_proceeds_withdrawals USING btree (salt);
+        CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_salt_event_id_desc ON twamm_proceeds_withdrawals (salt, event_id DESC);
 
         CREATE TABLE IF NOT EXISTS twamm_virtual_order_executions
         (
@@ -691,6 +746,38 @@ export class DAO {
             snapshot_tick_cumulative NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_oracle_snapshots_token0_token1_index ON oracle_snapshots USING btree (token0, token1, index);
+
+        CREATE TABLE IF NOT EXISTS limit_order_placed
+        (
+            event_id  int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+
+            key_hash  NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+
+            owner     NUMERIC NOT NULL,
+            salt      NUMERIC NOT NULL,
+            token0    NUMERIC NOT NULL,
+            token1    NUMERIC NOT NULL,
+            tick      int4    NOT NULL,
+            liquidity NUMERIC NOT NULL,
+            amount    NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_limit_order_placed_owner_salt ON limit_order_placed USING btree (owner, salt);
+
+        CREATE TABLE IF NOT EXISTS limit_order_closed
+        (
+            event_id int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+
+            key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+
+            owner    NUMERIC NOT NULL,
+            salt     NUMERIC NOT NULL,
+            token0   NUMERIC NOT NULL,
+            token1   NUMERIC NOT NULL,
+            tick     int4    NOT NULL,
+            amount0  NUMERIC NOT NULL,
+            amount1  NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_limit_order_closed ON limit_order_closed USING btree (owner, salt);
 
         CREATE OR REPLACE VIEW twamm_pool_states_view AS
         (
@@ -780,6 +867,28 @@ export class DAO {
                          tpsm.last_virtual_execution_time < tsrdv.time);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_twamm_sale_rate_deltas_materialized_pool_key_hash_time ON twamm_sale_rate_deltas_materialized USING btree (pool_key_hash, time);
 
+        CREATE OR REPLACE VIEW limit_order_pool_states_view AS
+        (
+        WITH last_limit_order_placed AS (SELECT key_hash, MAX(event_id) AS event_id
+                                         FROM limit_order_placed
+                                         GROUP BY key_hash),
+             last_limit_order_closed AS (SELECT key_hash, MAX(event_id) AS event_id
+                                         FROM limit_order_closed
+                                         GROUP BY key_hash)
+        SELECT COALESCE(llop.key_hash, lloc.key_hash) AS pool_key_hash,
+               GREATEST(GREATEST(llop.event_id, COALESCE(lloc.event_id, 0)),
+                        psm.last_event_id)            AS last_event_id
+        FROM last_limit_order_placed llop
+                 JOIN pool_states_materialized psm ON llop.key_hash = psm.pool_key_hash
+                 LEFT JOIN last_limit_order_closed lloc ON llop.key_hash = lloc.key_hash
+            );
+
+        CREATE MATERIALIZED VIEW IF NOT EXISTS limit_order_pool_states_materialized AS
+        (
+        SELECT pool_key_hash, last_event_id
+        FROM limit_order_pool_states_view);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_limit_order_pool_states_materialized_pool_key_hash ON limit_order_pool_states_materialized USING btree (pool_key_hash);
+
         CREATE OR REPLACE VIEW last_24h_pool_stats_view AS
         (
         WITH volume AS (SELECT vbt.key_hash,
@@ -836,26 +945,91 @@ export class DAO {
             );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_last_24h_pool_stats_materialized_key_hash ON last_24h_pool_stats_materialized USING btree (key_hash);
 
+        CREATE OR REPLACE FUNCTION parse_short_string(numeric_value NUMERIC) RETURNS VARCHAR AS
+        $$
+        DECLARE
+            result_text TEXT    := '';
+            byte_value  INTEGER;
+            ascii_char  TEXT;
+            n           NUMERIC := numeric_value;
+        BEGIN
+            IF n < 0 THEN
+                RETURN NULL;
+            END IF;
+
+            IF n % 1 != 0 THEN
+                RETURN NULL;
+            END IF;
+
+            IF n = 0 THEN
+                RETURN '';
+            END IF;
+
+            WHILE n > 0
+                LOOP
+                    byte_value := MOD(n, 256)::INTEGER;
+                    ascii_char := CHR(byte_value);
+                    result_text := ascii_char || result_text; -- Prepend to maintain correct order
+                    n := FLOOR(n / 256);
+                END LOOP;
+
+            RETURN result_text;
+        END;
+        $$ LANGUAGE plpgsql;
+
+        CREATE OR REPLACE VIEW latest_token_registrations_view AS
+        (
+        WITH all_token_registrations AS (SELECT address,
+                                                event_id,
+                                                parse_short_string(name)   AS name,
+                                                parse_short_string(symbol) AS symbol,
+                                                decimals,
+                                                total_supply
+                                         FROM token_registrations tr
+                                         UNION ALL
+                                         SELECT address,
+                                                event_id,
+                                                name,
+                                                symbol,
+                                                decimals,
+                                                total_supply
+                                         FROM token_registrations_v3 tr_v3),
+             validated_registrations AS (SELECT *
+                                         FROM all_token_registrations
+                                         WHERE LENGTH(symbol) > 1
+                                           AND LENGTH(symbol) < 10
+                                           AND REGEXP_LIKE(symbol, '^[\\x00-\\x7F]*$', 'i')
+                                           AND LENGTH(name) < 128
+                                           AND REGEXP_LIKE(name, '^[\\x00-\\x7F]*$', 'i')),
+             event_ids_per_address AS (SELECT address,
+                                              MIN(event_id) AS first_registration_id,
+                                              MAX(event_id) AS last_registration_id
+                                       FROM validated_registrations vr
+                                       GROUP BY address),
+             first_registration_of_each_symbol AS (SELECT LOWER(symbol) AS lower_symbol, MIN(event_id) first_id
+                                                   FROM validated_registrations
+                                                   GROUP BY 1)
+        SELECT iba.address,
+               vr.name,
+               vr.symbol,
+               vr.decimals,
+               vr.total_supply
+        FROM event_ids_per_address AS iba
+                 JOIN validated_registrations AS vr
+                      ON iba.address = vr.address
+                          AND iba.last_registration_id = vr.event_id
+                 JOIN first_registration_of_each_symbol fr
+                      ON fr.lower_symbol = LOWER(vr.symbol) AND iba.first_registration_id = fr.first_id
+            );
+
         CREATE MATERIALIZED VIEW IF NOT EXISTS latest_token_registrations AS
         (
-        WITH last_key_per_address AS (SELECT address,
-                                             (SELECT event_id
-                                              FROM token_registrations AS trr
-                                              WHERE trr.address = tr.address
-                                              ORDER BY event_id DESC
-                                              LIMIT 1) AS last_registration_id
-                                      FROM token_registrations tr
-                                      GROUP BY address)
-        SELECT lk.address,
-               tr.name,
-               tr.symbol,
-               tr.decimals,
-               tr.total_supply
-        FROM last_key_per_address AS lk
-                 JOIN token_registrations AS tr
-                      ON lk.address = tr.address
-                          AND lk.last_registration_id = tr.event_id
-        ORDER BY address);
+        SELECT address,
+               name,
+               symbol,
+               decimals,
+               total_supply
+        FROM latest_token_registrations_view);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_latest_token_registrations_by_address ON latest_token_registrations USING btree (address);
 
         CREATE OR REPLACE VIEW oracle_pool_states_view AS
@@ -870,6 +1044,215 @@ export class DAO {
                last_snapshot_block_timestamp
         FROM oracle_pool_states_view);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_oracle_pool_states_materialized_pool_key_hash ON oracle_pool_states_materialized USING btree (pool_key_hash);
+
+        CREATE OR REPLACE FUNCTION numeric_to_hex(num NUMERIC) RETURNS TEXT
+            IMMUTABLE
+            LANGUAGE plpgsql
+        AS
+        $$
+        DECLARE
+            hex       TEXT;
+            remainder NUMERIC;
+        BEGIN
+            hex := '';
+            LOOP
+                IF num = 0 THEN
+                    EXIT;
+                END IF;
+                remainder := num % 16;
+                hex := SUBSTRING('0123456789abcdef' FROM (remainder::INT + 1) FOR 1) || hex;
+                num := (num - remainder) / 16;
+            END LOOP;
+            RETURN '0x' || hex;
+        END;
+        $$;
+
+        CREATE OR REPLACE FUNCTION calculate_staker_rewards(
+            start_time timestamptz,
+            end_time timestamptz,
+            total_rewards NUMERIC,
+            staking_share NUMERIC,
+            delegate_share NUMERIC
+        )
+            RETURNS TABLE
+                    (
+                        id               BIGINT,
+                        claimee          TEXT,
+                        amount           NUMERIC,
+                        delegate_portion NUMERIC,
+                        staker_portion   NUMERIC
+                    )
+        AS
+        $$
+        BEGIN
+            RETURN QUERY
+                WITH
+                    -- Step 0: Compute total duration and total rewards
+                    calculated_parameters
+                        AS (SELECT EXTRACT(EPOCH FROM (end_time - start_time))::NUMERIC AS total_duration_seconds),
+
+                    -- Step 1: Collect all time points where any stake change occurs
+                    time_points AS (SELECT DISTINCT time
+                                    FROM (SELECT b.time
+                                          FROM staker_staked s
+                                                   JOIN event_keys ek ON s.event_id = ek.id
+                                                   JOIN blocks b ON ek.block_number = b.number
+                                          WHERE b.time BETWEEN start_time AND end_time
+                                          UNION ALL
+                                          SELECT b.time
+                                          FROM staker_withdrawn w
+                                                   JOIN event_keys ek ON w.event_id = ek.id
+                                                   JOIN blocks b ON ek.block_number = b.number
+                                          WHERE b.time BETWEEN start_time AND end_time
+                                          UNION ALL
+                                          SELECT start_time
+                                          UNION ALL
+                                          SELECT end_time) t),
+
+                    ordered_time_points AS (SELECT time
+                                            FROM time_points
+                                            ORDER BY time),
+
+                    -- Step 2: Generate intervals
+                    intervals AS (SELECT time                            AS start_time,
+                                         LEAD(time) OVER (ORDER BY time) AS end_time
+                                  FROM ordered_time_points
+                                  WHERE time < end_time),
+
+                    -- Step 3: Collect all stake changes
+                    stake_changes AS (SELECT b.time,
+                                             s.from_address AS staker,
+                                             s.amount       AS amount_change
+                                      FROM staker_staked s
+                                               JOIN event_keys ek ON s.event_id = ek.id
+                                               JOIN blocks b ON ek.block_number = b.number
+                                      WHERE b.time <= end_time
+                                      UNION ALL
+                                      SELECT b.time,
+                                             w.from_address AS staker,
+                                             -w.amount      AS amount_change
+                                      FROM staker_withdrawn w
+                                               JOIN event_keys ek ON w.event_id = ek.id
+                                               JOIN blocks b ON ek.block_number = b.number
+                                      WHERE b.time <= end_time
+                                      UNION ALL
+                                      SELECT start_time     AS time,
+                                             s.from_address AS staker,
+                                             SUM(s.amount)  AS amount_change
+                                      FROM staker_staked s
+                                               JOIN event_keys ek ON s.event_id = ek.id
+                                               JOIN blocks b ON ek.block_number = b.number
+                                      WHERE b.time < start_time
+                                      GROUP BY s.from_address
+                                      UNION ALL
+                                      SELECT start_time     AS time,
+                                             w.from_address AS staker,
+                                             -SUM(w.amount) AS amount_change
+                                      FROM staker_withdrawn w
+                                               JOIN event_keys ek ON w.event_id = ek.id
+                                               JOIN blocks b ON ek.block_number = b.number
+                                      WHERE b.time < start_time
+                                      GROUP BY w.from_address),
+
+                    -- Step 4: Calculate cumulative stake
+                    stake_events AS (SELECT time,
+                                            staker,
+                                            SUM(amount_change)
+                                            OVER (PARTITION BY staker ORDER BY time ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS stake_amount
+                                     FROM stake_changes),
+
+                    -- Step 5: For each interval and staker
+                    staker_intervals AS (SELECT i.start_time,
+                                                i.end_time,
+                                                se.staker,
+                                                se.stake_amount
+                                         FROM intervals i
+                                                  JOIN stake_events se ON se.time <= i.start_time
+                                             AND NOT EXISTS (SELECT 1
+                                                             FROM stake_events se2
+                                                             WHERE se2.staker = se.staker
+                                                               AND se2.time > se.time
+                                                               AND se2.time <= i.start_time)),
+
+                    -- Step 6: Total stake per interval
+                    total_stake_per_interval AS (SELECT si.start_time,
+                                                        si.end_time,
+                                                        SUM(stake_amount) AS total_stake
+                                                 FROM staker_intervals si
+                                                 GROUP BY si.start_time, si.end_time),
+
+                    -- Step 7: Compute rewards per staker
+                    staker_rewards AS (SELECT si.staker,
+                                              si.start_time,
+                                              si.end_time,
+                                              si.stake_amount,
+                                              tsi.total_stake,
+                                              total_rewards * ((staking_share) / (staking_share + delegate_share))
+                                                  * (EXTRACT(EPOCH FROM (si.end_time - si.start_time))::NUMERIC /
+                                                     p.total_duration_seconds)
+                                                  * (si.stake_amount / tsi.total_stake) AS reward
+                                       FROM staker_intervals si
+                                                JOIN total_stake_per_interval tsi
+                                                     ON si.start_time = tsi.start_time AND si.end_time = tsi.end_time,
+                                            calculated_parameters p
+                                       WHERE tsi.total_stake > 0
+                                         AND si.stake_amount > 0
+                                         AND EXTRACT(EPOCH FROM (si.end_time - si.start_time)) > 0),
+
+                    -- Proposals and delegate rewards
+                    proposals_in_period AS (SELECT gp.id
+                                            FROM governor_proposed gp
+                                                     JOIN event_keys ek ON gp.event_id = ek.id
+                                                     JOIN blocks b ON ek.block_number = b.number
+                                            WHERE b.time BETWEEN start_time AND end_time),
+
+                    delegate_total_votes_weight AS (SELECT gv.voter AS delegate, SUM(gv.weight) AS total_weight
+                                                    FROM governor_voted gv
+                                                    WHERE gv.id IN (SELECT pip.id FROM proposals_in_period pip)
+                                                    GROUP BY gv.voter),
+
+                    total_votes_weight_in_period
+                        AS (SELECT SUM(total_weight) AS total FROM delegate_total_votes_weight),
+
+                    delegate_rewards AS (SELECT dtvw.delegate,
+                                                dtvw.total_weight * total_rewards *
+                                                (delegate_share / (staking_share + delegate_share)) /
+                                                tvwp.total AS reward
+                                         FROM delegate_total_votes_weight dtvw,
+                                              total_votes_weight_in_period tvwp,
+                                              calculated_parameters p),
+
+                    total_staker_rewards AS (SELECT staker      AS claimee,
+                                                    SUM(reward) AS reward
+                                             FROM staker_rewards
+                                             GROUP BY staker),
+
+                    all_rewards AS (SELECT delegate AS claimee, reward AS delegate_reward, 0::NUMERIC AS staker_reward
+                                    FROM delegate_rewards
+                                    UNION ALL
+                                    SELECT tsr.claimee,
+                                           0::NUMERIC AS delegate_reward,
+                                           reward     AS staker_reward
+                                    FROM total_staker_rewards tsr),
+
+                    final_rewards AS (SELECT ar.claimee,
+                                             SUM(staker_reward)                        AS total_staker_reward,
+                                             SUM(delegate_reward)                      AS total_delegate_reward,
+                                             SUM(staker_reward) + SUM(delegate_reward) AS total_reward
+                                      FROM all_rewards ar
+                                      GROUP BY ar.claimee)
+
+                SELECT ROW_NUMBER() OVER (ORDER BY fr.total_reward DESC) - 1 AS id,
+                       numeric_to_hex(fr.claimee)                            AS claimee,
+                       FLOOR(fr.total_reward)                                AS amount,
+                       FLOOR(fr.total_delegate_reward)                       AS staker_portion,
+                       FLOOR(fr.total_staker_reward)                         AS delegate_portion
+                FROM final_rewards fr
+                WHERE fr.total_reward > 0
+                ORDER BY total_reward DESC;
+        END;
+        $$ LANGUAGE plpgsql;
+
     `);
   }
 
@@ -1118,6 +1501,7 @@ export class DAO {
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_pool_states_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_sale_rate_deltas_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY oracle_pool_states_materialized;
+      REFRESH MATERIALIZED VIEW CONCURRENTLY limit_order_pool_states_materialized;
     `);
   }
 
@@ -1202,7 +1586,7 @@ export class DAO {
     owner: BigInt,
     events:
       | ParsedEventWithKey<PositionFeesCollectedEvent>[]
-      | ParsedEventWithKey<ProtocolFeesPaidEvent>[]
+      | ParsedEventWithKey<ProtocolFeesPaidEvent>[],
   ) {
     await this.batchInsertFakeEventKeys(events.map((e) => e.key));
     await this.pg.query({
@@ -1254,7 +1638,7 @@ export class DAO {
 
   public async insertPositionTransferEvent(
     transfer: TransferEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     // The `*` operator is the PostgreSQL range intersection operator.
     await this.pg.query({
@@ -1285,7 +1669,7 @@ export class DAO {
 
   public async insertPositionMintedWithReferrerEvent(
     minted: PositionMintedWithReferrer,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -1313,7 +1697,7 @@ export class DAO {
 
   public async insertPositionUpdatedEvent(
     event: PositionUpdatedEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
@@ -1359,7 +1743,7 @@ export class DAO {
 
   public async insertPositionFeesCollectedEvent(
     event: PositionFeesCollectedEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
@@ -1403,7 +1787,7 @@ export class DAO {
 
   public async insertInitializationEvent(
     event: PoolInitializationEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
@@ -1437,7 +1821,7 @@ export class DAO {
 
   public async insertProtocolFeesWithdrawn(
     event: ProtocolFeesWithdrawnEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -1467,7 +1851,7 @@ export class DAO {
 
   public async insertProtocolFeesPaid(
     event: ProtocolFeesPaidEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
@@ -1511,7 +1895,7 @@ export class DAO {
 
   public async insertFeesAccumulatedEvent(
     event: FeesAccumulatedEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
 
@@ -1545,7 +1929,7 @@ export class DAO {
 
   public async insertRegistration(
     event: TokenRegistrationEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -1555,6 +1939,41 @@ export class DAO {
                         RETURNING id)
                 INSERT
                 INTO token_registrations
+                (event_id,
+                 address,
+                 decimals,
+                 name,
+                 symbol,
+                 total_supply)
+                VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9);
+            `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+
+        event.address,
+        event.decimals,
+        event.name,
+        event.symbol,
+        event.total_supply,
+      ],
+    });
+  }
+
+  public async insertRegistrationV3(
+    event: TokenRegistrationEventV3,
+    key: EventKey,
+  ) {
+    await this.pg.query({
+      text: `
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                        VALUES ($1, $2, $3, $4)
+                        RETURNING id)
+                INSERT
+                INTO token_registrations_v3
                 (event_id,
                  address,
                  decimals,
@@ -1634,7 +2053,7 @@ export class DAO {
   }
 
   public async writeTransactionSenders(
-    transactionSenders: [transactionHash: string, sender: string][]
+    transactionSenders: [transactionHash: string, sender: string][],
   ) {
     if (transactionSenders.length > 0) {
       await this.pg.query({
@@ -1653,8 +2072,8 @@ export class DAO {
   public async writeReceipts(
     receipts: [
       hash: string,
-      receiptData: { feePaid: bigint; feePaidUnit: 0 | 1 | 2 }
-    ][]
+      receiptData: { feePaid: bigint; feePaidUnit: 0 | 1 | 2 },
+    ][],
   ) {
     await this.pg.query({
       text: `
@@ -1675,12 +2094,12 @@ export class DAO {
 
   public async insertTWAMMOrderUpdatedEvent(
     order_updated: OrderUpdatedEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const { order_key } = order_updated;
 
     const key_hash = await this.insertPoolKeyHash(
-      orderKeyToPoolKey(key, order_key)
+      orderKeyToPoolKey(key, order_key),
     );
 
     const [sale_rate_delta0, sale_rate_delta1] =
@@ -1727,12 +2146,12 @@ export class DAO {
 
   public async insertTWAMMOrderProceedsWithdrawnEvent(
     order_proceeds_withdrawn: OrderProceedsWithdrawnEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const { order_key } = order_proceeds_withdrawn;
 
     const key_hash = await this.insertPoolKeyHash(
-      orderKeyToPoolKey(key, order_key)
+      orderKeyToPoolKey(key, order_key),
     );
 
     const [amount0, amount1] =
@@ -1771,7 +2190,7 @@ export class DAO {
 
   public async insertTWAMMVirtualOrdersExecutedEvent(
     virtual_orders_executed: VirtualOrdersExecutedEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     let { key: state_key } = virtual_orders_executed;
 
@@ -1868,7 +2287,7 @@ export class DAO {
 
   async insertGovernorProposedEvent(
     parsed: GovernorProposedEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const query =
       parsed.calls.length > 0
@@ -1892,7 +2311,7 @@ export class DAO {
                                 call.selector
                               }, '{${call.calldata
                                 .map((c) => c.toString())
-                                .join(",")}}')`
+                                .join(",")}}')`,
                           )
                           .join(",")};
                 `
@@ -1922,7 +2341,7 @@ export class DAO {
 
   async insertGovernorExecutedEvent(
     parsed: GovernorExecutedEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     const query =
       parsed.result_data.length > 0
@@ -1944,7 +2363,7 @@ export class DAO {
                             (results, ix) =>
                               `($5, ${ix}, '{${results
                                 .map((c) => c.toString())
-                                .join(",")}}')`
+                                .join(",")}}')`,
                           )
                           .join(",")};
                 `
@@ -1999,7 +2418,7 @@ export class DAO {
 
   async insertGovernorCanceledEvent(
     parsed: GovernorCanceledEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -2024,7 +2443,7 @@ export class DAO {
 
   async insertGovernorProposalDescribedEvent(
     parsed: DescribedEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -2051,7 +2470,7 @@ export class DAO {
 
   async insertGovernorReconfiguredEvent(
     parsed: GovernorReconfiguredEvent,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -2112,6 +2531,78 @@ export class DAO {
         parsed.index,
         parsed.snapshot.block_timestamp,
         parsed.snapshot.tick_cumulative,
+      ],
+    });
+  }
+
+  async insertOrderPlacedEvent(parsed: OrderPlacedEvent, key: EventKey) {
+    const poolKeyHash = await this.insertPoolKeyHash({
+      fee: 0n,
+      tick_spacing: BigInt(LIMIT_ORDER_TICK_SPACING),
+      extension: key.fromAddress,
+      token0: parsed.order_key.token0,
+      token1: parsed.order_key.token1,
+    });
+    await this.pg.query({
+      text: `
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                  VALUES ($1, $2, $3, $4)
+                  RETURNING id)
+          INSERT
+          INTO limit_order_placed
+          (event_id, key_hash, owner, salt, token0, token1, tick, liquidity, amount)
+          VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11, $12)
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        poolKeyHash,
+        parsed.owner,
+        parsed.salt,
+        parsed.order_key.token0,
+        parsed.order_key.token1,
+        parsed.order_key.tick,
+        parsed.liquidity,
+        parsed.amount,
+      ],
+    });
+  }
+
+  async insertOrderClosedEvent(parsed: OrderClosedEvent, key: EventKey) {
+    const poolKeyHash = await this.insertPoolKeyHash({
+      fee: 0n,
+      tick_spacing: BigInt(LIMIT_ORDER_TICK_SPACING),
+      extension: key.fromAddress,
+      token0: parsed.order_key.token0,
+      token1: parsed.order_key.token1,
+    });
+    await this.pg.query({
+      text: `
+              WITH inserted_event AS (
+                  INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
+                      VALUES ($1, $2, $3, $4)
+                      RETURNING id)
+              INSERT
+              INTO limit_order_closed
+              (event_id, key_hash, owner, salt, token0, token1, tick, amount0, amount1)
+              VALUES ((SELECT id FROM inserted_event), $5, $6, $7, $8, $9, $10, $11, $12)
+          `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        poolKeyHash,
+        parsed.owner,
+        parsed.salt,
+        parsed.order_key.token0,
+        parsed.order_key.token1,
+        parsed.order_key.tick,
+        parsed.amount0,
+        parsed.amount1,
       ],
     });
   }

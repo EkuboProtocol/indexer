@@ -7,6 +7,7 @@ declare namespace NodeJS {
     NFT_ADDRESS: string;
     TOKEN_REGISTRY_ADDRESS: string;
     TOKEN_REGISTRY_V2_ADDRESS: string;
+    TOKEN_REGISTRY_V3_ADDRESS: string;
 
     STARTING_CURSOR_BLOCK_NUMBER: string;
 

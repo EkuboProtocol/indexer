@@ -9,10 +9,10 @@ function computeCacheKey(pool_key: PoolKey): string {
 }
 
 export function populateCache(
-  values: { pool_key: PoolKey; hash: bigint }[]
+  values: { pool_key: PoolKey; hash: bigint }[],
 ): void {
   values.forEach(
-    ({ pool_key, hash }) => (KEY_HASH_CACHE[computeCacheKey(pool_key)] = hash)
+    ({ pool_key, hash }) => (KEY_HASH_CACHE[computeCacheKey(pool_key)] = hash),
   );
 }
 
@@ -25,15 +25,15 @@ export function computeKeyHash(pool_key: PoolKey): bigint {
         pedersen_from_hex(
           pedersen_from_hex(
             num.toHex(pool_key.token0),
-            num.toHex(pool_key.token1)
+            num.toHex(pool_key.token1),
           ),
           pedersen_from_hex(
             num.toHex(pool_key.fee),
-            num.toHex(pool_key.tick_spacing)
-          )
+            num.toHex(pool_key.tick_spacing),
+          ),
         ),
-        num.toHex(pool_key.extension)
-      )
+        num.toHex(pool_key.extension),
+      ),
     ))
   );
 }

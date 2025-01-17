@@ -1,5 +1,8 @@
 export interface Parser<T> {
-  (data: readonly `0x${string}`[], startingFrom: number): {
+  (
+    data: readonly `0x${string}`[],
+    startingFrom: number,
+  ): {
     value: T;
     next: number;
   };
@@ -51,9 +54,8 @@ export const parseI129: Parser<bigint> = (data, startingFrom) => {
   };
 };
 
-export type GetParserType<T extends Parser<any>> = T extends Parser<infer U>
-  ? U
-  : never;
+export type GetParserType<T extends Parser<any>> =
+  T extends Parser<infer U> ? U : never;
 
 export const parseU8: Parser<number> = (data, startingFrom) => {
   return {
@@ -94,7 +96,7 @@ export const parseBoolean: Parser<boolean> = (data, startingFrom) => {
  * @param parser the parser that it will run if there is additional data
  */
 export function backwardsCompatibleParserAdditionalArgument<T>(
-  parser: Parser<T>
+  parser: Parser<T>,
 ): Parser<T | null> {
   return (data, startingFrom) => {
     if (startingFrom < data.length) {
@@ -107,7 +109,7 @@ export function backwardsCompatibleParserAdditionalArgument<T>(
 export function combineParsers<
   T extends {
     [key: string]: unknown;
-  }
+  },
 >(parsers: {
   [K in keyof T]: { index: number; parser: Parser<T[K]> };
 }): Parser<T> {
@@ -120,7 +122,7 @@ export function combineParsers<
         (memo, fieldParser) => {
           const { value: parsedValue, next } = fieldParser[1].parser(
             data,
-            memo.next
+            memo.next,
           );
           memo.value[fieldParser[0] as keyof T] = parsedValue;
           memo.next = next;
@@ -129,7 +131,7 @@ export function combineParsers<
         {
           value: {} as Partial<T>,
           next: startingFrom,
-        }
+        },
       ) as {
       value: T;
       next: number;
@@ -163,7 +165,7 @@ export const parseByteArray: Parser<string> = (data, startingFrom) => {
       ...words.value,
       // pending word
       parseUint8Array(data, words.next).value,
-    ])
+    ]),
   );
 
   return {

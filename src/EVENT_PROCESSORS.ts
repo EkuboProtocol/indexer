@@ -55,9 +55,17 @@ import {
 } from "./events/governor";
 import {
   parseRegistrationEvent,
+  parseRegistrationEventV3,
   TokenRegistrationEvent,
+  TokenRegistrationEventV3,
 } from "./events/tokenRegistry";
 import { parseSnapshotEvent, SnapshotEvent } from "./events/oracle";
+import {
+  OrderClosedEvent,
+  OrderPlacedEvent,
+  parseOrderClosed,
+  parseOrderPlaced,
+} from "./events/limit_orders";
 
 export const EVENT_PROCESSORS = [
   <EventProcessor<LegacyPositionMintedEvent>>{
@@ -212,7 +220,7 @@ export const EVENT_PROCESSORS = [
     },
     parser: parseRegistrationEvent,
     async handle(dao, { parsed, key }): Promise<void> {
-      logger.debug("Registration", { parsed, key });
+      logger.debug("Registration from V1 Registry", { parsed, key });
       await dao.insertRegistration(parsed, key);
     },
   },
@@ -226,8 +234,29 @@ export const EVENT_PROCESSORS = [
     },
     parser: parseRegistrationEvent,
     async handle(dao, { parsed, key }): Promise<void> {
-      logger.debug("Registration V2", { parsed, key });
+      logger.debug("Registration from V2 Registry", {
+        parsed,
+        key,
+      });
       await dao.insertRegistration(parsed, key);
+    },
+  },
+  <EventProcessor<TokenRegistrationEventV3>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(
+        process.env.TOKEN_REGISTRY_V3_ADDRESS,
+      ),
+      keys: [
+        // Registration
+        FieldElement.fromBigInt(
+          0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74n,
+        ),
+      ],
+    },
+    parser: parseRegistrationEventV3,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("Registration event from V3 Registry", { parsed, key });
+      await dao.insertRegistrationV3(parsed, key);
     },
   },
   <EventProcessor<OrderUpdatedEvent>>{
@@ -411,6 +440,38 @@ export const EVENT_PROCESSORS = [
     async handle(dao, { parsed, key }): Promise<void> {
       logger.debug("Snapshot", { parsed, key });
       await dao.insertOracleSnapshotEvent(parsed, key);
+    },
+  },
+  <EventProcessor<OrderPlacedEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.LIMIT_ORDERS_ADDRESS),
+      keys: [
+        // OrderPlaced
+        FieldElement.fromBigInt(
+          0x03b935dbbdb7f463a394fc8729e7e26e30edebbc3bd5617bf1d7cf9e1ce6f7cbn,
+        ),
+      ],
+    },
+    parser: parseOrderPlaced,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("OrderPlaced", { parsed, key });
+      await dao.insertOrderPlacedEvent(parsed, key);
+    },
+  },
+  <EventProcessor<OrderClosedEvent>>{
+    filter: {
+      fromAddress: FieldElement.fromBigInt(process.env.LIMIT_ORDERS_ADDRESS),
+      keys: [
+        // OrderClosed
+        FieldElement.fromBigInt(
+          0x0196e77c6eab92283e3fc303198bb0a523c0c7d93b4de1d8bf636eab7517c4aen,
+        ),
+      ],
+    },
+    parser: parseOrderClosed,
+    async handle(dao, { parsed, key }): Promise<void> {
+      logger.debug("OrderClosed", { parsed, key });
+      await dao.insertOrderClosedEvent(parsed, key);
     },
   },
 ] as const;

@@ -16,11 +16,15 @@ const pool = new Pool({
 
 const streamClient = createClient(StarknetStream, process.env.APIBARA_URL);
 
+export function parseLong(long: number | Long): bigint {
+  return BigInt(typeof long === "number" ? long : long.toNumber());
+}
+
 const refreshAnalyticalTables = throttle(
   async function (
     since: Date = new Date(
-      Date.now() - parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS) * 2
-    )
+      Date.now() - parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS) * 2,
+    ),
   ) {
     const timer = logger.startTimer();
     logger.info("Started refreshing analytical tables", {
@@ -46,7 +50,7 @@ const refreshAnalyticalTables = throttle(
     async onError(err) {
       logger.error("Failed to refresh analytical tables", err);
     },
-  }
+  },
 );
 
 (async function () {
@@ -125,7 +129,9 @@ const refreshAnalyticalTables = throttle(
           deletedCount += await dao.deleteOldBlockNumbers(blockNumber);
 
           // for pending blocks we update operational materialized views before we commit
-          isPending = isPending || BigInt(block.header.blockHash) === 0n;
+          isPending = isPending || BigInt(block.header.blockHash) === 0n ||
+              // blocks in the last 5 minutes are considered pending
+              blockTime.getTime() > Date.now() - 300_000;
 
           const blockTime = block.header.timestamp;
 
@@ -164,7 +170,7 @@ const refreshAnalyticalTables = throttle(
             // const senderHex = rawSender ? FieldElement.toHex(rawSender) : null;
 
             // const feePaid = FieldElement.toBigInt(
-            //   receipt.actualFee ?? receipt.actualFeePaid?.amount
+            //   receipt.actualFee ?? receipt.actualFeePaid?.amount,
             // );
             // const feePaidUnit = receipt.actualFeePaid?.unit ?? "unknown";
 
@@ -177,7 +183,7 @@ const refreshAnalyticalTables = throttle(
                   BigInt(event.fromAddress) === BigInt(filter.fromAddress) &&
                   event.keys.length === filter.keys.length &&
                   event.keys.every(
-                    (key, ix) => BigInt(key) === BigInt(filter.keys[ix])
+                    (key, ix) => BigInt(key) === BigInt(filter.keys[ix]),
                   )
                 ) {
                   const transactionMapKey = eventKey.transactionHash.toString();
@@ -199,13 +205,13 @@ const refreshAnalyticalTables = throttle(
                     key: eventKey,
                   });
                 }
-              })
+              }),
             );
           }
 
           await dao.writeCursor(message.data.cursor);
 
-          // await dao.writeTransactionSenders(Object.entries(transactionSenders));
+          // await dao.writeTransactionSenders(Object.entries(transactionSenders),);
           //
           // await dao.writeReceipts(Object.entries(transactionReceipts));
 
@@ -222,7 +228,7 @@ const refreshAnalyticalTables = throttle(
             isPending,
             blockTimestamp: blockTime,
             lagMilliseconds: Math.floor(
-              Date.now() - Number(blockTime.getTime())
+              Date.now() - Number(blockTime.getTime()),
             ),
           });
         }
