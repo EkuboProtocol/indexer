@@ -1,4 +1,4 @@
-import { Parser } from "./parse";
+import type { Parser } from "./parse";
 import { DAO } from "./dao";
 
 export interface EventKey {

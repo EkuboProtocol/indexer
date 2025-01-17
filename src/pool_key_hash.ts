@@ -1,4 +1,4 @@
-import { PoolKey } from "./events/core";
+import type { PoolKey } from "./events/core";
 import { pedersen_from_hex } from "pedersen-fast";
 import { num } from "starknet";
 

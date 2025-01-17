@@ -1,7 +1,7 @@
 import "./config";
 import { Filter, StarknetStream } from "@apibara/starknet";
 import { createClient } from "@apibara/protocol";
-import { EventKey } from "./processor";
+import type { EventKey } from "./processor";
 import { logger } from "./logger";
 import { DAO } from "./dao";
 import { Pool } from "pg";
@@ -13,12 +13,12 @@ const pool = new Pool({
   connectionTimeoutMillis: 1000,
 });
 
-const streamClient = createClient(StarknetStream, process.env.APIBARA_URL);
+const streamClient = createClient(StarknetStream, process.env["APIBARA_URL"]!);
 
 const refreshAnalyticalTables = throttle(
   async function (
     since: Date = new Date(
-      Date.now() - parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS) * 2,
+      Date.now() - parseInt(process.env["REFRESH_RATE_ANALYTICAL_VIEWS"]!) * 2,
     ),
   ) {
     const timer = logger.startTimer();
@@ -40,7 +40,7 @@ const refreshAnalyticalTables = throttle(
     });
   },
   {
-    delay: parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS),
+    delay: parseInt(process.env["REFRESH_RATE_ANALYTICAL_VIEWS"]!),
     leading: true,
     async onError(err) {
       logger.error("Failed to refresh analytical tables", err);
@@ -93,19 +93,24 @@ const refreshAnalyticalTables = throttle(
       case "invalidate": {
         let invalidatedCursor = message.invalidate.cursor;
 
-        logger.warn(`Invalidated cursor`, {
-          cursor: invalidatedCursor,
-        });
+        if (invalidatedCursor) {
+          logger.warn(`Invalidated cursor`, {
+            cursor: invalidatedCursor,
+          });
 
-        const client = await pool.connect();
-        const dao = new DAO(client);
+          const client = await pool.connect();
+          const dao = new DAO(client);
 
-        await dao.beginTransaction();
-        await dao.deleteOldBlockNumbers(Number(invalidatedCursor.orderKey) + 1);
-        await dao.writeCursor(message.invalidate.cursor);
-        await dao.commitTransaction();
+          await dao.beginTransaction();
+          await dao.deleteOldBlockNumbers(
+            Number(invalidatedCursor.orderKey) + 1,
+          );
+          await dao.writeCursor(invalidatedCursor);
+          await dao.commitTransaction();
 
-        client.release();
+          client.release();
+        }
+
         break;
       }
 
@@ -122,40 +127,40 @@ const refreshAnalyticalTables = throttle(
         let deletedCount: number = 0;
 
         for (const block of message.data.data) {
-          const blockNumber = Number(block.header.blockNumber);
+          const blockNumber = Number(block!.header!.blockNumber);
           deletedCount += await dao.deleteOldBlockNumbers(blockNumber);
 
-          const blockTime = block.header.timestamp;
+          const blockTime = block!.header!.timestamp!;
 
           // for pending blocks we update operational materialized views before we commit
           isPending =
             isPending ||
-            BigInt(block.header.blockHash) === 0n ||
+            BigInt(block!.header!.blockHash!) === 0n ||
             // blocks in the last 5 minutes are considered pending
             blockTime.getTime() > Date.now() - 300_000;
 
           await dao.insertBlock({
-            hash: BigInt(block.header.blockHash),
-            number: block.header.blockNumber,
+            hash: BigInt(block!.header!.blockHash!),
+            number: block!.header!.blockNumber,
             time: blockTime,
           });
 
-          for (const event of block.events) {
+          for (const event of block!.events) {
             const eventKey: EventKey = {
               blockNumber,
-              transactionIndex: event.transactionIndex,
-              eventIndex: event.eventIndex,
-              emitter: BigInt(event.address),
-              transactionHash: BigInt(event.transactionHash),
+              transactionIndex: event.transactionIndex!,
+              eventIndex: event.eventIndex!,
+              emitter: BigInt(event.address!),
+              transactionHash: BigInt(event.transactionHash!),
             };
 
             // process each event sequentially through all the event processors in parallel
             // assumption is that none of the event processors operate on the same events, i.e. have the same filters
             // this assumption could be validated at runtime
             await Promise.all(
-              event.filterIds.map(async (processorIndex) => {
+              event.filterIds!.map(async (processorIndex) => {
                 const { parser, handle } = EVENT_PROCESSORS[processorIndex];
-                const parsed = parser(event.data, 0).value;
+                const parsed = parser(event.data!, 0).value;
 
                 await handle(dao, {
                   parsed: parsed as any,
@@ -165,7 +170,7 @@ const refreshAnalyticalTables = throttle(
             );
           }
 
-          await dao.writeCursor(message.data.cursor);
+          await dao.writeCursor(message.data.cursor!);
 
           // refresh operational views at the end of the batch
           if (isPending || deletedCount > 0) {

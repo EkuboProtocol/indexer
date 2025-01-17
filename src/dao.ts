@@ -1,6 +1,7 @@
-import { Client, PoolClient } from "pg";
-import { EventKey } from "./processor";
-import {
+import { Client } from "pg";
+import type { PoolClient } from "pg";
+import type { EventKey } from "./processor";
+import type {
   FeesAccumulatedEvent,
   PoolInitializationEvent,
   PoolKey,
@@ -10,17 +11,17 @@ import {
   ProtocolFeesWithdrawnEvent,
   SwappedEvent,
 } from "./events/core";
-import { TransferEvent } from "./events/nft";
+import type { TransferEvent } from "./events/nft";
 import { computeKeyHash, populateCache } from "./pool_key_hash";
-import { PositionMintedWithReferrer } from "./events/positions";
-import {
+import type { PositionMintedWithReferrer } from "./events/positions";
+import type {
   OrderKey,
   OrderProceedsWithdrawnEvent,
   OrderUpdatedEvent,
   VirtualOrdersExecutedEvent,
 } from "./events/twamm";
-import { StakedEvent, WithdrawnEvent } from "./events/staker";
-import {
+import type { StakedEvent, WithdrawnEvent } from "./events/staker";
+import type {
   DescribedEvent,
   GovernorCanceledEvent,
   GovernorExecutedEvent,
@@ -28,12 +29,12 @@ import {
   GovernorReconfiguredEvent,
   GovernorVotedEvent,
 } from "./events/governor";
-import {
+import type {
   TokenRegistrationEvent,
   TokenRegistrationEventV3,
 } from "./events/tokenRegistry";
-import { SnapshotEvent } from "./events/oracle";
-import { OrderClosedEvent, OrderPlacedEvent } from "./events/limit_orders";
+import type { SnapshotEvent } from "./events/oracle";
+import type { OrderClosedEvent, OrderPlacedEvent } from "./events/limit_orders";
 
 const MAX_TICK_SPACING = 354892;
 const LIMIT_ORDER_TICK_SPACING = 128;
@@ -2008,6 +2009,7 @@ export class DAO {
             `,
       values: [invalidatedBlockNumber],
     });
+    if (rowCount === null) throw new Error("Null row count after delete");
     return rowCount;
   }
 
