@@ -4,7 +4,7 @@
       "name": "sepolia",
       "script": "src/index.ts",
       "cwd": ".",
-      interpreter: "bun",
+      "interpreter": "bun",
       "env": {
         "NETWORK": "sepolia"
       }
@@ -13,7 +13,7 @@
       "name": "mainnet",
       "script": "src/index.js",
       "cwd": ".",
-      interpreter: "bun",
+      "interpreter": "bun",
       "env": {
         "NETWORK": "mainnet"
       }
