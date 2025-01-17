@@ -2030,23 +2030,23 @@ export class DAO {
 
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys
-                        (block_number, transaction_index, event_index, transaction_hash)
-                        VALUES ($1, $2, $3, $4)
-                        RETURNING id)
-                INSERT
-                INTO twamm_order_updates
-                (event_id,
-                 key_hash,
-                 owner,
-                 salt,
-                 sale_rate_delta0,
-                 sale_rate_delta1,
-                 start_time,
-                 end_time)
-                VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9, $10, $11, $12);
-            `,
+          WITH inserted_event AS (
+              INSERT INTO event_keys
+                  (block_number, transaction_index, event_index, transaction_hash, emitter)
+                  VALUES ($1, $2, $3, $4, $5)
+                  RETURNING id)
+          INSERT
+          INTO twamm_order_updates
+          (event_id,
+           key_hash,
+           owner,
+           salt,
+           sale_rate_delta0,
+           sale_rate_delta1,
+           start_time,
+           end_time)
+          VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9, $10, $11, $12);
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
