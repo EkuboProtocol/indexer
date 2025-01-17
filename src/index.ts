@@ -72,7 +72,7 @@ const refreshAnalyticalTables = throttle(
         header: "always",
         events: EVENT_PROCESSORS.map((ep, ix) => ({
           id: ix + 1,
-          fromAddress: ep.filter.fromAddress,
+          address: ep.filter.fromAddress,
           keys: ep.filter.keys,
           includeReceipt: true,
           includeTransaction: true,
