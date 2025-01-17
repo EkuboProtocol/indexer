@@ -1,5 +1,4 @@
 import "./config";
-import { Filter, StarknetStream } from "@apibara/starknet";
 import { createClient } from "@apibara/protocol";
 import type { EventKey } from "./processor";
 import { logger } from "./logger";
@@ -7,13 +6,14 @@ import { DAO } from "./dao";
 import { Pool } from "pg";
 import { throttle } from "tadaaa";
 import { EVENT_PROCESSORS } from "./EVENT_PROCESSORS";
+import { EvmStream, Filter } from "@apibara/evm";
 
 const pool = new Pool({
   connectionString: process.env.PG_CONNECTION_STRING,
   connectionTimeoutMillis: 1000,
 });
 
-const streamClient = createClient(StarknetStream, process.env["APIBARA_URL"]!);
+const streamClient = createClient(EvmStream, process.env["APIBARA_URL"]!);
 
 const refreshAnalyticalTables = throttle(
   async function (
@@ -69,14 +69,7 @@ const refreshAnalyticalTables = throttle(
   for await (const message of streamClient.streamData({
     filter: [
       Filter.make({
-        events: EVENT_PROCESSORS.map((ep, ix) => ({
-          id: ix + 1,
-          address: ep.filter.fromAddress,
-          keys: ep.filter.keys,
-
-          includeReceipt: true,
-          includeTransaction: true,
-        })),
+        logs: [],
       }),
     ],
     finality: "pending",

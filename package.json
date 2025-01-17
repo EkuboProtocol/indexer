@@ -18,8 +18,8 @@
     "vitest": "^3.0.2"
   },
   "dependencies": {
+    "@apibara/evm": "^2.0.1-beta.24",
     "@apibara/protocol": "^2.0.0-beta.32",
-    "@apibara/starknet": "^2.0.0-beta.32",
     "dotenv": "^16.4.7",
     "pedersen-fast": "^0.4.0",
     "pg": "^8.13.1",
