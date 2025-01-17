@@ -158,19 +158,6 @@ export class DAO {
             CREATE INDEX IF NOT EXISTS idx_event_keys_block_number_transaction_index_event_index ON event_keys USING btree (block_number, transaction_index, event_index);
             CREATE INDEX IF NOT EXISTS idx_event_keys_transaction_hash ON event_keys USING btree (transaction_hash);
 
-            CREATE TABLE IF NOT EXISTS transactions
-            (
-                transaction_hash NUMERIC NOT NULL PRIMARY KEY,
-                sender           NUMERIC NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS transaction_receipts
-            (
-                transaction_hash NUMERIC  NOT NULL PRIMARY KEY,
-                fee_paid         NUMERIC  NOT NULL,
-                fee_paid_unit    SMALLINT NOT NULL
-            );
-
             CREATE TABLE IF NOT EXISTS position_transfers
             (
                 event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
@@ -2022,46 +2009,6 @@ export class DAO {
       values: [invalidatedBlockNumber],
     });
     return rowCount;
-  }
-
-  public async writeTransactionSenders(
-    transactionSenders: [transactionHash: string, sender: string][],
-  ) {
-    if (transactionSenders.length > 0) {
-      await this.pg.query({
-        text: `INSERT INTO transactions (transaction_hash, sender)
-                       SELECT *
-                       FROM UNNEST($1::NUMERIC[], $2::NUMERIC[])
-                       ON CONFLICT DO NOTHING`,
-        values: [
-          transactionSenders.map(([hash]) => BigInt(hash)),
-          transactionSenders.map(([, sender]) => BigInt(sender)),
-        ],
-      });
-    }
-  }
-
-  public async writeReceipts(
-    receipts: [
-      hash: string,
-      receiptData: { feePaid: bigint; feePaidUnit: 0 | 1 | 2 },
-    ][],
-  ) {
-    await this.pg.query({
-      text: `
-                INSERT INTO transaction_receipts (transaction_hash, fee_paid, fee_paid_unit)
-                SELECT *
-                FROM UNNEST($1::NUMERIC[], $2::NUMERIC[], $3::SMALLINT[])
-                ON CONFLICT (transaction_hash) DO UPDATE
-                    SET fee_paid      = excluded.fee_paid,
-                        fee_paid_unit = excluded.fee_paid_unit;
-            `,
-      values: [
-        receipts.map(([hash]) => hash),
-        receipts.map(([, { feePaid }]) => feePaid),
-        receipts.map(([, { feePaidUnit }]) => feePaidUnit),
-      ],
-    });
   }
 
   public async insertTWAMMOrderUpdatedEvent(

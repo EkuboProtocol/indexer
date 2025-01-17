@@ -69,7 +69,9 @@ const refreshAnalyticalTables = throttle(
   for await (const message of streamClient.streamData({
     filter: [
       Filter.make({
-        events: EVENT_PROCESSORS.map((ep) => ({
+        // header: "always",
+        events: EVENT_PROCESSORS.map((ep, ix) => ({
+          id: ix,
           fromAddress: ep.filter.fromAddress,
           keys: ep.filter.keys,
           includeReceipt: true,
@@ -138,17 +140,6 @@ const refreshAnalyticalTables = throttle(
             time: blockTime,
           });
 
-          // const transactionSenders: {
-          //   [transactionHash: string]: string;
-          // } = {};
-
-          // const transactionReceipts: {
-          //   [transactionHash: string]: {
-          //     feePaid: bigint;
-          //     feePaidUnit: PriceUnit;
-          //   };
-          // } = {};
-
           for (const event of block.events) {
             const eventKey: EventKey = {
               blockNumber,
@@ -158,43 +149,12 @@ const refreshAnalyticalTables = throttle(
               transactionHash: BigInt(event.transactionHash),
             };
 
-            // const rawSender =
-            //   transaction?.invokeV1?.senderAddress ??
-            //   transaction.invokeV3?.senderAddress ??
-            //   transaction?.invokeV0?.contractAddress ??
-            //   transaction?.declare?.senderAddress;
-            //
-            // const senderHex = rawSender ? FieldElement.toHex(rawSender) : null;
-
-            // const feePaid = FieldElement.toBigInt(
-            //   receipt.actualFee ?? receipt.actualFeePaid?.amount,
-            // );
-            // const feePaidUnit = receipt.actualFeePaid?.unit ?? "unknown";
-
             // process each event sequentially through all the event processors in parallel
             // assumption is that none of the event processors operate on the same events, i.e. have the same filters
             // this assumption could be validated at runtime
             await Promise.all(
-              EVENT_PROCESSORS.map(async ({ parser, handle, filter }) => {
-                if (
-                  BigInt(event.address) === BigInt(filter.fromAddress) &&
-                  event.keys.length === filter.keys.length &&
-                  event.keys.every(
-                    (key, ix) => BigInt(key) === BigInt(filter.keys[ix]),
-                  )
-                ) {
-                  const transactionMapKey = eventKey.transactionHash.toString();
-                  // if (senderHex) {
-                  //   transactionSenders[transactionMapKey] = senderHex;
-                  // }
-
-                  // transactionReceipts[transactionMapKey] = transactionReceipts[
-                  //   transactionMapKey
-                  // ] ?? {
-                  //   feePaid,
-                  //   feePaidUnit,
-                  // };
-
+              EVENT_PROCESSORS.map(async ({ parser, handle, filter }, ix) => {
+                if (event.filterIds.includes(ix)) {
                   const parsed = parser(event.data, 0).value;
 
                   await handle(dao, {
@@ -207,10 +167,6 @@ const refreshAnalyticalTables = throttle(
           }
 
           await dao.writeCursor(message.data.cursor);
-
-          // await dao.writeTransactionSenders(Object.entries(transactionSenders),);
-          //
-          // await dao.writeReceipts(Object.entries(transactionReceipts));
 
           // refresh operational views at the end of the batch
           if (isPending || deletedCount > 0) {

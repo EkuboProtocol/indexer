@@ -2,16 +2,18 @@
   "apps": [
     {
       "name": "sepolia",
-      "script": "dist/index.js",
+      "script": "src/index.ts",
       "cwd": ".",
+      interpreter: "bun",
       "env": {
         "NETWORK": "sepolia"
       }
     },
     {
       "name": "mainnet",
-      "script": "dist/index.js",
+      "script": "src/index.js",
       "cwd": ".",
+      interpreter: "bun",
       "env": {
         "NETWORK": "mainnet"
       }
