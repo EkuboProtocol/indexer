@@ -11,7 +11,7 @@
     },
     {
       "name": "mainnet",
-      "script": "src/index.js",
+      "script": "src/index.ts",
       "cwd": ".",
       "interpreter": "bun",
       "env": {
