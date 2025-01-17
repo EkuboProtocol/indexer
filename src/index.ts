@@ -69,9 +69,9 @@ const refreshAnalyticalTables = throttle(
   for await (const message of streamClient.streamData({
     filter: [
       Filter.make({
-        // header: "always",
+        header: "always",
         events: EVENT_PROCESSORS.map((ep, ix) => ({
-          id: ix,
+          id: ix + 1,
           fromAddress: ep.filter.fromAddress,
           keys: ep.filter.keys,
           includeReceipt: true,
@@ -158,8 +158,9 @@ const refreshAnalyticalTables = throttle(
             // assumption is that none of the event processors operate on the same events, i.e. have the same filters
             // this assumption could be validated at runtime
             await Promise.all(
-              event.filterIds!.map(async (processorIndex) => {
-                const { parser, handle } = EVENT_PROCESSORS[processorIndex];
+              event.filterIds!.map(async (matchingFilterId) => {
+                const { parser, handle } =
+                  EVENT_PROCESSORS[matchingFilterId - 1];
                 const parsed = parser(event.data!, 0).value;
 
                 await handle(dao, {
