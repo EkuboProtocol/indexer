@@ -7,7 +7,6 @@ import { DAO } from "./dao";
 import { Pool } from "pg";
 import { throttle } from "tadaaa";
 import { EVENT_PROCESSORS } from "./EVENT_PROCESSORS";
-import Long from "long";
 
 const pool = new Pool({
   connectionString: process.env.PG_CONNECTION_STRING,
@@ -15,10 +14,6 @@ const pool = new Pool({
 });
 
 const streamClient = createClient(StarknetStream, process.env.APIBARA_URL);
-
-export function parseLong(long: number | Long): bigint {
-  return BigInt(typeof long === "number" ? long : long.toNumber());
-}
 
 const refreshAnalyticalTables = throttle(
   async function (
@@ -128,12 +123,14 @@ const refreshAnalyticalTables = throttle(
           const blockNumber = Number(block.header.blockNumber);
           deletedCount += await dao.deleteOldBlockNumbers(blockNumber);
 
-          // for pending blocks we update operational materialized views before we commit
-          isPending = isPending || BigInt(block.header.blockHash) === 0n ||
-              // blocks in the last 5 minutes are considered pending
-              blockTime.getTime() > Date.now() - 300_000;
-
           const blockTime = block.header.timestamp;
+
+          // for pending blocks we update operational materialized views before we commit
+          isPending =
+            isPending ||
+            BigInt(block.header.blockHash) === 0n ||
+            // blocks in the last 5 minutes are considered pending
+            blockTime.getTime() > Date.now() - 300_000;
 
           await dao.insertBlock({
             hash: BigInt(block.header.blockHash),
@@ -157,7 +154,7 @@ const refreshAnalyticalTables = throttle(
               blockNumber,
               transactionIndex: event.transactionIndex,
               eventIndex: event.eventIndex,
-              fromAddress: BigInt(event.fromAddress),
+              fromAddress: BigInt(event.address),
               transactionHash: BigInt(event.transactionHash),
             };
 
@@ -180,7 +177,7 @@ const refreshAnalyticalTables = throttle(
             await Promise.all(
               EVENT_PROCESSORS.map(async ({ parser, handle, filter }) => {
                 if (
-                  BigInt(event.fromAddress) === BigInt(filter.fromAddress) &&
+                  BigInt(event.address) === BigInt(filter.fromAddress) &&
                   event.keys.length === filter.keys.length &&
                   event.keys.every(
                     (key, ix) => BigInt(key) === BigInt(filter.keys[ix]),

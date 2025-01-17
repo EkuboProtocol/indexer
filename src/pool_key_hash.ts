@@ -16,6 +16,8 @@ export function populateCache(
   );
 }
 
+// todo: we don't really need to use pedersen hash here, no benefit of using this hash just because starknet uses it
+// instead uses the node crypto api: https://nodejs.org/api/crypto.html#hashdigestencoding
 export function computeKeyHash(pool_key: PoolKey): bigint {
   const cacheKey = computeCacheKey(pool_key);
   return (

@@ -243,14 +243,10 @@ export const EVENT_PROCESSORS = [
   },
   <EventProcessor<TokenRegistrationEventV3>>{
     filter: {
-      fromAddress: FieldElement.fromBigInt(
-        process.env.TOKEN_REGISTRY_V3_ADDRESS,
-      ),
+      fromAddress: process.env.TOKEN_REGISTRY_V3_ADDRESS,
       keys: [
         // Registration
-        FieldElement.fromBigInt(
-          0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74n,
-        ),
+        "0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74",
       ],
     },
     parser: parseRegistrationEventV3,
@@ -444,12 +440,10 @@ export const EVENT_PROCESSORS = [
   },
   <EventProcessor<OrderPlacedEvent>>{
     filter: {
-      fromAddress: FieldElement.fromBigInt(process.env.LIMIT_ORDERS_ADDRESS),
+      fromAddress: process.env.LIMIT_ORDERS_ADDRESS,
       keys: [
         // OrderPlaced
-        FieldElement.fromBigInt(
-          0x03b935dbbdb7f463a394fc8729e7e26e30edebbc3bd5617bf1d7cf9e1ce6f7cbn,
-        ),
+        "0x03b935dbbdb7f463a394fc8729e7e26e30edebbc3bd5617bf1d7cf9e1ce6f7cb",
       ],
     },
     parser: parseOrderPlaced,
@@ -460,12 +454,10 @@ export const EVENT_PROCESSORS = [
   },
   <EventProcessor<OrderClosedEvent>>{
     filter: {
-      fromAddress: FieldElement.fromBigInt(process.env.LIMIT_ORDERS_ADDRESS),
+      fromAddress: process.env.LIMIT_ORDERS_ADDRESS,
       keys: [
         // OrderClosed
-        FieldElement.fromBigInt(
-          0x0196e77c6eab92283e3fc303198bb0a523c0c7d93b4de1d8bf636eab7517c4aen,
-        ),
+        "0x0196e77c6eab92283e3fc303198bb0a523c0c7d93b4de1d8bf636eab7517c4ae",
       ],
     },
     parser: parseOrderClosed,

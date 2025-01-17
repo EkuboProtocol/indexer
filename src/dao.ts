@@ -34,7 +34,6 @@ import {
 } from "./events/tokenRegistry";
 import { SnapshotEvent } from "./events/oracle";
 import { OrderClosedEvent, OrderPlacedEvent } from "./events/limit_orders";
-import { Cursor } from "@apibara/protocol";
 
 const MAX_TICK_SPACING = 354892;
 const LIMIT_ORDER_TICK_SPACING = 128;
@@ -153,7 +152,8 @@ export class DAO {
             transaction_hash  NUMERIC NOT NULL,
             block_number      int4    NOT NULL REFERENCES blocks (number) ON DELETE CASCADE,
             transaction_index int2    NOT NULL,
-            event_index       int2    NOT NULL
+            event_index       int2    NOT NULL,
+            emitter           NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_event_keys_block_number_transaction_index_event_index ON event_keys USING btree (block_number, transaction_index, event_index);
         CREATE INDEX IF NOT EXISTS idx_event_keys_transaction_hash ON event_keys USING btree (transaction_hash);
@@ -1562,51 +1562,6 @@ export class DAO {
       text: `INSERT INTO blocks (number, hash, time)
                    VALUES ($1, $2, $3);`,
       values: [number, hash, time],
-    });
-  }
-
-  private async batchInsertFakeEventKeys(keys: EventKey[]) {
-    await this.pg.query({
-      text: `
-                INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash)
-                SELECT *
-                FROM UNNEST($1::INT[], $2::SMALLINT[], $3::SMALLINT[], $4::NUMERIC[])
-            `,
-      values: [
-        keys.map((k) => k.blockNumber),
-        keys.map((k) => k.transactionIndex),
-        keys.map((k) => k.eventIndex),
-        Array(keys.length).fill(0),
-      ],
-    });
-  }
-
-  public async batchInsertFakeFeeEvents(
-    tableName: "position_fees_collected" | "protocol_fees_paid",
-    owner: BigInt,
-    events:
-      | ParsedEventWithKey<PositionFeesCollectedEvent>[]
-      | ParsedEventWithKey<ProtocolFeesPaidEvent>[],
-  ) {
-    await this.batchInsertFakeEventKeys(events.map((e) => e.key));
-    await this.pg.query({
-      text: `
-                INSERT INTO ${tableName} (event_id, pool_key_hash, owner, salt, lower_bound, upper_bound, delta0,
-                                          delta1)
-                SELECT *
-                FROM UNNEST($1::BIGINT[], $2::NUMERIC[], $3::NUMERIC[], $4::NUMERIC[], $5::INT[], $6::INT[],
-                            $7::NUMERIC[], $8::NUMERIC[])
-            `,
-      values: [
-        events.map((e) => eventKeyToId(e.key)),
-        events.map((e) => computeKeyHash(e.parsed.pool_key)),
-        events.map(() => owner),
-        events.map((e) => e.parsed.position_key.salt),
-        events.map((e) => e.parsed.position_key.bounds.lower),
-        events.map((e) => e.parsed.position_key.bounds.upper),
-        events.map((e) => e.parsed.delta.amount0),
-        events.map((e) => e.parsed.delta.amount1),
-      ],
     });
   }
 

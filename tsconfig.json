@@ -1,9 +1,0 @@
-{
-  "compilerOptions": {
-    "target": "ESNext",
-    "moduleResolution": "nodenext",
-    "esModuleInterop": true,
-    "noUncheckedIndexedAccess": true
-  },
-  "include": ["src"]
-}
