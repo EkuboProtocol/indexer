@@ -64,14 +64,14 @@ export const parseU8: Parser<number> = (data, startingFrom) => {
   };
 };
 
-export const parseFelt252: Parser<bigint> = (data, startingFrom) => {
+export const parseUint160: Parser<bigint> = (data, startingFrom) => {
   return {
     value: BigInt(data[startingFrom]),
     next: startingFrom + 1,
   };
 };
 
-export const parseAddress: Parser<bigint> = parseFelt252;
+export const parseAddress: Parser<bigint> = parseUint160;
 
 export const parseBoolean: Parser<boolean> = (data, startingFrom) => {
   let num = BigInt(data[startingFrom]);
