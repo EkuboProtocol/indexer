@@ -247,7 +247,7 @@ export const CORE_ABI = [
     name: "initializePool",
     inputs: [
       {
-        name: "key",
+        name: "poolKey",
         type: "tuple",
         internalType: "struct PoolKey",
         components: [
@@ -1005,7 +1005,7 @@ export const CORE_ABI = [
     name: "PoolInitialized",
     inputs: [
       {
-        name: "key",
+        name: "poolKey",
         type: "tuple",
         indexed: false,
         internalType: "struct PoolKey",
@@ -3088,7 +3088,7 @@ export const ORACLE_ABI = [
         internalType: "address",
       },
       {
-        name: "key",
+        name: "poolKey",
         type: "tuple",
         internalType: "struct PoolKey",
         components: [
