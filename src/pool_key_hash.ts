@@ -1,4 +1,3 @@
-import type { PoolKey } from "./events/core";
 import { createHash } from "crypto";
 
 const KEY_HASH_CACHE: { [key: string]: bigint } = {};

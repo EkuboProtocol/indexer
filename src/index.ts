@@ -7,7 +7,9 @@ import { Pool } from "pg";
 import { throttle } from "tadaaa";
 import { EvmStream, Filter } from "@apibara/evm";
 import { encodeEventTopics } from "viem";
-import PositionsAbi from "./abis/Positions.json";
+import { POSITIONS_ABI } from "./abis.ts";
+
+// ExtractAbiFunction
 
 const pool = new Pool({
   connectionString: process.env.PG_CONNECTION_STRING,
@@ -76,7 +78,7 @@ const refreshAnalyticalTables = throttle(
             id: 1,
             address: process.env["POSITIONS_ADDRESS"] as `0x${string}`,
             topics: encodeEventTopics({
-              abi: PositionsAbi,
+              abi: POSITIONS_ABI,
               eventName: "Transfer",
               args: { from: null, to: null },
             }) as readonly `0x${string}`[],
