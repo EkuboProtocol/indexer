@@ -1,6 +1,10 @@
 import { createHash } from "crypto";
+import type { ExtractAbiItem } from "viem";
+import type { CORE_ABI } from "./abis.ts";
 
 const KEY_HASH_CACHE: { [key: string]: bigint } = {};
+
+export type PoolKey = ExtractAbiItem<typeof CORE_ABI, "PoolInitialized">;
 
 function computeCacheKey(pool_key: PoolKey): string {
   return `${pool_key.token0}-${pool_key.token1}-${pool_key.fee}-${pool_key.tick_spacing}-${pool_key.extension}`;
