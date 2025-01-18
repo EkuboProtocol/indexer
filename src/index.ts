@@ -5,8 +5,9 @@ import { logger } from "./logger";
 import { DAO } from "./dao";
 import { Pool } from "pg";
 import { throttle } from "tadaaa";
-import { EVENT_PROCESSORS } from "./EVENT_PROCESSORS";
 import { EvmStream, Filter } from "@apibara/evm";
+import { encodeEventTopics } from "viem";
+import PositionsAbi from "./abis/Positions.json";
 
 const pool = new Pool({
   connectionString: process.env.PG_CONNECTION_STRING,
@@ -69,7 +70,19 @@ const refreshAnalyticalTables = throttle(
   for await (const message of streamClient.streamData({
     filter: [
       Filter.make({
-        logs: [],
+        header: "always",
+        logs: [
+          {
+            id: 1,
+            address: process.env["POSITIONS_ADDRESS"] as `0x${string}`,
+            topics: encodeEventTopics({
+              abi: PositionsAbi,
+              eventName: "Transfer",
+              args: { from: null, to: null },
+            }) as readonly `0x${string}`[],
+            strict: true,
+          },
+        ],
       }),
     ],
     finality: "pending",
@@ -150,11 +163,11 @@ const refreshAnalyticalTables = throttle(
             time: blockTime,
           });
 
-          for (const event of block!.events) {
+          for (const event of block!.logs) {
             const eventKey: EventKey = {
               blockNumber,
               transactionIndex: event.transactionIndex!,
-              eventIndex: event.eventIndex!,
+              eventIndex: event.logIndex!,
               emitter: BigInt(event.address!),
               transactionHash: BigInt(event.transactionHash!),
             };
@@ -164,14 +177,14 @@ const refreshAnalyticalTables = throttle(
             // this assumption could be validated at runtime
             await Promise.all(
               event.filterIds!.map(async (matchingFilterId) => {
-                const { parser, handle } =
-                  EVENT_PROCESSORS[matchingFilterId - 1];
-                const parsed = parser(event.data!, 0).value;
-
-                await handle(dao, {
-                  parsed: parsed as any,
-                  key: eventKey,
-                });
+                // const { parser, handle } =
+                //   EVENT_PROCESSORS[matchingFilterId - 1];
+                // const parsed = parser(event.data!, 0).value;
+                //
+                // await handle(dao, {
+                //   parsed: parsed as any,
+                //   key: eventKey,
+                // });
               }),
             );
           }
