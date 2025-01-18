@@ -159,19 +159,6 @@ export const CORE_ABI = [
   },
   {
     type: "function",
-    name: "completePayment",
-    inputs: [
-      {
-        name: "token",
-        type: "address",
-        internalType: "address",
-      },
-    ],
-    outputs: [],
-    stateMutability: "payable",
-  },
-  {
-    type: "function",
     name: "forward",
     inputs: [
       {
@@ -430,6 +417,30 @@ export const CORE_ABI = [
   },
   {
     type: "function",
+    name: "pay",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "data",
+        type: "bytes",
+        internalType: "bytes",
+      },
+    ],
+    outputs: [
+      {
+        name: "payment",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
     name: "prevInitializedTick",
     inputs: [
       {
@@ -604,19 +615,6 @@ export const CORE_ABI = [
       },
     ],
     stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "startPayment",
-    inputs: [
-      {
-        name: "token",
-        type: "address",
-        internalType: "address",
-      },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
   },
   {
     type: "function",
@@ -1144,6 +1142,12 @@ export const CORE_ABI = [
     name: "PositionUpdated",
     inputs: [
       {
+        name: "locker",
+        type: "address",
+        indexed: false,
+        internalType: "address",
+      },
+      {
         name: "poolKey",
         type: "tuple",
         indexed: false,
@@ -1475,22 +1479,6 @@ export const CORE_ABI = [
   },
   {
     type: "error",
-    name: "AllowanceOverflow",
-    inputs: [
-      {
-        name: "token",
-        type: "address",
-        internalType: "address",
-      },
-      {
-        name: "delta",
-        type: "uint256",
-        internalType: "uint256",
-      },
-    ],
-  },
-  {
-    type: "error",
     name: "AlreadyInitialized",
     inputs: [],
   },
@@ -1511,22 +1499,6 @@ export const CORE_ABI = [
   },
   {
     type: "error",
-    name: "BalanceDeltaNotEqualAllowance",
-    inputs: [
-      {
-        name: "token",
-        type: "address",
-        internalType: "address",
-      },
-    ],
-  },
-  {
-    type: "error",
-    name: "BalanceTooGreat",
-    inputs: [],
-  },
-  {
-    type: "error",
     name: "BoundsOrder",
     inputs: [],
   },
@@ -1537,17 +1509,7 @@ export const CORE_ABI = [
   },
   {
     type: "error",
-    name: "CallStartPaymentFirst",
-    inputs: [],
-  },
-  {
-    type: "error",
     name: "CannotAccumulateFeesWithZeroLiquidity",
-    inputs: [],
-  },
-  {
-    type: "error",
-    name: "CannotTransferFromETH",
     inputs: [],
   },
   {
@@ -1661,6 +1623,11 @@ export const CORE_ABI = [
   },
   {
     type: "error",
+    name: "PaymentTooLarge",
+    inputs: [],
+  },
+  {
+    type: "error",
     name: "PoolAlreadyInitialized",
     inputs: [],
   },
@@ -1682,11 +1649,6 @@ export const CORE_ABI = [
   {
     type: "error",
     name: "SqrtRatioLimitWrongDirection",
-    inputs: [],
-  },
-  {
-    type: "error",
-    name: "TokenAmountTooLarge",
     inputs: [],
   },
   {

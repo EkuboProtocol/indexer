@@ -2,9 +2,10 @@ declare namespace NodeJS {
   export interface ProcessEnv {
     LOG_LEVEL: string;
 
-    CORE_ADDRESS: string;
-    POSITIONS_ADDRESS: string;
-    ORACLE_ADDRESS: string;
+    CORE_ADDRESS: `0x${string}`;
+    POSITIONS_ADDRESS: `0x${string}`;
+    ORACLE_ADDRESS: `0x${string}`;
+    ORACLE_TOKEN: `0x${string}`;
 
     STARTING_CURSOR_BLOCK_NUMBER: string;
 

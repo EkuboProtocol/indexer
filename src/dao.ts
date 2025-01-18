@@ -1,7 +1,19 @@
 import type { PoolClient } from "pg";
 import { Client } from "pg";
 import type { EventKey } from "./processor";
-import { computeKeyHash, populateCache } from "./pool_key_hash";
+import { computeKeyHash } from "./poolKeyHash";
+import type {
+  CoreFeesAccumulated,
+  CorePoolInitialized,
+  CorePositionFeesCollected,
+  CorePositionUpdated,
+  CoreProtocolFeesPaid,
+  CoreProtocolFeesWithdrawn,
+  CoreSwapped,
+  PoolKey,
+  PositionTransfer,
+  SnapshotEvent,
+} from "./eventTypes.ts";
 
 const MAX_TICK_SPACING = 354892;
 
@@ -29,37 +41,8 @@ export class DAO {
     if (cursor) {
       await this.deleteOldBlockNumbers(Number(cursor.orderKey) + 1);
     }
-    await this.populatePoolKeyCache();
     await this.commitTransaction();
     return cursor;
-  }
-
-  private async populatePoolKeyCache() {
-    const { rows } = await this.pg.query<{
-      key_hash: string;
-      token0: string;
-      token1: string;
-      fee: string;
-      tick_spacing: number;
-      extension: number;
-    }>(`
-            SELECT key_hash, token0, token1, fee, tick_spacing, extension
-            FROM pool_keys
-        `);
-    populateCache(
-      rows.map(({ token0, token1, key_hash, fee, extension, tick_spacing }) => {
-        return {
-          pool_key: {
-            token0: BigInt(token0),
-            token1: BigInt(token1),
-            fee: BigInt(fee),
-            tick_spacing: BigInt(tick_spacing),
-            extension: BigInt(extension),
-          },
-          hash: BigInt(key_hash),
-        };
-      }),
-    );
   }
 
   private async createSchema(): Promise<void> {
@@ -224,14 +207,6 @@ export class DAO {
             liquidity_after  NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_event_id ON swaps USING btree (pool_key_hash, event_id);
-
-        CREATE TABLE IF NOT EXISTS position_minted
-        (
-            event_id int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
-
-            token_id int8    NOT NULL
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_position_minted_token_id ON position_minted USING btree (token_id);
 
         CREATE OR REPLACE VIEW pool_states_view AS
         (
@@ -500,15 +475,15 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS oracle_snapshots
         (
-            event_id                 int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+            event_id                                  int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
 
-            key_hash                 NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            key_hash                                  NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-            token0                   NUMERIC NOT NULL,
-            token1                   NUMERIC NOT NULL,
-            index                    int8    NOT NULL,
-            snapshot_block_timestamp int8    NOT NULL,
-            snapshot_tick_cumulative NUMERIC NOT NULL
+            token                                    NUMERIC NOT NULL,
+            index                                     int8    NOT NULL,
+            snapshot_block_timestamp                  int8    NOT NULL,
+            snapshot_tick_cumulative                  NUMERIC NOT NULL,
+            snapshot_seconds_per_liquidity_cumulative NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_oracle_snapshots_token0_token1_index ON oracle_snapshots USING btree (token0, token1, index);
 
@@ -963,7 +938,7 @@ export class DAO {
         BigInt(pool_key.token0),
         BigInt(pool_key.token1),
         pool_key.fee,
-        pool_key.tick_spacing,
+        pool_key.tickSpacing,
         BigInt(pool_key.extension),
       ],
     });
@@ -971,7 +946,7 @@ export class DAO {
   }
 
   public async insertPositionTransferEvent(
-    transfer: TransferEvent,
+    transfer: PositionTransfer,
     key: EventKey,
   ) {
     // The `*` operator is the PostgreSQL range intersection operator.
@@ -1002,40 +977,11 @@ export class DAO {
     });
   }
 
-  public async insertPositionMintedWithReferrerEvent(
-    minted: PositionMintedWithReferrer,
-    key: EventKey,
-  ) {
-    await this.pg.query({
-      text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
-                        VALUES ($1, $2, $3, $4, $5)
-                        RETURNING id)
-                INSERT
-                INTO position_minted_with_referrer
-                (event_id,
-                 token_id,
-                 referrer)
-                VALUES ((SELECT id FROM inserted_event), $6, $7)
-            `,
-      values: [
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        minted.id,
-        minted.referrer,
-      ],
-    });
-  }
-
   public async insertPositionUpdatedEvent(
-    event: PositionUpdatedEvent,
+    event: CorePositionUpdated,
     key: EventKey,
   ) {
-    const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
+    const pool_key_hash = await this.insertPoolKeyHash(event.poolKey);
 
     await this.pg.query({
       text: `
@@ -1071,21 +1017,20 @@ export class DAO {
         event.params.bounds.lower,
         event.params.bounds.upper,
 
-        event.params.liquidity_delta,
-        event.delta.amount0,
-        event.delta.amount1,
+        event.params.liquidityDelta,
+        event.delta0,
+        event.delta1,
       ],
     });
   }
 
   public async insertPositionFeesCollectedEvent(
-    event: PositionFeesCollectedEvent,
+    event: CorePositionFeesCollected,
     key: EventKey,
   ) {
-    const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
+    const pool_key_hash = await this.insertPoolKeyHash(event.poolKey);
 
     await this.pg.query({
-      name: "insert-position-fees-collected",
       text: `
                 WITH inserted_event AS (
                     INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
@@ -1112,22 +1057,22 @@ export class DAO {
 
         pool_key_hash,
 
-        event.position_key.owner,
-        event.position_key.salt,
-        event.position_key.bounds.lower,
-        event.position_key.bounds.upper,
+        event.positionKey.owner,
+        event.positionKey.salt,
+        event.positionKey.bounds.lower,
+        event.positionKey.bounds.upper,
 
-        event.delta.amount0,
-        event.delta.amount1,
+        event.amount0,
+        event.amount1,
       ],
     });
   }
 
   public async insertInitializationEvent(
-    event: PoolInitializationEvent,
+    event: CorePoolInitialized,
     key: EventKey,
   ) {
-    const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
+    const poolKeyHash = await this.insertPoolKeyHash(event.poolKey);
 
     await this.pg.query({
       text: `
@@ -1150,16 +1095,16 @@ export class DAO {
         key.transactionHash,
         key.emitter,
 
-        pool_key_hash,
+        poolKeyHash,
 
         event.tick,
-        event.sqrt_ratio,
+        event.sqrtRatio,
       ],
     });
   }
 
   public async insertProtocolFeesWithdrawn(
-    event: ProtocolFeesWithdrawnEvent,
+    event: CoreProtocolFeesWithdrawn,
     key: EventKey,
   ) {
     await this.pg.query({
@@ -1190,13 +1135,12 @@ export class DAO {
   }
 
   public async insertProtocolFeesPaid(
-    event: ProtocolFeesPaidEvent,
+    event: CoreProtocolFeesPaid,
     key: EventKey,
   ) {
-    const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
+    const pool_key_hash = await this.insertPoolKeyHash(event.poolKey);
 
     await this.pg.query({
-      name: "insert-protocol-fees-paid",
       text: `
                 WITH inserted_event AS (
                     INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
@@ -1223,22 +1167,22 @@ export class DAO {
 
         pool_key_hash,
 
-        event.position_key.owner,
-        event.position_key.salt,
-        event.position_key.bounds.lower,
-        event.position_key.bounds.upper,
+        event.positionKey.owner,
+        event.positionKey.salt,
+        event.positionKey.bounds.lower,
+        event.positionKey.bounds.upper,
 
-        event.delta.amount0,
-        event.delta.amount1,
+        event.amount0,
+        event.amount1,
       ],
     });
   }
 
   public async insertFeesAccumulatedEvent(
-    event: FeesAccumulatedEvent,
+    event: CoreFeesAccumulated,
     key: EventKey,
   ) {
-    const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
+    const pool_key_hash = await this.insertPoolKeyHash(event.poolKey);
 
     await this.pg.query({
       text: `
@@ -1269,80 +1213,8 @@ export class DAO {
     });
   }
 
-  public async insertRegistration(
-    event: TokenRegistrationEvent,
-    key: EventKey,
-  ) {
-    await this.pg.query({
-      text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
-                        VALUES ($1, $2, $3, $4, $5)
-                        RETURNING id)
-                INSERT
-                INTO token_registrations
-                (event_id,
-                 address,
-                 decimals,
-                 name,
-                 symbol,
-                 total_supply)
-                VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9, $10);
-            `,
-      values: [
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-
-        event.address,
-        event.decimals,
-        event.name,
-        event.symbol,
-        event.total_supply,
-      ],
-    });
-  }
-
-  public async insertRegistrationV3(
-    event: TokenRegistrationEventV3,
-    key: EventKey,
-  ) {
-    await this.pg.query({
-      text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
-                        VALUES ($1, $2, $3, $4, $5)
-                        RETURNING id)
-                INSERT
-                INTO token_registrations_v3
-                (event_id,
-                 address,
-                 decimals,
-                 name,
-                 symbol,
-                 total_supply)
-                VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9, $10);
-            `,
-      values: [
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-
-        event.address,
-        event.decimals,
-        event.name,
-        event.symbol,
-        event.total_supply,
-      ],
-    });
-  }
-
-  public async insertSwappedEvent(event: SwappedEvent, key: EventKey) {
-    const pool_key_hash = await this.insertPoolKeyHash(event.pool_key);
+  public async insertSwappedEvent(event: CoreSwapped, key: EventKey) {
+    const pool_key_hash = await this.insertPoolKeyHash(event.poolKey);
 
     await this.pg.query({
       text: `
@@ -1372,11 +1244,11 @@ export class DAO {
         event.locker,
         pool_key_hash,
 
-        event.delta.amount0,
-        event.delta.amount1,
-        event.sqrt_ratio_after,
-        event.tick_after,
-        event.liquidity_after,
+        event.delta0,
+        event.delta1,
+        event.sqrtRatioAfter,
+        event.tickAfter,
+        event.liquidityAfter,
       ],
     });
   }
@@ -1399,13 +1271,19 @@ export class DAO {
   }
 
   async insertOracleSnapshotEvent(parsed: SnapshotEvent, key: EventKey) {
+    const [token0, token1] =
+      BigInt(parsed.token) < BigInt(process.env["ORACLE_TOKEN"])
+        ? [parsed.token, process.env["ORACLE_TOKEN"]]
+        : [process.env["ORACLE_TOKEN"], parsed.token];
+
     const poolKeyHash = await this.insertPoolKeyHash({
       fee: 0n,
-      tick_spacing: BigInt(MAX_TICK_SPACING),
-      extension: key.emitter,
-      token0: parsed.token0,
-      token1: parsed.token1,
+      tickSpacing: MAX_TICK_SPACING,
+      extension: `0x${key.emitter}`,
+      token0,
+      token1,
     });
+
     await this.pg.query({
       text: `
                 WITH inserted_event AS (
@@ -1414,7 +1292,7 @@ export class DAO {
                         RETURNING id)
                 INSERT
                 INTO oracle_snapshots
-                (event_id, key_hash, token0, token1, index, snapshot_block_timestamp, snapshot_tick_cumulative)
+                (event_id, key_hash, token, index, snapshot_block_timestamp, snapshot_tick_cumulative, snapshot_seconds_per_liquidity_cumulative)
                 VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9, $10, $11)
             `,
       values: [
@@ -1424,11 +1302,11 @@ export class DAO {
         key.transactionHash,
         key.emitter,
         poolKeyHash,
-        parsed.token0,
-        parsed.token1,
+        parsed.token,
         parsed.index,
-        parsed.snapshot.block_timestamp,
-        parsed.snapshot.tick_cumulative,
+        parsed.timestamp,
+        parsed.tickCumulative,
+        parsed.secondsPerLiquidityCumulative,
       ],
     });
   }
