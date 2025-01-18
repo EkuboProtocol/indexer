@@ -485,7 +485,7 @@ export class DAO {
             snapshot_tick_cumulative                  NUMERIC NOT NULL,
             snapshot_seconds_per_liquidity_cumulative NUMERIC NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_oracle_snapshots_token0_token1_index ON oracle_snapshots USING btree (token0, token1, index);
+        CREATE INDEX IF NOT EXISTS idx_oracle_snapshots_token_index ON oracle_snapshots USING btree (token, index);
 
         CREATE OR REPLACE VIEW last_24h_pool_stats_view AS
         (
