@@ -1,5 +1,4 @@
 import "./config";
-import { createClient } from "@apibara/protocol";
 import type { EventKey } from "./processor";
 import { logger } from "./logger";
 import { DAO } from "./dao";
@@ -8,6 +7,7 @@ import { throttle } from "tadaaa";
 import { EvmStream, Filter } from "@apibara/evm";
 import { LOG_PROCESSORS } from "./logProcessors.ts";
 import { decodeEventLog, encodeEventTopics } from "viem";
+import { createClient } from "@apibara/protocol";
 
 const pool = new Pool({
   connectionString: process.env.PG_CONNECTION_STRING,
@@ -16,10 +16,33 @@ const pool = new Pool({
 
 const streamClient = createClient(EvmStream, process.env.APIBARA_URL!);
 
+function msToHumanShort(ms: number): string {
+  const units = [
+    { label: "d", ms: 86400000 },
+    { label: "h", ms: 3600000 },
+    { label: "min", ms: 60000 },
+    { label: "s", ms: 1000 },
+    { label: "ms", ms: 1 },
+  ];
+
+  const parts: string[] = [];
+
+  for (const { label, ms: unitMs } of units) {
+    if (ms >= unitMs) {
+      const count = Math.floor(ms / unitMs);
+      ms %= unitMs;
+      parts.push(`${count}${label}`);
+      if (parts.length === 3) break; // Limit to 2 components
+    }
+  }
+
+  return parts.join(", ") || "0ms";
+}
+
 const refreshAnalyticalTables = throttle(
   async function (
     since: Date = new Date(
-      Date.now() - parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS!) * 2,
+      Date.now() - parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS) * 2,
     ),
   ) {
     const timer = logger.startTimer();
@@ -41,7 +64,7 @@ const refreshAnalyticalTables = throttle(
     });
   },
   {
-    delay: parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS!),
+    delay: parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS),
     leading: true,
     async onError(err) {
       logger.error("Failed to refresh analytical tables", err);
@@ -138,9 +161,8 @@ const refreshAnalyticalTables = throttle(
         await dao.beginTransaction();
 
         let deletedCount: number = 0;
-        let eventsProcessed: number = 0;
 
-        // for pending blocks we update operational materialized views before we commit
+        let eventsProcessed: number = 0;
         const isPending = message.data.production === "live";
 
         for (const block of message.data.data) {
@@ -150,7 +172,7 @@ const refreshAnalyticalTables = throttle(
           const blockTime = block!.header!.timestamp!;
 
           await dao.insertBlock({
-            hash: BigInt(block!.header!.blockHash!),
+            hash: BigInt(block!.header!.blockHash ?? 0),
             number: block!.header!.blockNumber,
             time: blockTime,
           });
@@ -202,10 +224,10 @@ const refreshAnalyticalTables = throttle(
             message: `Processed to block`,
             blockNumber,
             isPending,
-            blockTimestamp: blockTime,
             eventsProcessed,
-            lagMilliseconds: Math.floor(
-              Date.now() - Number(blockTime.getTime()),
+            blockTimestamp: blockTime,
+            lag: msToHumanShort(
+              Math.floor(Date.now() - Number(blockTime.getTime())),
             ),
           });
         }
