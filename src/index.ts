@@ -6,11 +6,8 @@ import { DAO } from "./dao";
 import { Pool } from "pg";
 import { throttle } from "tadaaa";
 import { EvmStream, Filter } from "@apibara/evm";
-import { decodeEventLog, encodeEventTopics, type Hex } from "viem";
-import { POSITIONS_ABI } from "./abis.ts";
-import type { PositionTransfer } from "./eventTypes.ts";
-
-// ExtractAbiFunction
+import { LOG_PROCESSORS } from "./logProcessors.ts";
+import { decodeEventLog, encodeEventTopics } from "viem";
 
 const pool = new Pool({
   connectionString: process.env.PG_CONNECTION_STRING,
@@ -70,36 +67,6 @@ const refreshAnalyticalTables = throttle(
 
   refreshAnalyticalTables(new Date(0));
 
-  const LOG_PROCESSORS: {
-    address: `0x${string}`;
-    topics: ReturnType<typeof encodeEventTopics>;
-    handler: (
-      dao: DAO,
-      key: EventKey,
-      topics: [signature: Hex, ...args: Hex[]],
-      data: Hex,
-    ) => Promise<void>;
-  }[] = [
-    {
-      // todo: can make this way less repetitive. ideally just input the contract ABI and event name and the handler
-      //  function automatically receives the event
-      address: process.env.POSITIONS_ADDRESS,
-      topics: encodeEventTopics({
-        abi: POSITIONS_ABI,
-        eventName: "Transfer",
-        args: { from: null, to: null },
-      }),
-      async handler(dao, key, topics, data) {
-        const transfer = decodeEventLog({
-          abi: POSITIONS_ABI,
-          topics: topics,
-          data: data,
-        }) as unknown as PositionTransfer;
-        await dao.insertPositionTransferEvent(transfer, key);
-      },
-    },
-  ];
-
   for await (const message of streamClient.streamData({
     filter: [
       Filter.make({
@@ -107,7 +74,10 @@ const refreshAnalyticalTables = throttle(
         logs: LOG_PROCESSORS.map((lp, ix) => ({
           id: ix + 1,
           address: lp.address,
-          topics: lp.topics as readonly `0x${string}`[],
+          topics: encodeEventTopics({
+            abi: lp.abi,
+            eventName: lp.eventName,
+          }) as `0x${string}`[],
           strict: true,
         })),
       }),
@@ -201,15 +171,18 @@ const refreshAnalyticalTables = throttle(
               event.filterIds!.map(async (matchingFilterId) => {
                 eventsProcessed++;
 
-                const { handler, topics, address } =
+                const { handler, eventName, abi } =
                   LOG_PROCESSORS[matchingFilterId - 1];
 
-                await handler(
-                  dao,
-                  eventKey,
-                  event.topics as any,
-                  event.data as any,
-                );
+                const result = decodeEventLog({
+                  abi,
+                  eventName,
+                  topics: event.topics as any,
+                  data: event.data,
+                  strict: true,
+                });
+
+                await handler(dao, eventKey, result.args);
               }),
             );
           }
