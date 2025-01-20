@@ -8,7 +8,10 @@ import type {
   ExtractAbiEventNames,
 } from "abitype";
 
-type ContractEvent<abi extends Abi, N extends ExtractAbiEventNames<abi>> = {
+export type ContractEvent<
+  abi extends Abi,
+  N extends ExtractAbiEventNames<abi>,
+> = {
   [P in ExtractAbiEvent<abi, N>["inputs"][number] as P extends {
     name: infer N extends string;
   }

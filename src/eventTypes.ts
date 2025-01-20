@@ -1,18 +1,5 @@
-import type {
-  ExtractAbiEvent,
-  ExtractAbiEventNames,
-  AbiParameterToPrimitiveType,
-  Abi,
-} from "abitype";
 import { CORE_ABI, ORACLE_ABI, POSITIONS_ABI } from "./abis";
-
-type ContractEvent<abi extends Abi, N extends ExtractAbiEventNames<abi>> = {
-  [P in ExtractAbiEvent<abi, N>["inputs"][number] as P extends {
-    name: infer N extends string;
-  }
-    ? N
-    : never]: AbiParameterToPrimitiveType<P>;
-};
+import type { ContractEvent } from "./logProcessors.ts";
 
 export type PoolKey = ContractEvent<
   typeof CORE_ABI,
