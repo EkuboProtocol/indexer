@@ -32,72 +32,74 @@ interface LogProcessor<T extends Abi, N extends ExtractAbiEventNames<T>> {
   ) => Promise<void>;
 }
 
-const POSITIONS_ADDRESS = process.env.POSITIONS_ADDRESS;
-const CORE_ADDRESS = process.env.CORE_ADDRESS;
+type HandlerMap<T extends Abi> = {
+  [eventName in ExtractAbiEventNames<T>]?: LogProcessor<
+    T,
+    eventName
+  >["handler"];
+};
 
-export const LOG_PROCESSORS = [
-  <LogProcessor<typeof POSITIONS_ABI, "Transfer">>{
-    address: POSITIONS_ADDRESS,
+type ContractHandlers<T extends Abi> = {
+  address: string;
+  abi: T;
+  handlers: HandlerMap<T>;
+};
+
+const processors: {
+  Core: ContractHandlers<typeof CORE_ABI>;
+  Positions: ContractHandlers<typeof POSITIONS_ABI>;
+  Oracle: ContractHandlers<typeof ORACLE_ABI>;
+} = {
+  Core: {
+    address: process.env.CORE_ADDRESS,
+    abi: CORE_ABI,
+    handlers: {
+      async PoolInitialized(dao, key, parsed) {
+        await dao.insertPoolInitializedEvent(parsed, key);
+      },
+      async PositionUpdated(dao, key, parsed) {
+        await dao.insertPositionUpdatedEvent(parsed, key);
+      },
+      async PositionFeesCollected(dao, key, parsed) {
+        await dao.insertPositionFeesCollectedEvent(parsed, key);
+      },
+      async Swapped(dao, key, parsed) {
+        await dao.insertSwappedEvent(parsed, key);
+      },
+      async ProtocolFeesPaid(dao, key, parsed) {
+        await dao.insertProtocolFeesPaid(parsed, key);
+      },
+      async ProtocolFeesWithdrawn(dao, key, parsed) {
+        await dao.insertProtocolFeesWithdrawn(parsed, key);
+      },
+    },
+  },
+  Positions: {
+    address: process.env.POSITIONS_ADDRESS,
     abi: POSITIONS_ABI,
-    eventName: "Transfer",
-    async handler(dao, key, parsed) {
-      await dao.insertPositionTransferEvent(parsed, key);
+    handlers: {
+      async Transfer(dao, key, parsed) {
+        await dao.insertPositionTransferEvent(parsed, key);
+      },
     },
   },
-  <LogProcessor<typeof CORE_ABI, "PoolInitialized">>{
-    address: CORE_ADDRESS,
-    abi: CORE_ABI,
-    eventName: "PoolInitialized",
-    async handler(dao, key, parsed) {
-      await dao.insertPoolInitializedEvent(parsed, key);
-    },
-  },
-  <LogProcessor<typeof CORE_ABI, "PositionUpdated">>{
-    address: CORE_ADDRESS,
-    abi: CORE_ABI,
-    eventName: "PositionUpdated",
-    async handler(dao, key, parsed) {
-      await dao.insertPositionUpdatedEvent(parsed, key);
-    },
-  },
-  <LogProcessor<typeof CORE_ABI, "PositionFeesCollected">>{
-    address: CORE_ADDRESS,
-    abi: CORE_ABI,
-    eventName: "PositionFeesCollected",
-    async handler(dao, key, parsed) {
-      await dao.insertPositionFeesCollectedEvent(parsed, key);
-    },
-  },
-  <LogProcessor<typeof CORE_ABI, "Swapped">>{
-    address: CORE_ADDRESS,
-    abi: CORE_ABI,
-    eventName: "Swapped",
-    async handler(dao, key, parsed) {
-      await dao.insertSwappedEvent(parsed, key);
-    },
-  },
-  <LogProcessor<typeof CORE_ABI, "ProtocolFeesWithdrawn">>{
-    address: CORE_ADDRESS,
-    abi: CORE_ABI,
-    eventName: "ProtocolFeesWithdrawn",
-    async handler(dao, key, parsed) {
-      await dao.insertProtocolFeesWithdrawn(parsed, key);
-    },
-  },
-  <LogProcessor<typeof CORE_ABI, "ProtocolFeesPaid">>{
-    address: CORE_ADDRESS,
-    abi: CORE_ABI,
-    eventName: "ProtocolFeesPaid",
-    async handler(dao, key, parsed) {
-      await dao.insertProtocolFeesPaid(parsed, key);
-    },
-  },
-  <LogProcessor<typeof ORACLE_ABI, "SnapshotEvent">>{
-    address: CORE_ADDRESS,
+  Oracle: {
+    address: process.env.ORACLE_ADDRESS,
     abi: ORACLE_ABI,
-    eventName: "SnapshotEvent",
-    async handler(dao, key, parsed) {
-      await dao.insertOracleSnapshotEvent(parsed, key);
+    handlers: {
+      async SnapshotEvent(dao, key, parsed) {
+        await dao.insertOracleSnapshotEvent(parsed, key);
+      },
     },
   },
-] as const;
+};
+
+export const LOG_PROCESSORS = Object.values(processors).flatMap(
+  ({ address, abi, handlers }) =>
+    Object.entries(handlers).map(([eventName, handler]) => ({
+      address,
+      abi,
+      eventName,
+      handler,
+    })),
+) as LogProcessor<any, any>[];
