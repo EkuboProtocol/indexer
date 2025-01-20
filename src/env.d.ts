@@ -11,6 +11,9 @@ declare namespace NodeJS {
 
     APIBARA_AUTH_TOKEN: string;
 
+    REFRESH_RATE_ANALYTICAL_VIEWS: string;
+    APIBARA_URL: string;
+
     PG_CONNECTION_STRING: string;
   }
 }

@@ -1272,9 +1272,9 @@ export class DAO {
 
   async insertOracleSnapshotEvent(parsed: SnapshotEvent, key: EventKey) {
     const [token0, token1] =
-      BigInt(parsed.token) < BigInt(process.env["ORACLE_TOKEN"])
-        ? [parsed.token, process.env["ORACLE_TOKEN"]]
-        : [process.env["ORACLE_TOKEN"], parsed.token];
+      BigInt(parsed.token) < BigInt(process.env.ORACLE_TOKEN)
+        ? [parsed.token, process.env.ORACLE_TOKEN]
+        : [process.env.ORACLE_TOKEN, parsed.token];
 
     const poolKeyHash = await this.insertPoolKeyHash({
       fee: 0n,

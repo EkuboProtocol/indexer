@@ -6,8 +6,9 @@ import { DAO } from "./dao";
 import { Pool } from "pg";
 import { throttle } from "tadaaa";
 import { EvmStream, Filter } from "@apibara/evm";
-import { encodeEventTopics } from "viem";
+import { decodeEventLog, encodeEventTopics, type Hex } from "viem";
 import { POSITIONS_ABI } from "./abis.ts";
+import type { PositionTransfer } from "./eventTypes.ts";
 
 // ExtractAbiFunction
 
@@ -16,12 +17,12 @@ const pool = new Pool({
   connectionTimeoutMillis: 1000,
 });
 
-const streamClient = createClient(EvmStream, process.env["APIBARA_URL"]!);
+const streamClient = createClient(EvmStream, process.env.APIBARA_URL!);
 
 const refreshAnalyticalTables = throttle(
   async function (
     since: Date = new Date(
-      Date.now() - parseInt(process.env["REFRESH_RATE_ANALYTICAL_VIEWS"]!) * 2,
+      Date.now() - parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS!) * 2,
     ),
   ) {
     const timer = logger.startTimer();
@@ -43,7 +44,7 @@ const refreshAnalyticalTables = throttle(
     });
   },
   {
-    delay: parseInt(process.env["REFRESH_RATE_ANALYTICAL_VIEWS"]!),
+    delay: parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS!),
     leading: true,
     async onError(err) {
       logger.error("Failed to refresh analytical tables", err);
@@ -69,22 +70,46 @@ const refreshAnalyticalTables = throttle(
 
   refreshAnalyticalTables(new Date(0));
 
+  const LOG_PROCESSORS: {
+    address: `0x${string}`;
+    topics: ReturnType<typeof encodeEventTopics>;
+    handler: (
+      dao: DAO,
+      key: EventKey,
+      topics: [signature: Hex, ...args: Hex[]],
+      data: Hex,
+    ) => Promise<void>;
+  }[] = [
+    {
+      // todo: can make this way less repetitive. ideally just input the contract ABI and event name and the handler
+      //  function automatically receives the event
+      address: process.env.POSITIONS_ADDRESS,
+      topics: encodeEventTopics({
+        abi: POSITIONS_ABI,
+        eventName: "Transfer",
+        args: { from: null, to: null },
+      }),
+      async handler(dao, key, topics, data) {
+        const transfer = decodeEventLog({
+          abi: POSITIONS_ABI,
+          topics: topics,
+          data: data,
+        }) as unknown as PositionTransfer;
+        await dao.insertPositionTransferEvent(transfer, key);
+      },
+    },
+  ];
+
   for await (const message of streamClient.streamData({
     filter: [
       Filter.make({
         header: "always",
-        logs: [
-          {
-            id: 1,
-            address: process.env["POSITIONS_ADDRESS"] as `0x${string}`,
-            topics: encodeEventTopics({
-              abi: POSITIONS_ABI,
-              eventName: "Transfer",
-              args: { from: null, to: null },
-            }) as readonly `0x${string}`[],
-            strict: true,
-          },
-        ],
+        logs: LOG_PROCESSORS.map((lp, ix) => ({
+          id: ix + 1,
+          address: lp.address,
+          topics: lp.topics as readonly `0x${string}`[],
+          strict: true,
+        })),
       }),
     ],
     finality: "pending",
@@ -142,22 +167,17 @@ const refreshAnalyticalTables = throttle(
 
         await dao.beginTransaction();
 
-        let isPending: boolean = false;
-
         let deletedCount: number = 0;
+        let eventsProcessed: number = 0;
+
+        // for pending blocks we update operational materialized views before we commit
+        const isPending = message.data.production === "live";
 
         for (const block of message.data.data) {
           const blockNumber = Number(block!.header!.blockNumber);
           deletedCount += await dao.deleteOldBlockNumbers(blockNumber);
 
           const blockTime = block!.header!.timestamp!;
-
-          // for pending blocks we update operational materialized views before we commit
-          isPending =
-            isPending ||
-            BigInt(block!.header!.blockHash!) === 0n ||
-            // blocks in the last 5 minutes are considered pending
-            blockTime.getTime() > Date.now() - 300_000;
 
           await dao.insertBlock({
             hash: BigInt(block!.header!.blockHash!),
@@ -169,7 +189,7 @@ const refreshAnalyticalTables = throttle(
             const eventKey: EventKey = {
               blockNumber,
               transactionIndex: event.transactionIndex!,
-              eventIndex: event.logIndex!,
+              eventIndex: event.logIndexInTransaction!,
               emitter: BigInt(event.address!),
               transactionHash: BigInt(event.transactionHash!),
             };
@@ -179,14 +199,17 @@ const refreshAnalyticalTables = throttle(
             // this assumption could be validated at runtime
             await Promise.all(
               event.filterIds!.map(async (matchingFilterId) => {
-                // const { parser, handle } =
-                //   EVENT_PROCESSORS[matchingFilterId - 1];
-                // const parsed = parser(event.data!, 0).value;
-                //
-                // await handle(dao, {
-                //   parsed: parsed as any,
-                //   key: eventKey,
-                // });
+                eventsProcessed++;
+
+                const { handler, topics, address } =
+                  LOG_PROCESSORS[matchingFilterId - 1];
+
+                await handler(
+                  dao,
+                  eventKey,
+                  event.topics as any,
+                  event.data as any,
+                );
               }),
             );
           }
@@ -194,7 +217,7 @@ const refreshAnalyticalTables = throttle(
           await dao.writeCursor(message.data.cursor!);
 
           // refresh operational views at the end of the batch
-          if (isPending || deletedCount > 0) {
+          if ((isPending && eventsProcessed > 0) || deletedCount > 0) {
             await dao.refreshOperationalMaterializedView();
           }
 
@@ -205,6 +228,7 @@ const refreshAnalyticalTables = throttle(
             blockNumber,
             isPending,
             blockTimestamp: blockTime,
+            eventsProcessed,
             lagMilliseconds: Math.floor(
               Date.now() - Number(blockTime.getTime()),
             ),

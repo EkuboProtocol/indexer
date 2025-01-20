@@ -327,41 +327,19 @@ export const CORE_ABI = [
     name: "nextInitializedTick",
     inputs: [
       {
-        name: "poolKey",
-        type: "tuple",
-        internalType: "struct PoolKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
-          },
-        ],
+        name: "poolId",
+        type: "bytes32",
+        internalType: "bytes32",
       },
       {
         name: "fromTick",
         type: "int32",
         internalType: "int32",
+      },
+      {
+        name: "tickSpacing",
+        type: "uint32",
+        internalType: "uint32",
       },
       {
         name: "skipAhead",
@@ -444,41 +422,19 @@ export const CORE_ABI = [
     name: "prevInitializedTick",
     inputs: [
       {
-        name: "poolKey",
-        type: "tuple",
-        internalType: "struct PoolKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
-          },
-        ],
+        name: "poolId",
+        type: "bytes32",
+        internalType: "bytes32",
       },
       {
         name: "fromTick",
         type: "int32",
         internalType: "int32",
+      },
+      {
+        name: "tickSpacing",
+        type: "uint32",
+        internalType: "uint32",
       },
       {
         name: "skipAhead",
@@ -1509,35 +1465,13 @@ export const CORE_ABI = [
   },
   {
     type: "error",
-    name: "CannotAccumulateFeesWithZeroLiquidity",
-    inputs: [],
-  },
-  {
-    type: "error",
-    name: "DeltasNotZeroed",
-    inputs: [
-      {
-        name: "count",
-        type: "uint256",
-        internalType: "uint256",
-      },
-    ],
-  },
-  {
-    type: "error",
-    name: "ExtensionAlreadyRegistered",
+    name: "DebtsNotZeroed",
     inputs: [],
   },
   {
     type: "error",
     name: "ExtensionNotRegistered",
-    inputs: [
-      {
-        name: "extension",
-        type: "address",
-        internalType: "address",
-      },
-    ],
+    inputs: [],
   },
   {
     type: "error",
@@ -1618,11 +1552,6 @@ export const CORE_ABI = [
   },
   {
     type: "error",
-    name: "OnlyCallableByExtension",
-    inputs: [],
-  },
-  {
-    type: "error",
     name: "PaymentTooLarge",
     inputs: [],
   },
@@ -1680,7 +1609,7 @@ export const POSITIONS_ABI = [
       {
         name: "core",
         type: "address",
-        internalType: "contract Core",
+        internalType: "contract ICore",
       },
       {
         name: "_tokenURIGenerator",
@@ -1726,6 +1655,19 @@ export const POSITIONS_ABI = [
       },
     ],
     stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "burn",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
   },
   {
     type: "function",
@@ -1791,7 +1733,111 @@ export const POSITIONS_ABI = [
         internalType: "address",
       },
     ],
-    outputs: [],
+    outputs: [
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "collectFeesAndWithdraw",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "fee",
+            type: "uint128",
+            internalType: "uint128",
+          },
+          {
+            name: "tickSpacing",
+            type: "uint32",
+            internalType: "uint32",
+          },
+          {
+            name: "extension",
+            type: "address",
+            internalType: "address",
+          },
+        ],
+      },
+      {
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
+      },
+      {
+        name: "liquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "recipient",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "minAmount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "minAmount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    outputs: [
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
     stateMutability: "payable",
   },
   {
@@ -2152,6 +2198,25 @@ export const POSITIONS_ABI = [
   },
   {
     type: "function",
+    name: "multicall",
+    inputs: [
+      {
+        name: "data",
+        type: "bytes[]",
+        internalType: "bytes[]",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bytes[]",
+        internalType: "bytes[]",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
     name: "name",
     inputs: [],
     outputs: [
@@ -2181,6 +2246,80 @@ export const POSITIONS_ABI = [
       },
     ],
     stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "payCallback",
+    inputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "data",
+        type: "bytes",
+        internalType: "bytes",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bytes",
+        internalType: "bytes",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "permit",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "deadline",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "v",
+        type: "uint8",
+        internalType: "uint8",
+      },
+      {
+        name: "r",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+      {
+        name: "s",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "refundNativeToken",
+    inputs: [],
+    outputs: [],
+    stateMutability: "nonpayable",
   },
   {
     type: "function",
@@ -2250,7 +2389,7 @@ export const POSITIONS_ABI = [
     ],
     outputs: [
       {
-        name: "",
+        name: "result",
         type: "uint256",
         internalType: "uint256",
       },
@@ -2542,29 +2681,29 @@ export const POSITIONS_ABI = [
   },
   {
     type: "error",
-    name: "CannotTransferFromETH",
-    inputs: [],
-  },
-  {
-    type: "error",
     name: "CoreOnly",
     inputs: [],
   },
   {
     type: "error",
-    name: "InsufficientAmountWithdrawn",
-    inputs: [],
-  },
-  {
-    type: "error",
-    name: "InsufficientLiquidityReceived",
+    name: "DepositFailedDueToSlippage",
     inputs: [
       {
         name: "liquidity",
         type: "uint128",
         internalType: "uint128",
       },
+      {
+        name: "minLiquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
     ],
+  },
+  {
+    type: "error",
+    name: "InsufficientAmountWithdrawn",
+    inputs: [],
   },
   {
     type: "error",
@@ -2647,7 +2786,7 @@ export const ORACLE_ABI = [
       {
         name: "core",
         type: "address",
-        internalType: "contract Core",
+        internalType: "contract ICore",
       },
       {
         name: "_oracleToken",
@@ -2656,19 +2795,6 @@ export const ORACLE_ABI = [
       },
     ],
     stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "MAX_TICK_AT_MAX_TICK_SPACING",
-    inputs: [],
-    outputs: [
-      {
-        name: "",
-        type: "int32",
-        internalType: "int32",
-      },
-    ],
-    stateMutability: "view",
   },
   {
     type: "function",
@@ -3050,7 +3176,7 @@ export const ORACLE_ABI = [
         internalType: "address",
       },
       {
-        name: "poolKey",
+        name: "key",
         type: "tuple",
         internalType: "struct PoolKey",
         components: [
@@ -3243,6 +3369,171 @@ export const ORACLE_ABI = [
   },
   {
     type: "function",
+    name: "extrapolateSnapshot",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "atTime",
+        type: "uint64",
+        internalType: "uint64",
+      },
+    ],
+    outputs: [
+      {
+        name: "secondsPerLiquidityCumulative",
+        type: "uint160",
+        internalType: "uint160",
+      },
+      {
+        name: "tickCumulative",
+        type: "int64",
+        internalType: "int64",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "findPreviousSnapshot",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "time",
+        type: "uint64",
+        internalType: "uint64",
+      },
+    ],
+    outputs: [
+      {
+        name: "count",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "index",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "snapshot",
+        type: "tuple",
+        internalType: "struct Oracle.Snapshot",
+        components: [
+          {
+            name: "secondsSinceOffset",
+            type: "uint32",
+            internalType: "uint32",
+          },
+          {
+            name: "secondsPerLiquidityCumulative",
+            type: "uint160",
+            internalType: "uint160",
+          },
+          {
+            name: "tickCumulative",
+            type: "int64",
+            internalType: "int64",
+          },
+        ],
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getAveragesOverPeriod",
+    inputs: [
+      {
+        name: "baseToken",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "quoteToken",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "startTime",
+        type: "uint64",
+        internalType: "uint64",
+      },
+      {
+        name: "endTime",
+        type: "uint64",
+        internalType: "uint64",
+      },
+    ],
+    outputs: [
+      {
+        name: "liquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "tick",
+        type: "int32",
+        internalType: "int32",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "getPoolKey",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "fee",
+            type: "uint128",
+            internalType: "uint128",
+          },
+          {
+            name: "tickSpacing",
+            type: "uint32",
+            internalType: "uint32",
+          },
+          {
+            name: "extension",
+            type: "address",
+            internalType: "address",
+          },
+        ],
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
     name: "oracleToken",
     inputs: [],
     outputs: [
@@ -3250,6 +3541,62 @@ export const ORACLE_ABI = [
         name: "",
         type: "address",
         internalType: "address",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "search",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "time",
+        type: "uint64",
+        internalType: "uint64",
+      },
+      {
+        name: "minIndex",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "maxIndex",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "index",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "snapshot",
+        type: "tuple",
+        internalType: "struct Oracle.Snapshot",
+        components: [
+          {
+            name: "secondsSinceOffset",
+            type: "uint32",
+            internalType: "uint32",
+          },
+          {
+            name: "secondsPerLiquidityCumulative",
+            type: "uint160",
+            internalType: "uint160",
+          },
+          {
+            name: "tickCumulative",
+            type: "int64",
+            internalType: "int64",
+          },
+        ],
       },
     ],
     stateMutability: "view",
@@ -3429,6 +3776,11 @@ export const ORACLE_ABI = [
   },
   {
     type: "error",
+    name: "Amount0DeltaOverflow",
+    inputs: [],
+  },
+  {
+    type: "error",
     name: "BoundsMustBeMaximum",
     inputs: [],
   },
@@ -3444,8 +3796,50 @@ export const ORACLE_ABI = [
   },
   {
     type: "error",
+    name: "EndTimeMustBeGreaterThanStartTime",
+    inputs: [],
+  },
+  {
+    type: "error",
     name: "FeeMustBeZero",
     inputs: [],
+  },
+  {
+    type: "error",
+    name: "FutureTime",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "InvalidTick",
+    inputs: [
+      {
+        name: "tick",
+        type: "int32",
+        internalType: "int32",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "MustRedeployContract",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "NoPreviousSnapshotExists",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "time",
+        type: "uint64",
+        internalType: "uint64",
+      },
+    ],
   },
   {
     type: "error",
@@ -3455,6 +3849,11 @@ export const ORACLE_ABI = [
   {
     type: "error",
     name: "TickSpacingMustBeMaximum",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "ZeroSqrtRatio",
     inputs: [],
   },
 ] as const;
