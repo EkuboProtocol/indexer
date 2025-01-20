@@ -105,7 +105,7 @@ const refreshAnalyticalTables = throttle(
         })),
       }),
     ],
-    finality: "pending",
+    finality: "accepted",
     startingCursor: databaseStartingCursor
       ? databaseStartingCursor
       : { orderKey: BigInt(process.env.STARTING_CURSOR_BLOCK_NUMBER ?? 0) },
@@ -163,7 +163,7 @@ const refreshAnalyticalTables = throttle(
         let deletedCount: number = 0;
 
         let eventsProcessed: number = 0;
-        const isPending = message.data.production === "live";
+        const isHead = message.data.production === "live";
 
         for (const block of message.data.data) {
           const blockNumber = Number(block!.header!.blockNumber);
@@ -214,7 +214,7 @@ const refreshAnalyticalTables = throttle(
           await dao.writeCursor(message.data.cursor!);
 
           // refresh operational views at the end of the batch
-          if ((isPending && eventsProcessed > 0) || deletedCount > 0) {
+          if ((isHead && eventsProcessed > 0) || deletedCount > 0) {
             await dao.refreshOperationalMaterializedView();
           }
 
@@ -223,7 +223,7 @@ const refreshAnalyticalTables = throttle(
           blockProcessingTimer.done({
             message: `Processed to block`,
             blockNumber,
-            isPending,
+            isHead,
             eventsProcessed,
             blockTimestamp: blockTime,
             lag: msToHumanShort(
@@ -234,7 +234,7 @@ const refreshAnalyticalTables = throttle(
 
         client.release();
 
-        if (isPending) {
+        if (isHead) {
           refreshAnalyticalTables();
         }
 
