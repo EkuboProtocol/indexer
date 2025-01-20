@@ -211,7 +211,7 @@ const refreshAnalyticalTables = throttle(
             );
           }
 
-          await dao.writeCursor(message.data.cursor!);
+          await dao.writeCursor(message.data.endCursor!);
 
           // refresh operational views at the end of the batch
           if ((isHead && eventsProcessed > 0) || deletedCount > 0) {
