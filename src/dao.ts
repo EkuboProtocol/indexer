@@ -1068,7 +1068,7 @@ export class DAO {
     });
   }
 
-  public async insertInitializationEvent(
+  public async insertPoolInitializedEvent(
     event: CorePoolInitialized,
     key: EventKey,
   ) {

@@ -182,7 +182,9 @@ const refreshAnalyticalTables = throttle(
                   strict: true,
                 });
 
-                await handler(dao, eventKey, result.args);
+                logger.debug(`Processing ${eventName}`, { event: result.args });
+
+                await handler(dao, eventKey, result.args as any);
               }),
             );
           }
