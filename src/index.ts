@@ -101,7 +101,7 @@ const refreshAnalyticalTables = throttle(
             abi: lp.abi,
             eventName: lp.eventName,
           }) as `0x${string}`[],
-          strict: true,
+          strict: false,
         })),
       }),
     ],
@@ -202,7 +202,6 @@ const refreshAnalyticalTables = throttle(
                   eventName,
                   topics: event.topics as any,
                   data: event.data,
-                  strict: true,
                 });
 
                 logger.debug(`Processing ${eventName}`, { event: result.args });
