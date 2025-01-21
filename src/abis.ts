@@ -7,6 +7,11 @@ export const CORE_ABI = [
         type: "address",
         internalType: "address",
       },
+      {
+        name: "expirationTime",
+        type: "uint256",
+        internalType: "uint256",
+      },
     ],
     stateMutability: "nonpayable",
   },
@@ -156,6 +161,19 @@ export const CORE_ABI = [
     ],
     outputs: [],
     stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "expirationTime",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
   },
   {
     type: "function",
@@ -1465,6 +1483,11 @@ export const CORE_ABI = [
   },
   {
     type: "error",
+    name: "ContractHasExpired",
+    inputs: [],
+  },
+  {
+    type: "error",
     name: "DebtsNotZeroed",
     inputs: [],
   },
@@ -1476,6 +1499,11 @@ export const CORE_ABI = [
   {
     type: "error",
     name: "FailedRegisterInvalidCallPoints",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "InsufficientSavedBalance",
     inputs: [],
   },
   {
@@ -1552,7 +1580,7 @@ export const CORE_ABI = [
   },
   {
     type: "error",
-    name: "PaymentTooLarge",
+    name: "NotLocked",
     inputs: [],
   },
   {
@@ -1662,6 +1690,55 @@ export const POSITIONS_ABI = [
     inputs: [
       {
         name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "checkDeadline",
+    inputs: [
+      {
+        name: "deadline",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "checkMaximumInputNotExceeded",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "maximumInput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "checkMinimumOutputReceived",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "minimumOutput",
         type: "uint256",
         internalType: "uint256",
       },
@@ -1815,16 +1892,6 @@ export const POSITIONS_ABI = [
         type: "address",
         internalType: "address",
       },
-      {
-        name: "minAmount0",
-        type: "uint128",
-        internalType: "uint128",
-      },
-      {
-        name: "minAmount1",
-        type: "uint128",
-        internalType: "uint128",
-      },
     ],
     outputs: [
       {
@@ -1899,12 +1966,12 @@ export const POSITIONS_ABI = [
         ],
       },
       {
-        name: "amount0",
+        name: "maxAmount0",
         type: "uint128",
         internalType: "uint128",
       },
       {
-        name: "amount1",
+        name: "maxAmount1",
         type: "uint128",
         internalType: "uint128",
       },
@@ -1917,6 +1984,16 @@ export const POSITIONS_ABI = [
     outputs: [
       {
         name: "liquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
         type: "uint128",
         internalType: "uint128",
       },
@@ -1981,9 +2058,14 @@ export const POSITIONS_ABI = [
     ],
     outputs: [
       {
-        name: "",
-        type: "uint256",
-        internalType: "uint256",
+        name: "sqrtRatio",
+        type: "uint192",
+        internalType: "uint192",
+      },
+      {
+        name: "tick",
+        type: "int32",
+        internalType: "int32",
       },
     ],
     stateMutability: "nonpayable",
@@ -2078,7 +2160,18 @@ export const POSITIONS_ABI = [
         internalType: "int32",
       },
     ],
-    outputs: [],
+    outputs: [
+      {
+        name: "initialized",
+        type: "bool",
+        internalType: "bool",
+      },
+      {
+        name: "sqrtRatio",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
     stateMutability: "payable",
   },
   {
@@ -2167,12 +2260,12 @@ export const POSITIONS_ABI = [
         ],
       },
       {
-        name: "amount0",
+        name: "maxAmount0",
         type: "uint128",
         internalType: "uint128",
       },
       {
-        name: "amount1",
+        name: "maxAmount1",
         type: "uint128",
         internalType: "uint128",
       },
@@ -2190,6 +2283,16 @@ export const POSITIONS_ABI = [
       },
       {
         name: "liquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
         type: "uint128",
         internalType: "uint128",
       },
@@ -2312,7 +2415,20 @@ export const POSITIONS_ABI = [
       },
     ],
     outputs: [],
-    stateMutability: "nonpayable",
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "recordBalanceForSlippageCheck",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
   },
   {
     type: "function",
@@ -2569,16 +2685,6 @@ export const POSITIONS_ABI = [
         type: "address",
         internalType: "address",
       },
-      {
-        name: "minAmount0",
-        type: "uint128",
-        internalType: "uint128",
-      },
-      {
-        name: "minAmount1",
-        type: "uint128",
-        internalType: "uint128",
-      },
     ],
     outputs: [
       {
@@ -2702,7 +2808,7 @@ export const POSITIONS_ABI = [
   },
   {
     type: "error",
-    name: "InsufficientAmountWithdrawn",
+    name: "DepositOverflow",
     inputs: [],
   },
   {
@@ -2723,6 +2829,38 @@ export const POSITIONS_ABI = [
   },
   {
     type: "error",
+    name: "MaximumInputExceeded",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "maximumInput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "MinimumOutputNotReceived",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "minimumOutput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+  },
+  {
+    type: "error",
     name: "NotOwnerNorApproved",
     inputs: [],
   },
@@ -2735,6 +2873,17 @@ export const POSITIONS_ABI = [
     type: "error",
     name: "TokenDoesNotExist",
     inputs: [],
+  },
+  {
+    type: "error",
+    name: "TransactionExpired",
+    inputs: [
+      {
+        name: "deadline",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
   },
   {
     type: "error",
@@ -2770,7 +2919,13 @@ export const POSITIONS_ABI = [
   {
     type: "error",
     name: "UnexpectedCallTypeByte",
-    inputs: [],
+    inputs: [
+      {
+        name: "b",
+        type: "uint8",
+        internalType: "uint8",
+      },
+    ],
   },
   {
     type: "error",
@@ -3258,7 +3413,7 @@ export const ORACLE_ABI = [
         ],
       },
       {
-        name: "",
+        name: "params",
         type: "tuple",
         internalType: "struct SwapParameters",
         components: [
