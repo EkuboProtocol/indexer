@@ -90,6 +90,8 @@ const refreshAnalyticalTables = throttle(
 
   refreshAnalyticalTables(new Date(0));
 
+  let lastIsHead = false;
+
   for await (const message of streamClient.streamData({
     filter: [
       Filter.make({
@@ -214,8 +216,12 @@ const refreshAnalyticalTables = throttle(
           // only write endCursor if cursor is not present
           await dao.writeCursor(message.data.cursor ?? message.data.endCursor);
 
+          const refreshOperational =
+            (isHead && (eventsProcessed > 0 || !lastIsHead)) ||
+            deletedCount > 0;
+
           // refresh operational views at the end of the batch
-          if ((isHead && eventsProcessed > 0) || deletedCount > 0) {
+          if (refreshOperational) {
             await dao.refreshOperationalMaterializedView();
           }
 
@@ -225,6 +231,7 @@ const refreshAnalyticalTables = throttle(
             message: `Processed to block`,
             blockNumber,
             isHead,
+            refreshOperational,
             eventsProcessed,
             blockTimestamp: blockTime,
             lag: msToHumanShort(
@@ -238,6 +245,8 @@ const refreshAnalyticalTables = throttle(
         if (isHead) {
           refreshAnalyticalTables();
         }
+
+        lastIsHead = isHead;
 
         break;
       }
