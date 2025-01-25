@@ -97,7 +97,7 @@ export class DAO {
         (
             event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            token_id     int8    NOT NULL,
+            token_id     NUMERIC NOT NULL,
             from_address NUMERIC NOT NULL,
             to_address   NUMERIC NOT NULL
         );
@@ -479,7 +479,7 @@ export class DAO {
 
             key_hash                                  NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
-            token                                    NUMERIC NOT NULL,
+            token                                     NUMERIC NOT NULL,
             index                                     int8    NOT NULL,
             snapshot_block_timestamp                  int8    NOT NULL,
             snapshot_tick_cumulative                  NUMERIC NOT NULL,
