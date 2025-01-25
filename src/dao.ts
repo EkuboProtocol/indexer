@@ -49,7 +49,7 @@ export class DAO {
         (
             id           INT         NOT NULL UNIQUE CHECK (id = 1), -- only one row.
             order_key    BIGINT      NOT NULL,
-            unique_key   bytea       NOT NULL,
+            unique_key   bytea,
             last_updated timestamptz NOT NULL
         );
 
@@ -267,17 +267,6 @@ export class DAO {
             fees       NUMERIC,
             swap_count NUMERIC,
             PRIMARY KEY (key_hash, hour, token)
-        );
-
-        CREATE TABLE IF NOT EXISTS hourly_price_data
-        (
-            token0     NUMERIC,
-            token1     NUMERIC,
-            hour       timestamptz,
-            k_volume   NUMERIC,
-            total      NUMERIC,
-            swap_count NUMERIC,
-            PRIMARY KEY (token0, token1, hour)
         );
 
         CREATE TABLE IF NOT EXISTS hourly_tvl_delta_by_token
@@ -541,38 +530,6 @@ export class DAO {
             );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_last_24h_pool_stats_materialized_key_hash ON last_24h_pool_stats_materialized USING btree (key_hash);
 
-        CREATE OR REPLACE FUNCTION parse_short_string(numeric_value NUMERIC) RETURNS VARCHAR AS
-        $$
-        DECLARE
-            result_text TEXT    := '';
-            byte_value  INTEGER;
-            ascii_char  TEXT;
-            n           NUMERIC := numeric_value;
-        BEGIN
-            IF n < 0 THEN
-                RETURN NULL;
-            END IF;
-
-            IF n % 1 != 0 THEN
-                RETURN NULL;
-            END IF;
-
-            IF n = 0 THEN
-                RETURN '';
-            END IF;
-
-            WHILE n > 0
-                LOOP
-                    byte_value := MOD(n, 256)::INTEGER;
-                    ascii_char := CHR(byte_value);
-                    result_text := ascii_char || result_text; -- Prepend to maintain correct order
-                    n := FLOOR(n / 256);
-                END LOOP;
-
-            RETURN result_text;
-        END;
-        $$ LANGUAGE plpgsql;
-
         CREATE OR REPLACE VIEW oracle_pool_states_view AS
         (
         SELECT pk.key_hash AS pool_key_hash, MAX(snapshot_block_timestamp) AS last_snapshot_block_timestamp
@@ -587,30 +544,6 @@ export class DAO {
                last_snapshot_block_timestamp
         FROM oracle_pool_states_view);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_oracle_pool_states_materialized_pool_key_hash ON oracle_pool_states_materialized USING btree (pool_key_hash);
-
-        CREATE OR REPLACE FUNCTION numeric_to_hex(num NUMERIC) RETURNS TEXT
-            IMMUTABLE
-            LANGUAGE plpgsql
-        AS
-        $$
-        DECLARE
-            hex       TEXT;
-            remainder NUMERIC;
-        BEGIN
-            hex := '';
-            LOOP
-                IF num = 0 THEN
-                    EXIT;
-                END IF;
-                remainder := num % 16;
-                hex := SUBSTRING('0123456789abcdef' FROM (remainder::INT + 1) FOR 1) || hex;
-                num := (num - remainder) / 16;
-            END LOOP;
-            RETURN '0x' || hex;
-        END;
-        $$;
-
-
     `);
   }
 
@@ -719,32 +652,6 @@ export class DAO {
                      GROUP BY key_hash, hour, token)
                 ON CONFLICT (key_hash, hour, token)
                     DO UPDATE SET revenue = excluded.revenue;
-            `,
-      values: [since],
-    });
-
-    await this.pg.query({
-      text: `
-                INSERT INTO hourly_price_data
-                    (SELECT pk.token0                                                    AS token0,
-                            pk.token1                                                    AS token1,
-                            date_bin(INTERVAL '1 hour', b.time,
-                                     '2000-01-01 00:00:00'::TIMESTAMP WITHOUT TIME ZONE) AS hour,
-                            SUM(ABS(delta1 * delta0))                                    AS k_volume,
-                            SUM(delta1 * delta1)                                         AS total,
-                            COUNT(1)                                                     AS swap_count
-                     FROM swaps s
-                              JOIN event_keys ek ON s.event_id = ek.id
-                              JOIN blocks b ON ek.block_number = b.number
-                              JOIN pool_keys pk ON s.pool_key_hash = pk.key_hash
-                     WHERE DATE_TRUNC('hour', b.time) >= DATE_TRUNC('hour', $1::timestamptz)
-                       AND delta0 != 0
-                       AND delta1 != 0
-                     GROUP BY pk.token0, pk.token1, hour)
-                ON CONFLICT (token0, token1, hour)
-                    DO UPDATE SET k_volume   = excluded.k_volume,
-                                  total      = excluded.total,
-                                  swap_count = excluded.swap_count;
             `,
       values: [since],
     });
@@ -875,7 +782,7 @@ export class DAO {
     if (rows.length === 1) {
       const { order_key, unique_key } = rows[0];
 
-      if (BigInt(unique_key) === 0n) {
+      if (unique_key === null) {
         return {
           orderKey: BigInt(order_key),
         };
@@ -899,7 +806,12 @@ export class DAO {
                                          unique_key   = excluded.unique_key,
                                          last_updated = NOW();
       `,
-      values: [cursor.orderKey, BigInt(cursor.uniqueKey ?? 0)],
+      values: [
+        cursor.orderKey,
+        typeof cursor.uniqueKey !== "undefined"
+          ? BigInt(cursor.uniqueKey)
+          : null,
+      ],
     });
   }
 
