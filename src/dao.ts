@@ -67,6 +67,7 @@ export class DAO {
         CREATE TABLE IF NOT EXISTS pool_keys
         (
             key_hash     NUMERIC NOT NULL PRIMARY KEY,
+            core_address NUMERIC NOT NULL,
             token0       NUMERIC NOT NULL,
             token1       NUMERIC NOT NULL,
             fee          NUMERIC NOT NULL,
@@ -918,30 +919,32 @@ export class DAO {
     });
   }
 
-  private async insertPoolKeyHash(pool_key: PoolKey) {
-    const key_hash = computeKeyHash(pool_key);
+  private async insertPoolKeyHash(coreAddress: bigint, poolKey: PoolKey) {
+    const poolKeyHash = computeKeyHash(coreAddress, poolKey);
 
     await this.pg.query({
       text: `
                 INSERT INTO pool_keys (key_hash,
+                                       core_address,
                                        token0,
                                        token1,
                                        fee,
                                        tick_spacing,
                                        extension)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT DO NOTHING;
             `,
       values: [
-        key_hash,
-        BigInt(pool_key.token0),
-        BigInt(pool_key.token1),
-        pool_key.fee,
-        pool_key.tickSpacing,
-        BigInt(pool_key.extension),
+        poolKeyHash,
+        coreAddress,
+        BigInt(poolKey.token0),
+        BigInt(poolKey.token1),
+        poolKey.fee,
+        poolKey.tickSpacing,
+        BigInt(poolKey.extension),
       ],
     });
-    return key_hash;
+    return poolKeyHash;
   }
 
   public async insertPositionTransferEvent(
@@ -980,7 +983,10 @@ export class DAO {
     event: CorePositionUpdated,
     key: EventKey,
   ) {
-    const pool_key_hash = await this.insertPoolKeyHash(event.poolKey);
+    const pool_key_hash = await this.insertPoolKeyHash(
+      key.emitter,
+      event.poolKey,
+    );
 
     await this.pg.query({
       text: `
@@ -1027,7 +1033,10 @@ export class DAO {
     event: CorePositionFeesCollected,
     key: EventKey,
   ) {
-    const pool_key_hash = await this.insertPoolKeyHash(event.poolKey);
+    const pool_key_hash = await this.insertPoolKeyHash(
+      key.emitter,
+      event.poolKey,
+    );
 
     await this.pg.query({
       text: `
@@ -1071,7 +1080,10 @@ export class DAO {
     event: CorePoolInitialized,
     key: EventKey,
   ) {
-    const poolKeyHash = await this.insertPoolKeyHash(event.poolKey);
+    const poolKeyHash = await this.insertPoolKeyHash(
+      key.emitter,
+      event.poolKey,
+    );
 
     await this.pg.query({
       text: `
@@ -1137,7 +1149,10 @@ export class DAO {
     event: CoreProtocolFeesPaid,
     key: EventKey,
   ) {
-    const pool_key_hash = await this.insertPoolKeyHash(event.poolKey);
+    const pool_key_hash = await this.insertPoolKeyHash(
+      key.emitter,
+      event.poolKey,
+    );
 
     await this.pg.query({
       text: `
@@ -1181,7 +1196,10 @@ export class DAO {
     event: CoreFeesAccumulated,
     key: EventKey,
   ) {
-    const pool_key_hash = await this.insertPoolKeyHash(event.poolKey);
+    const pool_key_hash = await this.insertPoolKeyHash(
+      key.emitter,
+      event.poolKey,
+    );
 
     await this.pg.query({
       text: `
@@ -1213,7 +1231,10 @@ export class DAO {
   }
 
   public async insertSwappedEvent(event: CoreSwapped, key: EventKey) {
-    const pool_key_hash = await this.insertPoolKeyHash(event.poolKey);
+    const pool_key_hash = await this.insertPoolKeyHash(
+      key.emitter,
+      event.poolKey,
+    );
 
     await this.pg.query({
       text: `

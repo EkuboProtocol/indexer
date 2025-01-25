@@ -72,6 +72,9 @@ const processors: {
       async ProtocolFeesWithdrawn(dao, key, parsed) {
         await dao.insertProtocolFeesWithdrawn(parsed, key);
       },
+      async FeesAccumulated(dao, key, parsed) {
+        await dao.insertFeesAccumulatedEvent(parsed, key);
+      },
     },
   },
   Positions: {
