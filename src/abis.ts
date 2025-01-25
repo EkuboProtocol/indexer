@@ -1804,11 +1804,6 @@ export const POSITIONS_ABI = [
           },
         ],
       },
-      {
-        name: "recipient",
-        type: "address",
-        internalType: "address",
-      },
     ],
     outputs: [
       {
@@ -1826,7 +1821,7 @@ export const POSITIONS_ABI = [
   },
   {
     type: "function",
-    name: "collectFeesAndWithdraw",
+    name: "collectFees",
     inputs: [
       {
         name: "id",
@@ -1881,11 +1876,6 @@ export const POSITIONS_ABI = [
             internalType: "int32",
           },
         ],
-      },
-      {
-        name: "liquidity",
-        type: "uint128",
-        internalType: "uint128",
       },
       {
         name: "recipient",
@@ -2021,8 +2011,13 @@ export const POSITIONS_ABI = [
   },
   {
     type: "function",
-    name: "getPoolPrice",
+    name: "getPositionFeesAndLiquidity",
     inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
       {
         name: "poolKey",
         type: "tuple",
@@ -2055,20 +2050,52 @@ export const POSITIONS_ABI = [
           },
         ],
       },
+      {
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
+      },
     ],
     outputs: [
       {
-        name: "sqrtRatio",
-        type: "uint192",
-        internalType: "uint192",
+        name: "liquidity",
+        type: "uint128",
+        internalType: "uint128",
       },
       {
-        name: "tick",
-        type: "int32",
-        internalType: "int32",
+        name: "principal0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "principal1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "fees0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "fees1",
+        type: "uint128",
+        internalType: "uint128",
       },
     ],
-    stateMutability: "nonpayable",
+    stateMutability: "view",
   },
   {
     type: "function",
@@ -2301,6 +2328,104 @@ export const POSITIONS_ABI = [
   },
   {
     type: "function",
+    name: "mintAndDepositWithSalt",
+    inputs: [
+      {
+        name: "salt",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+      {
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "fee",
+            type: "uint128",
+            internalType: "uint128",
+          },
+          {
+            name: "tickSpacing",
+            type: "uint32",
+            internalType: "uint32",
+          },
+          {
+            name: "extension",
+            type: "address",
+            internalType: "address",
+          },
+        ],
+      },
+      {
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
+      },
+      {
+        name: "maxAmount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "maxAmount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "minLiquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    outputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "liquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
     name: "multicall",
     inputs: [
       {
@@ -2435,7 +2560,7 @@ export const POSITIONS_ABI = [
     name: "refundNativeToken",
     inputs: [],
     outputs: [],
-    stateMutability: "nonpayable",
+    stateMutability: "payable",
   },
   {
     type: "function",
@@ -2510,7 +2635,7 @@ export const POSITIONS_ABI = [
         internalType: "uint256",
       },
     ],
-    stateMutability: "pure",
+    stateMutability: "view",
   },
   {
     type: "function",
@@ -2685,6 +2810,89 @@ export const POSITIONS_ABI = [
         type: "address",
         internalType: "address",
       },
+      {
+        name: "withFees",
+        type: "bool",
+        internalType: "bool",
+      },
+    ],
+    outputs: [
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "withdraw",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "fee",
+            type: "uint128",
+            internalType: "uint128",
+          },
+          {
+            name: "tickSpacing",
+            type: "uint32",
+            internalType: "uint32",
+          },
+          {
+            name: "extension",
+            type: "address",
+            internalType: "address",
+          },
+        ],
+      },
+      {
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
+      },
+      {
+        name: "liquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
     ],
     outputs: [
       {
@@ -2778,6 +2986,16 @@ export const POSITIONS_ABI = [
   {
     type: "error",
     name: "AccountBalanceOverflow",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "Amount0DeltaOverflow",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "Amount1DeltaOverflow",
     inputs: [],
   },
   {
@@ -3604,42 +3822,39 @@ export const ORACLE_ABI = [
   },
   {
     type: "function",
-    name: "getAveragesOverPeriod",
+    name: "getExtrapolatedSnapshotsForSortedTimestamps",
     inputs: [
       {
-        name: "baseToken",
+        name: "token",
         type: "address",
         internalType: "address",
       },
       {
-        name: "quoteToken",
-        type: "address",
-        internalType: "address",
-      },
-      {
-        name: "startTime",
-        type: "uint64",
-        internalType: "uint64",
-      },
-      {
-        name: "endTime",
-        type: "uint64",
-        internalType: "uint64",
+        name: "timestamps",
+        type: "uint64[]",
+        internalType: "uint64[]",
       },
     ],
     outputs: [
       {
-        name: "liquidity",
-        type: "uint128",
-        internalType: "uint128",
-      },
-      {
-        name: "tick",
-        type: "int32",
-        internalType: "int32",
+        name: "observations",
+        type: "tuple[]",
+        internalType: "struct Oracle.Observation[]",
+        components: [
+          {
+            name: "secondsPerLiquidityCumulative",
+            type: "uint160",
+            internalType: "uint160",
+          },
+          {
+            name: "tickCumulative",
+            type: "int64",
+            internalType: "int64",
+          },
+        ],
       },
     ],
-    stateMutability: "nonpayable",
+    stateMutability: "view",
   },
   {
     type: "function",
@@ -3696,62 +3911,6 @@ export const ORACLE_ABI = [
         name: "",
         type: "address",
         internalType: "address",
-      },
-    ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "search",
-    inputs: [
-      {
-        name: "token",
-        type: "address",
-        internalType: "address",
-      },
-      {
-        name: "time",
-        type: "uint64",
-        internalType: "uint64",
-      },
-      {
-        name: "minIndex",
-        type: "uint256",
-        internalType: "uint256",
-      },
-      {
-        name: "maxIndex",
-        type: "uint256",
-        internalType: "uint256",
-      },
-    ],
-    outputs: [
-      {
-        name: "index",
-        type: "uint256",
-        internalType: "uint256",
-      },
-      {
-        name: "snapshot",
-        type: "tuple",
-        internalType: "struct Oracle.Snapshot",
-        components: [
-          {
-            name: "secondsSinceOffset",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "secondsPerLiquidityCumulative",
-            type: "uint160",
-            internalType: "uint160",
-          },
-          {
-            name: "tickCumulative",
-            type: "int64",
-            internalType: "int64",
-          },
-        ],
       },
     ],
     stateMutability: "view",
@@ -3931,11 +4090,6 @@ export const ORACLE_ABI = [
   },
   {
     type: "error",
-    name: "Amount0DeltaOverflow",
-    inputs: [],
-  },
-  {
-    type: "error",
     name: "BoundsMustBeMaximum",
     inputs: [],
   },
@@ -3951,7 +4105,7 @@ export const ORACLE_ABI = [
   },
   {
     type: "error",
-    name: "EndTimeMustBeGreaterThanStartTime",
+    name: "EndTimeLessThanStartTime",
     inputs: [],
   },
   {
@@ -3962,22 +4116,6 @@ export const ORACLE_ABI = [
   {
     type: "error",
     name: "FutureTime",
-    inputs: [],
-  },
-  {
-    type: "error",
-    name: "InvalidTick",
-    inputs: [
-      {
-        name: "tick",
-        type: "int32",
-        internalType: "int32",
-      },
-    ],
-  },
-  {
-    type: "error",
-    name: "MustRedeployContract",
     inputs: [],
   },
   {
@@ -4008,7 +4146,12 @@ export const ORACLE_ABI = [
   },
   {
     type: "error",
-    name: "ZeroSqrtRatio",
+    name: "TimestampsNotSorted",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "ZeroTimestampsProvided",
     inputs: [],
   },
 ] as const;
