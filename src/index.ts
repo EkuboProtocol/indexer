@@ -39,7 +39,7 @@ function msToHumanShort(ms: number): string {
   return parts.join(", ") || "0ms";
 }
 
-const refreshAnalyticalTables = throttle(
+const asyncThrottledRefreshAnalyticalTables = throttle(
   async function (
     since: Date = new Date(
       Date.now() - parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS) * 2,
@@ -87,8 +87,6 @@ const refreshAnalyticalTables = throttle(
     });
     client.release();
   }
-
-  refreshAnalyticalTables(new Date(0));
 
   let lastIsHead = false;
 
@@ -243,7 +241,9 @@ const refreshAnalyticalTables = throttle(
         client.release();
 
         if (isHead) {
-          refreshAnalyticalTables();
+          asyncThrottledRefreshAnalyticalTables(
+            !lastIsHead ? new Date(0) : undefined,
+          );
         }
 
         lastIsHead = isHead;
