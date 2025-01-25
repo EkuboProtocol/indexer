@@ -15,7 +15,7 @@ import type {
   SnapshotEvent,
 } from "./eventTypes.ts";
 
-const MAX_TICK_SPACING = 354892;
+const MAX_TICK_SPACING = 698605;
 
 // Data access object that manages inserts/deletes
 export class DAO {
