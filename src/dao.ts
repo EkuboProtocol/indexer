@@ -15,8 +15,6 @@ import type {
   SnapshotEvent,
 } from "./eventTypes.ts";
 
-const MAX_TICK_SPACING = 698605;
-
 // Data access object that manages inserts/deletes
 export class DAO {
   private pg: Client | PoolClient;
@@ -477,8 +475,6 @@ export class DAO {
         (
             event_id                                  int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
 
-            key_hash                                  NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
-
             token                                     NUMERIC NOT NULL,
             index                                     int8    NOT NULL,
             snapshot_block_timestamp                  int8    NOT NULL,
@@ -486,6 +482,7 @@ export class DAO {
             snapshot_seconds_per_liquidity_cumulative NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_oracle_snapshots_token_index ON oracle_snapshots USING btree (token, index);
+        CREATE INDEX IF NOT EXISTS idx_oracle_snapshots_token_snapshot_block_timestamp ON oracle_snapshots USING btree (token, snapshot_block_timestamp);
 
         CREATE OR REPLACE VIEW last_24h_pool_stats_view AS
         (
@@ -577,9 +574,11 @@ export class DAO {
 
         CREATE OR REPLACE VIEW oracle_pool_states_view AS
         (
-        SELECT key_hash AS pool_key_hash, MAX(snapshot_block_timestamp) AS last_snapshot_block_timestamp
-        FROM oracle_snapshots
-        GROUP BY key_hash);
+        SELECT pk.key_hash AS pool_key_hash, MAX(snapshot_block_timestamp) AS last_snapshot_block_timestamp
+        FROM oracle_snapshots os
+                 JOIN event_keys ek ON ek.id = os.event_id
+                 JOIN pool_keys pk ON ek.emitter = pk.extension
+        GROUP BY pk.key_hash);
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS oracle_pool_states_materialized AS
         (
@@ -1271,19 +1270,6 @@ export class DAO {
   }
 
   async insertOracleSnapshotEvent(parsed: SnapshotEvent, key: EventKey) {
-    const [token0, token1] =
-      BigInt(parsed.token) < BigInt(process.env.ORACLE_TOKEN)
-        ? [parsed.token, process.env.ORACLE_TOKEN]
-        : [process.env.ORACLE_TOKEN, parsed.token];
-
-    const poolKeyHash = await this.insertPoolKeyHash({
-      fee: 0n,
-      tickSpacing: MAX_TICK_SPACING,
-      extension: `0x${key.emitter}`,
-      token0,
-      token1,
-    });
-
     await this.pg.query({
       text: `
                 WITH inserted_event AS (
@@ -1292,8 +1278,8 @@ export class DAO {
                         RETURNING id)
                 INSERT
                 INTO oracle_snapshots
-                (event_id, key_hash, token, index, snapshot_block_timestamp, snapshot_tick_cumulative, snapshot_seconds_per_liquidity_cumulative)
-                VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9, $10, $11)
+                (event_id, token, index, snapshot_block_timestamp, snapshot_tick_cumulative, snapshot_seconds_per_liquidity_cumulative)
+                VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9, $10)
             `,
       values: [
         key.blockNumber,
@@ -1301,7 +1287,6 @@ export class DAO {
         key.eventIndex,
         key.transactionHash,
         key.emitter,
-        poolKeyHash,
         parsed.token,
         parsed.index,
         parsed.timestamp,

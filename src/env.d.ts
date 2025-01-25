@@ -5,7 +5,6 @@ declare namespace NodeJS {
     CORE_ADDRESS: `0x${string}`;
     POSITIONS_ADDRESS: `0x${string}`;
     ORACLE_ADDRESS: `0x${string}`;
-    ORACLE_TOKEN: `0x${string}`;
 
     STARTING_CURSOR_BLOCK_NUMBER: string;
 
