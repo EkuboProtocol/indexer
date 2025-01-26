@@ -29,6 +29,8 @@ export type CoreExtensionRegistered = ContractEvent<
   typeof CORE_ABI,
   "ExtensionRegistered"
 >;
+export type CoreSavedBalance = ContractEvent<typeof CORE_ABI, "SavedBalance">;
+export type CoreLoadedBalance = ContractEvent<typeof CORE_ABI, "LoadedBalance">;
 export type CoreFeesAccumulated = ContractEvent<
   typeof CORE_ABI,
   "FeesAccumulated"
