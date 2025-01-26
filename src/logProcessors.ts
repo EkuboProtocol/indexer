@@ -75,6 +75,9 @@ const processors: {
       async FeesAccumulated(dao, key, parsed) {
         await dao.insertFeesAccumulatedEvent(parsed, key);
       },
+      async ExtensionRegistered(dao, key, parsed) {
+        await dao.insertExtensionRegistered(parsed, key);
+      },
     },
   },
   Positions: {

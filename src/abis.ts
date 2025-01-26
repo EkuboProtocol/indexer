@@ -184,19 +184,8 @@ export const CORE_ABI = [
         type: "address",
         internalType: "address",
       },
-      {
-        name: "data",
-        type: "bytes",
-        internalType: "bytes",
-      },
     ],
-    outputs: [
-      {
-        name: "result",
-        type: "bytes",
-        internalType: "bytes",
-      },
-    ],
+    outputs: [],
     stateMutability: "nonpayable",
   },
   {
@@ -324,20 +313,8 @@ export const CORE_ABI = [
   {
     type: "function",
     name: "lock",
-    inputs: [
-      {
-        name: "data",
-        type: "bytes",
-        internalType: "bytes",
-      },
-    ],
-    outputs: [
-      {
-        name: "result",
-        type: "bytes",
-        internalType: "bytes",
-      },
-    ],
+    inputs: [],
+    outputs: [],
     stateMutability: "nonpayable",
   },
   {
@@ -420,19 +397,8 @@ export const CORE_ABI = [
         type: "address",
         internalType: "address",
       },
-      {
-        name: "data",
-        type: "bytes",
-        internalType: "bytes",
-      },
     ],
-    outputs: [
-      {
-        name: "payment",
-        type: "uint256",
-        internalType: "uint256",
-      },
-    ],
+    outputs: [],
     stateMutability: "nonpayable",
   },
   {
@@ -583,7 +549,7 @@ export const CORE_ABI = [
     ],
     outputs: [
       {
-        name: "result",
+        name: "",
         type: "bytes32",
         internalType: "bytes32",
       },
@@ -680,7 +646,7 @@ export const CORE_ABI = [
     ],
     outputs: [
       {
-        name: "result",
+        name: "",
         type: "bytes32",
         internalType: "bytes32",
       },
@@ -1489,7 +1455,13 @@ export const CORE_ABI = [
   {
     type: "error",
     name: "DebtsNotZeroed",
-    inputs: [],
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
   },
   {
     type: "error",
@@ -1581,6 +1553,11 @@ export const CORE_ABI = [
   {
     type: "error",
     name: "NotLocked",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "PaymentOverflow",
     inputs: [],
   },
   {
@@ -2126,23 +2103,12 @@ export const POSITIONS_ABI = [
     name: "locked",
     inputs: [
       {
-        name: "",
+        name: "id",
         type: "uint256",
         internalType: "uint256",
       },
-      {
-        name: "data",
-        type: "bytes",
-        internalType: "bytes",
-      },
     ],
-    outputs: [
-      {
-        name: "",
-        type: "bytes",
-        internalType: "bytes",
-      },
-    ],
+    outputs: [],
     stateMutability: "nonpayable",
   },
   {
@@ -2489,19 +2455,8 @@ export const POSITIONS_ABI = [
         type: "address",
         internalType: "address",
       },
-      {
-        name: "data",
-        type: "bytes",
-        internalType: "bytes",
-      },
     ],
-    outputs: [
-      {
-        name: "",
-        type: "bytes",
-        internalType: "bytes",
-      },
-    ],
+    outputs: [],
     stateMutability: "nonpayable",
   },
   {
@@ -3005,6 +2960,11 @@ export const POSITIONS_ABI = [
   },
   {
     type: "error",
+    name: "BaseLockerAccountantOnly",
+    inputs: [],
+  },
+  {
+    type: "error",
     name: "CoreOnly",
     inputs: [],
   },
@@ -3140,8 +3100,8 @@ export const POSITIONS_ABI = [
     inputs: [
       {
         name: "b",
-        type: "uint8",
-        internalType: "uint8",
+        type: "bytes1",
+        internalType: "bytes1",
       },
     ],
   },
@@ -3959,7 +3919,7 @@ export const ORACLE_ABI = [
     ],
     outputs: [
       {
-        name: "result",
+        name: "",
         type: "bytes32",
         internalType: "bytes32",
       },
@@ -4044,7 +4004,7 @@ export const ORACLE_ABI = [
     ],
     outputs: [
       {
-        name: "result",
+        name: "",
         type: "bytes32",
         internalType: "bytes32",
       },

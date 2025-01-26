@@ -3,6 +3,7 @@ import { Client } from "pg";
 import type { EventKey } from "./processor";
 import { computeKeyHash } from "./poolKeyHash";
 import type {
+  CoreExtensionRegistered,
   CoreFeesAccumulated,
   CorePoolInitialized,
   CorePositionFeesCollected,
@@ -178,6 +179,12 @@ export class DAO {
             amount1       NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_fees_accumulated_pool_key_hash ON fees_accumulated (pool_key_hash);
+
+        CREATE TABLE IF NOT EXISTS extension_registrations
+        (
+            event_id  int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+            extension NUMERIC NOT NULL
+        );
 
         CREATE TABLE IF NOT EXISTS pool_initializations
         (
@@ -1053,6 +1060,32 @@ export class DAO {
         event.recipient,
         event.token,
         event.amount,
+      ],
+    });
+  }
+
+  public async insertExtensionRegistered(
+    event: CoreExtensionRegistered,
+    key: EventKey,
+  ) {
+    await this.pg.query({
+      text: `
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
+                  VALUES ($1, $2, $3, $4, $5)
+                  RETURNING id)
+          INSERT
+          INTO extension_registrations
+              (event_id, extension)
+          VALUES ((SELECT id FROM inserted_event), $6);
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.extension,
       ],
     });
   }

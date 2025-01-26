@@ -1,5 +1,7 @@
 declare namespace NodeJS {
   export interface ProcessEnv {
+    NETWORK: "sepolia" | "mainnet" | string;
+
     LOG_LEVEL: string;
 
     CORE_ADDRESS: `0x${string}`;

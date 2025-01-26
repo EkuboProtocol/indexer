@@ -25,6 +25,10 @@ export type CoreProtocolFeesWithdrawn = ContractEvent<
   typeof CORE_ABI,
   "ProtocolFeesWithdrawn"
 >;
+export type CoreExtensionRegistered = ContractEvent<
+  typeof CORE_ABI,
+  "ExtensionRegistered"
+>;
 export type CoreFeesAccumulated = ContractEvent<
   typeof CORE_ABI,
   "FeesAccumulated"
