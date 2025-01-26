@@ -96,7 +96,7 @@ export class DAO {
         (
             event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
 
-            token_id     NUMERIC NOT NULL,
+            token_id     int8    NOT NULL,
             from_address NUMERIC NOT NULL,
             to_address   NUMERIC NOT NULL
         );
