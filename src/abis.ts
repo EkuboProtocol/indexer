@@ -1172,93 +1172,6 @@ export const CORE_ABI = [
   },
   {
     type: "event",
-    name: "ProtocolFeesPaid",
-    inputs: [
-      {
-        name: "poolKey",
-        type: "tuple",
-        indexed: false,
-        internalType: "struct PoolKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
-          },
-        ],
-      },
-      {
-        name: "positionKey",
-        type: "tuple",
-        indexed: false,
-        internalType: "struct PositionKey",
-        components: [
-          {
-            name: "salt",
-            type: "bytes32",
-            internalType: "bytes32",
-          },
-          {
-            name: "owner",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "bounds",
-            type: "tuple",
-            internalType: "struct Bounds",
-            components: [
-              {
-                name: "lower",
-                type: "int32",
-                internalType: "int32",
-              },
-              {
-                name: "upper",
-                type: "int32",
-                internalType: "int32",
-              },
-            ],
-          },
-        ],
-      },
-      {
-        name: "amount0",
-        type: "uint128",
-        indexed: false,
-        internalType: "uint128",
-      },
-      {
-        name: "amount1",
-        type: "uint128",
-        indexed: false,
-        internalType: "uint128",
-      },
-    ],
-    anonymous: false,
-  },
-  {
-    type: "event",
     name: "ProtocolFeesWithdrawn",
     inputs: [
       {
@@ -1508,16 +1421,6 @@ export const CORE_ABI = [
   {
     type: "error",
     name: "InvalidTokens",
-    inputs: [],
-  },
-  {
-    type: "error",
-    name: "LiquidityOverflow",
-    inputs: [],
-  },
-  {
-    type: "error",
-    name: "LiquidityUnderflow",
     inputs: [],
   },
   {

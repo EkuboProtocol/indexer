@@ -66,9 +66,6 @@ const processors: {
       async Swapped(dao, key, parsed) {
         await dao.insertSwappedEvent(parsed, key);
       },
-      async ProtocolFeesPaid(dao, key, parsed) {
-        await dao.insertProtocolFeesPaid(parsed, key);
-      },
       async ProtocolFeesWithdrawn(dao, key, parsed) {
         await dao.insertProtocolFeesWithdrawn(parsed, key);
       },

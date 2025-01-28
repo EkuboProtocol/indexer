@@ -17,10 +17,6 @@ export type CorePositionFeesCollected = ContractEvent<
   typeof CORE_ABI,
   "PositionFeesCollected"
 >;
-export type CoreProtocolFeesPaid = ContractEvent<
-  typeof CORE_ABI,
-  "ProtocolFeesPaid"
->;
 export type CoreProtocolFeesWithdrawn = ContractEvent<
   typeof CORE_ABI,
   "ProtocolFeesWithdrawn"
