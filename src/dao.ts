@@ -610,12 +610,12 @@ export class DAO {
     await this.pg.query({
       text: `
           INSERT INTO hourly_revenue_by_token
-              (WITH rev0 AS (SELECT pu.pool_key_hash                                                            AS key_hash,
-                                    DATE_TRUNC('hour', blocks.time)                                             AS hour,
-                                    pk.token0                                                                      token,
-                                    SUM(CEIL((-delta0 << 128) /
+              (WITH rev0 AS (SELECT pu.pool_key_hash                AS key_hash,
+                                    DATE_TRUNC('hour', blocks.time) AS hour,
+                                    pk.token0                          token,
+                                    SUM(CEIL((-delta0 * pk.fee) /
                                              (0x100000000000000000000000000000000::NUMERIC - pk.fee)) +
-                                        delta0)                                                                 AS revenue
+                                        delta0)                     AS revenue
                              FROM position_updates pu
                                       JOIN pool_keys pk ON pu.pool_key_hash = pk.key_hash
                                       JOIN event_keys ek ON pu.event_id = ek.id
@@ -623,12 +623,12 @@ export class DAO {
                              WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
                                AND pu.delta0 < 0
                              GROUP BY hour, pu.pool_key_hash, token),
-                    rev1 AS (SELECT pu.pool_key_hash                                                            AS key_hash,
-                                    DATE_TRUNC('hour', blocks.time)                                             AS hour,
-                                    pk.token1                                                                      token,
-                                    SUM(CEIL((-delta1 << 128) /
+                    rev1 AS (SELECT pu.pool_key_hash                AS key_hash,
+                                    DATE_TRUNC('hour', blocks.time) AS hour,
+                                    pk.token1                          token,
+                                    SUM(CEIL((-delta0 * pk.fee) /
                                              (0x100000000000000000000000000000000::NUMERIC - pk.fee)) +
-                                        delta0)                                                                 AS revenue
+                                        delta0)                     AS revenue
                              FROM position_updates pu
                                       JOIN pool_keys pk ON pu.pool_key_hash = pk.key_hash
                                       JOIN event_keys ek ON pu.event_id = ek.id
