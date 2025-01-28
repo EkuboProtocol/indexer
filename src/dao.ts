@@ -8,7 +8,6 @@ import type {
   CorePoolInitialized,
   CorePositionFeesCollected,
   CorePositionUpdated,
-  CoreProtocolFeesPaid,
   CoreProtocolFeesWithdrawn,
   CoreSwapped,
   PoolKey,
@@ -672,14 +671,16 @@ export class DAO {
 
                                                      SELECT pool_key_hash,
                                                             DATE_TRUNC('hour', blocks.time) AS hour,
-                                                            CASE
-                                                                WHEN liquidity_delta < 0 THEN SUM(CEIL((delta0 << 128) /
-                                                                                                       (0x100000000000000000000000000000000::NUMERIC - pk.fee)))
-                                                                ELSE delta0 END             AS delta0,
-                                                            CASE
-                                                                WHEN liquidity_delta < 0 THEN SUM(CEIL((delta1 << 128) /
-                                                                                                       (0x100000000000000000000000000000000::NUMERIC - pk.fee)))
-                                                                ELSE delta1 END             AS delta1
+                                                            SUM(CASE
+                                                                    WHEN liquidity_delta < 0 THEN CEIL(
+                                                                            (delta0 * 0x100000000000000000000000000000000::NUMERIC) /
+                                                                            (0x100000000000000000000000000000000::NUMERIC - pk.fee))
+                                                                    ELSE delta0 END)        AS delta0,
+                                                            SUM(CASE
+                                                                    WHEN liquidity_delta < 0 THEN CEIL(
+                                                                            (delta1 * 0x100000000000000000000000000000000::NUMERIC) /
+                                                                            (0x100000000000000000000000000000000::NUMERIC - pk.fee))
+                                                                    ELSE delta1 END)        AS delta1
                                                      FROM position_updates pu
                                                               JOIN event_keys ON pu.event_id = event_keys.id
                                                               JOIN blocks ON event_keys.block_number = blocks.number
