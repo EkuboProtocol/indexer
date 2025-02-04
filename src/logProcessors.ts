@@ -7,6 +7,8 @@ import type {
   ExtractAbiEvent,
   ExtractAbiEventNames,
 } from "abitype";
+import { decodeEventLog, encodeEventTopics } from "viem";
+import { logger } from "./logger.ts";
 
 export type ContractEvent<
   abi extends Abi,
@@ -19,30 +21,76 @@ export type ContractEvent<
     : never]: AbiParameterToPrimitiveType<P>;
 };
 
-interface LogProcessor<T extends Abi, N extends ExtractAbiEventNames<T>> {
+interface LogProcessor {
   address: `0x${string}`;
 
-  abi: T;
-  eventName: N;
+  filter: {
+    topics: (`0x${string}` | null)[];
+    strict: boolean;
+  };
 
   handler: (
     dao: DAO,
     key: EventKey,
-    event: ContractEvent<T, N>,
+    event: {
+      topics: readonly `0x${string}`[];
+      data: `0x${string}` | undefined;
+    },
   ) => Promise<void>;
 }
 
+export function createContractEventProcessor<
+  const T extends Abi,
+  N extends ExtractAbiEventNames<T>,
+>({
+  address,
+  abi,
+  eventName,
+  handler: wrappedHandler,
+}: {
+  address: `0x${string}`;
+  abi: T;
+  eventName: N;
+  handler(dao: DAO, key: EventKey, event: ContractEvent<T, N>): Promise<void>;
+}): LogProcessor {
+  return {
+    address,
+    filter: {
+      topics: encodeEventTopics({
+        abi,
+        eventName,
+      } as any) as `0x${string}`[],
+      strict: false,
+    },
+    async handler(dao, key, event) {
+      const result = decodeEventLog({
+        abi,
+        eventName: eventName as any,
+        topics: event.topics as any,
+        data: event.data,
+      });
+
+      logger.debug(`Processing ${eventName}`, { event: result.args });
+      await wrappedHandler(dao, key, result.args as any);
+    },
+  };
+}
+
 type HandlerMap<T extends Abi> = {
-  [eventName in ExtractAbiEventNames<T>]?: LogProcessor<
-    T,
-    eventName
-  >["handler"];
+  [eventName in ExtractAbiEventNames<T>]?: Parameters<
+    typeof createContractEventProcessor<T, eventName>
+  >[0]["handler"];
 };
 
 type ContractHandlers<T extends Abi> = {
-  address: string;
+  address: `0x${string}`;
   abi: T;
   handlers: HandlerMap<T>;
+  noTopics?: (
+    dao: DAO,
+    key: EventKey,
+    data: `0x${string}` | undefined,
+  ) => Promise<void>;
 };
 
 const processors: {
@@ -98,11 +146,30 @@ const processors: {
 };
 
 export const LOG_PROCESSORS = Object.values(processors).flatMap(
-  ({ address, abi, handlers }) =>
-    Object.entries(handlers).map(([eventName, handler]) => ({
-      address,
-      abi,
-      eventName,
-      handler,
-    })),
-) as LogProcessor<any, any>[];
+  ({ address, abi, handlers, noTopics }) =>
+    (noTopics
+      ? [
+          <LogProcessor>{
+            address,
+            filter: {
+              topics: [],
+              strict: true,
+            },
+            handler(dao, eventKey, log): Promise<void> {
+              return noTopics(dao, eventKey, log.data);
+            },
+          },
+        ]
+      : []
+    ).concat(
+      Object.entries(handlers).map(
+        ([eventName, handler]): LogProcessor =>
+          createContractEventProcessor({
+            address,
+            abi,
+            eventName: eventName as ExtractAbiEventNames<typeof abi>,
+            handler,
+          }),
+      ),
+    ),
+) as LogProcessor[];

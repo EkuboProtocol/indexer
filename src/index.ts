@@ -6,7 +6,6 @@ import { Pool } from "pg";
 import { throttle } from "tadaaa";
 import { EvmStream, Filter } from "@apibara/evm";
 import { LOG_PROCESSORS } from "./logProcessors.ts";
-import { decodeEventLog, encodeEventTopics } from "viem";
 import { createClient } from "@apibara/protocol";
 
 const pool = new Pool({
@@ -97,11 +96,8 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
         logs: LOG_PROCESSORS.map((lp, ix) => ({
           id: ix + 1,
           address: lp.address,
-          topics: encodeEventTopics({
-            abi: lp.abi,
-            eventName: lp.eventName,
-          }) as `0x${string}`[],
-          strict: false,
+          topics: lp.filter.topics,
+          strict: lp.filter.strict,
         })),
       }),
     ],
@@ -194,19 +190,14 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
               event.filterIds.map(async (matchingFilterId) => {
                 eventsProcessed++;
 
-                const { handler, eventName, abi } =
-                  LOG_PROCESSORS[matchingFilterId - 1];
-
-                const result = decodeEventLog({
-                  abi,
-                  eventName,
-                  topics: event.topics as any,
-                  data: event.data,
-                });
-
-                logger.debug(`Processing ${eventName}`, { event: result.args });
-
-                await handler(dao, eventKey, result.args as any);
+                await LOG_PROCESSORS[matchingFilterId - 1].handler(
+                  dao,
+                  eventKey,
+                  {
+                    topics: event.topics,
+                    data: event.data,
+                  },
+                );
               }),
             );
           }
