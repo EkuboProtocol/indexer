@@ -1,14 +1,26 @@
 import { DAO } from "./dao.ts";
 import type { EventKey } from "./processor.ts";
-import { CORE_ABI, ORACLE_ABI, POSITIONS_ABI } from "./abis.ts";
+import {
+  CORE_ABI,
+  CORE_V2_ABI,
+  ORACLE_ABI,
+  ORACLE_V2_ABI,
+  POSITIONS_ABI,
+} from "./abis.ts";
 import type {
   Abi,
   AbiParameterToPrimitiveType,
   ExtractAbiEvent,
   ExtractAbiEventNames,
 } from "abitype";
-import { decodeEventLog, encodeEventTopics } from "viem";
+import {
+  type ContractEventName,
+  decodeEventLog,
+  encodeEventTopics,
+} from "viem";
 import { logger } from "./logger.ts";
+import { parseV2SwapEventData } from "./v2SwapEvent.ts";
+import { toPoolId } from "./poolKey.ts";
 
 export type ContractEvent<
   abi extends Abi,
@@ -40,8 +52,8 @@ interface LogProcessor {
 }
 
 export function createContractEventProcessor<
-  const T extends Abi,
-  N extends ExtractAbiEventNames<T>,
+  T extends Abi,
+  N extends ContractEventName<T>,
 >({
   address,
   abi,
@@ -63,11 +75,15 @@ export function createContractEventProcessor<
       strict: false,
     },
     async handler(dao, key, event) {
+      if (event.topics.length === 0)
+        throw new Error(`Event matched ${eventName} filter with no topics`);
+
       const result = decodeEventLog({
         abi,
-        eventName: eventName as any,
-        topics: event.topics as any,
+        eventName: eventName,
+        topics: event.topics as [`0x${string}`, ...topics: `0x${string}`[]],
         data: event.data,
+        strict: false,
       });
 
       logger.debug(`Processing ${eventName}`, { event: result.args });
@@ -77,7 +93,7 @@ export function createContractEventProcessor<
 }
 
 type HandlerMap<T extends Abi> = {
-  [eventName in ExtractAbiEventNames<T>]?: Parameters<
+  [eventName in ContractEventName<T>]?: Parameters<
     typeof createContractEventProcessor<T, eventName>
   >[0]["handler"];
 };
@@ -97,28 +113,57 @@ const processors: {
   Core: ContractHandlers<typeof CORE_ABI>;
   Positions: ContractHandlers<typeof POSITIONS_ABI>;
   Oracle: ContractHandlers<typeof ORACLE_ABI>;
+
+  CoreV2: ContractHandlers<typeof CORE_V2_ABI>;
+  PositionsV2: ContractHandlers<typeof POSITIONS_ABI>;
+  OracleV2: ContractHandlers<typeof ORACLE_V2_ABI>;
 } = {
   Core: {
     address: process.env.CORE_ADDRESS,
     abi: CORE_ABI,
     handlers: {
       async PoolInitialized(dao, key, parsed) {
-        await dao.insertPoolInitializedEvent(parsed, key);
+        console.log("lalalalalla");
+        await dao.insertPoolInitializedEvent(
+          {
+            ...parsed,
+            poolId: toPoolId(parsed.poolKey),
+          },
+          key,
+        );
       },
       async PositionUpdated(dao, key, parsed) {
-        await dao.insertPositionUpdatedEvent(parsed, key);
+        await dao.insertPositionUpdatedEvent(
+          { ...parsed, poolId: toPoolId(parsed.poolKey) },
+          key,
+        );
       },
       async PositionFeesCollected(dao, key, parsed) {
-        await dao.insertPositionFeesCollectedEvent(parsed, key);
+        await dao.insertPositionFeesCollectedEvent(
+          {
+            ...parsed,
+            poolId: toPoolId(parsed.poolKey),
+          },
+          key,
+        );
       },
       async Swapped(dao, key, parsed) {
-        await dao.insertSwappedEvent(parsed, key);
+        await dao.insertSwappedEvent(
+          { ...parsed, poolId: toPoolId(parsed.poolKey) },
+          key,
+        );
       },
       async ProtocolFeesWithdrawn(dao, key, parsed) {
         await dao.insertProtocolFeesWithdrawn(parsed, key);
       },
       async FeesAccumulated(dao, key, parsed) {
-        await dao.insertFeesAccumulatedEvent(parsed, key);
+        await dao.insertFeesAccumulatedEvent(
+          {
+            ...parsed,
+            poolId: toPoolId(parsed.poolKey),
+          },
+          key,
+        );
       },
       async ExtensionRegistered(dao, key, parsed) {
         await dao.insertExtensionRegistered(parsed, key);
@@ -143,33 +188,79 @@ const processors: {
       },
     },
   },
+  CoreV2: {
+    address: process.env.CORE_V2_ADDRESS,
+    abi: CORE_V2_ABI,
+    async noTopics(dao, key, data) {
+      if (!data) throw new Error("Event with no data from core");
+      await dao.insertSwappedEvent(parseV2SwapEventData(data), key);
+    },
+    handlers: {
+      async PoolInitialized(dao, key, parsed) {
+        await dao.insertPoolInitializedEvent(parsed, key);
+      },
+      async PositionUpdated(dao, key, parsed) {
+        await dao.insertPositionUpdatedEvent(parsed, key);
+      },
+      async PositionFeesCollected(dao, key, parsed) {
+        await dao.insertPositionFeesCollectedEvent(parsed, key);
+      },
+      async ProtocolFeesWithdrawn(dao, key, parsed) {
+        await dao.insertProtocolFeesWithdrawn(parsed, key);
+      },
+      async FeesAccumulated(dao, key, parsed) {
+        await dao.insertFeesAccumulatedEvent(parsed, key);
+      },
+      async ExtensionRegistered(dao, key, parsed) {
+        await dao.insertExtensionRegistered(parsed, key);
+      },
+    },
+  },
+  PositionsV2: {
+    address: process.env.POSITIONS_V2_ADDRESS,
+    abi: POSITIONS_ABI,
+    handlers: {
+      async Transfer(dao, key, parsed) {
+        await dao.insertPositionTransferEvent(parsed, key);
+      },
+    },
+  },
+  OracleV2: {
+    address: process.env.ORACLE_V2_ADDRESS,
+    abi: ORACLE_V2_ABI,
+    handlers: {
+      async SnapshotInserted(dao, key, parsed) {
+        await dao.insertOracleSnapshotEvent(parsed, key);
+      },
+    },
+  },
 };
 
 export const LOG_PROCESSORS = Object.values(processors).flatMap(
   ({ address, abi, handlers, noTopics }) =>
-    (noTopics
-      ? [
-          <LogProcessor>{
-            address,
-            filter: {
-              topics: [],
-              strict: true,
-            },
-            handler(dao, eventKey, log): Promise<void> {
-              return noTopics(dao, eventKey, log.data);
-            },
-          },
-        ]
-      : []
-    ).concat(
-      Object.entries(handlers).map(
-        ([eventName, handler]): LogProcessor =>
-          createContractEventProcessor({
-            address,
-            abi,
-            eventName: eventName as ExtractAbiEventNames<typeof abi>,
-            handler,
-          }),
-      ),
+    // (noTopics? []
+    //   // ? [
+    //   //     <LogProcessor>{
+    //   //       address,
+    //   //       filter: {
+    //   //         topics: [],
+    //   //         strict: true,
+    //   //       },
+    //   //       handler(dao, eventKey, log): Promise<void> {
+    //   //         return noTopics(dao, eventKey, log.data);
+    //   //       },
+    //   //     },
+    //   //   ]
+    //   : []
+    // ).concat(
+    Object.entries(handlers).map(
+      ([eventName, handler]): LogProcessor =>
+        createContractEventProcessor({
+          address,
+          abi,
+          eventName: eventName as ExtractAbiEventNames<typeof abi>,
+          handler,
+        }),
     ),
+  // ),
 ) as LogProcessor[];

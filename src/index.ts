@@ -92,7 +92,7 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
   for await (const message of streamClient.streamData({
     filter: [
       Filter.make({
-        header: "always",
+        header: "on_data",
         logs: LOG_PROCESSORS.map((lp, ix) => ({
           id: ix + 1,
           address: lp.address,

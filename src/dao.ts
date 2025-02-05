@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { Client } from "pg";
 import type { EventKey } from "./processor";
-import { computeKeyHash } from "./poolKeyHash";
+import { toPoolId } from "./poolKey.ts";
 import type {
   CoreExtensionRegistered,
   CoreFeesAccumulated,
@@ -9,11 +9,11 @@ import type {
   CorePositionFeesCollected,
   CorePositionUpdated,
   CoreProtocolFeesWithdrawn,
-  CoreSwapped,
   PoolKey,
   PositionTransfer,
-  SnapshotEvent,
+  SnapshotInserted,
 } from "./eventTypes.ts";
+import type { CoreSwapped } from "./v2SwapEvent.ts";
 
 // Data access object that manages inserts/deletes
 export class DAO {
@@ -66,15 +66,18 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS pool_keys
         (
-            key_hash     NUMERIC NOT NULL PRIMARY KEY,
+            key_hash     NUMERIC NOT NULL,
             core_address NUMERIC NOT NULL,
+            pool_id      NUMERIC NOT NULL,
             token0       NUMERIC NOT NULL,
             token1       NUMERIC NOT NULL,
             fee          NUMERIC NOT NULL,
             tick_spacing INT     NOT NULL,
-            extension    NUMERIC NOT NULL
+            extension    NUMERIC NOT NULL,
+            PRIMARY KEY (key_hash)
         );
-        CREATE INDEX IF NOT EXISTS idx_pool_keys_token0 ON pool_keys USING btree (token0);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_keys_core_address_pool_id ON pool_keys USING btree (core_address, pool_id);
+        CREATE INDEX IF NOT EXISTS idx_pool_keys_token1 ON pool_keys USING btree (token1);
         CREATE INDEX IF NOT EXISTS idx_pool_keys_token1 ON pool_keys USING btree (token1);
         CREATE INDEX IF NOT EXISTS idx_pool_keys_token0_token1 ON pool_keys USING btree (token0, token1);
         CREATE INDEX IF NOT EXISTS idx_pool_keys_extension ON pool_keys USING btree (extension);
@@ -455,12 +458,10 @@ export class DAO {
             event_id                                  int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
 
             token                                     NUMERIC NOT NULL,
-            index                                     int8    NOT NULL,
             snapshot_block_timestamp                  int8    NOT NULL,
             snapshot_tick_cumulative                  NUMERIC NOT NULL,
             snapshot_seconds_per_liquidity_cumulative NUMERIC NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_oracle_snapshots_token_index ON oracle_snapshots USING btree (token, index);
         CREATE INDEX IF NOT EXISTS idx_oracle_snapshots_token_snapshot_block_timestamp ON oracle_snapshots USING btree (token, snapshot_block_timestamp);
 
         CREATE OR REPLACE VIEW last_24h_pool_stats_view AS
@@ -821,12 +822,15 @@ export class DAO {
     });
   }
 
-  private async insertPoolKeyHash(coreAddress: bigint, poolKey: PoolKey) {
-    const poolKeyHash = computeKeyHash(coreAddress, poolKey);
+  private async insertPoolKey(
+    coreAddress: bigint,
+    poolKey: PoolKey,
+  ): Promise<`0x${string}`> {
+    const poolId = toPoolId(poolKey);
 
     await this.pg.query({
       text: `
-                INSERT INTO pool_keys (key_hash,
+                INSERT INTO pool_keys (pool_id,
                                        core_address,
                                        token0,
                                        token1,
@@ -837,7 +841,7 @@ export class DAO {
                 ON CONFLICT DO NOTHING;
             `,
       values: [
-        poolKeyHash,
+        poolId,
         coreAddress,
         BigInt(poolKey.token0),
         BigInt(poolKey.token1),
@@ -846,7 +850,7 @@ export class DAO {
         BigInt(poolKey.extension),
       ],
     });
-    return poolKeyHash;
+    return poolId;
   }
 
   public async insertPositionTransferEvent(
@@ -882,14 +886,9 @@ export class DAO {
   }
 
   public async insertPositionUpdatedEvent(
-    event: CorePositionUpdated,
+    event: Omit<CorePositionUpdated, "poolKey"> & { poolId: `0x${string}` },
     key: EventKey,
   ) {
-    const pool_key_hash = await this.insertPoolKeyHash(
-      key.emitter,
-      event.poolKey,
-    );
-
     await this.pg.query({
       text: `
           WITH inserted_event AS (
@@ -900,7 +899,7 @@ export class DAO {
           INTO position_updates
           (event_id,
            locker,
-           pool_key_hash,
+           pool_id,
            salt,
            lower_bound,
            upper_bound,
@@ -918,7 +917,7 @@ export class DAO {
 
         event.locker,
 
-        pool_key_hash,
+        event.poolId,
 
         event.params.salt,
         event.params.bounds.lower,
@@ -932,14 +931,9 @@ export class DAO {
   }
 
   public async insertPositionFeesCollectedEvent(
-    event: CorePositionFeesCollected,
+    event: Omit<CorePositionFeesCollected, "">,
     key: EventKey,
   ) {
-    const pool_key_hash = await this.insertPoolKeyHash(
-      key.emitter,
-      event.poolKey,
-    );
-
     await this.pg.query({
       text: `
                 WITH inserted_event AS (
@@ -949,7 +943,7 @@ export class DAO {
                 INSERT
                 INTO position_fees_collected
                 (event_id,
-                 pool_key_hash,
+                 pool_id,
                  owner,
                  salt,
                  lower_bound,
@@ -965,7 +959,7 @@ export class DAO {
         key.transactionHash,
         key.emitter,
 
-        pool_key_hash,
+        event.poolId,
 
         event.positionKey.owner,
         event.positionKey.salt,
@@ -982,10 +976,7 @@ export class DAO {
     event: CorePoolInitialized,
     key: EventKey,
   ) {
-    const poolKeyHash = await this.insertPoolKeyHash(
-      key.emitter,
-      event.poolKey,
-    );
+    const poolId = await this.insertPoolKey(key.emitter, event.poolKey);
 
     await this.pg.query({
       text: `
@@ -996,7 +987,7 @@ export class DAO {
                 INSERT
                 INTO pool_initializations
                 (event_id,
-                 pool_key_hash,
+                 pool_id,
                  tick,
                  sqrt_ratio)
                 VALUES ((SELECT id FROM inserted_event), $6, $7, $8);
@@ -1008,7 +999,7 @@ export class DAO {
         key.transactionHash,
         key.emitter,
 
-        poolKeyHash,
+        poolId,
 
         event.tick,
         event.sqrtRatio,
@@ -1077,25 +1068,20 @@ export class DAO {
     event: CoreFeesAccumulated,
     key: EventKey,
   ) {
-    const pool_key_hash = await this.insertPoolKeyHash(
-      key.emitter,
-      event.poolKey,
-    );
-
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
-                        VALUES ($1, $2, $3, $4, $5)
-                        RETURNING id)
-                INSERT
-                INTO fees_accumulated
-                (event_id,
-                 pool_key_hash,
-                 amount0,
-                 amount1)
-                VALUES ((SELECT id FROM inserted_event), $6, $7, $8);
-            `,
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
+                  VALUES ($1, $2, $3, $4, $5)
+                  RETURNING id)
+          INSERT
+          INTO fees_accumulated
+          (event_id,
+           pool_id,
+           amount0,
+           amount1)
+          VALUES ((SELECT id FROM inserted_event), $6, $7, $8);
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -1103,7 +1089,7 @@ export class DAO {
         key.transactionHash,
         key.emitter,
 
-        pool_key_hash,
+        event.poolId,
 
         event.amount0,
         event.amount1,
@@ -1112,11 +1098,6 @@ export class DAO {
   }
 
   public async insertSwappedEvent(event: CoreSwapped, key: EventKey) {
-    const pool_key_hash = await this.insertPoolKeyHash(
-      key.emitter,
-      event.poolKey,
-    );
-
     await this.pg.query({
       text: `
                 WITH inserted_event AS (
@@ -1127,7 +1108,7 @@ export class DAO {
                 INTO swaps
                 (event_id,
                  locker,
-                 pool_key_hash,
+                 pool_id,
                  delta0,
                  delta1,
                  sqrt_ratio_after,
@@ -1143,7 +1124,7 @@ export class DAO {
         key.emitter,
 
         event.locker,
-        pool_key_hash,
+        event.poolId,
 
         event.delta0,
         event.delta1,
@@ -1171,7 +1152,7 @@ export class DAO {
     return rowCount;
   }
 
-  async insertOracleSnapshotEvent(parsed: SnapshotEvent, key: EventKey) {
+  async insertOracleSnapshotEvent(parsed: SnapshotInserted, key: EventKey) {
     await this.pg.query({
       text: `
                 WITH inserted_event AS (
@@ -1180,8 +1161,8 @@ export class DAO {
                         RETURNING id)
                 INSERT
                 INTO oracle_snapshots
-                (event_id, token, index, snapshot_block_timestamp, snapshot_tick_cumulative, snapshot_seconds_per_liquidity_cumulative)
-                VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9, $10)
+                (event_id, token, snapshot_block_timestamp, snapshot_tick_cumulative, snapshot_seconds_per_liquidity_cumulative)
+                VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9)
             `,
       values: [
         key.blockNumber,
@@ -1190,7 +1171,6 @@ export class DAO {
         key.transactionHash,
         key.emitter,
         parsed.token,
-        parsed.index,
         parsed.timestamp,
         parsed.tickCumulative,
         parsed.secondsPerLiquidityCumulative,
