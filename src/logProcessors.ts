@@ -72,7 +72,7 @@ export function createContractEventProcessor<
         abi,
         eventName,
       } as any) as `0x${string}`[],
-      strict: false,
+      strict: true,
     },
     async handler(dao, key, event) {
       if (event.topics.length === 0)
@@ -86,7 +86,7 @@ export function createContractEventProcessor<
         strict: false,
       });
 
-      logger.debug(`Processing ${eventName}`, { event: result.args });
+      logger.debug(`Processing ${eventName}`, { key, event: result.args });
       await wrappedHandler(dao, key, result.args as any);
     },
   };
@@ -123,7 +123,6 @@ const processors: {
     abi: CORE_ABI,
     handlers: {
       async PoolInitialized(dao, key, parsed) {
-        console.log("lalalalalla");
         await dao.insertPoolInitializedEvent(
           {
             ...parsed,
@@ -193,7 +192,12 @@ const processors: {
     abi: CORE_V2_ABI,
     async noTopics(dao, key, data) {
       if (!data) throw new Error("Event with no data from core");
-      await dao.insertSwappedEvent(parseV2SwapEventData(data), key);
+      const event = parseV2SwapEventData(data);
+      logger.debug(`Parsing V2 Swapped Event`, {
+        event,
+        rawData: data,
+      });
+      await dao.insertSwappedEvent(event, key);
     },
     handlers: {
       async PoolInitialized(dao, key, parsed) {
@@ -238,29 +242,29 @@ const processors: {
 
 export const LOG_PROCESSORS = Object.values(processors).flatMap(
   ({ address, abi, handlers, noTopics }) =>
-    // (noTopics? []
-    //   // ? [
-    //   //     <LogProcessor>{
-    //   //       address,
-    //   //       filter: {
-    //   //         topics: [],
-    //   //         strict: true,
-    //   //       },
-    //   //       handler(dao, eventKey, log): Promise<void> {
-    //   //         return noTopics(dao, eventKey, log.data);
-    //   //       },
-    //   //     },
-    //   //   ]
-    //   : []
-    // ).concat(
-    Object.entries(handlers).map(
-      ([eventName, handler]): LogProcessor =>
-        createContractEventProcessor({
-          address,
-          abi,
-          eventName: eventName as ExtractAbiEventNames<typeof abi>,
-          handler,
-        }),
+    (noTopics
+      ? [
+          <LogProcessor>{
+            address,
+            filter: {
+              topics: [],
+              strict: true,
+            },
+            handler(dao, eventKey, log): Promise<void> {
+              return noTopics(dao, eventKey, log.data);
+            },
+          },
+        ]
+      : []
+    ).concat(
+      Object.entries(handlers).map(
+        ([eventName, handler]): LogProcessor =>
+          createContractEventProcessor({
+            address,
+            abi,
+            eventName: eventName as ExtractAbiEventNames<typeof abi>,
+            handler,
+          }),
+      ),
     ),
-  // ),
 ) as LogProcessor[];

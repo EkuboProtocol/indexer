@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { Client } from "pg";
 import type { EventKey } from "./processor";
-import { toPoolId } from "./poolKey.ts";
+import { toKeyHash, toPoolId } from "./poolKey.ts";
 import type {
   CoreExtensionRegistered,
   CoreFeesAccumulated,
@@ -823,24 +823,27 @@ export class DAO {
   }
 
   private async insertPoolKey(
-    coreAddress: bigint,
+    coreAddress: `0x${string}`,
     poolKey: PoolKey,
   ): Promise<`0x${string}`> {
     const poolId = toPoolId(poolKey);
+    const keyHash = toKeyHash(coreAddress, poolId);
 
     await this.pg.query({
       text: `
-                INSERT INTO pool_keys (pool_id,
-                                       core_address,
-                                       token0,
-                                       token1,
-                                       fee,
-                                       tick_spacing,
-                                       extension)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                ON CONFLICT DO NOTHING;
-            `,
+          INSERT INTO pool_keys (key_hash,
+                                 pool_id,
+                                 core_address,
+                                 token0,
+                                 token1,
+                                 fee,
+                                 tick_spacing,
+                                 extension)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          ON CONFLICT DO NOTHING;
+      `,
       values: [
+        keyHash,
         poolId,
         coreAddress,
         BigInt(poolKey.token0),
@@ -850,7 +853,7 @@ export class DAO {
         BigInt(poolKey.extension),
       ],
     });
-    return poolId;
+    return keyHash;
   }
 
   public async insertPositionTransferEvent(
@@ -899,14 +902,16 @@ export class DAO {
           INTO position_updates
           (event_id,
            locker,
-           pool_id,
+           pool_key_hash,
            salt,
            lower_bound,
            upper_bound,
            liquidity_delta,
            delta0,
            delta1)
-          VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9, $10, $11, $12, $13);
+          VALUES ((SELECT id FROM inserted_event), $6,
+                  (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7),
+                  $8, $9, $10, $11, $12, $13);
       `,
       values: [
         key.blockNumber,
@@ -936,22 +941,24 @@ export class DAO {
   ) {
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
-                        VALUES ($1, $2, $3, $4, $5)
-                        RETURNING id)
-                INSERT
-                INTO position_fees_collected
-                (event_id,
-                 pool_id,
-                 owner,
-                 salt,
-                 lower_bound,
-                 upper_bound,
-                 delta0,
-                 delta1)
-                VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9, $10, $11, $12);
-            `,
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
+                  VALUES ($1, $2, $3, $4, $5)
+                  RETURNING id)
+          INSERT
+          INTO position_fees_collected
+          (event_id,
+           pool_key_hash,
+           owner,
+           salt,
+           lower_bound,
+           upper_bound,
+           delta0,
+           delta1)
+          VALUES ((SELECT id FROM inserted_event),
+                  (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $6),
+                  $7, $8, $9, $10, $11, $12);
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -976,7 +983,7 @@ export class DAO {
     event: CorePoolInitialized,
     key: EventKey,
   ) {
-    const poolId = await this.insertPoolKey(key.emitter, event.poolKey);
+    const poolKeyHash = await this.insertPoolKey(key.emitter, event.poolKey);
 
     await this.pg.query({
       text: `
@@ -987,7 +994,7 @@ export class DAO {
                 INSERT
                 INTO pool_initializations
                 (event_id,
-                 pool_id,
+                 pool_key_hash,
                  tick,
                  sqrt_ratio)
                 VALUES ((SELECT id FROM inserted_event), $6, $7, $8);
@@ -999,7 +1006,7 @@ export class DAO {
         key.transactionHash,
         key.emitter,
 
-        poolId,
+        poolKeyHash,
 
         event.tick,
         event.sqrtRatio,
@@ -1077,10 +1084,12 @@ export class DAO {
           INSERT
           INTO fees_accumulated
           (event_id,
-           pool_id,
+           pool_key_hash,
            amount0,
            amount1)
-          VALUES ((SELECT id FROM inserted_event), $6, $7, $8);
+          VALUES ((SELECT id FROM inserted_event),
+                  (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7),
+                  $8, $9);
       `,
       values: [
         key.blockNumber,
@@ -1100,22 +1109,24 @@ export class DAO {
   public async insertSwappedEvent(event: CoreSwapped, key: EventKey) {
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
-                        VALUES ($1, $2, $3, $4, $5)
-                        RETURNING id)
-                INSERT
-                INTO swaps
-                (event_id,
-                 locker,
-                 pool_id,
-                 delta0,
-                 delta1,
-                 sqrt_ratio_after,
-                 tick_after,
-                 liquidity_after)
-                VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9, $10, $11, $12);
-            `,
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
+                  VALUES ($1, $2, $3, $4, $5)
+                  RETURNING id)
+          INSERT
+          INTO swaps
+          (event_id,
+           locker,
+           pool_key_hash,
+           delta0,
+           delta1,
+           sqrt_ratio_after,
+           tick_after,
+           liquidity_after)
+          VALUES ((SELECT id FROM inserted_event), $6,
+                  (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7),
+                  $8, $9, $10, $11, $12);
+      `,
       values: [
         key.blockNumber,
         key.transactionIndex,
@@ -1124,6 +1135,7 @@ export class DAO {
         key.emitter,
 
         event.locker,
+
         event.poolId,
 
         event.delta0,

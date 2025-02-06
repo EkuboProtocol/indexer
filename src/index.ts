@@ -92,7 +92,7 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
   for await (const message of streamClient.streamData({
     filter: [
       Filter.make({
-        header: "on_data",
+        header: "always",
         logs: LOG_PROCESSORS.map((lp, ix) => ({
           id: ix + 1,
           address: lp.address,
@@ -179,8 +179,8 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
               blockNumber,
               transactionIndex: event.transactionIndex,
               eventIndex: event.logIndexInTransaction,
-              emitter: BigInt(event.address),
-              transactionHash: BigInt(event.transactionHash),
+              emitter: event.address,
+              transactionHash: event.transactionHash,
             };
 
             // process each event sequentially through all the event processors in parallel

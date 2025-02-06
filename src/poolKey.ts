@@ -25,3 +25,18 @@ export function toPoolId(poolKey: PoolKey): `0x${string}` {
     ),
   );
 }
+
+export function toKeyHash(
+  coreAddress: `0x${string}`,
+  poolId: `0x${string}`,
+): `0x${string}` {
+  return keccak256(
+    encodeAbiParameters(
+      [
+        { name: "coreAddress", type: "address" },
+        { name: "poolId", type: "bytes32" },
+      ],
+      [coreAddress, poolId],
+    ),
+  );
+}
