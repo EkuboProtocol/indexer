@@ -83,7 +83,7 @@ export function createContractEventProcessor<
         eventName: eventName,
         topics: event.topics as [`0x${string}`, ...topics: `0x${string}`[]],
         data: event.data,
-        strict: false,
+        strict: true,
       });
 
       logger.debug(`Processing ${eventName}`, { key, event: result.args });

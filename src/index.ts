@@ -89,23 +89,28 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
 
   let lastIsHead = false;
 
-  for await (const message of streamClient.streamData({
-    filter: [
-      Filter.make({
-        header: "always",
-        logs: LOG_PROCESSORS.map((lp, ix) => ({
-          id: ix + 1,
-          address: lp.address,
-          topics: lp.filter.topics,
-          strict: lp.filter.strict,
-        })),
-      }),
-    ],
-    finality: "accepted",
-    startingCursor: databaseStartingCursor
-      ? databaseStartingCursor
-      : { orderKey: BigInt(process.env.STARTING_CURSOR_BLOCK_NUMBER ?? 0) },
-  })) {
+  for await (const message of streamClient.streamData(
+    EvmStream.Request.make({
+      filter: [
+        Filter.make({
+          logs: LOG_PROCESSORS.map((lp, ix) => ({
+            id: ix + 1,
+            address: lp.address,
+            topics: lp.filter.topics,
+            strict: lp.filter.strict,
+          })),
+        }),
+      ],
+      finality: "accepted",
+      startingCursor: databaseStartingCursor
+        ? databaseStartingCursor
+        : { orderKey: BigInt(process.env.STARTING_CURSOR_BLOCK_NUMBER ?? 0) },
+      heartbeatInterval: {
+        seconds: 10n,
+        nanos: 0,
+      },
+    }),
+  )) {
     switch (message._tag) {
       case "heartbeat": {
         logger.info(`Heartbeat`);
