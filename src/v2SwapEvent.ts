@@ -25,8 +25,7 @@ export function parseV2SwapEventData(data: `0x${string}`): CoreSwapped {
 
   // sqrtRatio: uint192 (24 bytes)
   const sqrtRatioAfter = n & ((1n << 192n) - 1n);
-  // todo: this should be 192
-  n >>= 160n;
+  n >>= 192n;
 
   // liquidity: uint128 (16 bytes)
   const liquidityAfter = n & ((1n << 128n) - 1n);
