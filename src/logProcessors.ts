@@ -21,6 +21,7 @@ import {
 import { logger } from "./logger.ts";
 import { parseV2SwapEventData } from "./v2SwapEvent.ts";
 import { toPoolId } from "./poolKey.ts";
+import { parseV2OracleEvent } from "./v2OracleEvent.ts";
 
 export type ContractEvent<
   abi extends Abi,
@@ -101,7 +102,7 @@ type HandlerMap<T extends Abi> = {
 type ContractHandlers<T extends Abi> = {
   address: `0x${string}`;
   abi: T;
-  handlers: HandlerMap<T>;
+  handlers?: HandlerMap<T>;
   noTopics?: (
     dao: DAO,
     key: EventKey,
@@ -193,7 +194,7 @@ const processors: {
     async noTopics(dao, key, data) {
       if (!data) throw new Error("Event with no data from core");
       const event = parseV2SwapEventData(data);
-      logger.debug(`Parsing V2 Swapped Event`, {
+      logger.debug(`Parsed V2 Swapped Event`, {
         event,
         rawData: data,
       });
@@ -232,10 +233,14 @@ const processors: {
   OracleV2: {
     address: process.env.ORACLE_V2_ADDRESS,
     abi: ORACLE_V2_ABI,
-    handlers: {
-      async SnapshotInserted(dao, key, parsed) {
-        await dao.insertOracleSnapshotEvent(parsed, key);
-      },
+    async noTopics(dao, key, data) {
+      if (!data) throw new Error("Event with no data from Oracle");
+      const event = parseV2OracleEvent(data);
+      logger.debug(`Parsed V2 Oracle Event`, {
+        event,
+        rawData: data,
+      });
+      await dao.insertOracleSnapshotEvent(event, key);
     },
   },
 };
@@ -257,14 +262,16 @@ export const LOG_PROCESSORS = Object.values(processors).flatMap(
         ]
       : []
     ).concat(
-      Object.entries(handlers).map(
-        ([eventName, handler]): LogProcessor =>
-          createContractEventProcessor({
-            address,
-            abi,
-            eventName: eventName as ExtractAbiEventNames<typeof abi>,
-            handler,
-          }),
-      ),
+      handlers
+        ? Object.entries(handlers).map(
+            ([eventName, handler]): LogProcessor =>
+              createContractEventProcessor({
+                address,
+                abi,
+                eventName: eventName as ExtractAbiEventNames<typeof abi>,
+                handler: handler as any,
+              }),
+          )
+        : [],
     ),
 ) as LogProcessor[];

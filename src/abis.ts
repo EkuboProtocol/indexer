@@ -4037,6 +4037,59 @@ export const CORE_V2_ABI = [
   },
   {
     type: "function",
+    name: "_getPoolFeesPerLiquidityInside",
+    inputs: [
+      {
+        name: "poolId",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+      {
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
+      },
+      {
+        name: "tickSpacing",
+        type: "uint32",
+        internalType: "uint32",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        internalType: "struct FeesPerLiquidity",
+        components: [
+          {
+            name: "value0",
+            type: "uint256",
+            internalType: "uint256",
+          },
+          {
+            name: "value1",
+            type: "uint256",
+            internalType: "uint256",
+          },
+        ],
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
     name: "accumulateAsFees",
     inputs: [
       {
@@ -4083,7 +4136,7 @@ export const CORE_V2_ABI = [
       },
     ],
     outputs: [],
-    stateMutability: "nonpayable",
+    stateMutability: "payable",
   },
   {
     type: "function",
@@ -4196,9 +4249,36 @@ export const CORE_V2_ABI = [
     name: "getPoolFeesPerLiquidityInside",
     inputs: [
       {
-        name: "poolId",
-        type: "bytes32",
-        internalType: "bytes32",
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "fee",
+            type: "uint128",
+            internalType: "uint128",
+          },
+          {
+            name: "tickSpacing",
+            type: "uint32",
+            internalType: "uint32",
+          },
+          {
+            name: "extension",
+            type: "address",
+            internalType: "address",
+          },
+        ],
       },
       {
         name: "bounds",
@@ -4284,8 +4364,8 @@ export const CORE_V2_ABI = [
     outputs: [
       {
         name: "sqrtRatio",
-        type: "uint256",
-        internalType: "uint256",
+        type: "uint96",
+        internalType: "SqrtRatio",
       },
     ],
     stateMutability: "nonpayable",
@@ -4401,7 +4481,13 @@ export const CORE_V2_ABI = [
         internalType: "address",
       },
     ],
-    outputs: [],
+    outputs: [
+      {
+        name: "payment",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
     stateMutability: "nonpayable",
   },
   {
@@ -4538,7 +4624,7 @@ export const CORE_V2_ABI = [
       },
     ],
     outputs: [],
-    stateMutability: "nonpayable",
+    stateMutability: "payable",
   },
   {
     type: "function",
@@ -4612,8 +4698,8 @@ export const CORE_V2_ABI = [
           },
           {
             name: "sqrtRatioLimit",
-            type: "uint256",
-            internalType: "uint256",
+            type: "uint96",
+            internalType: "SqrtRatio",
           },
           {
             name: "skipAhead",
@@ -4635,7 +4721,7 @@ export const CORE_V2_ABI = [
         internalType: "int128",
       },
     ],
-    stateMutability: "nonpayable",
+    stateMutability: "payable",
   },
   {
     type: "function",
@@ -4752,7 +4838,7 @@ export const CORE_V2_ABI = [
         internalType: "int128",
       },
     ],
-    stateMutability: "nonpayable",
+    stateMutability: "payable",
   },
   {
     type: "function",
@@ -4965,9 +5051,9 @@ export const CORE_V2_ABI = [
       },
       {
         name: "sqrtRatio",
-        type: "uint256",
+        type: "uint96",
         indexed: false,
-        internalType: "uint256",
+        internalType: "SqrtRatio",
       },
     ],
     anonymous: false,
@@ -5212,19 +5298,18 @@ export const CORE_V2_ABI = [
   },
   {
     type: "error",
+    name: "FullRangeOnlyPool",
+    inputs: [],
+  },
+  {
+    type: "error",
     name: "InsufficientSavedBalance",
     inputs: [],
   },
   {
     type: "error",
-    name: "InvalidSqrtRatio",
-    inputs: [
-      {
-        name: "sqrtRatio",
-        type: "uint256",
-        internalType: "uint256",
-      },
-    ],
+    name: "InvalidSqrtRatioLimit",
+    inputs: [],
   },
   {
     type: "error",
@@ -5304,11 +5389,6 @@ export const CORE_V2_ABI = [
   },
   {
     type: "error",
-    name: "SqrtRatioLimitWrongDirection",
-    inputs: [],
-  },
-  {
-    type: "error",
     name: "TokensMustBeSorted",
     inputs: [],
   },
@@ -5325,11 +5405,6 @@ export const CORE_V2_ABI = [
   {
     type: "error",
     name: "ZeroLiquidityNextSqrtRatioFromAmount1",
-    inputs: [],
-  },
-  {
-    type: "error",
-    name: "ZeroSqrtRatio",
     inputs: [],
   },
 ] as const;
@@ -5471,8 +5546,8 @@ export const ORACLE_V2_ABI = [
       },
       {
         name: "",
-        type: "uint256",
-        internalType: "uint256",
+        type: "uint96",
+        internalType: "SqrtRatio",
       },
     ],
     outputs: [],
@@ -5536,8 +5611,8 @@ export const ORACLE_V2_ABI = [
           },
           {
             name: "sqrtRatioLimit",
-            type: "uint256",
-            internalType: "uint256",
+            type: "uint96",
+            internalType: "SqrtRatio",
           },
           {
             name: "skipAhead",
@@ -5824,8 +5899,8 @@ export const ORACLE_V2_ABI = [
           },
           {
             name: "sqrtRatioLimit",
-            type: "uint256",
-            internalType: "uint256",
+            type: "uint96",
+            internalType: "SqrtRatio",
           },
           {
             name: "skipAhead",
@@ -6248,42 +6323,6 @@ export const ORACLE_V2_ABI = [
       },
     ],
     stateMutability: "view",
-  },
-  {
-    type: "event",
-    name: "SnapshotInserted",
-    inputs: [
-      {
-        name: "token",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-      {
-        name: "timestamp",
-        type: "uint64",
-        indexed: false,
-        internalType: "uint64",
-      },
-      {
-        name: "secondsPerLiquidityCumulative",
-        type: "uint160",
-        indexed: false,
-        internalType: "uint160",
-      },
-      {
-        name: "tickCumulative",
-        type: "int64",
-        indexed: false,
-        internalType: "int64",
-      },
-    ],
-    anonymous: false,
-  },
-  {
-    type: "error",
-    name: "BoundsMustBeMaximum",
-    inputs: [],
   },
   {
     type: "error",

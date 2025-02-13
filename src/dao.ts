@@ -11,9 +11,9 @@ import type {
   CoreProtocolFeesWithdrawn,
   PoolKey,
   PositionTransfer,
-  SnapshotInserted,
 } from "./eventTypes.ts";
 import type { CoreSwapped } from "./v2SwapEvent.ts";
+import type { V2OracleEvent } from "./v2OracleEvent.ts";
 
 // Data access object that manages inserts/deletes
 export class DAO {
@@ -1164,7 +1164,7 @@ export class DAO {
     return rowCount;
   }
 
-  async insertOracleSnapshotEvent(parsed: SnapshotInserted, key: EventKey) {
+  async insertOracleSnapshotEvent(parsed: V2OracleEvent, key: EventKey) {
     await this.pg.query({
       text: `
                 WITH inserted_event AS (

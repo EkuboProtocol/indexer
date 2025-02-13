@@ -1,4 +1,4 @@
-import { CORE_V2_ABI, ORACLE_V2_ABI, POSITIONS_ABI } from "./abis";
+import { CORE_V2_ABI, POSITIONS_ABI } from "./abis";
 import type { ContractEvent } from "./logProcessors.ts";
 
 export type PoolKey = ContractEvent<
@@ -31,7 +31,3 @@ export type CoreFeesAccumulated = ContractEvent<
 >;
 
 export type PositionTransfer = ContractEvent<typeof POSITIONS_ABI, "Transfer">;
-export type SnapshotInserted = ContractEvent<
-  typeof ORACLE_V2_ABI,
-  "SnapshotInserted"
->;

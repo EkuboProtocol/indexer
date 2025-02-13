@@ -1,6 +1,6 @@
 import { checksumAddress, numberToHex } from "viem";
 
-function toSigned(value: bigint, bits: number): bigint {
+export function toSigned(value: bigint, bits: number): bigint {
   const half = 1n << BigInt(bits - 1);
   return value >= half ? value - (1n << BigInt(bits)) : value;
 }
@@ -15,6 +15,15 @@ export interface CoreSwapped {
   tickAfter: number;
 }
 
+const BIT_MASK = 0xc00000000000000000000000n;
+const NOT_BIT_MASK = 0x3fffffffffffffffffffffffn;
+function toFixed(sqrtRatioFloat: bigint): bigint {
+  return (
+    (sqrtRatioFloat & NOT_BIT_MASK) <<
+    (2n + ((sqrtRatioFloat & BIT_MASK) >> 89n))
+  );
+}
+
 export function parseV2SwapEventData(data: `0x${string}`): CoreSwapped {
   let n = BigInt(data);
 
@@ -23,9 +32,11 @@ export function parseV2SwapEventData(data: `0x${string}`): CoreSwapped {
   const tickAfter = Number(toSigned(tickRaw, 32));
   n >>= 32n;
 
-  // sqrtRatio: uint192 (24 bytes)
-  const sqrtRatioAfter = n & ((1n << 192n) - 1n);
-  n >>= 192n;
+  // sqrtRatio: uint96 (12 bytes)
+  const sqrtRatioAfterCompact = n & ((1n << 96n) - 1n);
+  n >>= 96n;
+
+  const sqrtRatioAfter = toFixed(sqrtRatioAfterCompact);
 
   // liquidity: uint128 (16 bytes)
   const liquidityAfter = n & ((1n << 128n) - 1n);
