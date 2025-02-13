@@ -94,6 +94,7 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
     EvmStream.Request.make({
       filter: [
         Filter.make({
+          header: "always",
           logs: LOG_PROCESSORS.map((lp, ix) => ({
             id: ix + 1,
             address: lp.address,
