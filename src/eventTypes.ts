@@ -1,5 +1,10 @@
-import { CORE_V2_ABI, POSITIONS_ABI } from "./abis";
+import { CORE_ABI, CORE_V2_ABI, POSITIONS_ABI } from "./abis";
 import type { ContractEvent } from "./logProcessors.ts";
+
+export type PoolKeyV1 = ContractEvent<
+  typeof CORE_ABI,
+  "PoolInitialized"
+>["poolKey"];
 
 export type PoolKey = ContractEvent<
   typeof CORE_V2_ABI,

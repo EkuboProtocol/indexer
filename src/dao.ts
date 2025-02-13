@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { Client } from "pg";
 import type { EventKey } from "./processor";
-import { toKeyHash, toPoolId } from "./poolKey.ts";
+import { parsePoolKeyConfig, toKeyHash, toPoolId } from "./poolKey.ts";
 import type {
   CoreExtensionRegistered,
   CoreFeesAccumulated,
@@ -829,6 +829,8 @@ export class DAO {
     const poolId = toPoolId(poolKey);
     const keyHash = toKeyHash(coreAddress, poolId);
 
+    const { fee, tickSpacing, extension } = parsePoolKeyConfig(poolKey.config);
+
     await this.pg.query({
       text: `
           INSERT INTO pool_keys (key_hash,
@@ -848,9 +850,9 @@ export class DAO {
         coreAddress,
         BigInt(poolKey.token0),
         BigInt(poolKey.token1),
-        poolKey.fee,
-        poolKey.tickSpacing,
-        BigInt(poolKey.extension),
+        fee,
+        tickSpacing,
+        BigInt(extension),
       ],
     });
     return keyHash;

@@ -4037,59 +4037,6 @@ export const CORE_V2_ABI = [
   },
   {
     type: "function",
-    name: "_getPoolFeesPerLiquidityInside",
-    inputs: [
-      {
-        name: "poolId",
-        type: "bytes32",
-        internalType: "bytes32",
-      },
-      {
-        name: "bounds",
-        type: "tuple",
-        internalType: "struct Bounds",
-        components: [
-          {
-            name: "lower",
-            type: "int32",
-            internalType: "int32",
-          },
-          {
-            name: "upper",
-            type: "int32",
-            internalType: "int32",
-          },
-        ],
-      },
-      {
-        name: "tickSpacing",
-        type: "uint32",
-        internalType: "uint32",
-      },
-    ],
-    outputs: [
-      {
-        name: "",
-        type: "tuple",
-        internalType: "struct FeesPerLiquidity",
-        components: [
-          {
-            name: "value0",
-            type: "uint256",
-            internalType: "uint256",
-          },
-          {
-            name: "value1",
-            type: "uint256",
-            internalType: "uint256",
-          },
-        ],
-      },
-    ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
     name: "accumulateAsFees",
     inputs: [
       {
@@ -4108,19 +4055,9 @@ export const CORE_V2_ABI = [
             internalType: "address",
           },
           {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
           },
         ],
       },
@@ -4165,19 +4102,9 @@ export const CORE_V2_ABI = [
             internalType: "address",
           },
           {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
           },
         ],
       },
@@ -4264,19 +4191,9 @@ export const CORE_V2_ABI = [
             internalType: "address",
           },
           {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
           },
         ],
       },
@@ -4339,19 +4256,9 @@ export const CORE_V2_ABI = [
             internalType: "address",
           },
           {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
           },
         ],
       },
@@ -4665,19 +4572,9 @@ export const CORE_V2_ABI = [
             internalType: "address",
           },
           {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
           },
         ],
       },
@@ -4775,19 +4672,9 @@ export const CORE_V2_ABI = [
             internalType: "address",
           },
           {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
           },
         ],
       },
@@ -5027,19 +4914,9 @@ export const CORE_V2_ABI = [
             internalType: "address",
           },
           {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
           },
         ],
       },
@@ -5409,6 +5286,1416 @@ export const CORE_V2_ABI = [
   },
 ] as const;
 
+export const POSITIONS_V2_ABI = [
+  {
+    type: "constructor",
+    inputs: [
+      {
+        name: "core",
+        type: "address",
+        internalType: "contract ICore",
+      },
+      {
+        name: "_tokenURIGenerator",
+        type: "address",
+        internalType: "contract ITokenURIGenerator",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "approve",
+    inputs: [
+      {
+        name: "account",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "balanceOf",
+    inputs: [
+      {
+        name: "owner",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [
+      {
+        name: "result",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "burn",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "checkDeadline",
+    inputs: [
+      {
+        name: "deadline",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "checkMaximumInputNotExceeded",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "maximumInput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "checkMinimumOutputReceived",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "minimumOutput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "collectFees",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
+          },
+        ],
+      },
+      {
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
+      },
+    ],
+    outputs: [
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "collectFees",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
+          },
+        ],
+      },
+      {
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
+      },
+      {
+        name: "recipient",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "deposit",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
+          },
+        ],
+      },
+      {
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
+      },
+      {
+        name: "maxAmount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "maxAmount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "minLiquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    outputs: [
+      {
+        name: "liquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "getApproved",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "result",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "getPositionFeesAndLiquidity",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
+          },
+        ],
+      },
+      {
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
+      },
+    ],
+    outputs: [
+      {
+        name: "liquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "principal0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "principal1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "fees0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "fees1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "isApprovedForAll",
+    inputs: [
+      {
+        name: "owner",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "operator",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [
+      {
+        name: "result",
+        type: "bool",
+        internalType: "bool",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "locked",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "maybeInitializePool",
+    inputs: [
+      {
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
+          },
+        ],
+      },
+      {
+        name: "tick",
+        type: "int32",
+        internalType: "int32",
+      },
+    ],
+    outputs: [
+      {
+        name: "initialized",
+        type: "bool",
+        internalType: "bool",
+      },
+      {
+        name: "sqrtRatio",
+        type: "uint96",
+        internalType: "SqrtRatio",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "mint",
+    inputs: [],
+    outputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "mint",
+    inputs: [
+      {
+        name: "salt",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "mintAndDeposit",
+    inputs: [
+      {
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
+          },
+        ],
+      },
+      {
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
+      },
+      {
+        name: "maxAmount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "maxAmount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "minLiquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    outputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "liquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "mintAndDepositWithSalt",
+    inputs: [
+      {
+        name: "salt",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+      {
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
+          },
+        ],
+      },
+      {
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
+      },
+      {
+        name: "maxAmount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "maxAmount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "minLiquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    outputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "liquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "multicall",
+    inputs: [
+      {
+        name: "data",
+        type: "bytes[]",
+        internalType: "bytes[]",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bytes[]",
+        internalType: "bytes[]",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "name",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "string",
+        internalType: "string",
+      },
+    ],
+    stateMutability: "pure",
+  },
+  {
+    type: "function",
+    name: "ownerOf",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "result",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "payCallback",
+    inputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "permit",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "deadline",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "v",
+        type: "uint8",
+        internalType: "uint8",
+      },
+      {
+        name: "r",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+      {
+        name: "s",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "recordBalanceForSlippageCheck",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "refundNativeToken",
+    inputs: [],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "safeTransferFrom",
+    inputs: [
+      {
+        name: "from",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "to",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "safeTransferFrom",
+    inputs: [
+      {
+        name: "from",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "to",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "data",
+        type: "bytes",
+        internalType: "bytes",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "saltToId",
+    inputs: [
+      {
+        name: "minter",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "salt",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "result",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "setApprovalForAll",
+    inputs: [
+      {
+        name: "operator",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "isApproved",
+        type: "bool",
+        internalType: "bool",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "supportsInterface",
+    inputs: [
+      {
+        name: "interfaceId",
+        type: "bytes4",
+        internalType: "bytes4",
+      },
+    ],
+    outputs: [
+      {
+        name: "result",
+        type: "bool",
+        internalType: "bool",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "symbol",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "string",
+        internalType: "string",
+      },
+    ],
+    stateMutability: "pure",
+  },
+  {
+    type: "function",
+    name: "tokenURI",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "string",
+        internalType: "string",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "tokenURIGenerator",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "contract ITokenURIGenerator",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "transferFrom",
+    inputs: [
+      {
+        name: "from",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "to",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "withdraw",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
+          },
+        ],
+      },
+      {
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
+      },
+      {
+        name: "liquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    outputs: [
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "withdraw",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
+          },
+        ],
+      },
+      {
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
+      },
+      {
+        name: "liquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "recipient",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "withFees",
+        type: "bool",
+        internalType: "bool",
+      },
+    ],
+    outputs: [
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "event",
+    name: "Approval",
+    inputs: [
+      {
+        name: "owner",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "account",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "id",
+        type: "uint256",
+        indexed: true,
+        internalType: "uint256",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "ApprovalForAll",
+    inputs: [
+      {
+        name: "owner",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "operator",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "isApproved",
+        type: "bool",
+        indexed: false,
+        internalType: "bool",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "Transfer",
+    inputs: [
+      {
+        name: "from",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "to",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "id",
+        type: "uint256",
+        indexed: true,
+        internalType: "uint256",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "error",
+    name: "AccountBalanceOverflow",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "Amount0DeltaOverflow",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "Amount1DeltaOverflow",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "BalanceQueryForZeroAddress",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "BaseLockerAccountantOnly",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "CoreOnly",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "DepositFailedDueToSlippage",
+    inputs: [
+      {
+        name: "liquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "minLiquidity",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "DepositOverflow",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "ExpectedRevertWithinLock",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "InvalidTick",
+    inputs: [
+      {
+        name: "tick",
+        type: "int32",
+        internalType: "int32",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "MaximumInputExceeded",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "maximumInput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "MinimumOutputNotReceived",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "minimumOutput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "NotOwnerNorApproved",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TokenAlreadyExists",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TokenDoesNotExist",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TransactionExpired",
+    inputs: [
+      {
+        name: "deadline",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "TransferFromIncorrectOwner",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TransferToNonERC721ReceiverImplementer",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TransferToZeroAddress",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "Unauthorized",
+    inputs: [
+      {
+        name: "caller",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "UnexpectedCallTypeByte",
+    inputs: [
+      {
+        name: "b",
+        type: "bytes1",
+        internalType: "bytes1",
+      },
+    ],
+  },
+] as const;
+
 export const ORACLE_V2_ABI = [
   {
     type: "constructor",
@@ -5446,19 +6733,9 @@ export const ORACLE_V2_ABI = [
             internalType: "address",
           },
           {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
           },
         ],
       },
@@ -5523,19 +6800,9 @@ export const ORACLE_V2_ABI = [
             internalType: "address",
           },
           {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
           },
         ],
       },
@@ -5578,19 +6845,9 @@ export const ORACLE_V2_ABI = [
             internalType: "address",
           },
           {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
           },
         ],
       },
@@ -5660,19 +6917,9 @@ export const ORACLE_V2_ABI = [
             internalType: "address",
           },
           {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
           },
         ],
       },
@@ -5749,19 +6996,9 @@ export const ORACLE_V2_ABI = [
             internalType: "address",
           },
           {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
           },
         ],
       },
@@ -5816,19 +7053,9 @@ export const ORACLE_V2_ABI = [
             internalType: "address",
           },
           {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
           },
         ],
       },
@@ -5866,19 +7093,9 @@ export const ORACLE_V2_ABI = [
             internalType: "address",
           },
           {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
           },
         ],
       },
@@ -5938,19 +7155,9 @@ export const ORACLE_V2_ABI = [
             internalType: "address",
           },
           {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
           },
         ],
       },
@@ -6188,19 +7395,9 @@ export const ORACLE_V2_ABI = [
             internalType: "address",
           },
           {
-            name: "fee",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "extension",
-            type: "address",
-            internalType: "address",
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
           },
         ],
       },

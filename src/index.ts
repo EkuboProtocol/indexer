@@ -80,6 +80,7 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
 
     const initializeTimer = logger.startTimer();
     databaseStartingCursor = await dao.initializeSchema();
+    await dao.refreshOperationalMaterializedView();
     initializeTimer.done({
       message: "Initialized schema",
       startingCursor: databaseStartingCursor,

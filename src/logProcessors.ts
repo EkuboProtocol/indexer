@@ -20,7 +20,7 @@ import {
 } from "viem";
 import { logger } from "./logger.ts";
 import { parseV2SwapEventData } from "./v2SwapEvent.ts";
-import { toPoolId } from "./poolKey.ts";
+import { toPoolId, toV2PoolKey } from "./poolKey.ts";
 import { parseV2OracleEvent } from "./v2OracleEvent.ts";
 
 export type ContractEvent<
@@ -124,32 +124,37 @@ const processors: {
     abi: CORE_ABI,
     handlers: {
       async PoolInitialized(dao, key, parsed) {
+        const poolKey = toV2PoolKey(parsed.poolKey);
         await dao.insertPoolInitializedEvent(
           {
             ...parsed,
-            poolId: toPoolId(parsed.poolKey),
+            poolKey: poolKey,
+            poolId: toPoolId(poolKey),
           },
           key,
         );
       },
       async PositionUpdated(dao, key, parsed) {
+        const poolKey = toV2PoolKey(parsed.poolKey);
         await dao.insertPositionUpdatedEvent(
-          { ...parsed, poolId: toPoolId(parsed.poolKey) },
+          { ...parsed, poolId: toPoolId(poolKey) },
           key,
         );
       },
       async PositionFeesCollected(dao, key, parsed) {
+        const poolKey = toV2PoolKey(parsed.poolKey);
         await dao.insertPositionFeesCollectedEvent(
           {
             ...parsed,
-            poolId: toPoolId(parsed.poolKey),
+            poolId: toPoolId(poolKey),
           },
           key,
         );
       },
       async Swapped(dao, key, parsed) {
+        const poolKey = toV2PoolKey(parsed.poolKey);
         await dao.insertSwappedEvent(
-          { ...parsed, poolId: toPoolId(parsed.poolKey) },
+          { ...parsed, poolId: toPoolId(poolKey) },
           key,
         );
       },
@@ -157,10 +162,11 @@ const processors: {
         await dao.insertProtocolFeesWithdrawn(parsed, key);
       },
       async FeesAccumulated(dao, key, parsed) {
+        const poolKey = toV2PoolKey(parsed.poolKey);
         await dao.insertFeesAccumulatedEvent(
           {
             ...parsed,
-            poolId: toPoolId(parsed.poolKey),
+            poolId: toPoolId(poolKey),
           },
           key,
         );
