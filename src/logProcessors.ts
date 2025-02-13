@@ -73,7 +73,7 @@ export function createContractEventProcessor<
         abi,
         eventName,
       } as any) as `0x${string}`[],
-      strict: true,
+      strict: false,
     },
     async handler(dao, key, event) {
       if (event.topics.length === 0)
