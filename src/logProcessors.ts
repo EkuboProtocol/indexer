@@ -20,7 +20,7 @@ import {
 } from "viem";
 import { logger } from "./logger.ts";
 import { parseV2SwapEventData } from "./v2SwapEvent.ts";
-import { toPoolId, toV2PoolKey } from "./poolKey.ts";
+import { toPoolId } from "./poolKey.ts";
 import { parseV2OracleEvent } from "./v2OracleEvent.ts";
 
 export type ContractEvent<
@@ -124,37 +124,25 @@ const processors: {
     abi: CORE_ABI,
     handlers: {
       async PoolInitialized(dao, key, parsed) {
-        const poolKey = toV2PoolKey(parsed.poolKey);
-        await dao.insertPoolInitializedEvent(
-          {
-            ...parsed,
-            poolKey: poolKey,
-            poolId: toPoolId(poolKey),
-          },
-          key,
-        );
+        await dao.insertPoolInitializedEvent(parsed, key);
       },
       async PositionUpdated(dao, key, parsed) {
-        const poolKey = toV2PoolKey(parsed.poolKey);
-        await dao.insertPositionUpdatedEvent(
-          { ...parsed, poolId: toPoolId(poolKey) },
-          key,
-        );
+        await dao.insertPositionUpdatedEvent(parsed, key);
       },
       async PositionFeesCollected(dao, key, parsed) {
-        const poolKey = toV2PoolKey(parsed.poolKey);
-        await dao.insertPositionFeesCollectedEvent(
-          {
-            ...parsed,
-            poolId: toPoolId(poolKey),
-          },
-          key,
-        );
+        await dao.insertPositionFeesCollectedEvent(parsed, key);
       },
       async Swapped(dao, key, parsed) {
-        const poolKey = toV2PoolKey(parsed.poolKey);
         await dao.insertSwappedEvent(
-          { ...parsed, poolId: toPoolId(poolKey) },
+          {
+            poolId: toPoolId(parsed.poolKey),
+            delta0: parsed.delta0,
+            delta1: parsed.delta1,
+            locker: parsed.locker,
+            liquidityAfter: parsed.liquidityAfter,
+            sqrtRatioAfter: parsed.sqrtRatioAfter,
+            tickAfter: parsed.tickAfter,
+          },
           key,
         );
       },
@@ -162,14 +150,7 @@ const processors: {
         await dao.insertProtocolFeesWithdrawn(parsed, key);
       },
       async FeesAccumulated(dao, key, parsed) {
-        const poolKey = toV2PoolKey(parsed.poolKey);
-        await dao.insertFeesAccumulatedEvent(
-          {
-            ...parsed,
-            poolId: toPoolId(poolKey),
-          },
-          key,
-        );
+        await dao.insertFeesAccumulatedEvent(parsed, key);
       },
       async ExtensionRegistered(dao, key, parsed) {
         await dao.insertExtensionRegistered(parsed, key);

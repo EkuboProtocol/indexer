@@ -825,11 +825,12 @@ export class DAO {
   private async insertPoolKey(
     coreAddress: `0x${string}`,
     poolKey: PoolKey,
+    poolId: `0x${string}` = toPoolId(poolKey),
   ): Promise<`0x${string}`> {
-    const poolId = toPoolId(poolKey);
     const keyHash = toKeyHash(coreAddress, poolId);
 
-    const { fee, tickSpacing, extension } = parsePoolKeyConfig(poolKey.config);
+    const { fee, tickSpacing, extension } =
+      "config" in poolKey ? parsePoolKeyConfig(poolKey.config) : poolKey;
 
     await this.pg.query({
       text: `
@@ -891,7 +892,7 @@ export class DAO {
   }
 
   public async insertPositionUpdatedEvent(
-    event: Omit<CorePositionUpdated, "poolKey"> & { poolId: `0x${string}` },
+    event: CorePositionUpdated,
     key: EventKey,
   ) {
     await this.pg.query({
@@ -924,7 +925,7 @@ export class DAO {
 
         event.locker,
 
-        event.poolId,
+        "poolId" in event ? event.poolId : toPoolId(event.poolKey),
 
         event.params.salt,
         event.params.bounds.lower,
@@ -938,7 +939,7 @@ export class DAO {
   }
 
   public async insertPositionFeesCollectedEvent(
-    event: Omit<CorePositionFeesCollected, "">,
+    event: CorePositionFeesCollected,
     key: EventKey,
   ) {
     await this.pg.query({
@@ -968,7 +969,7 @@ export class DAO {
         key.transactionHash,
         key.emitter,
 
-        event.poolId,
+        "poolId" in event ? event.poolId : toPoolId(event.poolKey),
 
         event.positionKey.owner,
         event.positionKey.salt,
@@ -1100,7 +1101,7 @@ export class DAO {
         key.transactionHash,
         key.emitter,
 
-        event.poolId,
+        "poolId" in event ? event.poolId : toPoolId(event.poolKey),
 
         event.amount0,
         event.amount1,
