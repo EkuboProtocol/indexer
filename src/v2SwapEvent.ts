@@ -17,7 +17,7 @@ export interface CoreSwapped {
 
 const BIT_MASK = 0xc00000000000000000000000n;
 const NOT_BIT_MASK = 0x3fffffffffffffffffffffffn;
-function toFixed(sqrtRatioFloat: bigint): bigint {
+export function floatSqrtRatioToFixed(sqrtRatioFloat: bigint): bigint {
   return (
     (sqrtRatioFloat & NOT_BIT_MASK) <<
     (2n + ((sqrtRatioFloat & BIT_MASK) >> 89n))
@@ -36,7 +36,7 @@ export function parseV2SwapEventData(data: `0x${string}`): CoreSwapped {
   const sqrtRatioAfterCompact = n & ((1n << 96n) - 1n);
   n >>= 96n;
 
-  const sqrtRatioAfter = toFixed(sqrtRatioAfterCompact);
+  const sqrtRatioAfter = floatSqrtRatioToFixed(sqrtRatioAfterCompact);
 
   // liquidity: uint128 (16 bytes)
   const liquidityAfter = n & ((1n << 128n) - 1n);

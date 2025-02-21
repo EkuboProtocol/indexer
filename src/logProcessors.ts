@@ -19,7 +19,7 @@ import {
   encodeEventTopics,
 } from "viem";
 import { logger } from "./logger.ts";
-import { parseV2SwapEventData } from "./v2SwapEvent.ts";
+import { floatSqrtRatioToFixed, parseV2SwapEventData } from "./v2SwapEvent.ts";
 import { toPoolId } from "./poolKey.ts";
 import { parseV2OracleEvent } from "./v2OracleEvent.ts";
 
@@ -189,7 +189,13 @@ const processors: {
     },
     handlers: {
       async PoolInitialized(dao, key, parsed) {
-        await dao.insertPoolInitializedEvent(parsed, key);
+        await dao.insertPoolInitializedEvent(
+          {
+            ...parsed,
+            sqrtRatio: floatSqrtRatioToFixed(parsed.sqrtRatio),
+          },
+          key,
+        );
       },
       async PositionUpdated(dao, key, parsed) {
         await dao.insertPositionUpdatedEvent(parsed, key);
