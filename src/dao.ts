@@ -261,6 +261,18 @@ export class DAO {
             PRIMARY KEY (key_hash, hour, token)
         );
 
+        CREATE TABLE IF NOT EXISTS hourly_price_data
+        (
+            token0     NUMERIC,
+            token1     NUMERIC,
+            hour       timestamptz,
+            k_volume   NUMERIC,
+            total      NUMERIC,
+            swap_count NUMERIC,
+            PRIMARY KEY (token0, token1, hour)
+        );
+
+
         CREATE TABLE IF NOT EXISTS hourly_tvl_delta_by_token
         (
             key_hash NUMERIC,
@@ -652,6 +664,32 @@ export class DAO {
 
     await this.pg.query({
       text: `
+                INSERT INTO hourly_price_data
+                    (SELECT pk.token0                                                    AS token0,
+                            pk.token1                                                    AS token1,
+                            date_bin(INTERVAL '1 hour', b.time,
+                                     '2000-01-01 00:00:00'::TIMESTAMP WITHOUT TIME ZONE) AS hour,
+                            SUM(ABS(delta1 * delta0))                                    AS k_volume,
+                            SUM(delta1 * delta1)                                         AS total,
+                            COUNT(1)                                                     AS swap_count
+                     FROM swaps s
+                              JOIN event_keys ek ON s.event_id = ek.id
+                              JOIN blocks b ON ek.block_number = b.number
+                              JOIN pool_keys pk ON s.pool_key_hash = pk.key_hash
+                     WHERE DATE_TRUNC('hour', b.time) >= DATE_TRUNC('hour', $1::timestamptz)
+                       AND delta0 != 0
+                       AND delta1 != 0
+                     GROUP BY pk.token0, pk.token1, hour)
+                ON CONFLICT (token0, token1, hour)
+                    DO UPDATE SET k_volume   = excluded.k_volume,
+                                  total      = excluded.total,
+                                  swap_count = excluded.swap_count;
+            `,
+      values: [since],
+    });
+
+    await this.pg.query({
+      text: `
           INSERT INTO hourly_tvl_delta_by_token
               (WITH first_event_id AS (SELECT id
                                        FROM event_keys AS ek
@@ -825,7 +863,7 @@ export class DAO {
   private async insertPoolKey(
     coreAddress: `0x${string}`,
     poolKey: PoolKey,
-    poolId: `0x${string}` = toPoolId(poolKey),
+    poolId: `0x${string}` = toPoolId(poolKey)
   ): Promise<`0x${string}`> {
     const keyHash = toKeyHash(coreAddress, poolId);
 
@@ -861,7 +899,7 @@ export class DAO {
 
   public async insertPositionTransferEvent(
     transfer: PositionTransfer,
-    key: EventKey,
+    key: EventKey
   ) {
     // The `*` operator is the PostgreSQL range intersection operator.
     await this.pg.query({
@@ -893,7 +931,7 @@ export class DAO {
 
   public async insertPositionUpdatedEvent(
     event: CorePositionUpdated,
-    key: EventKey,
+    key: EventKey
   ) {
     await this.pg.query({
       text: `
@@ -940,7 +978,7 @@ export class DAO {
 
   public async insertPositionFeesCollectedEvent(
     event: CorePositionFeesCollected,
-    key: EventKey,
+    key: EventKey
   ) {
     await this.pg.query({
       text: `
@@ -984,7 +1022,7 @@ export class DAO {
 
   public async insertPoolInitializedEvent(
     event: CorePoolInitialized,
-    key: EventKey,
+    key: EventKey
   ) {
     const poolKeyHash = await this.insertPoolKey(key.emitter, event.poolKey);
 
@@ -1019,7 +1057,7 @@ export class DAO {
 
   public async insertProtocolFeesWithdrawn(
     event: CoreProtocolFeesWithdrawn,
-    key: EventKey,
+    key: EventKey
   ) {
     await this.pg.query({
       text: `
@@ -1050,7 +1088,7 @@ export class DAO {
 
   public async insertExtensionRegistered(
     event: CoreExtensionRegistered,
-    key: EventKey,
+    key: EventKey
   ) {
     await this.pg.query({
       text: `
@@ -1076,7 +1114,7 @@ export class DAO {
 
   public async insertFeesAccumulatedEvent(
     event: CoreFeesAccumulated,
-    key: EventKey,
+    key: EventKey
   ) {
     await this.pg.query({
       text: `
