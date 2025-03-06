@@ -9,11 +9,15 @@ import type {
   CorePositionFeesCollected,
   CorePositionUpdated,
   CoreProtocolFeesWithdrawn,
+  OrderTransfer,
   PoolKey,
   PositionTransfer,
+  TwammOrderProceedsWithdrawn,
+  TwammOrderUpdated,
 } from "./eventTypes.ts";
 import type { CoreSwapped } from "./swapEvent.ts";
 import type { OracleEvent } from "./oracleEvent.ts";
+import type { TwammVirtualOrdersExecutedEvent } from "./twammEvent.ts";
 
 // Data access object that manages inserts/deletes
 export class DAO {
@@ -105,6 +109,17 @@ export class DAO {
         );
         CREATE INDEX IF NOT EXISTS idx_position_transfers_token_id_from_to ON position_transfers (token_id, from_address, to_address);
         CREATE INDEX IF NOT EXISTS idx_position_transfers_to_address ON position_transfers (to_address);
+
+        CREATE TABLE IF NOT EXISTS order_transfers
+        (
+            event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+
+            token_id     int8    NOT NULL,
+            from_address NUMERIC NOT NULL,
+            to_address   NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_order_transfers_token_id_from_to ON order_transfers (token_id, from_address, to_address);
+        CREATE INDEX IF NOT EXISTS idx_order_transfers_to_address ON order_transfers (to_address);
 
         CREATE TABLE IF NOT EXISTS position_updates
         (
@@ -327,7 +342,8 @@ export class DAO {
         );
 
         DELETE
-        FROM per_pool_per_tick_liquidity_incremental_view WHERE TRUE;
+        FROM per_pool_per_tick_liquidity_incremental_view
+        WHERE TRUE;
         INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff,
                                                                   total_liquidity_on_tick)
             (SELECT pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick
@@ -465,6 +481,55 @@ export class DAO {
             FOR EACH ROW
         EXECUTE FUNCTION net_liquidity_deltas_after_update();
 
+        CREATE TABLE IF NOT EXISTS twamm_order_updates
+        (
+            event_id         int8        NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+
+            key_hash         NUMERIC     NOT NULL REFERENCES pool_keys (key_hash),
+
+            owner            NUMERIC     NOT NULL,
+            salt             NUMERIC     NOT NULL,
+            sale_rate_delta0 NUMERIC     NOT NULL,
+            sale_rate_delta1 NUMERIC     NOT NULL,
+            start_time       timestamptz NOT NULL,
+            end_time         timestamptz NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_key_hash_event_id ON twamm_order_updates USING btree (key_hash, event_id);
+        CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_key_hash_time ON twamm_order_updates USING btree (key_hash, start_time, end_time);
+        CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_owner_salt ON twamm_order_updates USING btree (owner, salt);
+        CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_salt ON twamm_order_updates USING btree (salt);
+        CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_salt_key_hash_start_end_owner_event_id ON twamm_order_updates (salt, key_hash, start_time, end_time, owner, event_id);
+
+        CREATE TABLE IF NOT EXISTS twamm_proceeds_withdrawals
+        (
+            event_id   int8        NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+
+            key_hash   NUMERIC     NOT NULL REFERENCES pool_keys (key_hash),
+
+            owner      NUMERIC     NOT NULL,
+            salt       NUMERIC     NOT NULL,
+            amount0    NUMERIC     NOT NULL,
+            amount1    NUMERIC     NOT NULL,
+            start_time timestamptz NOT NULL,
+            end_time   timestamptz NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_key_hash_event_id ON twamm_proceeds_withdrawals USING btree (key_hash, event_id);
+        CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_key_hash_time ON twamm_proceeds_withdrawals USING btree (key_hash, start_time, end_time);
+        CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_owner_salt ON twamm_proceeds_withdrawals USING btree (owner, salt);
+        CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_salt ON twamm_proceeds_withdrawals USING btree (salt);
+        CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_salt_event_id_desc ON twamm_proceeds_withdrawals (salt, event_id DESC);
+
+        CREATE TABLE IF NOT EXISTS twamm_virtual_order_executions
+        (
+            event_id         int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+
+            key_hash         NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+
+            token0_sale_rate NUMERIC NOT NULL,
+            token1_sale_rate NUMERIC NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_twamm_virtual_order_executions_pool_key_hash_event_id ON twamm_virtual_order_executions USING btree (key_hash, event_id DESC);
+
         CREATE TABLE IF NOT EXISTS oracle_snapshots
         (
             event_id                                  int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
@@ -537,7 +602,7 @@ export class DAO {
         SELECT pk.key_hash AS pool_key_hash, MAX(snapshot_block_timestamp) AS last_snapshot_block_timestamp
         FROM oracle_snapshots os
                  JOIN event_keys ek ON ek.id = os.event_id
-                 JOIN pool_keys pk ON ek.emitter = pk.extension
+                 JOIN pool_keys pk ON ek.emitter = pk.extension AND pk.token1 = os.token
         GROUP BY pk.key_hash);
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS oracle_pool_states_materialized AS
@@ -901,7 +966,6 @@ export class DAO {
     transfer: PositionTransfer,
     key: EventKey,
   ) {
-    // The `*` operator is the PostgreSQL range intersection operator.
     await this.pg.query({
       text: `
                 WITH inserted_event AS (
@@ -910,6 +974,37 @@ export class DAO {
                         RETURNING id)
                 INSERT
                 INTO position_transfers
+                (event_id,
+                 token_id,
+                 from_address,
+                 to_address)
+                VALUES ((SELECT id FROM inserted_event), $6, $7, $8)
+            `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        transfer.id,
+        transfer.from,
+        transfer.to,
+      ],
+    });
+  }
+
+  public async insertOrdersTransferEvent(
+    transfer: OrderTransfer,
+    key: EventKey,
+  ) {
+    await this.pg.query({
+      text: `
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
+                        VALUES ($1, $2, $3, $4, $5)
+                        RETURNING id)
+                INSERT
+                INTO order_transfers
                 (event_id,
                  token_id,
                  from_address,
@@ -1207,6 +1302,132 @@ export class DAO {
     });
     if (rowCount === null) throw new Error("Null row count after delete");
     return rowCount;
+  }
+
+  public async insertTWAMMOrderUpdatedEvent(
+    event: TwammOrderUpdated,
+    key: EventKey,
+  ) {
+    const { orderKey } = event;
+
+    const [sale_rate_delta0, sale_rate_delta1] =
+      BigInt(orderKey.sellToken) > BigInt(orderKey.buyToken)
+        ? [0, event.saleRateDelta]
+        : [event.saleRateDelta, 0];
+
+    await this.pg.query({
+      text: `
+                WITH inserted_event AS (
+                    INSERT INTO event_keys
+                        (block_number, transaction_index, event_index, transaction_hash, emitter)
+                        VALUES ($1, $2, $3, $4, $5)
+                        RETURNING id)
+                INSERT
+                INTO twamm_order_updates
+                (event_id,
+                 key_hash,
+                 owner,
+                 salt,
+                 sale_rate_delta0,
+                 sale_rate_delta1,
+                 start_time,
+                 end_time)
+                VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9, $10, $11, $12);
+            `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+
+        event.orderKey,
+
+        BigInt(event.owner),
+        event.salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        new Date(Number(orderKey.startTime * 1000n)),
+        new Date(Number(orderKey.endTime * 1000n)),
+      ],
+    });
+  }
+  public async insertTWAMMOrderProceedsWithdrawnEvent(
+    event: TwammOrderProceedsWithdrawn,
+    key: EventKey,
+  ) {
+    const { orderKey } = event;
+
+    const [amount0, amount1] =
+      BigInt(orderKey.sellToken) > BigInt(orderKey.buyToken)
+        ? [0, event.amount]
+        : [event.amount, 0];
+
+    await this.pg.query({
+      text: `
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
+                        VALUES ($1, $2, $3, $4, $5)
+                        RETURNING id)
+                INSERT
+                INTO twamm_proceeds_withdrawals
+                (event_id, key_hash, owner, salt, amount0, amount1, start_time, end_time)
+                VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9, $10, $11, $12);
+            `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+
+        event.orderKey,
+
+        BigInt(event.owner),
+        event.salt,
+        amount0,
+        amount1,
+        new Date(Number(orderKey.startTime * 1000n)),
+        new Date(Number(orderKey.endTime * 1000n)),
+      ],
+    });
+  }
+
+  public async insertTWAMMVirtualOrdersExecutedEvent(
+    event: TwammVirtualOrdersExecutedEvent,
+    key: EventKey,
+  ) {
+    await this.pg.query({
+      text: `
+          WITH inserted_event AS (
+              INSERT INTO event_keys
+                  (block_number, transaction_index, event_index, transaction_hash, emitter)
+                  VALUES ($1, $2, $3, $4, $5)
+                  RETURNING id)
+          INSERT
+          INTO twamm_virtual_order_executions
+              (event_id, key_hash, token0_sale_rate, token1_sale_rate)
+          VALUES ((SELECT id FROM inserted_event),
+                  (SELECT key_hash
+                   FROM pool_keys
+                   WHERE core_address = (SELECT ek.emitter
+                                         FROM extension_registrations er
+                                                  JOIN event_keys ek ON er.event_id = ek.id
+                                         WHERE er.extension = $5)
+                     AND pool_id = $6), $7, $8, $9, $10);
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+
+        event.poolId,
+        event.saleRateToken0,
+        event.saleRateToken1,
+      ],
+    });
   }
 
   async insertOracleSnapshotEvent(parsed: OracleEvent, key: EventKey) {

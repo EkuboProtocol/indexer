@@ -8,6 +8,7 @@ declare namespace NodeJS {
     POSITIONS_ADDRESS: `0x${string}`;
     ORACLE_ADDRESS: `0x${string}`;
     TWAMM_ADDRESS: `0x${string}`;
+    ORDERS_ADDRESS: `0x${string}`;
 
     STARTING_CURSOR_BLOCK_NUMBER: string;
 

@@ -1,6 +1,12 @@
 import { DAO } from "./dao.ts";
 import type { EventKey } from "./processor.ts";
-import { CORE_ABI, ORACLE_ABI, POSITIONS_ABI, TWAMM_ABI } from "./abis.ts";
+import {
+  CORE_ABI,
+  ORACLE_ABI,
+  ORDERS_ABI,
+  POSITIONS_ABI,
+  TWAMM_ABI,
+} from "./abis.ts";
 import type {
   Abi,
   AbiParameterToPrimitiveType,
@@ -15,7 +21,7 @@ import {
 import { logger } from "./logger.ts";
 import { floatSqrtRatioToFixed, parseSwapEvent } from "./swapEvent.ts";
 import { parseOracleEvent } from "./oracleEvent.ts";
-import { parseTwammEvent } from "./twammEvent.ts";
+import { parseTwammVirtualOrdersExecuted } from "./twammEvent.ts";
 
 export type ContractEvent<
   abi extends Abi,
@@ -109,6 +115,7 @@ const processors: {
   Positions: ContractHandlers<typeof POSITIONS_ABI>;
   Oracle: ContractHandlers<typeof ORACLE_ABI>;
   TWAMM: ContractHandlers<typeof TWAMM_ABI>;
+  Orders: ContractHandlers<typeof ORDERS_ABI>;
 } = {
   Core: {
     address: process.env.CORE_ADDRESS,
@@ -176,19 +183,28 @@ const processors: {
     abi: TWAMM_ABI,
     async noTopics(dao, key, data) {
       if (!data) throw new Error("Event with no data from TWAMM");
-      const event = parseTwammEvent(data);
+      const event = parseTwammVirtualOrdersExecuted(data);
       logger.debug(`Parsed TWAMM Event`, {
         event,
         rawData: data,
       });
-      // await dao.insertVirtualOrdersExecutedEvent(event, key);
+      await dao.insertTWAMMVirtualOrdersExecutedEvent(event, key);
     },
     handlers: {
       async OrderUpdated(dao, key, parsed) {
-        // await dao.insertTwammOrderUpdatedEvent(event, key);
+        await dao.insertTWAMMOrderUpdatedEvent(parsed, key);
       },
       async OrderProceedsWithdrawn(dao, key, parsed) {
-        // await dao.insertTwammOrderProceedsWithdrawnEvent(event, key);
+        await dao.insertTWAMMOrderProceedsWithdrawnEvent(parsed, key);
+      },
+    },
+  },
+  Orders: {
+    address: process.env.ORDERS_ADDRESS,
+    abi: ORDERS_ABI,
+    handlers: {
+      async Transfer(dao, key, parsed) {
+        await dao.insertOrdersTransferEvent(parsed, key);
       },
     },
   },

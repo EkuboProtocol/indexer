@@ -1,4 +1,4 @@
-import { CORE_ABI, POSITIONS_ABI, TWAMM_ABI } from "./abis";
+import { CORE_ABI, ORDERS_ABI, POSITIONS_ABI, TWAMM_ABI } from "./abis";
 import type { ContractEvent } from "./logProcessors.ts";
 
 export type PoolKey = ContractEvent<
@@ -32,6 +32,7 @@ export type CoreFeesAccumulated = ContractEvent<
 >;
 
 export type PositionTransfer = ContractEvent<typeof POSITIONS_ABI, "Transfer">;
+export type OrderTransfer = ContractEvent<typeof ORDERS_ABI, "Transfer">;
 
 export type TwammOrderUpdated = ContractEvent<typeof TWAMM_ABI, "OrderUpdated">;
 export type TwammOrderProceedsWithdrawn = ContractEvent<

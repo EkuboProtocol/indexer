@@ -4230,3 +4230,1003 @@ export const TWAMM_ABI = [
     inputs: [],
   },
 ] as const;
+
+export const ORDERS_ABI = [
+  {
+    type: "constructor",
+    inputs: [
+      {
+        name: "core",
+        type: "address",
+        internalType: "contract ICore",
+      },
+      {
+        name: "_twamm",
+        type: "address",
+        internalType: "contract TWAMM",
+      },
+      {
+        name: "tokenURIGenerator",
+        type: "address",
+        internalType: "contract ITokenURIGenerator",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "approve",
+    inputs: [
+      {
+        name: "account",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "balanceOf",
+    inputs: [
+      {
+        name: "owner",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [
+      {
+        name: "result",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "burn",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "checkDeadline",
+    inputs: [
+      {
+        name: "deadline",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "checkMaximumInputNotExceeded",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "maximumInput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "checkMinimumOutputReceived",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "minimumOutput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "collectProceeds",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "orderKey",
+        type: "tuple",
+        internalType: "struct OrderKey",
+        components: [
+          {
+            name: "sellToken",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "buyToken",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "fee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+          {
+            name: "startTime",
+            type: "uint256",
+            internalType: "uint256",
+          },
+          {
+            name: "endTime",
+            type: "uint256",
+            internalType: "uint256",
+          },
+        ],
+      },
+      {
+        name: "recipient",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [
+      {
+        name: "proceeds",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "decreaseSaleRate",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "orderKey",
+        type: "tuple",
+        internalType: "struct OrderKey",
+        components: [
+          {
+            name: "sellToken",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "buyToken",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "fee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+          {
+            name: "startTime",
+            type: "uint256",
+            internalType: "uint256",
+          },
+          {
+            name: "endTime",
+            type: "uint256",
+            internalType: "uint256",
+          },
+        ],
+      },
+      {
+        name: "saleRateDecrease",
+        type: "uint112",
+        internalType: "uint112",
+      },
+      {
+        name: "minRefund",
+        type: "uint112",
+        internalType: "uint112",
+      },
+      {
+        name: "recipient",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [
+      {
+        name: "refund",
+        type: "uint112",
+        internalType: "uint112",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "getApproved",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "result",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "increaseSellAmount",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "orderKey",
+        type: "tuple",
+        internalType: "struct OrderKey",
+        components: [
+          {
+            name: "sellToken",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "buyToken",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "fee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+          {
+            name: "startTime",
+            type: "uint256",
+            internalType: "uint256",
+          },
+          {
+            name: "endTime",
+            type: "uint256",
+            internalType: "uint256",
+          },
+        ],
+      },
+      {
+        name: "amount",
+        type: "uint112",
+        internalType: "uint112",
+      },
+      {
+        name: "maxSaleRate",
+        type: "uint112",
+        internalType: "uint112",
+      },
+    ],
+    outputs: [
+      {
+        name: "saleRate",
+        type: "uint112",
+        internalType: "uint112",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "isApprovedForAll",
+    inputs: [
+      {
+        name: "owner",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "operator",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [
+      {
+        name: "result",
+        type: "bool",
+        internalType: "bool",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "locked",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "mint",
+    inputs: [],
+    outputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "mint",
+    inputs: [
+      {
+        name: "salt",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "mintAndIncreaseSellAmount",
+    inputs: [
+      {
+        name: "orderKey",
+        type: "tuple",
+        internalType: "struct OrderKey",
+        components: [
+          {
+            name: "sellToken",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "buyToken",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "fee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+          {
+            name: "startTime",
+            type: "uint256",
+            internalType: "uint256",
+          },
+          {
+            name: "endTime",
+            type: "uint256",
+            internalType: "uint256",
+          },
+        ],
+      },
+      {
+        name: "amount",
+        type: "uint112",
+        internalType: "uint112",
+      },
+      {
+        name: "maxSaleRate",
+        type: "uint112",
+        internalType: "uint112",
+      },
+    ],
+    outputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "saleRate",
+        type: "uint112",
+        internalType: "uint112",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "multicall",
+    inputs: [
+      {
+        name: "data",
+        type: "bytes[]",
+        internalType: "bytes[]",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bytes[]",
+        internalType: "bytes[]",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "name",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "string",
+        internalType: "string",
+      },
+    ],
+    stateMutability: "pure",
+  },
+  {
+    type: "function",
+    name: "ownerOf",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "result",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "payCallback",
+    inputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "permit",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "deadline",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "v",
+        type: "uint8",
+        internalType: "uint8",
+      },
+      {
+        name: "r",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+      {
+        name: "s",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "recordBalanceForSlippageCheck",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "refundNativeToken",
+    inputs: [],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "safeTransferFrom",
+    inputs: [
+      {
+        name: "from",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "to",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "safeTransferFrom",
+    inputs: [
+      {
+        name: "from",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "to",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "data",
+        type: "bytes",
+        internalType: "bytes",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "saltToId",
+    inputs: [
+      {
+        name: "minter",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "salt",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "result",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "setApprovalForAll",
+    inputs: [
+      {
+        name: "operator",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "isApproved",
+        type: "bool",
+        internalType: "bool",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "supportsInterface",
+    inputs: [
+      {
+        name: "interfaceId",
+        type: "bytes4",
+        internalType: "bytes4",
+      },
+    ],
+    outputs: [
+      {
+        name: "result",
+        type: "bool",
+        internalType: "bool",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "symbol",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "string",
+        internalType: "string",
+      },
+    ],
+    stateMutability: "pure",
+  },
+  {
+    type: "function",
+    name: "tokenURI",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "string",
+        internalType: "string",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "tokenURIGenerator",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "contract ITokenURIGenerator",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "transferFrom",
+    inputs: [
+      {
+        name: "from",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "to",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "twamm",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "contract TWAMM",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "event",
+    name: "Approval",
+    inputs: [
+      {
+        name: "owner",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "account",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "id",
+        type: "uint256",
+        indexed: true,
+        internalType: "uint256",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "ApprovalForAll",
+    inputs: [
+      {
+        name: "owner",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "operator",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "isApproved",
+        type: "bool",
+        indexed: false,
+        internalType: "bool",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "Transfer",
+    inputs: [
+      {
+        name: "from",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "to",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "id",
+        type: "uint256",
+        indexed: true,
+        internalType: "uint256",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "error",
+    name: "AccountBalanceOverflow",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "BalanceQueryForZeroAddress",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "BaseLockerAccountantOnly",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "CoreOnly",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "ExpectedRevertWithinLock",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "InvalidDuration",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "MaxSaleRateExceeded",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "MaximumInputExceeded",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "maximumInput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "MinimumOutputNotReceived",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "minimumOutput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "MinimumRefund",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "NotOwnerNorApproved",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "OrderAlreadyEnded",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "SaleRateOverflow",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TokenAlreadyExists",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TokenDoesNotExist",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TransactionExpired",
+    inputs: [
+      {
+        name: "deadline",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "TransferFromIncorrectOwner",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TransferToNonERC721ReceiverImplementer",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TransferToZeroAddress",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "Unauthorized",
+    inputs: [
+      {
+        name: "caller",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "UnexpectedCallTypeByte",
+    inputs: [
+      {
+        name: "b",
+        type: "bytes1",
+        internalType: "bytes1",
+      },
+    ],
+  },
+] as const;

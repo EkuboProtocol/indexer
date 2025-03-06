@@ -1,6 +1,6 @@
 import { numberToHex } from "viem";
 
-export interface TwammEvent {
+export interface TwammVirtualOrdersExecutedEvent {
   poolId: `0x${string}`;
   saleRateToken0: bigint;
   saleRateToken1: bigint;
@@ -8,7 +8,9 @@ export interface TwammEvent {
 
 const MAX_UINT112 = (1n << 112n) - 1n;
 
-export function parseTwammEvent(data: `0x${string}`): TwammEvent {
+export function parseTwammVirtualOrdersExecuted(
+  data: `0x${string}`,
+): TwammVirtualOrdersExecutedEvent {
   let n = BigInt(data);
 
   // tickCumulative: int64 (8 bytes)
