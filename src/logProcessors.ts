@@ -56,11 +56,13 @@ export function createContractEventProcessor<
   T extends Abi,
   N extends ContractEventName<T>,
 >({
+  contractName,
   address,
   abi,
   eventName,
   handler: wrappedHandler,
 }: {
+  contractName: string;
   address: `0x${string}`;
   abi: T;
   eventName: N;
@@ -87,7 +89,10 @@ export function createContractEventProcessor<
         strict: true,
       });
 
-      logger.debug(`Processing ${eventName}`, { key, event: result.args });
+      logger.debug(`Processing ${contractName}.${eventName}`, {
+        key,
+        event: result.args,
+      });
       await wrappedHandler(dao, key, result.args as any);
     },
   };
@@ -210,8 +215,8 @@ const processors: {
   },
 };
 
-export const LOG_PROCESSORS = Object.values(processors).flatMap(
-  ({ address, abi, handlers, noTopics }) =>
+export const LOG_PROCESSORS = Object.entries(processors).flatMap(
+  ([contractName, { address, abi, handlers, noTopics }]) =>
     (noTopics
       ? [
           <LogProcessor>{
@@ -231,6 +236,7 @@ export const LOG_PROCESSORS = Object.values(processors).flatMap(
         ? Object.entries(handlers).map(
             ([eventName, handler]): LogProcessor =>
               createContractEventProcessor({
+                contractName,
                 address,
                 abi,
                 eventName: eventName as ExtractAbiEventNames<typeof abi>,
