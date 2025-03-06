@@ -731,8 +731,8 @@ export class DAO {
 
                                                      SELECT pool_key_hash,
                                                             DATE_TRUNC('hour', blocks.time) AS hour,
-                                                            SUM(delta0)                     AS delta0,
-                                                            SUM(delta1)                     AS delta1
+                                                            SUM(-delta0)                     AS delta0,
+                                                            SUM(-delta1)                     AS delta1
                                                      FROM position_fees_collected
                                                               JOIN event_keys ON position_fees_collected.event_id = event_keys.id
                                                               JOIN blocks ON event_keys.block_number = blocks.number
