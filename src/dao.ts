@@ -625,7 +625,7 @@ export class DAO {
               (WITH rev0 AS (SELECT pu.pool_key_hash                AS key_hash,
                                     DATE_TRUNC('hour', blocks.time) AS hour,
                                     pk.token0                          token,
-                                    SUM(CEIL((-delta0 * pk.fee) /
+                                    SUM(CEIL((-delta0 * 0x100000000000000000000000000000000::NUMERIC) /
                                              (0x100000000000000000000000000000000::NUMERIC - pk.fee)) +
                                         delta0)                     AS revenue
                              FROM position_updates pu
@@ -633,20 +633,20 @@ export class DAO {
                                       JOIN event_keys ek ON pu.event_id = ek.id
                                       JOIN blocks ON ek.block_number = blocks.number
                              WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
-                               AND pu.delta0 < 0
+                               AND pu.delta0 < 0 AND pk.fee != 0
                              GROUP BY hour, pu.pool_key_hash, token),
                     rev1 AS (SELECT pu.pool_key_hash                AS key_hash,
                                     DATE_TRUNC('hour', blocks.time) AS hour,
                                     pk.token1                          token,
-                                    SUM(CEIL((-delta0 * pk.fee) /
+                                    SUM(CEIL((-delta1 * 0x100000000000000000000000000000000::NUMERIC) /
                                              (0x100000000000000000000000000000000::NUMERIC - pk.fee)) +
-                                        delta0)                     AS revenue
+                                        delta1)                     AS revenue
                              FROM position_updates pu
                                       JOIN pool_keys pk ON pu.pool_key_hash = pk.key_hash
                                       JOIN event_keys ek ON pu.event_id = ek.id
                                       JOIN blocks ON ek.block_number = blocks.number
                              WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
-                               AND pu.delta1 < 0
+                               AND pu.delta1 < 0 AND pk.fee != 0
                              GROUP BY hour, pu.pool_key_hash, token),
                     total AS (SELECT key_hash, hour, token, revenue
                               FROM rev0
@@ -863,7 +863,7 @@ export class DAO {
   private async insertPoolKey(
     coreAddress: `0x${string}`,
     poolKey: PoolKey,
-    poolId: `0x${string}` = toPoolId(poolKey)
+    poolId: `0x${string}` = toPoolId(poolKey),
   ): Promise<`0x${string}`> {
     const keyHash = toKeyHash(coreAddress, poolId);
 
@@ -899,7 +899,7 @@ export class DAO {
 
   public async insertPositionTransferEvent(
     transfer: PositionTransfer,
-    key: EventKey
+    key: EventKey,
   ) {
     // The `*` operator is the PostgreSQL range intersection operator.
     await this.pg.query({
@@ -931,7 +931,7 @@ export class DAO {
 
   public async insertPositionUpdatedEvent(
     event: CorePositionUpdated,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -978,7 +978,7 @@ export class DAO {
 
   public async insertPositionFeesCollectedEvent(
     event: CorePositionFeesCollected,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -1022,7 +1022,7 @@ export class DAO {
 
   public async insertPoolInitializedEvent(
     event: CorePoolInitialized,
-    key: EventKey
+    key: EventKey,
   ) {
     const poolKeyHash = await this.insertPoolKey(key.emitter, event.poolKey);
 
@@ -1057,7 +1057,7 @@ export class DAO {
 
   public async insertProtocolFeesWithdrawn(
     event: CoreProtocolFeesWithdrawn,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -1088,7 +1088,7 @@ export class DAO {
 
   public async insertExtensionRegistered(
     event: CoreExtensionRegistered,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
@@ -1114,7 +1114,7 @@ export class DAO {
 
   public async insertFeesAccumulatedEvent(
     event: CoreFeesAccumulated,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.pg.query({
       text: `
