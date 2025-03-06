@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 import { Client } from "pg";
 import type { EventKey } from "./processor";
-import { parsePoolKeyConfig, toKeyHash, toPoolId } from "./poolKey.ts";
+import { parsePoolKeyConfig, toKeyHash } from "./poolKey.ts";
 import type {
   CoreExtensionRegistered,
   CoreFeesAccumulated,
@@ -12,8 +12,8 @@ import type {
   PoolKey,
   PositionTransfer,
 } from "./eventTypes.ts";
-import type { CoreSwapped } from "./v2SwapEvent.ts";
-import type { V2OracleEvent } from "./v2OracleEvent.ts";
+import type { CoreSwapped } from "./swapEvent.ts";
+import type { OracleEvent } from "./oracleEvent.ts";
 
 // Data access object that manages inserts/deletes
 export class DAO {
@@ -327,7 +327,7 @@ export class DAO {
         );
 
         DELETE
-        FROM per_pool_per_tick_liquidity_incremental_view;
+        FROM per_pool_per_tick_liquidity_incremental_view WHERE TRUE;
         INSERT INTO per_pool_per_tick_liquidity_incremental_view (pool_key_hash, tick, net_liquidity_delta_diff,
                                                                   total_liquidity_on_tick)
             (SELECT pool_key_hash, tick, net_liquidity_delta_diff, total_liquidity_on_tick
@@ -863,7 +863,7 @@ export class DAO {
   private async insertPoolKey(
     coreAddress: `0x${string}`,
     poolKey: PoolKey,
-    poolId: `0x${string}` = toPoolId(poolKey),
+    poolId: `0x${string}`,
   ): Promise<`0x${string}`> {
     const keyHash = toKeyHash(coreAddress, poolId);
 
@@ -963,7 +963,7 @@ export class DAO {
 
         event.locker,
 
-        "poolId" in event ? event.poolId : toPoolId(event.poolKey),
+        event.poolId,
 
         event.params.salt,
         event.params.bounds.lower,
@@ -1007,7 +1007,7 @@ export class DAO {
         key.transactionHash,
         key.emitter,
 
-        "poolId" in event ? event.poolId : toPoolId(event.poolKey),
+        event.poolId,
 
         event.positionKey.owner,
         event.positionKey.salt,
@@ -1024,7 +1024,11 @@ export class DAO {
     event: CorePoolInitialized,
     key: EventKey,
   ) {
-    const poolKeyHash = await this.insertPoolKey(key.emitter, event.poolKey);
+    const poolKeyHash = await this.insertPoolKey(
+      key.emitter,
+      event.poolKey,
+      event.poolId,
+    );
 
     await this.pg.query({
       text: `
@@ -1139,7 +1143,7 @@ export class DAO {
         key.transactionHash,
         key.emitter,
 
-        "poolId" in event ? event.poolId : toPoolId(event.poolKey),
+        event.poolId,
 
         event.amount0,
         event.amount1,
@@ -1205,7 +1209,7 @@ export class DAO {
     return rowCount;
   }
 
-  async insertOracleSnapshotEvent(parsed: V2OracleEvent, key: EventKey) {
+  async insertOracleSnapshotEvent(parsed: OracleEvent, key: EventKey) {
     await this.pg.query({
       text: `
                 WITH inserted_event AS (

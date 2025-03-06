@@ -24,7 +24,7 @@ export function floatSqrtRatioToFixed(sqrtRatioFloat: bigint): bigint {
   );
 }
 
-export function parseV2SwapEventData(data: `0x${string}`): CoreSwapped {
+export function parseSwapEvent(data: `0x${string}`): CoreSwapped {
   let n = BigInt(data);
 
   // tick: int32 (4 bytes)

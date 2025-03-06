@@ -1,14 +1,14 @@
 import { checksumAddress, numberToHex } from "viem";
-import { toSigned } from "./v2SwapEvent.ts";
+import { toSigned } from "./swapEvent.ts";
 
-export interface V2OracleEvent {
+export interface OracleEvent {
   token: `0x${string}`;
   timestamp: bigint;
   secondsPerLiquidityCumulative: bigint;
   tickCumulative: bigint;
 }
 
-export function parseV2OracleEvent(data: `0x${string}`): V2OracleEvent {
+export function parseOracleEvent(data: `0x${string}`): OracleEvent {
   let n = BigInt(data);
 
   // tickCumulative: int64 (8 bytes)
