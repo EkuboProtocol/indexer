@@ -6,13 +6,15 @@ export interface TwammEvent {
   saleRateToken1: bigint;
 }
 
+const MAX_UINT112 = (1n << 112n) - 1n;
+
 export function parseTwammEvent(data: `0x${string}`): TwammEvent {
   let n = BigInt(data);
 
   // tickCumulative: int64 (8 bytes)
-  const saleRateToken1 = n & ((1n << 112n) - 1n);
+  const saleRateToken1 = n & MAX_UINT112;
   n >>= 112n;
-  const saleRateToken0 = n & ((1n << 112n) - 1n);
+  const saleRateToken0 = n & MAX_UINT112;
   n >>= 112n;
   const poolId = numberToHex(n, { size: 32 });
 
