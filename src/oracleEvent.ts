@@ -22,7 +22,7 @@ export function parseOracleEvent(data: `0x${string}`): OracleEvent {
 
   // timestamp: uint64 (8 bytes)
   const timestamp = BigInt(n & ((1n << 64n) - 1n));
-  n >>= 64n;
+  n >>= 32n;
 
   // token: address (20 bytes)
   const tokenBigInt = n & ((1n << 160n) - 1n);
