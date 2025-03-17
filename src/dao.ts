@@ -710,26 +710,26 @@ export class DAO {
   public async refreshAnalyticalTables({ since }: { since: Date }) {
     await this.pg.query({
       text: `
-                INSERT INTO hourly_volume_by_token
-                    (SELECT swaps.pool_key_hash                                                      AS   key_hash,
-                            DATE_TRUNC('hour', blocks.time)                                          AS   hour,
-                            (CASE WHEN swaps.delta0 >= 0 THEN pool_keys.token0 ELSE pool_keys.token1 END) token,
-                            SUM(CASE WHEN swaps.delta0 >= 0 THEN swaps.delta0 ELSE swaps.delta1 END) AS   volume,
-                            SUM(FLOOR(((CASE WHEN delta0 >= 0 THEN swaps.delta0 ELSE swaps.delta1 END) *
-                                       pool_keys.fee) /
-                                      340282366920938463463374607431768211456))                      AS   fees,
-                            COUNT(1)                                                                 AS   swap_count
-                     FROM swaps
-                              JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
-                              JOIN event_keys ON swaps.event_id = event_keys.id
-                              JOIN blocks ON event_keys.block_number = blocks.number
-                     WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
-                     GROUP BY hour, swaps.pool_key_hash, token)
-                ON CONFLICT (key_hash, hour, token)
-                    DO UPDATE SET volume     = excluded.volume,
-                                  fees       = excluded.fees,
-                                  swap_count = excluded.swap_count;
-            `,
+          INSERT INTO hourly_volume_by_token
+              (SELECT swaps.pool_key_hash                                                      AS   key_hash,
+                      DATE_TRUNC('hour', blocks.time)                                          AS   hour,
+                      (CASE WHEN swaps.delta0 >= 0 THEN pool_keys.token0 ELSE pool_keys.token1 END) token,
+                      SUM(CASE WHEN swaps.delta0 >= 0 THEN swaps.delta0 ELSE swaps.delta1 END) AS   volume,
+                      SUM(FLOOR(((CASE WHEN delta0 >= 0 THEN swaps.delta0 ELSE swaps.delta1 END) *
+                                 pool_keys.fee) /
+                                0x10000000000000000))                                          AS   fees,
+                      COUNT(1)                                                                 AS   swap_count
+               FROM swaps
+                        JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
+                        JOIN event_keys ON swaps.event_id = event_keys.id
+                        JOIN blocks ON event_keys.block_number = blocks.number
+               WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
+               GROUP BY hour, swaps.pool_key_hash, token)
+          ON CONFLICT (key_hash, hour, token)
+              DO UPDATE SET volume     = excluded.volume,
+                            fees       = excluded.fees,
+                            swap_count = excluded.swap_count;
+      `,
       values: [since],
     });
 
