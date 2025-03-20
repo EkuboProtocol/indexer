@@ -783,8 +783,8 @@ export class DAO {
                     (WITH rev0 AS (SELECT pu.pool_key_hash                AS key_hash,
                                           DATE_TRUNC('hour', blocks.time) AS hour,
                                           pk.token0                          token,
-                                          SUM(CEIL((-delta0 * 0x100000000000000000000000000000000::NUMERIC) /
-                                                   (0x100000000000000000000000000000000::NUMERIC - pk.fee)) +
+                                          SUM(CEIL((-delta0 * 0x10000000000000000::NUMERIC) /
+                                                   (0x10000000000000000::NUMERIC - pk.fee)) +
                                               delta0)                     AS revenue
                                    FROM position_updates pu
                                             JOIN pool_keys pk ON pu.pool_key_hash = pk.key_hash
@@ -797,8 +797,8 @@ export class DAO {
                           rev1 AS (SELECT pu.pool_key_hash                AS key_hash,
                                           DATE_TRUNC('hour', blocks.time) AS hour,
                                           pk.token1                          token,
-                                          SUM(CEIL((-delta1 * 0x100000000000000000000000000000000::NUMERIC) /
-                                                   (0x100000000000000000000000000000000::NUMERIC - pk.fee)) +
+                                          SUM(CEIL((-delta1 * 0x10000000000000000::NUMERIC) /
+                                                   (0x10000000000000000::NUMERIC - pk.fee)) +
                                               delta1)                     AS revenue
                                    FROM position_updates pu
                                             JOIN pool_keys pk ON pu.pool_key_hash = pk.key_hash
@@ -872,13 +872,13 @@ export class DAO {
                                                                   DATE_TRUNC('hour', blocks.time) AS hour,
                                                                   SUM(CASE
                                                                           WHEN liquidity_delta < 0 THEN CEIL(
-                                                                                  (delta0 * 0x100000000000000000000000000000000::NUMERIC) /
-                                                                                  (0x100000000000000000000000000000000::NUMERIC - pk.fee))
+                                                                                  (delta0 * 0x10000000000000000::NUMERIC) /
+                                                                                  (0x10000000000000000::NUMERIC - pk.fee))
                                                                           ELSE delta0 END)        AS delta0,
                                                                   SUM(CASE
                                                                           WHEN liquidity_delta < 0 THEN CEIL(
-                                                                                  (delta1 * 0x100000000000000000000000000000000::NUMERIC) /
-                                                                                  (0x100000000000000000000000000000000::NUMERIC - pk.fee))
+                                                                                  (delta1 * 0x10000000000000000::NUMERIC) /
+                                                                                  (0x10000000000000000::NUMERIC - pk.fee))
                                                                           ELSE delta1 END)        AS delta1
                                                            FROM position_updates pu
                                                                     JOIN event_keys ON pu.event_id = event_keys.id
