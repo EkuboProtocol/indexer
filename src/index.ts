@@ -257,6 +257,7 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
 })()
   .then(() => {
     logger.info("Stream closed gracefully");
+    process.exit(0);
   })
   .catch((error) => {
     logger.error(error);
