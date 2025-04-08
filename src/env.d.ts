@@ -18,5 +18,7 @@ declare namespace NodeJS {
     APIBARA_URL: string;
 
     PG_CONNECTION_STRING: string;
+    
+    NO_BLOCKS_TIMEOUT_MS: string; // Time in milliseconds before exiting if no blocks are received
   }
 }
