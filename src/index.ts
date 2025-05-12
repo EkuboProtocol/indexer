@@ -4,16 +4,24 @@ import { logger } from "./logger";
 import { DAO } from "./dao";
 import { Pool } from "pg";
 import { throttle } from "tadaaa";
-import { EvmStream, Filter } from "@apibara/evm";
+import { EvmStream } from "@apibara/evm";
 import { LOG_PROCESSORS } from "./logProcessors.ts";
-import { createClient } from "@apibara/protocol";
+import { createClient, Metadata } from "@apibara/protocol";
 
 const pool = new Pool({
   connectionString: process.env.PG_CONNECTION_STRING,
   connectionTimeoutMillis: 1000,
 });
 
-const streamClient = createClient(EvmStream, process.env.APIBARA_URL);
+const streamClient = createClient(EvmStream, process.env.APIBARA_URL, {
+  defaultCallOptions: {
+    "*": {
+      metadata: Metadata({
+        Authorization: `Bearer ${process.env.DNA_TOKEN}`,
+      }),
+    },
+  },
+});
 
 // Timer for exiting if no blocks are received within the configured time
 const NO_BLOCKS_TIMEOUT_MS = parseInt(process.env.NO_BLOCKS_TIMEOUT_MS || "0");
@@ -25,11 +33,13 @@ function resetNoBlocksTimer() {
   if (noBlocksTimer) {
     clearTimeout(noBlocksTimer);
   }
-  
+
   // Only set a new timer if the timeout is greater than 0
   if (NO_BLOCKS_TIMEOUT_MS > 0) {
     noBlocksTimer = setTimeout(() => {
-      logger.error(`No blocks received in the last ${msToHumanShort(NO_BLOCKS_TIMEOUT_MS)}. Exiting process.`);
+      logger.error(
+        `No blocks received in the last ${msToHumanShort(NO_BLOCKS_TIMEOUT_MS)}. Exiting process.`,
+      );
       process.exit(1);
     }, NO_BLOCKS_TIMEOUT_MS);
   }
@@ -109,36 +119,34 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
   }
 
   let lastIsHead = false;
-  
+
   // Start the no-blocks timer when application starts
   resetNoBlocksTimer();
 
-  for await (const message of streamClient.streamData(
-    EvmStream.Request.make({
-      filter: [
-        Filter.make({
-          logs: LOG_PROCESSORS.map((lp, ix) => ({
-            id: ix + 1,
-            address: lp.address,
-            topics: lp.filter.topics,
-            strict: lp.filter.strict,
-          })),
-        }),
-      ],
-      finality: "accepted",
-      startingCursor: databaseStartingCursor
-        ? databaseStartingCursor
-        : { orderKey: BigInt(process.env.STARTING_CURSOR_BLOCK_NUMBER ?? 0) },
-      heartbeatInterval: {
-        seconds: 10n,
-        nanos: 0,
+  for await (const message of streamClient.streamData({
+    filter: [
+      {
+        logs: LOG_PROCESSORS.map((lp, ix) => ({
+          id: ix + 1,
+          address: lp.address,
+          topics: lp.filter.topics,
+          strict: lp.filter.strict,
+        })),
       },
-    }),
-  )) {
+    ],
+    finality: "accepted",
+    startingCursor: databaseStartingCursor
+      ? databaseStartingCursor
+      : { orderKey: BigInt(process.env.STARTING_CURSOR_BLOCK_NUMBER ?? 0) },
+    heartbeatInterval: {
+      seconds: 10n,
+      nanos: 0,
+    },
+  })) {
     switch (message._tag) {
       case "heartbeat": {
         logger.info(`Heartbeat`);
-        
+
         // Note: We don't reset the no-blocks timer on heartbeats, only when actual blocks are received
         break;
       }
@@ -182,7 +190,7 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
       case "data": {
         // Reset the no-blocks timer since we received block data
         resetNoBlocksTimer();
-        
+
         const blockProcessingTimer = logger.startTimer();
 
         const client = await pool.connect();
