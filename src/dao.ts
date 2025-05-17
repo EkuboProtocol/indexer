@@ -1325,8 +1325,8 @@ export class DAO {
                  amount0,
                  amount1)
                 VALUES ((SELECT id FROM inserted_event),
-                        (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7),
-                        $8, $9);
+                        (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $6),
+                        $7, $8);
             `,
       values: [
         key.blockNumber,
