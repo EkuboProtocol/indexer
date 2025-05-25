@@ -14,6 +14,8 @@ import type {
   CorePositionFeesCollected,
   CorePositionUpdated,
   CoreProtocolFeesWithdrawn,
+  IncentivesFunded,
+  IncentivesRefunded,
   OrderTransfer,
   PoolKey,
   PositionTransfer,
@@ -27,7 +29,6 @@ import type { TwammVirtualOrdersExecutedEvent } from "./twammEvent.ts";
 // Data access object that manages inserts/deletes
 export class DAO {
   private pg: Client | PoolClient;
-
   constructor(pg: Client | PoolClient) {
     this.pg = pg;
   }
@@ -633,6 +634,26 @@ export class DAO {
             snapshot_seconds_per_liquidity_cumulative NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_oracle_snapshots_token_snapshot_block_timestamp ON oracle_snapshots USING btree (token, snapshot_block_timestamp);
+
+        CREATE TABLE IF NOT EXISTS incentives_funded
+        (
+            event_id    int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+
+            owner       NUMERIC NOT NULL,
+            token       NUMERIC NOT NULL,
+            root        NUMERIC NOT NULL,
+            amount_next NUMERIC NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS incentives_refunded
+        (
+            event_id      int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+
+            owner         NUMERIC NOT NULL,
+            token         NUMERIC NOT NULL,
+            root          NUMERIC NOT NULL,
+            refund_amount NUMERIC NOT NULL
+        );
 
         CREATE OR REPLACE VIEW last_24h_pool_stats_view AS
         (
@@ -1585,6 +1606,60 @@ export class DAO {
         parsed.timestamp,
         parsed.tickCumulative,
         parsed.secondsPerLiquidityCumulative,
+      ],
+    });
+  }
+
+  async insertIncentivesRefundedEvent(
+    key: EventKey,
+    parsed: IncentivesRefunded,
+  ) {
+    await this.pg.query({
+      text: `
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
+                        VALUES ($1, $2, $3, $4, $5)
+                        RETURNING id)
+                INSERT
+                INTO incentives_refunded
+                (event_id, owner, token, root, refund_amount)
+                VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9)
+            `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        parsed.key.owner,
+        parsed.key.token,
+        parsed.key.root,
+        parsed.refundAmount,
+      ],
+    });
+  }
+  async insertIncentivesFundedEvent(key: EventKey, parsed: IncentivesFunded) {
+    await this.pg.query({
+      text: `
+          WITH inserted_event AS (
+              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
+                  VALUES ($1, $2, $3, $4, $5)
+                  RETURNING id)
+          INSERT
+          INTO incentives_funded
+              (event_id, owner, token, root, amount_next)
+          VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9)
+      `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        parsed.key.owner,
+        parsed.key.token,
+        parsed.key.root,
+        parsed.amountNext,
       ],
     });
   }

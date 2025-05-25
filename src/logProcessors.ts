@@ -2,6 +2,7 @@ import { DAO } from "./dao.ts";
 import type { EventKey } from "./processor.ts";
 import {
   CORE_ABI,
+  INCENTIVES_ABI,
   ORACLE_ABI,
   ORDERS_ABI,
   POSITIONS_ABI,
@@ -121,6 +122,7 @@ const processors: {
   Oracle: ContractHandlers<typeof ORACLE_ABI>;
   TWAMM: ContractHandlers<typeof TWAMM_ABI>;
   Orders: ContractHandlers<typeof ORDERS_ABI>;
+  Incentives: ContractHandlers<typeof INCENTIVES_ABI>;
 } = {
   Core: {
     address: process.env.CORE_ADDRESS,
@@ -210,6 +212,18 @@ const processors: {
     handlers: {
       async Transfer(dao, key, parsed) {
         await dao.insertOrdersTransferEvent(parsed, key);
+      },
+    },
+  },
+  Incentives: {
+    address: process.env.INCENTIVES_ADDRESS,
+    abi: INCENTIVES_ABI,
+    handlers: {
+      async Funded(dao, key, event) {
+        await dao.insertIncentivesFundedEvent(key, event);
+      },
+      async Refunded(dao, key, event) {
+        await dao.insertIncentivesRefundedEvent(key, event);
       },
     },
   },
