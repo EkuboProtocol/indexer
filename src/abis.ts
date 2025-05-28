@@ -5438,6 +5438,47 @@ export const INCENTIVES_ABI = [
   },
   {
     type: "function",
+    name: "isClaimed",
+    inputs: [
+      {
+        name: "key",
+        type: "tuple",
+        internalType: "struct DropKey",
+        components: [
+          {
+            name: "owner",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "root",
+            type: "bytes32",
+            internalType: "bytes32",
+          },
+        ],
+      },
+      {
+        name: "index",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
     name: "multicall",
     inputs: [
       {
