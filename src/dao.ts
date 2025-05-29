@@ -770,6 +770,9 @@ export class DAO {
                int4(FLOOR(LOG(EXP(realized_volatility)) / LOG(1.000001::NUMERIC))) AS volatility_in_ticks
         FROM realized_volatility_by_pair
         WHERE realized_volatility IS NOT NULL);
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_token_pair_realized_volatility_pair
+            ON token_pair_realized_volatility (token0, token1);
     `);
   }
 
