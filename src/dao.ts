@@ -726,7 +726,6 @@ export class DAO {
         FROM oracle_pool_states_view);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_oracle_pool_states_materialized_pool_key_hash ON oracle_pool_states_materialized USING btree (pool_key_hash);
 
-        DROP MATERIALIZED VIEW IF EXISTS token_pair_realized_volatility;
         CREATE MATERIALIZED VIEW IF NOT EXISTS token_pair_realized_volatility AS
         (
         WITH times AS (SELECT blocks.time - INTERVAL '3 days' AS start_time,
