@@ -293,6 +293,18 @@ export class DAO {
             PRIMARY KEY (token0, token1, hour)
         );
 
+        CREATE TABLE IF NOT EXISTS hourly_twap_data
+        (
+            token0              NUMERIC,
+            token1              NUMERIC,
+            hour                timestamptz,
+            time_weighted_tick  NUMERIC,
+            average_price       NUMERIC,
+            total_time_seconds  NUMERIC,
+            swap_count          NUMERIC,
+            PRIMARY KEY (token0, token1, hour)
+        );
+
 
         CREATE TABLE IF NOT EXISTS hourly_tvl_delta_by_token
         (
@@ -981,6 +993,88 @@ export class DAO {
                     DO UPDATE SET k_volume   = excluded.k_volume,
                                   total      = excluded.total,
                                   swap_count = excluded.swap_count;
+            `,
+      values: [since],
+    });
+
+    await this.pg.query({
+      text: `
+                INSERT INTO hourly_twap_data
+                    (WITH swap_times AS (
+                        SELECT pk.token0,
+                               pk.token1,
+                               date_bin(INTERVAL '1 hour', b.time, '2000-01-01 00:00:00'::TIMESTAMP WITHOUT TIME ZONE) AS hour,
+                               b.time,
+                               s.tick_after,
+                               LAG(b.time) OVER (PARTITION BY pk.token0, pk.token1, 
+                                   date_bin(INTERVAL '1 hour', b.time, '2000-01-01 00:00:00'::TIMESTAMP WITHOUT TIME ZONE) 
+                                   ORDER BY b.time) AS prev_time,
+                               LAG(s.tick_after) OVER (PARTITION BY pk.token0, pk.token1, 
+                                   date_bin(INTERVAL '1 hour', b.time, '2000-01-01 00:00:00'::TIMESTAMP WITHOUT TIME ZONE) 
+                                   ORDER BY b.time) AS prev_tick
+                        FROM swaps s
+                                 JOIN event_keys ek ON s.event_id = ek.id
+                                 JOIN blocks b ON ek.block_number = b.number
+                                 JOIN pool_keys pk ON s.pool_key_hash = pk.key_hash
+                        WHERE DATE_TRUNC('hour', b.time) >= DATE_TRUNC('hour', $1::timestamptz)
+                          AND delta0 != 0
+                          AND delta1 != 0
+                    ),
+                    tick_durations AS (
+                        SELECT token0,
+                               token1,
+                               hour,
+                               tick_after,
+                               CASE 
+                                   WHEN prev_time IS NULL THEN 
+                                       EXTRACT(EPOCH FROM (time - hour))
+                                   ELSE 
+                                       EXTRACT(EPOCH FROM (time - prev_time))
+                               END AS duration_seconds,
+                               CASE 
+                                   WHEN prev_tick IS NULL THEN tick_after
+                                   ELSE prev_tick
+                               END AS effective_tick
+                        FROM swap_times
+                        UNION ALL
+                        SELECT token0,
+                               token1,
+                               hour,
+                               tick_after,
+                               EXTRACT(EPOCH FROM ((hour + INTERVAL '1 hour') - time)) AS duration_seconds,
+                               tick_after AS effective_tick
+                        FROM (
+                            SELECT DISTINCT ON (token0, token1, hour) 
+                                   token0, token1, hour, time, tick_after
+                            FROM swap_times
+                            ORDER BY token0, token1, hour, time DESC
+                        ) last_swaps
+                    ),
+                    twap_calculations AS (
+                        SELECT token0,
+                               token1,
+                               hour,
+                               SUM(effective_tick * duration_seconds) / NULLIF(SUM(duration_seconds), 0) AS time_weighted_tick,
+                               SUM(duration_seconds) AS total_time_seconds,
+                               COUNT(*) / 2 AS swap_count
+                        FROM tick_durations
+                        WHERE duration_seconds > 0
+                        GROUP BY token0, token1, hour
+                    )
+                    SELECT token0,
+                           token1,
+                           hour,
+                           time_weighted_tick,
+                           POWER(1.0001::NUMERIC, time_weighted_tick) AS average_price,
+                           total_time_seconds,
+                           swap_count
+                    FROM twap_calculations
+                    WHERE time_weighted_tick IS NOT NULL)
+                ON CONFLICT (token0, token1, hour)
+                    DO UPDATE SET time_weighted_tick = excluded.time_weighted_tick,
+                                  average_price      = excluded.average_price,
+                                  total_time_seconds = excluded.total_time_seconds,
+                                  swap_count         = excluded.swap_count;
             `,
       values: [since],
     });
