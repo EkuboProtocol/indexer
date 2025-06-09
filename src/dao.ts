@@ -636,32 +636,31 @@ export class DAO {
         );
         CREATE INDEX IF NOT EXISTS idx_oracle_snapshots_token_snapshot_block_timestamp ON oracle_snapshots USING btree (token, snapshot_block_timestamp);
 
-        CREATE TABLE IF NOT EXISTS mev_resist_tick_updates
+        CREATE TABLE IF NOT EXISTS mev_resist_pool_keys
         (
-            event_id      int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
-            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
-            tick          int4    NOT NULL
+            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash) PRIMARY KEY
         );
-        CREATE INDEX IF NOT EXISTS idx_mev_resist_tick_updates ON mev_resist_tick_updates USING btree (pool_key_hash, event_id);
 
         CREATE OR REPLACE VIEW mev_resist_pool_states AS
         (
-        WITH last_event_id_per_pool AS (SELECT pool_key_hash, MAX(event_id) last_event_id
-                                        FROM mev_resist_tick_updates
-                                        GROUP BY pool_key_hash)
-        SELECT leipp.pool_key_hash,
-               leipp.last_event_id AS last_update_event_id,
-               b.time              AS update_timestamp,
-               mrtu.tick           AS tick
-        FROM last_event_id_per_pool leipp
-                 JOIN mev_resist_tick_updates mrtu ON leipp.last_event_id = mrtu.event_id
-                 JOIN event_keys ek ON leipp.last_event_id = ek.id
+        WITH last_swap_per_pool AS (SELECT s.pool_key_hash, MAX(event_id) last_swap_event_id
+                                    FROM swaps s
+                                             JOIN mev_resist_pool_keys m ON s.pool_key_hash = m.pool_key_hash
+                                    GROUP BY s.pool_key_hash)
+        SELECT lspp.pool_key_hash,
+               b.time                          AS update_timestamp,
+               COALESCE(s.tick_after, pi.tick) AS tick
+        FROM pool_initializations pi
+                 JOIN mev_resist_pool_keys mrpk ON pi.pool_key_hash = mrpk.pool_key_hash
+                 JOIN last_swap_per_pool lspp ON pi.pool_key_hash = lspp.pool_key_hash
+                 JOIN swaps s ON lspp.last_swap_event_id = s.event_id
+                 JOIN event_keys ek ON lspp.last_swap_event_id = ek.id
                  JOIN blocks b ON ek.block_number = b.number
             );
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS mev_resist_pool_states_materialized AS
         (
-        SELECT pool_key_hash, last_update_event_id, update_timestamp, tick
+        SELECT pool_key_hash, update_timestamp, tick
         FROM mev_resist_pool_states);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_mev_resist_pool_states_materialized ON mev_resist_pool_states_materialized (pool_key_hash);
 
@@ -1393,16 +1392,14 @@ export class DAO {
   public async insertPoolInitializedEvent(
     event: CorePoolInitialized,
     key: EventKey,
-  ): Promise<bigint> {
+  ): Promise<`0x${string}`> {
     const poolKeyHash = await this.insertPoolKey(
       key.emitter,
       event.poolKey,
       event.poolId,
     );
 
-    const {
-      rows: [{ event_id: eventId }],
-    } = await this.pg.query<{ event_id: string }>({
+    await this.pg.query({
       text: `
                 WITH inserted_event AS (
                     INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
@@ -1415,7 +1412,6 @@ export class DAO {
                  tick,
                  sqrt_ratio)
                 VALUES ((SELECT id FROM inserted_event), $6, $7, $8)
-                RETURNING event_id;
             `,
       values: [
         key.blockNumber,
@@ -1431,25 +1427,17 @@ export class DAO {
       ],
     });
 
-    return BigInt(eventId);
+    return poolKeyHash;
   }
 
-  public async insertMEVResistTickUpdatedEvent(
-    eventId: bigint,
-    poolId: string,
-    tick: number,
-  ) {
+  public async insertMEVResistPoolKey(poolKeyHash: `0x${string}`) {
     await this.pg.query({
       text: `
           INSERT
-          INTO mev_resist_tick_updates
-              (event_id, pool_key_hash, tick)
-          VALUES ($1, (SELECT key_hash
-                       FROM pool_keys
-                       WHERE core_address = (SELECT emitter FROM event_keys WHERE id = $1)
-                         AND pool_id = $2), $3);
+          INTO mev_resist_pool_keys (pool_key_hash)
+          VALUES ($1::numeric);
       `,
-      values: [eventId, poolId, tick],
+      values: [poolKeyHash],
     });
   }
 
