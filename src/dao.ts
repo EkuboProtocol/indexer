@@ -641,29 +641,6 @@ export class DAO {
             pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash) PRIMARY KEY
         );
 
-        CREATE OR REPLACE VIEW mev_resist_pool_states AS
-        (
-        WITH last_swap_per_pool AS (SELECT s.pool_key_hash, MAX(event_id) last_swap_event_id
-                                    FROM swaps s
-                                             JOIN mev_resist_pool_keys m ON s.pool_key_hash = m.pool_key_hash
-                                    GROUP BY s.pool_key_hash)
-        SELECT lspp.pool_key_hash,
-               b.time                          AS update_timestamp,
-               COALESCE(s.tick_after, pi.tick) AS tick
-        FROM pool_initializations pi
-                 JOIN mev_resist_pool_keys mrpk ON pi.pool_key_hash = mrpk.pool_key_hash
-                 JOIN last_swap_per_pool lspp ON pi.pool_key_hash = lspp.pool_key_hash
-                 JOIN swaps s ON lspp.last_swap_event_id = s.event_id
-                 JOIN event_keys ek ON lspp.last_swap_event_id = ek.id
-                 JOIN blocks b ON ek.block_number = b.number
-            );
-
-        CREATE MATERIALIZED VIEW IF NOT EXISTS mev_resist_pool_states_materialized AS
-        (
-        SELECT pool_key_hash, update_timestamp, tick
-        FROM mev_resist_pool_states);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_mev_resist_pool_states_materialized ON mev_resist_pool_states_materialized (pool_key_hash);
-
         CREATE TABLE IF NOT EXISTS incentives_funded
         (
             event_id    int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
@@ -1131,7 +1108,6 @@ export class DAO {
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_pool_states_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_sale_rate_deltas_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY oracle_pool_states_materialized;
-      REFRESH MATERIALIZED VIEW CONCURRENTLY mev_resist_pool_states_materialized;
     `);
   }
 
