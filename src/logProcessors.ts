@@ -23,6 +23,7 @@ import { logger } from "./logger.ts";
 import { floatSqrtRatioToFixed, parseSwapEvent } from "./swapEvent.ts";
 import { parseOracleEvent } from "./oracleEvent.ts";
 import { parseTwammVirtualOrdersExecuted } from "./twammEvent.ts";
+import { parsePoolKeyConfig } from "./poolKey.ts";
 
 export type ContractEvent<
   abi extends Abi,
@@ -116,6 +117,8 @@ type ContractHandlers<T extends Abi> = {
   ) => Promise<void>;
 };
 
+const MEV_RESIST_ADDRESS = BigInt(process.env.MEV_RESIST_ADDRESS);
+
 const processors: {
   Core: ContractHandlers<typeof CORE_ABI>;
   Positions: ContractHandlers<typeof POSITIONS_ABI>;
@@ -138,13 +141,22 @@ const processors: {
     },
     handlers: {
       async PoolInitialized(dao, key, parsed) {
-        await dao.insertPoolInitializedEvent(
+        const eventId = await dao.insertPoolInitializedEvent(
           {
             ...parsed,
             sqrtRatio: floatSqrtRatioToFixed(parsed.sqrtRatio),
           },
           key,
         );
+
+        const { extension } = parsePoolKeyConfig(parsed.poolKey.config);
+        if (BigInt(extension) === MEV_RESIST_ADDRESS) {
+          await dao.insertMEVResistTickUpdatedEvent(
+            eventId,
+            parsed.poolId,
+            parsed.tick,
+          );
+        }
       },
       async PositionUpdated(dao, key, parsed) {
         await dao.insertPositionUpdatedEvent(parsed, key);

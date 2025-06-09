@@ -29,6 +29,7 @@ import type { TwammVirtualOrdersExecutedEvent } from "./twammEvent.ts";
 // Data access object that manages inserts/deletes
 export class DAO {
   private pg: Client | PoolClient;
+
   constructor(pg: Client | PoolClient) {
     this.pg = pg;
   }
@@ -635,6 +636,35 @@ export class DAO {
         );
         CREATE INDEX IF NOT EXISTS idx_oracle_snapshots_token_snapshot_block_timestamp ON oracle_snapshots USING btree (token, snapshot_block_timestamp);
 
+        CREATE TABLE IF NOT EXISTS mev_resist_tick_updates
+        (
+            event_id      int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            tick          int4    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_mev_resist_tick_updates ON mev_resist_tick_updates USING btree (pool_key_hash, event_id);
+
+        CREATE OR REPLACE VIEW mev_resist_pool_states AS
+        (
+        WITH last_event_id_per_pool AS (SELECT pool_key_hash, MAX(event_id) last_event_id
+                                        FROM mev_resist_tick_updates
+                                        GROUP BY pool_key_hash)
+        SELECT leipp.pool_key_hash,
+               leipp.last_event_id AS last_update_event_id,
+               b.time              AS update_timestamp,
+               mrtu.tick           AS tick
+        FROM last_event_id_per_pool leipp
+                 JOIN mev_resist_tick_updates mrtu ON leipp.last_event_id = mrtu.event_id
+                 JOIN event_keys ek ON leipp.last_event_id = ek.id
+                 JOIN blocks b ON ek.block_number = b.number
+            );
+
+        CREATE MATERIALIZED VIEW IF NOT EXISTS mev_resist_pool_states_materialized AS
+        (
+        SELECT pool_key_hash, last_update_event_id, update_timestamp, tick
+        FROM mev_resist_pool_states);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_mev_resist_pool_states_materialized ON mev_resist_pool_states_materialized (pool_key_hash);
+
         CREATE TABLE IF NOT EXISTS incentives_funded
         (
             event_id    int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
@@ -847,26 +877,26 @@ export class DAO {
   public async refreshAnalyticalTables({ since }: { since: Date }) {
     await this.pg.query({
       text: `
-          INSERT INTO hourly_volume_by_token
-              (SELECT swaps.pool_key_hash                                                      AS   key_hash,
-                      DATE_TRUNC('hour', blocks.time)                                          AS   hour,
-                      (CASE WHEN swaps.delta0 >= 0 THEN pool_keys.token0 ELSE pool_keys.token1 END) token,
-                      SUM(CASE WHEN swaps.delta0 >= 0 THEN swaps.delta0 ELSE swaps.delta1 END) AS   volume,
-                      SUM(FLOOR(((CASE WHEN delta0 >= 0 THEN swaps.delta0 ELSE swaps.delta1 END) *
-                                 pool_keys.fee) /
-                                0x10000000000000000))                                          AS   fees,
-                      COUNT(1)                                                                 AS   swap_count
-               FROM swaps
-                        JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
-                        JOIN event_keys ON swaps.event_id = event_keys.id
-                        JOIN blocks ON event_keys.block_number = blocks.number
-               WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
-               GROUP BY hour, swaps.pool_key_hash, token)
-          ON CONFLICT (key_hash, hour, token)
-              DO UPDATE SET volume     = excluded.volume,
-                            fees       = excluded.fees,
-                            swap_count = excluded.swap_count;
-      `,
+                INSERT INTO hourly_volume_by_token
+                    (SELECT swaps.pool_key_hash                                                      AS   key_hash,
+                            DATE_TRUNC('hour', blocks.time)                                          AS   hour,
+                            (CASE WHEN swaps.delta0 >= 0 THEN pool_keys.token0 ELSE pool_keys.token1 END) token,
+                            SUM(CASE WHEN swaps.delta0 >= 0 THEN swaps.delta0 ELSE swaps.delta1 END) AS   volume,
+                            SUM(FLOOR(((CASE WHEN delta0 >= 0 THEN swaps.delta0 ELSE swaps.delta1 END) *
+                                       pool_keys.fee) /
+                                      0x10000000000000000))                                          AS   fees,
+                            COUNT(1)                                                                 AS   swap_count
+                     FROM swaps
+                              JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
+                              JOIN event_keys ON swaps.event_id = event_keys.id
+                              JOIN blocks ON event_keys.block_number = blocks.number
+                     WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
+                     GROUP BY hour, swaps.pool_key_hash, token)
+                ON CONFLICT (key_hash, hour, token)
+                    DO UPDATE SET volume     = excluded.volume,
+                                  fees       = excluded.fees,
+                                  swap_count = excluded.swap_count;
+            `,
       values: [since],
     });
 
@@ -961,58 +991,58 @@ export class DAO {
 
     await this.pg.query({
       text: `
-          WITH total_swaps_per_block_pair AS (SELECT ek.block_number,
-                                                     pk.token0   AS token0,
-                                                     pk.token1   AS token1,
-                                                     SUM(delta0) AS total_delta0,
-                                                     SUM(delta1) AS total_delta1,
-                                                     COUNT(1)    AS swap_count
-                                              FROM swaps s
-                                                       JOIN event_keys ek ON s.event_id = ek.id
-                                                       JOIN pool_keys pk ON s.pool_key_hash = pk.key_hash
-                                              GROUP BY block_number, pk.token0, pk.token1)
-          INSERT
-          INTO hourly_price_data
-              (SELECT token0,
-                      token1,
-                      DATE_TRUNC('hour', b.time)            AS hour,
-                      SUM(ABS(total_delta0 * total_delta1)) AS k_volume,
-                      SUM(total_delta1 * total_delta1)      AS total,
-                      SUM(swap_count)                       AS swap_count
-               FROM total_swaps_per_block_pair tspt
-                        JOIN blocks b ON tspt.block_number = b.number
-               WHERE total_delta0 != 0
-                 AND total_delta1 != 0
-                 AND DATE_TRUNC('hour', b.time) >= DATE_TRUNC('hour', $1::timestamptz)
-               GROUP BY token0, token1, hour)
-          ON CONFLICT (token0, token1, hour)
-              DO UPDATE SET k_volume   = excluded.k_volume,
-                            total      = excluded.total,
-                            swap_count = excluded.swap_count;
-      `,
+                WITH total_swaps_per_block_pair AS (SELECT ek.block_number,
+                                                           pk.token0   AS token0,
+                                                           pk.token1   AS token1,
+                                                           SUM(delta0) AS total_delta0,
+                                                           SUM(delta1) AS total_delta1,
+                                                           COUNT(1)    AS swap_count
+                                                    FROM swaps s
+                                                             JOIN event_keys ek ON s.event_id = ek.id
+                                                             JOIN pool_keys pk ON s.pool_key_hash = pk.key_hash
+                                                    GROUP BY block_number, pk.token0, pk.token1)
+                INSERT
+                INTO hourly_price_data
+                    (SELECT token0,
+                            token1,
+                            DATE_TRUNC('hour', b.time)            AS hour,
+                            SUM(ABS(total_delta0 * total_delta1)) AS k_volume,
+                            SUM(total_delta1 * total_delta1)      AS total,
+                            SUM(swap_count)                       AS swap_count
+                     FROM total_swaps_per_block_pair tspt
+                              JOIN blocks b ON tspt.block_number = b.number
+                     WHERE total_delta0 != 0
+                       AND total_delta1 != 0
+                       AND DATE_TRUNC('hour', b.time) >= DATE_TRUNC('hour', $1::timestamptz)
+                     GROUP BY token0, token1, hour)
+                ON CONFLICT (token0, token1, hour)
+                    DO UPDATE SET k_volume   = excluded.k_volume,
+                                  total      = excluded.total,
+                                  swap_count = excluded.swap_count;
+            `,
       values: [since],
     });
 
     await this.pg.query({
       text: `
-          INSERT INTO hourly_tvl_delta_by_token
-              (WITH first_event_id AS (SELECT id
-                                       FROM event_keys AS ek
-                                                JOIN blocks AS b ON ek.block_number = b.number
-                                       WHERE b.time >= DATE_TRUNC('hour', $1::timestamptz)
-                                       ORDER BY id
-                                       LIMIT 1),
-                    grouped_pool_key_hash_deltas AS (SELECT pool_key_hash,
-                                                            DATE_TRUNC('hour', blocks.time) AS hour,
-                                                            SUM(delta0)                     AS delta0,
-                                                            SUM(delta1)                     AS delta1
-                                                     FROM swaps
-                                                              JOIN event_keys ON swaps.event_id = event_keys.id
-                                                              JOIN blocks ON event_keys.block_number = blocks.number
-                                                     WHERE event_id >= (SELECT id FROM first_event_id)
-                                                     GROUP BY pool_key_hash, hour
+                INSERT INTO hourly_tvl_delta_by_token
+                    (WITH first_event_id AS (SELECT id
+                                             FROM event_keys AS ek
+                                                      JOIN blocks AS b ON ek.block_number = b.number
+                                             WHERE b.time >= DATE_TRUNC('hour', $1::timestamptz)
+                                             ORDER BY id
+                                             LIMIT 1),
+                          grouped_pool_key_hash_deltas AS (SELECT pool_key_hash,
+                                                                  DATE_TRUNC('hour', blocks.time) AS hour,
+                                                                  SUM(delta0)                     AS delta0,
+                                                                  SUM(delta1)                     AS delta1
+                                                           FROM swaps
+                                                                    JOIN event_keys ON swaps.event_id = event_keys.id
+                                                                    JOIN blocks ON event_keys.block_number = blocks.number
+                                                           WHERE event_id >= (SELECT id FROM first_event_id)
+                                                           GROUP BY pool_key_hash, hour
 
-                                                     UNION ALL
+                                                           UNION ALL
 
                                                            SELECT pool_key_hash,
                                                                   DATE_TRUNC('hour', blocks.time) AS hour,
@@ -1033,7 +1063,7 @@ export class DAO {
                                                            WHERE event_id >= (SELECT id FROM first_event_id)
                                                            GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)
 
-                                                     UNION ALL
+                                                           UNION ALL
 
                                                            SELECT pool_key_hash,
                                                                   DATE_TRUNC('hour', blocks.time) AS hour,
@@ -1045,47 +1075,47 @@ export class DAO {
                                                            WHERE event_id >= (SELECT id FROM first_event_id)
                                                            GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)
 
-                                                     UNION ALL
+                                                           UNION ALL
 
-                                                     SELECT pool_key_hash,
-                                                            DATE_TRUNC('hour', blocks.time) AS hour,
-                                                            SUM(amount0)                    AS delta0,
-                                                            SUM(amount1)                    AS delta1
-                                                     FROM fees_accumulated
-                                                              JOIN event_keys ON fees_accumulated.event_id = event_keys.id
-                                                              JOIN blocks ON event_keys.block_number = blocks.number
-                                                     WHERE event_id >= (SELECT id FROM first_event_id)
-                                                     GROUP BY pool_key_hash, hour),
-                    token_deltas AS (SELECT pool_key_hash,
-                                            grouped_pool_key_hash_deltas.hour,
-                                            pool_keys.token0 AS token,
-                                            SUM(delta0)      AS delta
-                                     FROM grouped_pool_key_hash_deltas
-                                              JOIN pool_keys
-                                                   ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
-                                     GROUP BY pool_key_hash, grouped_pool_key_hash_deltas.hour,
-                                              pool_keys.token0
+                                                           SELECT pool_key_hash,
+                                                                  DATE_TRUNC('hour', blocks.time) AS hour,
+                                                                  SUM(amount0)                    AS delta0,
+                                                                  SUM(amount1)                    AS delta1
+                                                           FROM fees_accumulated
+                                                                    JOIN event_keys ON fees_accumulated.event_id = event_keys.id
+                                                                    JOIN blocks ON event_keys.block_number = blocks.number
+                                                           WHERE event_id >= (SELECT id FROM first_event_id)
+                                                           GROUP BY pool_key_hash, hour),
+                          token_deltas AS (SELECT pool_key_hash,
+                                                  grouped_pool_key_hash_deltas.hour,
+                                                  pool_keys.token0 AS token,
+                                                  SUM(delta0)      AS delta
+                                           FROM grouped_pool_key_hash_deltas
+                                                    JOIN pool_keys
+                                                         ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
+                                           GROUP BY pool_key_hash, grouped_pool_key_hash_deltas.hour,
+                                                    pool_keys.token0
 
-                                     UNION ALL
+                                           UNION ALL
 
-                                     SELECT pool_key_hash,
-                                            grouped_pool_key_hash_deltas.hour,
-                                            pool_keys.token1 AS token,
-                                            SUM(delta1)      AS delta
-                                     FROM grouped_pool_key_hash_deltas
-                                              JOIN pool_keys
-                                                   ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
-                                     GROUP BY pool_key_hash, grouped_pool_key_hash_deltas.hour,
-                                              pool_keys.token1)
-               SELECT pool_key_hash AS key_hash,
-                      token_deltas.hour,
-                      token_deltas.token,
-                      SUM(delta)    AS delta
-               FROM token_deltas
-               GROUP BY token_deltas.pool_key_hash, token_deltas.hour, token_deltas.token)
-          ON CONFLICT (key_hash, hour, token)
-              DO UPDATE SET delta = excluded.delta;
-      `,
+                                           SELECT pool_key_hash,
+                                                  grouped_pool_key_hash_deltas.hour,
+                                                  pool_keys.token1 AS token,
+                                                  SUM(delta1)      AS delta
+                                           FROM grouped_pool_key_hash_deltas
+                                                    JOIN pool_keys
+                                                         ON pool_keys.key_hash = grouped_pool_key_hash_deltas.pool_key_hash
+                                           GROUP BY pool_key_hash, grouped_pool_key_hash_deltas.hour,
+                                                    pool_keys.token1)
+                     SELECT pool_key_hash AS key_hash,
+                            token_deltas.hour,
+                            token_deltas.token,
+                            SUM(delta)    AS delta
+                     FROM token_deltas
+                     GROUP BY token_deltas.pool_key_hash, token_deltas.hour, token_deltas.token)
+                ON CONFLICT (key_hash, hour, token)
+                    DO UPDATE SET delta = excluded.delta;
+            `,
       values: [since],
     });
 
@@ -1102,6 +1132,7 @@ export class DAO {
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_pool_states_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_sale_rate_deltas_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY oracle_pool_states_materialized;
+      REFRESH MATERIALIZED VIEW CONCURRENTLY mev_resist_pool_states_materialized;
     `);
   }
 
@@ -1177,8 +1208,7 @@ export class DAO {
   ): Promise<`0x${string}`> {
     const keyHash = toKeyHash(coreAddress, poolId);
 
-    const { fee, tickSpacing, extension } =
-      "config" in poolKey ? parsePoolKeyConfig(poolKey.config) : poolKey;
+    const { fee, tickSpacing, extension } = parsePoolKeyConfig(poolKey.config);
 
     await this.pg.query({
       text: `
@@ -1363,14 +1393,16 @@ export class DAO {
   public async insertPoolInitializedEvent(
     event: CorePoolInitialized,
     key: EventKey,
-  ) {
+  ): Promise<bigint> {
     const poolKeyHash = await this.insertPoolKey(
       key.emitter,
       event.poolKey,
       event.poolId,
     );
 
-    await this.pg.query({
+    const {
+      rows: [{ event_id: eventId }],
+    } = await this.pg.query<{ event_id: string }>({
       text: `
                 WITH inserted_event AS (
                     INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
@@ -1382,7 +1414,8 @@ export class DAO {
                  pool_key_hash,
                  tick,
                  sqrt_ratio)
-                VALUES ((SELECT id FROM inserted_event), $6, $7, $8);
+                VALUES ((SELECT id FROM inserted_event), $6, $7, $8)
+                RETURNING event_id;
             `,
       values: [
         key.blockNumber,
@@ -1396,6 +1429,27 @@ export class DAO {
         event.tick,
         event.sqrtRatio,
       ],
+    });
+
+    return BigInt(eventId);
+  }
+
+  public async insertMEVResistTickUpdatedEvent(
+    eventId: bigint,
+    poolId: string,
+    tick: number,
+  ) {
+    await this.pg.query({
+      text: `
+          INSERT
+          INTO mev_resist_tick_updates
+              (event_id, pool_key_hash, tick)
+          VALUES ($1, (SELECT key_hash
+                       FROM pool_keys
+                       WHERE core_address = (SELECT emitter FROM event_keys WHERE id = $1)
+                         AND pool_id = $2), $3);
+      `,
+      values: [eventId, poolId, tick],
     });
   }
 
@@ -1749,7 +1803,7 @@ export class DAO {
                         RETURNING id)
                 INSERT
                 INTO incentives_refunded
-                (event_id, owner, token, root, refund_amount)
+                    (event_id, owner, token, root, refund_amount)
                 VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9)
             `,
       values: [
@@ -1765,18 +1819,19 @@ export class DAO {
       ],
     });
   }
+
   async insertIncentivesFundedEvent(key: EventKey, parsed: IncentivesFunded) {
     await this.pg.query({
       text: `
-          WITH inserted_event AS (
-              INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
-                  VALUES ($1, $2, $3, $4, $5)
-                  RETURNING id)
-          INSERT
-          INTO incentives_funded
-              (event_id, owner, token, root, amount_next)
-          VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9)
-      `,
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
+                        VALUES ($1, $2, $3, $4, $5)
+                        RETURNING id)
+                INSERT
+                INTO incentives_funded
+                    (event_id, owner, token, root, amount_next)
+                VALUES ((SELECT id FROM inserted_event), $6, $7, $8, $9)
+            `,
       values: [
         key.blockNumber,
         key.transactionIndex,
