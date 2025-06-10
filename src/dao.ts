@@ -1179,7 +1179,7 @@ export class DAO {
   private async insertPoolKey(
     coreAddress: `0x${string}`,
     poolKey: PoolKey,
-    poolId: `0x${string}`,
+    poolId: `0x${string}`
   ): Promise<`0x${string}`> {
     const keyHash = toKeyHash(coreAddress, poolId);
 
@@ -1214,7 +1214,7 @@ export class DAO {
 
   public async insertPositionTransferEvent(
     transfer: PositionTransfer,
-    key: EventKey,
+    key: EventKey
   ) {
     await this.pg.query({
       text: `
@@ -1245,7 +1245,7 @@ export class DAO {
 
   public async insertOrdersTransferEvent(
     transfer: OrderTransfer,
-    key: EventKey,
+    key: EventKey
   ) {
     await this.pg.query({
       text: `
@@ -1276,7 +1276,7 @@ export class DAO {
 
   public async insertPositionUpdatedEvent(
     event: CorePositionUpdated,
-    key: EventKey,
+    key: EventKey
   ) {
     await this.pg.query({
       text: `
@@ -1323,7 +1323,7 @@ export class DAO {
 
   public async insertPositionFeesCollectedEvent(
     event: CorePositionFeesCollected,
-    key: EventKey,
+    key: EventKey
   ) {
     await this.pg.query({
       text: `
@@ -1367,12 +1367,12 @@ export class DAO {
 
   public async insertPoolInitializedEvent(
     event: CorePoolInitialized,
-    key: EventKey,
+    key: EventKey
   ): Promise<`0x${string}`> {
     const poolKeyHash = await this.insertPoolKey(
       key.emitter,
       event.poolKey,
-      event.poolId,
+      event.poolId
     );
 
     await this.pg.query({
@@ -1411,7 +1411,8 @@ export class DAO {
       text: `
           INSERT
           INTO mev_resist_pool_keys (pool_key_hash)
-          VALUES ($1::numeric);
+          VALUES ($1::numeric)
+          ON CONFLICT DO NOTHING;
       `,
       values: [poolKeyHash],
     });
@@ -1419,7 +1420,7 @@ export class DAO {
 
   public async insertProtocolFeesWithdrawn(
     event: CoreProtocolFeesWithdrawn,
-    key: EventKey,
+    key: EventKey
   ) {
     await this.pg.query({
       text: `
@@ -1450,7 +1451,7 @@ export class DAO {
 
   public async insertExtensionRegistered(
     event: CoreExtensionRegistered,
-    key: EventKey,
+    key: EventKey
   ) {
     await this.pg.query({
       text: `
@@ -1476,7 +1477,7 @@ export class DAO {
 
   public async insertFeesAccumulatedEvent(
     event: CoreFeesAccumulated,
-    key: EventKey,
+    key: EventKey
   ) {
     await this.pg.query({
       text: `
@@ -1569,7 +1570,7 @@ export class DAO {
 
   public async insertTWAMMOrderUpdatedEvent(
     event: TwammOrderUpdated,
-    key: EventKey,
+    key: EventKey
   ) {
     const { orderKey } = event;
 
@@ -1635,7 +1636,7 @@ export class DAO {
 
   public async insertTWAMMOrderProceedsWithdrawnEvent(
     event: TwammOrderProceedsWithdrawn,
-    key: EventKey,
+    key: EventKey
   ) {
     const { orderKey } = event;
 
@@ -1693,7 +1694,7 @@ export class DAO {
 
   public async insertTWAMMVirtualOrdersExecutedEvent(
     event: TwammVirtualOrdersExecutedEvent,
-    key: EventKey,
+    key: EventKey
   ) {
     await this.pg.query({
       text: `
@@ -1757,7 +1758,7 @@ export class DAO {
 
   async insertIncentivesRefundedEvent(
     key: EventKey,
-    parsed: IncentivesRefunded,
+    parsed: IncentivesRefunded
   ) {
     await this.pg.query({
       text: `
