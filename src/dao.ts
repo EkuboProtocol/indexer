@@ -220,6 +220,7 @@ export class DAO {
             liquidity_after  NUMERIC NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_event_id ON swaps USING btree (pool_key_hash, event_id);
+        CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_event_id_desc ON swaps USING btree (pool_key_hash, event_id DESC) INCLUDE (sqrt_ratio_after, tick_after, liquidity_after);
 
         CREATE OR REPLACE VIEW pool_states_view AS
         (
