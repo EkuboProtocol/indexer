@@ -733,8 +733,7 @@ export class DAO {
         FROM oracle_pool_states_view);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_oracle_pool_states_materialized_pool_key_hash ON oracle_pool_states_materialized USING btree (pool_key_hash);
 
-        CREATE MATERIALIZED VIEW IF NOT EXISTS token_pair_realized_volatility AS
-        (
+        CREATE VIEW IF NOT EXISTS token_pair_realized_volatility_view AS
         WITH times AS (SELECT blocks.time - INTERVAL '7 days' AS start_time,
                               blocks.time                     AS end_time
                        FROM blocks
@@ -773,10 +772,9 @@ export class DAO {
                observation_count,
                int4(FLOOR(realized_volatility / LN(1.000001::NUMERIC))) AS volatility_in_ticks
         FROM realized_volatility_by_pair
-        WHERE realized_volatility IS NOT NULL);
+        WHERE realized_volatility IS NOT NULL;
 
-        CREATE MATERIALIZED VIEW IF NOT EXISTS pool_market_depth AS
-        (
+        CREATE VIEW IF NOT EXISTS pool_market_depth_view AS
         WITH pool_states AS (SELECT pk.key_hash,
                                     pk.token0,
                                     pk.token1,
@@ -786,7 +784,7 @@ export class DAO {
                                          LOG(1.000001))::int4                  AS fee_in_ticks,
                                     ROUND(LOG(lp.price) / LOG(1.000001))::int4 AS last_tick
                              FROM pool_keys pk
-                                      JOIN token_pair_realized_volatility tprv
+                                      JOIN token_pair_realized_volatility_view tprv
                                            ON pk.token0 = tprv.token0 AND pk.token1 = tprv.token1
                                       LEFT JOIN LATERAL (
                                  SELECT total / k_volume AS price
@@ -840,8 +838,13 @@ export class DAO {
                              GROUP BY pool_key_hash, ps.realized_volatility)
         SELECT td.pool_key_hash, ps.realized_volatility::FLOAT AS depth_percent, td.depth0, td.depth1
         FROM total_depth td
-                 JOIN pool_states ps ON ps.key_hash = td.pool_key_hash
-            );
+                 JOIN pool_states ps ON ps.key_hash = td.pool_key_hash;
+
+        CREATE MATERIALIZED VIEW IF NOT EXISTS token_pair_realized_volatility AS
+        SELECT * FROM token_pair_realized_volatility_view;
+
+        CREATE MATERIALIZED VIEW IF NOT EXISTS pool_market_depth AS
+        SELECT * FROM pool_market_depth_view;
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_market_depth
             ON pool_market_depth (pool_key_hash);
