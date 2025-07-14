@@ -775,10 +775,7 @@ export class DAO {
         WHERE realized_volatility IS NOT NULL;
 
         CREATE OR REPLACE VIEW pool_market_depth_view AS
-        WITH depth_percentages AS (SELECT * FROM (VALUES 
-                                   (0.001::FLOAT), (0.002::FLOAT), (0.004::FLOAT), (0.008::FLOAT), 
-                                   (0.016::FLOAT), (0.032::FLOAT), (0.064::FLOAT), (0.128::FLOAT), (0.256::FLOAT)
-                                   ) AS t(depth_percent)),
+        WITH depth_percentages AS (SELECT POWER(2.0, generate_series(0, 8)) * 0.001 AS depth_percent),
              pool_states AS (SELECT pk.key_hash,
                                     pk.token0,
                                     pk.token1,
@@ -839,9 +836,8 @@ export class DAO {
                                     COALESCE(SUM(amount1), 0) AS depth1
                              FROM token_amounts_by_pool tabp
                              GROUP BY pool_key_hash, depth_percent)
-        SELECT pk.token0, pk.token1, td.pool_key_hash, td.depth_percent AS depth, td.depth0, td.depth1
-        FROM total_depth td
-                 JOIN pool_keys pk ON pk.key_hash = td.pool_key_hash;
+        SELECT td.pool_key_hash, td.depth_percent AS depth, td.depth0, td.depth1
+        FROM total_depth td;
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS token_pair_realized_volatility AS
         SELECT * FROM token_pair_realized_volatility_view;
