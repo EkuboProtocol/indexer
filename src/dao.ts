@@ -850,7 +850,7 @@ export class DAO {
         SELECT * FROM pool_market_depth_view;
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_market_depth
-            ON pool_market_depth (token0, token1, depth, pool_key_hash);
+            ON pool_market_depth (pool_key_hash, depth);
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_token_pair_realized_volatility_pair
             ON token_pair_realized_volatility (token0, token1);
