@@ -774,6 +774,12 @@ export class DAO {
         FROM realized_volatility_by_pair
         WHERE realized_volatility IS NOT NULL;
 
+        CREATE MATERIALIZED VIEW IF NOT EXISTS token_pair_realized_volatility AS
+        SELECT * FROM token_pair_realized_volatility_view;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_token_pair_realized_volatility_pair
+            ON token_pair_realized_volatility (token0, token1);
+
         CREATE OR REPLACE VIEW pool_market_depth_view AS
         WITH depth_percentages AS (SELECT POWER(2.0, generate_series(0, 8)) * 0.001 AS depth_percent),
              pool_states AS (SELECT pk.key_hash,
@@ -836,20 +842,14 @@ export class DAO {
                                     COALESCE(SUM(amount1), 0) AS depth1
                              FROM token_amounts_by_pool tabp
                              GROUP BY pool_key_hash, depth_percent)
-        SELECT td.pool_key_hash, td.depth_percent AS depth, td.depth0, td.depth1
+        SELECT td.pool_key_hash, td.depth_percent AS depth_percent, td.depth0, td.depth1
         FROM total_depth td;
-
-        CREATE MATERIALIZED VIEW IF NOT EXISTS token_pair_realized_volatility AS
-        SELECT * FROM token_pair_realized_volatility_view;
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS pool_market_depth AS
         SELECT * FROM pool_market_depth_view;
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_market_depth
-            ON pool_market_depth (pool_key_hash, depth);
-
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_token_pair_realized_volatility_pair
-            ON token_pair_realized_volatility (token0, token1);
+            ON pool_market_depth (pool_key_hash, depth_percent);
     `);
   }
 
