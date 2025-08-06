@@ -785,20 +785,47 @@ export class DAO {
           SELECT
             (power(1.3, generate_series(0, 20)) * 0.001)::float AS depth_percent
         ),
-        median_ticks AS (
+        last_swap_per_pair AS (
           SELECT
             token0,
             token1,
-            percentile_cont(0.5) WITHIN GROUP (ORDER BY tick_after) AS median_tick
+            max(event_id) AS last_swap_event_id
         FROM
           swaps s
           JOIN pool_keys pk ON s.pool_key_hash = pk.key_hash
-          JOIN event_keys ek ON s.event_id = ek.id
-          JOIN blocks b ON b.number = ek.block_number
           WHERE
-            b.time >= CURRENT_TIMESTAMP - interval '1 hour' GROUP BY
-              token0,
-              token1
+            liquidity_after != 0
+          GROUP BY
+            token0,
+            token1
+        ),
+        last_swap_time_per_pair AS (
+          SELECT
+            token0,
+            token1,
+            b.time
+          FROM
+            last_swap_per_pair ls
+            JOIN event_keys ek ON ls.last_swap_event_id = ek.id
+            JOIN blocks b ON ek.block_number = b.number
+        ),
+        median_ticks AS (
+          SELECT
+            pk.token0,
+            pk.token1,
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY tick_after) AS median_tick
+          FROM
+            swaps s
+            JOIN pool_keys pk ON s.pool_key_hash = pk.key_hash
+            JOIN event_keys ek ON s.event_id = ek.id
+            JOIN blocks b ON b.number = ek.block_number
+            JOIN last_swap_time_per_pair lstpp ON pk.token0 = lstpp.token0
+              AND pk.token1 = lstpp.token1
+          WHERE
+            b.time >= lstpp.time - interval '1 hour'
+            AND liquidity_after != 0 GROUP BY
+              pk.token0,
+              pk.token1
         ),
         pool_states AS (
           SELECT
@@ -812,15 +839,15 @@ export class DAO {
           FROM
             pool_keys pk
             CROSS JOIN depth_percentages dp
-            JOIN median_ticks mt ON pk.token0 = mt.token0
+            LEFT JOIN median_ticks mt ON pk.token0 = mt.token0
               AND pk.token1 = mt.token1
         ),
         pool_ticks AS (
           SELECT
             pool_key_hash,
             sum(net_liquidity_delta_diff) OVER (PARTITION BY ppptliv.pool_key_hash ORDER BY ppptliv.tick ROWS UNBOUNDED PRECEDING) AS liquidity,
-            tick AS tick_start,
-            lead(tick) OVER (PARTITION BY ppptliv.pool_key_hash ORDER BY ppptliv.tick) AS tick_end
+          tick AS tick_start,
+          lead(tick) OVER (PARTITION BY ppptliv.pool_key_hash ORDER BY ppptliv.tick) AS tick_end
         FROM
           per_pool_per_tick_liquidity_incremental_view ppptliv
         ),
@@ -830,7 +857,7 @@ export class DAO {
             pt.liquidity,
             ps.depth_percent,
             int4range(ps.last_tick - ps.depth_in_ticks, ps.last_tick - ps.fee_in_ticks) * int4range(pt.tick_start, pt.tick_end) AS overlap_range_below,
-          int4range(ps.last_tick + ps.fee_in_ticks, ps.last_tick + ps.depth_in_ticks) * int4range(pt.tick_start, pt.tick_end) AS overlap_range_above
+            int4range(ps.last_tick + ps.fee_in_ticks, ps.last_tick + ps.depth_in_ticks) * int4range(pt.tick_start, pt.tick_end) AS overlap_range_above
         FROM
           pool_ticks pt
         JOIN pool_states ps ON pt.pool_key_hash = ps.key_hash
@@ -843,9 +870,9 @@ export class DAO {
             pool_key_hash,
             depth_percent,
             floor(sum(liquidity * (power(1.0000005::numeric, upper(overlap_range_below)) - power(1.0000005::numeric, lower(overlap_range_below))))) AS amount1,
-            floor(sum(liquidity * ((1::numeric / power(1.0000005::numeric, lower(overlap_range_above))) - (1::numeric / power(1.0000005::numeric, upper(overlap_range_above)))))) AS amount0
-          FROM
-            depth_liquidity_ranges
+          floor(sum(liquidity * ((1::numeric / power(1.0000005::numeric, lower(overlap_range_above))) - (1::numeric / power(1.0000005::numeric, upper(overlap_range_above)))))) AS amount0
+        FROM
+          depth_liquidity_ranges
           WHERE
             NOT isempty(overlap_range_below)
             OR NOT isempty(overlap_range_above)
@@ -871,6 +898,7 @@ export class DAO {
             td.depth1
           FROM
             total_depth td;
+
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS pool_market_depth AS
         SELECT * FROM pool_market_depth_view;
