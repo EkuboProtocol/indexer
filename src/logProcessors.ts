@@ -6,6 +6,7 @@ import {
   ORACLE_ABI,
   ORDERS_ABI,
   POSITIONS_ABI,
+  TOKEN_WRAPPER_FACTORY_ABI,
   TWAMM_ABI,
 } from "./abis.ts";
 import type {
@@ -27,7 +28,7 @@ import { parsePoolKeyConfig } from "./poolKey.ts";
 
 export type ContractEvent<
   abi extends Abi,
-  N extends ExtractAbiEventNames<abi>,
+  N extends ExtractAbiEventNames<abi>
 > = {
   [P in ExtractAbiEvent<abi, N>["inputs"][number] as P extends {
     name: infer N extends string;
@@ -50,13 +51,13 @@ interface LogProcessor {
     event: {
       topics: readonly `0x${string}`[];
       data: `0x${string}` | undefined;
-    },
+    }
   ) => Promise<void>;
 }
 
 export function createContractEventProcessor<
   T extends Abi,
-  N extends ContractEventName<T>,
+  N extends ContractEventName<T>
 >({
   contractName,
   address,
@@ -113,7 +114,7 @@ type ContractHandlers<T extends Abi> = {
   noTopics?: (
     dao: DAO,
     key: EventKey,
-    data: `0x${string}` | undefined,
+    data: `0x${string}` | undefined
   ) => Promise<void>;
 };
 
@@ -126,6 +127,7 @@ const processors: {
   TWAMM: ContractHandlers<typeof TWAMM_ABI>;
   Orders: ContractHandlers<typeof ORDERS_ABI>;
   Incentives: ContractHandlers<typeof INCENTIVES_ABI>;
+  TokenWrapperFactory: ContractHandlers<typeof TOKEN_WRAPPER_FACTORY_ABI>;
 } = {
   Core: {
     address: process.env.CORE_ADDRESS,
@@ -146,7 +148,7 @@ const processors: {
             ...parsed,
             sqrtRatio: floatSqrtRatioToFixed(parsed.sqrtRatio),
           },
-          key,
+          key
         );
 
         const { extension } = parsePoolKeyConfig(parsed.poolKey.config);
@@ -235,6 +237,15 @@ const processors: {
       },
     },
   },
+  TokenWrapperFactory: {
+    address: process.env.TOKEN_WRAPPER_FACTORY_ADDRESS,
+    abi: TOKEN_WRAPPER_FACTORY_ABI,
+    handlers: {
+      async TokenWrapperDeployed(dao, key, event) {
+        await dao.insertTokenWrapperDeployed(key, event);
+      },
+    },
+  },
 };
 
 export const LOG_PROCESSORS = Object.entries(processors).flatMap(
@@ -263,8 +274,8 @@ export const LOG_PROCESSORS = Object.entries(processors).flatMap(
                 abi,
                 eventName: eventName as ExtractAbiEventNames<typeof abi>,
                 handler: handler as any,
-              }),
+              })
           )
-        : [],
-    ),
+        : []
+    )
 ) as LogProcessor[];

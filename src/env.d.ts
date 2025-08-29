@@ -11,6 +11,7 @@ declare namespace NodeJS {
     ORDERS_ADDRESS: `0x${string}`;
     INCENTIVES_ADDRESS: `0x${string}`;
     MEV_RESIST_ADDRESS: `0x${string}`;
+    TOKEN_WRAPPER_FACTORY_ADDRESS: `0x${string}`;
 
     STARTING_CURSOR_BLOCK_NUMBER: string;
 

@@ -19,6 +19,7 @@ import type {
   OrderTransfer,
   PoolKey,
   PositionTransfer,
+  TokenWrapperDeployed,
   TwammOrderProceedsWithdrawn,
   TwammOrderUpdated,
 } from "./eventTypes.ts";
@@ -661,6 +662,17 @@ export class DAO {
             root          NUMERIC NOT NULL,
             refund_amount NUMERIC NOT NULL
         );
+
+
+        CREATE TABLE IF NOT EXISTS token_wrapper_deployed
+        (
+            event_id    int8   NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+
+            token_wrapper      NUMERIC NOT NULL,
+            underlying_token   NUMERIC NOT NULL,
+            unlock_time        NUMERIC NOT NULL
+        );
+
 
         CREATE OR REPLACE VIEW last_24h_pool_stats_view AS
         (
@@ -1868,6 +1880,34 @@ export class DAO {
         parsed.key.token,
         parsed.key.root,
         parsed.amountNext,
+      ],
+    });
+  }
+
+  async insertTokenWrapperDeployed(
+    key: EventKey,
+    parsed: TokenWrapperDeployed
+  ) {
+    await this.pg.query({
+      text: `
+                WITH inserted_event AS (
+                    INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
+                        VALUES ($1, $2, $3, $4, $5)
+                        RETURNING id)
+                INSERT
+                INTO token_wrapper_deployed
+                    (event_id, token_wrapper, underlying_token, unlock_time)
+                VALUES ((SELECT id FROM inserted_event), $6, $7, $8)
+            `,
+      values: [
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        parsed.tokenWrapper,
+        parsed.underlyingToken,
+        parsed.unlockTime,
       ],
     });
   }

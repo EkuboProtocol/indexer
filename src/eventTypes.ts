@@ -3,6 +3,7 @@ import {
   INCENTIVES_ABI,
   ORDERS_ABI,
   POSITIONS_ABI,
+  TOKEN_WRAPPER_FACTORY_ABI,
   TWAMM_ABI,
 } from "./abis";
 import type { ContractEvent } from "./logProcessors.ts";
@@ -50,4 +51,9 @@ export type IncentivesFunded = ContractEvent<typeof INCENTIVES_ABI, "Funded">;
 export type IncentivesRefunded = ContractEvent<
   typeof INCENTIVES_ABI,
   "Refunded"
+>;
+
+export type TokenWrapperDeployed = ContractEvent<
+  typeof TOKEN_WRAPPER_FACTORY_ABI,
+  "TokenWrapperDeployed"
 >;

@@ -5625,3 +5625,79 @@ export const INCENTIVES_ABI = [
     inputs: [],
   },
 ] as const;
+
+export const TOKEN_WRAPPER_FACTORY_ABI = [
+  {
+    type: "constructor",
+    inputs: [
+      {
+        name: "_core",
+        type: "address",
+        internalType: "contract ICore",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "core",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "contract ICore",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "deployWrapper",
+    inputs: [
+      {
+        name: "underlyingToken",
+        type: "address",
+        internalType: "contract IERC20",
+      },
+      {
+        name: "unlockTime",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "tokenWrapper",
+        type: "address",
+        internalType: "contract TokenWrapper",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "event",
+    name: "TokenWrapperDeployed",
+    inputs: [
+      {
+        name: "underlyingToken",
+        type: "address",
+        indexed: false,
+        internalType: "contract IERC20",
+      },
+      {
+        name: "unlockTime",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256",
+      },
+      {
+        name: "tokenWrapper",
+        type: "address",
+        indexed: false,
+        internalType: "contract TokenWrapper",
+      },
+    ],
+    anonymous: false,
+  },
+] as const;
