@@ -925,7 +925,7 @@ export class DAO {
             pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
             delta0        NUMERIC NOT NULL,
             delta1        NUMERIC NOT NULL,
-            event_type    TEXT    NOT NULL
+            event_type    TEXT    NOT NULL CHECK (event_type IN ('swap', 'position_update', 'position_fees_collected', 'fees_accumulated', 'twamm_proceeds_withdrawn'))
         );
         CREATE INDEX IF NOT EXISTS idx_pool_balance_changes_pool_key_hash_event_id ON pool_balance_changes USING btree (pool_key_hash, event_id);
         CREATE INDEX IF NOT EXISTS idx_pool_balance_changes_event_type ON pool_balance_changes USING btree (event_type);
@@ -1347,21 +1347,27 @@ export class DAO {
                         RETURNING id),
                 pool_key AS (
                     SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7
+                ),
+                position_insert AS (
+                    INSERT
+                    INTO position_updates
+                    (event_id,
+                     locker,
+                     pool_key_hash,
+                     salt,
+                     lower_bound,
+                     upper_bound,
+                     liquidity_delta,
+                     delta0,
+                     delta1)
+                    VALUES ((SELECT id FROM inserted_event), $6,
+                            (SELECT key_hash FROM pool_key),
+                            $8, $9, $10, $11, $12, $13)
+                    RETURNING event_id
                 )
-                INSERT
-                INTO position_updates
-                (event_id,
-                 locker,
-                 pool_key_hash,
-                 salt,
-                 lower_bound,
-                 upper_bound,
-                 liquidity_delta,
-                 delta0,
-                 delta1)
-                VALUES ((SELECT id FROM inserted_event), $6,
-                        (SELECT key_hash FROM pool_key),
-                        $8, $9, $10, $11, $12, $13);
+                INSERT INTO pool_balance_changes (event_id, pool_key_hash, delta0, delta1, event_type)
+                SELECT pi.event_id, pk.key_hash, $12, $13, 'position_update'
+                FROM position_insert pi, pool_key pk;
             `,
       values: [
         key.blockNumber,
@@ -1383,29 +1389,6 @@ export class DAO {
         event.delta1,
       ],
     });
-
-    // Insert into pool_balance_changes table
-    await this.pg.query({
-      text: `
-                INSERT INTO pool_balance_changes (event_id, pool_key_hash, delta0, delta1, event_type)
-                SELECT ek.id, pk.key_hash, $6, $7, 'position_update'
-                FROM event_keys ek, pool_keys pk
-                WHERE ek.block_number = $1 
-                  AND ek.transaction_index = $2 
-                  AND ek.event_index = $3
-                  AND pk.core_address = $4
-                  AND pk.pool_id = $5;
-            `,
-      values: [
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.emitter,
-        event.poolId,
-        event.delta0,
-        event.delta1,
-      ],
-    });
   }
 
   public async insertPositionFeesCollectedEvent(
@@ -1417,20 +1400,29 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5)
-                        RETURNING id)
-                INSERT
-                INTO position_fees_collected
-                (event_id,
-                 pool_key_hash,
-                 owner,
-                 salt,
-                 lower_bound,
-                 upper_bound,
-                 delta0,
-                 delta1)
-                VALUES ((SELECT id FROM inserted_event),
-                        (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $6),
-                        $7, $8, $9, $10, $11, $12);
+                        RETURNING id),
+                pool_key AS (
+                    SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $6
+                ),
+                fees_insert AS (
+                    INSERT
+                    INTO position_fees_collected
+                    (event_id,
+                     pool_key_hash,
+                     owner,
+                     salt,
+                     lower_bound,
+                     upper_bound,
+                     delta0,
+                     delta1)
+                    VALUES ((SELECT id FROM inserted_event),
+                            (SELECT key_hash FROM pool_key),
+                            $7, $8, $9, $10, $11, $12)
+                    RETURNING event_id
+                )
+                INSERT INTO pool_balance_changes (event_id, pool_key_hash, delta0, delta1, event_type)
+                SELECT fi.event_id, pk.key_hash, -$11, -$12, 'position_fees_collected'
+                FROM fees_insert fi, pool_key pk;
             `,
       values: [
         key.blockNumber,
@@ -1446,29 +1438,6 @@ export class DAO {
         event.positionKey.bounds.lower,
         event.positionKey.bounds.upper,
 
-        event.amount0,
-        event.amount1,
-      ],
-    });
-
-    // Insert into pool_balance_changes table (negative because fees are withdrawn from pool)
-    await this.pg.query({
-      text: `
-                INSERT INTO pool_balance_changes (event_id, pool_key_hash, delta0, delta1, event_type)
-                SELECT ek.id, pk.key_hash, -$6, -$7, 'position_fees_collected'
-                FROM event_keys ek, pool_keys pk
-                WHERE ek.block_number = $1 
-                  AND ek.transaction_index = $2 
-                  AND ek.event_index = $3
-                  AND pk.core_address = $4
-                  AND pk.pool_id = $5;
-            `,
-      values: [
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.emitter,
-        event.poolId,
         event.amount0,
         event.amount1,
       ],
@@ -1594,16 +1563,25 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5)
-                        RETURNING id)
-                INSERT
-                INTO fees_accumulated
-                (event_id,
-                 pool_key_hash,
-                 amount0,
-                 amount1)
-                VALUES ((SELECT id FROM inserted_event),
-                        (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $6),
-                        $7, $8);
+                        RETURNING id),
+                pool_key AS (
+                    SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $6
+                ),
+                fees_insert AS (
+                    INSERT
+                    INTO fees_accumulated
+                    (event_id,
+                     pool_key_hash,
+                     amount0,
+                     amount1)
+                    VALUES ((SELECT id FROM inserted_event),
+                            (SELECT key_hash FROM pool_key),
+                            $7, $8)
+                    RETURNING event_id
+                )
+                INSERT INTO pool_balance_changes (event_id, pool_key_hash, delta0, delta1, event_type)
+                SELECT fi.event_id, pk.key_hash, $7, $8, 'fees_accumulated'
+                FROM fees_insert fi, pool_key pk;
             `,
       values: [
         key.blockNumber,
@@ -1618,29 +1596,6 @@ export class DAO {
         event.amount1,
       ],
     });
-
-    // Insert into pool_balance_changes table (positive because fees are added to pool)
-    await this.pg.query({
-      text: `
-                INSERT INTO pool_balance_changes (event_id, pool_key_hash, delta0, delta1, event_type)
-                SELECT ek.id, pk.key_hash, $6, $7, 'fees_accumulated'
-                FROM event_keys ek, pool_keys pk
-                WHERE ek.block_number = $1 
-                  AND ek.transaction_index = $2 
-                  AND ek.event_index = $3
-                  AND pk.core_address = $4
-                  AND pk.pool_id = $5;
-            `,
-      values: [
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.emitter,
-        event.poolId,
-        event.amount0,
-        event.amount1,
-      ],
-    });
   }
 
   public async insertSwappedEvent(event: CoreSwapped, key: EventKey) {
@@ -1649,20 +1604,29 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5)
-                        RETURNING id)
-                INSERT
-                INTO swaps
-                (event_id,
-                 locker,
-                 pool_key_hash,
-                 delta0,
-                 delta1,
-                 sqrt_ratio_after,
-                 tick_after,
-                 liquidity_after)
-                VALUES ((SELECT id FROM inserted_event), $6,
-                        (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7),
-                        $8, $9, $10, $11, $12);
+                        RETURNING id),
+                pool_key AS (
+                    SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7
+                ),
+                swap_insert AS (
+                    INSERT
+                    INTO swaps
+                    (event_id,
+                     locker,
+                     pool_key_hash,
+                     delta0,
+                     delta1,
+                     sqrt_ratio_after,
+                     tick_after,
+                     liquidity_after)
+                    VALUES ((SELECT id FROM inserted_event), $6,
+                            (SELECT key_hash FROM pool_key),
+                            $8, $9, $10, $11, $12)
+                    RETURNING event_id
+                )
+                INSERT INTO pool_balance_changes (event_id, pool_key_hash, delta0, delta1, event_type)
+                SELECT si.event_id, pk.key_hash, $8, $9, 'swap'
+                FROM swap_insert si, pool_key pk;
             `,
       values: [
         key.blockNumber,
@@ -1680,29 +1644,6 @@ export class DAO {
         event.sqrtRatioAfter,
         event.tickAfter,
         event.liquidityAfter,
-      ],
-    });
-
-    // Insert into pool_balance_changes table
-    await this.pg.query({
-      text: `
-                INSERT INTO pool_balance_changes (event_id, pool_key_hash, delta0, delta1, event_type)
-                SELECT ek.id, pk.key_hash, $6, $7, 'swap'
-                FROM event_keys ek, pool_keys pk
-                WHERE ek.block_number = $1 
-                  AND ek.transaction_index = $2 
-                  AND ek.event_index = $3
-                  AND pk.core_address = $4
-                  AND pk.pool_id = $5;
-            `,
-      values: [
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.emitter,
-        event.poolId,
-        event.delta0,
-        event.delta1,
       ],
     });
   }
@@ -1816,18 +1757,28 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5)
-                        RETURNING id)
-                INSERT
-                INTO twamm_proceeds_withdrawals
-                (event_id, key_hash, owner, salt, amount0, amount1, start_time, end_time)
-                VALUES ((SELECT id FROM inserted_event),
-                        (SELECT key_hash
-                         FROM pool_keys
-                         WHERE core_address = (SELECT ek.emitter
-                                               FROM extension_registrations er
-                                                        JOIN event_keys ek ON er.event_id = ek.id
-                                               WHERE er.extension = $5)
-                           AND pool_id = $6), $7, $8, $9, $10, $11, $12);
+                        RETURNING id),
+                pool_key AS (
+                    SELECT key_hash
+                    FROM pool_keys
+                    WHERE core_address = (SELECT ek.emitter
+                                          FROM extension_registrations er
+                                                   JOIN event_keys ek ON er.event_id = ek.id
+                                          WHERE er.extension = $5)
+                      AND pool_id = $6
+                ),
+                twamm_insert AS (
+                    INSERT
+                    INTO twamm_proceeds_withdrawals
+                    (event_id, key_hash, owner, salt, amount0, amount1, start_time, end_time)
+                    VALUES ((SELECT id FROM inserted_event),
+                            (SELECT key_hash FROM pool_key),
+                            $7, $8, $9, $10, $11, $12)
+                    RETURNING event_id
+                )
+                INSERT INTO pool_balance_changes (event_id, pool_key_hash, delta0, delta1, event_type)
+                SELECT ti.event_id, pk.key_hash, -$9, -$10, 'twamm_proceeds_withdrawn'
+                FROM twamm_insert ti, pool_key pk;
             `,
       values: [
         key.blockNumber,
@@ -1844,32 +1795,6 @@ export class DAO {
         amount1,
         new Date(Number(orderKey.startTime * 1000n)),
         new Date(Number(orderKey.endTime * 1000n)),
-      ],
-    });
-
-    // Insert into pool_balance_changes table (negative because proceeds are withdrawn from pool)
-    await this.pg.query({
-      text: `
-                INSERT INTO pool_balance_changes (event_id, pool_key_hash, delta0, delta1, event_type)
-                SELECT ek.id, pk.key_hash, -$7, -$8, 'twamm_proceeds_withdrawn'
-                FROM event_keys ek, pool_keys pk
-                WHERE ek.block_number = $1 
-                  AND ek.transaction_index = $2 
-                  AND ek.event_index = $3
-                  AND pk.core_address = (SELECT ek2.emitter
-                                        FROM extension_registrations er
-                                        JOIN event_keys ek2 ON er.event_id = ek2.id
-                                        WHERE er.extension = $4)
-                  AND pk.pool_id = $5;
-            `,
-      values: [
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.emitter,
-        poolId,
-        amount0,
-        amount1,
       ],
     });
   }
