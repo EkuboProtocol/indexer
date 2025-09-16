@@ -125,15 +125,17 @@ describe("Pool Balance Changes", () => {
       VALUES (1000, 999, NOW());
     `);
 
-    await client.query(`
-      INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
-      VALUES (1000, 1, 0, '0xabcdef', 456);
-    `);
-
     // Insert different event types
     const eventTypes = ['swap', 'position_update', 'position_fees_collected', 'fees_accumulated', 'twamm_proceeds_withdrawn'];
     
     for (let i = 0; i < eventTypes.length; i++) {
+      // Insert event_keys row for each event
+      await client.query(`
+        INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
+        VALUES (1000, 1, $1, '0xabcdef', 456);
+      `, [i]);
+
+      // Insert corresponding pool_balance_changes row
       await client.query(`
         INSERT INTO pool_balance_changes (event_id, pool_key_hash, delta0, delta1, event_type)
         VALUES ($1, 123, $2, $3, $4);
