@@ -794,8 +794,7 @@ export class DAO {
 
         CREATE OR REPLACE VIEW pool_market_depth_view AS
         WITH depth_percentages AS (
-          SELECT
-            (power(1.3, generate_series(0, 20)) * 0.001)::float AS depth_percent
+          SELECT (POWER(1.21, generate_series(0, 40)) * 0.00005)::float AS depth_percent
         ),
         last_swap_per_pair AS (
           SELECT
