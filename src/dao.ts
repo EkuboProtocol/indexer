@@ -1243,8 +1243,7 @@ export class DAO {
     poolKey: PoolKey,
     poolId: `0x${string}`
   ): Promise<`0x${string}`> {
-    const chainId = BigInt(process.env.CHAIN_ID || "1");
-    const keyHash = toKeyHash(coreAddress, poolId, chainId);
+    const keyHash = toKeyHash(coreAddress, poolId);
 
     const { fee, tickSpacing, extension } = parsePoolKeyConfig(poolKey.config);
 
