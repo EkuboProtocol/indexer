@@ -61,7 +61,7 @@ export class DAO {
     await this.pg.query(`
         CREATE TABLE IF NOT EXISTS cursor
         (
-            id           INT         NOT NULL UNIQUE CHECK (id = 1), -- only one row.
+            chain_id     int8        NOT NULL PRIMARY KEY,
             order_key    BIGINT      NOT NULL,
             unique_key   bytea,
             last_updated timestamptz NOT NULL
@@ -102,13 +102,13 @@ export class DAO {
         CREATE TABLE IF NOT EXISTS event_keys
         (
             chain_id          int8    NOT NULL,
-            id                int8 GENERATED ALWAYS AS (block_number * 4294967296 + transaction_index * 65536 + event_index) STORED,
+            sort_id           int8 GENERATED ALWAYS AS (block_number * 4294967296 + transaction_index * 65536 + event_index) STORED,
             transaction_hash  NUMERIC NOT NULL,
             block_number      int8    NOT NULL,
             transaction_index int2    NOT NULL,
             event_index       int2    NOT NULL,
             emitter           NUMERIC NOT NULL,
-            PRIMARY KEY (chain_id, id),
+            PRIMARY KEY (chain_id, sort_id),
             FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, number) ON DELETE CASCADE,
             UNIQUE (chain_id, block_number, transaction_index, event_index)
         );
@@ -123,7 +123,7 @@ export class DAO {
             from_address NUMERIC NOT NULL,
             to_address   NUMERIC NOT NULL,
             PRIMARY KEY (chain_id, event_id),
-            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_position_transfers_token_id_from_to ON position_transfers (token_id, from_address, to_address);
         CREATE INDEX IF NOT EXISTS idx_position_transfers_to_address ON position_transfers (to_address);
@@ -137,7 +137,7 @@ export class DAO {
             from_address NUMERIC NOT NULL,
             to_address   NUMERIC NOT NULL,
             PRIMARY KEY (chain_id, event_id),
-            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_order_transfers_token_id_from_to ON order_transfers (token_id, from_address, to_address);
         CREATE INDEX IF NOT EXISTS idx_order_transfers_to_address ON order_transfers (to_address);
@@ -159,7 +159,7 @@ export class DAO {
             delta0          NUMERIC NOT NULL,
             delta1          NUMERIC NOT NULL,
             PRIMARY KEY (chain_id, event_id),
-            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE,
             FOREIGN KEY (chain_id, pool_key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_position_updates_pool_key_hash_event_id ON position_updates USING btree (pool_key_hash, event_id);
@@ -181,7 +181,7 @@ export class DAO {
             delta0        NUMERIC NOT NULL,
             delta1        NUMERIC NOT NULL,
             PRIMARY KEY (chain_id, event_id),
-            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE,
             FOREIGN KEY (chain_id, pool_key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_position_fees_collected_pool_key_hash ON position_fees_collected (pool_key_hash);
@@ -197,7 +197,7 @@ export class DAO {
             token     NUMERIC NOT NULL,
             amount    NUMERIC NOT NULL,
             PRIMARY KEY (chain_id, event_id),
-            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
         );
 
 
@@ -211,7 +211,7 @@ export class DAO {
             amount0       NUMERIC NOT NULL,
             amount1       NUMERIC NOT NULL,
             PRIMARY KEY (chain_id, event_id),
-            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE,
             FOREIGN KEY (chain_id, pool_key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_fees_accumulated_pool_key_hash ON fees_accumulated (pool_key_hash);
@@ -222,7 +222,7 @@ export class DAO {
             event_id  int8    NOT NULL,
             extension NUMERIC NOT NULL,
             PRIMARY KEY (chain_id, event_id),
-            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS pool_initializations
@@ -235,7 +235,7 @@ export class DAO {
             tick          int4    NOT NULL,
             sqrt_ratio    NUMERIC NOT NULL,
             PRIMARY KEY (chain_id, event_id),
-            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE,
             FOREIGN KEY (chain_id, pool_key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_pool_initializations_pool_key_hash ON pool_initializations (pool_key_hash);
@@ -256,7 +256,7 @@ export class DAO {
             tick_after       int4    NOT NULL,
             liquidity_after  NUMERIC NOT NULL,
             PRIMARY KEY (chain_id, event_id),
-            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE,
             FOREIGN KEY (chain_id, pool_key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_event_id ON swaps USING btree (pool_key_hash, event_id);
@@ -543,7 +543,7 @@ export class DAO {
             start_time       timestamptz NOT NULL,
             end_time         timestamptz NOT NULL,
             PRIMARY KEY (chain_id, event_id),
-            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE,
             FOREIGN KEY (chain_id, key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_key_hash_event_id ON twamm_order_updates USING btree (key_hash, event_id);
@@ -566,7 +566,7 @@ export class DAO {
             start_time timestamptz NOT NULL,
             end_time   timestamptz NOT NULL,
             PRIMARY KEY (chain_id, event_id),
-            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE,
             FOREIGN KEY (chain_id, key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_key_hash_event_id ON twamm_proceeds_withdrawals USING btree (key_hash, event_id);
@@ -585,7 +585,7 @@ export class DAO {
             token0_sale_rate NUMERIC NOT NULL,
             token1_sale_rate NUMERIC NOT NULL,
             PRIMARY KEY (chain_id, event_id),
-            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE,
             FOREIGN KEY (chain_id, key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_twamm_virtual_order_executions_pool_key_hash_event_id ON twamm_virtual_order_executions USING btree (key_hash, event_id DESC);
@@ -605,7 +605,7 @@ export class DAO {
                                                        JOIN lvoe_id ON lvoe_id.key_hash = pk.key_hash
                                                        JOIN twamm_virtual_order_executions last_voe
                                                             ON last_voe.event_id = lvoe_id.event_id
-                                                       JOIN event_keys ek ON last_voe.event_id = ek.id
+                                                       JOIN event_keys ek ON last_voe.event_id = ek.sort_id
                                                        JOIN blocks b ON ek.block_number = b.number),
              active_order_updates_after_lvoe AS (SELECT lvoe_1.key_hash,
                                                         SUM(tou.sale_rate_delta0) AS sale_rate_delta0,
@@ -688,7 +688,7 @@ export class DAO {
             snapshot_tick_cumulative                  NUMERIC NOT NULL,
             snapshot_seconds_per_liquidity_cumulative NUMERIC NOT NULL,
             PRIMARY KEY (chain_id, event_id),
-            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_oracle_snapshots_token_snapshot_block_timestamp ON oracle_snapshots USING btree (token, snapshot_block_timestamp);
 
@@ -710,7 +710,7 @@ export class DAO {
             root        NUMERIC NOT NULL,
             amount_next NUMERIC NOT NULL,
             PRIMARY KEY (chain_id, event_id),
-            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS incentives_refunded
@@ -723,7 +723,7 @@ export class DAO {
             root          NUMERIC NOT NULL,
             refund_amount NUMERIC NOT NULL,
             PRIMARY KEY (chain_id, event_id),
-            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
         );
 
 
@@ -736,7 +736,7 @@ export class DAO {
             underlying_token   NUMERIC NOT NULL,
             unlock_time        NUMERIC NOT NULL,
             PRIMARY KEY (chain_id, event_id),
-            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
         );
 
 
@@ -800,7 +800,7 @@ export class DAO {
         (
         SELECT pk.key_hash AS pool_key_hash, MAX(snapshot_block_timestamp) AS last_snapshot_block_timestamp
         FROM oracle_snapshots os
-                 JOIN event_keys ek ON ek.id = os.event_id
+                 JOIN event_keys ek ON ek.sort_id = os.event_id
                  JOIN pool_keys pk ON ek.emitter = pk.extension AND pk.token1 = os.token
         GROUP BY pk.key_hash);
 
@@ -883,7 +883,7 @@ export class DAO {
             b.time
           FROM
             last_swap_per_pair ls
-            JOIN event_keys ek ON ls.last_swap_event_id = ek.id
+            JOIN event_keys ek ON ls.last_swap_event_id = ek.sort_id
             JOIN blocks b ON ek.block_number = b.number
         ),
         median_ticks AS (
@@ -894,7 +894,7 @@ export class DAO {
           FROM
             swaps s
             JOIN pool_keys pk ON s.pool_key_hash = pk.key_hash
-            JOIN event_keys ek ON s.event_id = ek.id
+            JOIN event_keys ek ON s.event_id = ek.sort_id
             JOIN blocks b ON b.number = ek.block_number
             JOIN last_swap_time_per_pair lstpp ON pk.token0 = lstpp.token0
               AND pk.token1 = lstpp.token1
@@ -998,10 +998,10 @@ export class DAO {
                                      0x10000000000000000))                                          AS   fees,
                            COUNT(1)                                                                 AS   swap_count
                     FROM swaps
-                             JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
-                             JOIN event_keys ON swaps.event_id = event_keys.id
-                             JOIN blocks ON event_keys.block_number = blocks.number
-                    WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
+                             JOIN pool_keys ON swaps.chain_id = pool_keys.chain_id AND swaps.pool_key_hash = pool_keys.key_hash
+                             JOIN event_keys ON swaps.chain_id = event_keys.chain_id AND swaps.event_id = event_keys.sort_id
+                             JOIN blocks ON event_keys.chain_id = blocks.chain_id AND event_keys.block_number = blocks.number
+                    WHERE swaps.chain_id = $2 AND DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
                     GROUP BY hour, swaps.pool_key_hash, token
                 ),
                 fees_token0 AS (
@@ -1012,10 +1012,10 @@ export class DAO {
                            SUM(fa.amount0)                 AS fees,
                            0                               AS swap_count
                     FROM fees_accumulated fa
-                             JOIN pool_keys ON fa.pool_key_hash = pool_keys.key_hash
-                             JOIN event_keys ON fa.event_id = event_keys.id
-                             JOIN blocks ON event_keys.block_number = blocks.number
-                    WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
+                             JOIN pool_keys ON fa.chain_id = pool_keys.chain_id AND fa.pool_key_hash = pool_keys.key_hash
+                             JOIN event_keys ON fa.chain_id = event_keys.chain_id AND fa.event_id = event_keys.sort_id
+                             JOIN blocks ON event_keys.chain_id = blocks.chain_id AND event_keys.block_number = blocks.number
+                    WHERE fa.chain_id = $2 AND DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
                       AND fa.amount0 > 0
                     GROUP BY hour, fa.pool_key_hash, token
                 ),
@@ -1027,10 +1027,10 @@ export class DAO {
                            SUM(fa.amount1)                 AS fees,
                            0                               AS swap_count
                     FROM fees_accumulated fa
-                             JOIN pool_keys ON fa.pool_key_hash = pool_keys.key_hash
-                             JOIN event_keys ON fa.event_id = event_keys.id
-                             JOIN blocks ON event_keys.block_number = blocks.number
-                    WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
+                             JOIN pool_keys ON fa.chain_id = pool_keys.chain_id AND fa.pool_key_hash = pool_keys.key_hash
+                             JOIN event_keys ON fa.chain_id = event_keys.chain_id AND fa.event_id = event_keys.sort_id
+                             JOIN blocks ON event_keys.chain_id = blocks.chain_id AND event_keys.block_number = blocks.number
+                    WHERE fa.chain_id = $2 AND DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
                       AND fa.amount1 > 0
                     GROUP BY hour, fa.pool_key_hash, token
                 ),
@@ -1055,7 +1055,7 @@ export class DAO {
                                   fees       = excluded.fees,
                                   swap_count = excluded.swap_count;
             `,
-      values: [since],
+      values: [since, this.chainId],
     });
 
     await this.pg.query({
@@ -1068,10 +1068,10 @@ export class DAO {
                                                    (0x10000000000000000::NUMERIC - pk.fee)) +
                                               delta0)                     AS revenue
                                    FROM position_updates pu
-                                            JOIN pool_keys pk ON pu.pool_key_hash = pk.key_hash
-                                            JOIN event_keys ek ON pu.event_id = ek.id
-                                            JOIN blocks ON ek.block_number = blocks.number
-                                   WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
+                                            JOIN pool_keys pk ON pu.chain_id = pk.chain_id AND pu.pool_key_hash = pk.key_hash
+                                            JOIN event_keys ek ON pu.chain_id = ek.chain_id AND pu.event_id = ek.sort_id
+                                            JOIN blocks ON ek.chain_id = blocks.chain_id AND ek.block_number = blocks.number
+                                   WHERE pu.chain_id = $2 AND DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
                                      AND pu.delta0 < 0
                                      AND pk.fee != 0
                                    GROUP BY hour, pu.pool_key_hash, token),
@@ -1082,10 +1082,10 @@ export class DAO {
                                                    (0x10000000000000000::NUMERIC - pk.fee)) +
                                               delta1)                     AS revenue
                                    FROM position_updates pu
-                                            JOIN pool_keys pk ON pu.pool_key_hash = pk.key_hash
-                                            JOIN event_keys ek ON pu.event_id = ek.id
-                                            JOIN blocks ON ek.block_number = blocks.number
-                                   WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
+                                            JOIN pool_keys pk ON pu.chain_id = pk.chain_id AND pu.pool_key_hash = pk.key_hash
+                                            JOIN event_keys ek ON pu.chain_id = ek.chain_id AND pu.event_id = ek.sort_id
+                                            JOIN blocks ON ek.chain_id = blocks.chain_id AND ek.block_number = blocks.number
+                                   WHERE pu.chain_id = $2 AND DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
                                      AND pu.delta1 < 0
                                      AND pk.fee != 0
                                    GROUP BY hour, pu.pool_key_hash, token),
@@ -1100,7 +1100,7 @@ export class DAO {
                 ON CONFLICT (key_hash, hour, token)
                     DO UPDATE SET revenue = excluded.revenue;
             `,
-      values: [since],
+      values: [since, this.chainId],
     });
 
     await this.pg.query({
@@ -1112,7 +1112,7 @@ export class DAO {
                                                            SUM(delta1) AS total_delta1,
                                                            COUNT(1)    AS swap_count
                                                     FROM swaps s
-                                                             JOIN event_keys ek ON s.event_id = ek.id
+                                                             JOIN event_keys ek ON s.event_id = ek.sort_id
                                                              JOIN pool_keys pk ON s.pool_key_hash = pk.key_hash
                                                     GROUP BY block_number, pk.token0, pk.token1)
                 INSERT
@@ -1151,7 +1151,7 @@ export class DAO {
                                                                   SUM(delta0)                     AS delta0,
                                                                   SUM(delta1)                     AS delta1
                                                            FROM swaps
-                                                                    JOIN event_keys ON swaps.event_id = event_keys.id
+                                                                    JOIN event_keys ON swaps.event_id = event_keys.sort_id
                                                                     JOIN blocks ON event_keys.block_number = blocks.number
                                                            WHERE event_id >= (SELECT id FROM first_event_id)
                                                            GROUP BY pool_key_hash, hour
@@ -1171,7 +1171,7 @@ export class DAO {
                                                                                   (0x10000000000000000::NUMERIC - pk.fee))
                                                                           ELSE delta1 END)        AS delta1
                                                            FROM position_updates pu
-                                                                    JOIN event_keys ON pu.event_id = event_keys.id
+                                                                    JOIN event_keys ON pu.event_id = event_keys.sort_id
                                                                     JOIN blocks ON event_keys.block_number = blocks.number
                                                                     JOIN pool_keys pk ON pu.pool_key_hash = pk.key_hash
                                                            WHERE event_id >= (SELECT id FROM first_event_id)
@@ -1184,7 +1184,7 @@ export class DAO {
                                                                   SUM(-delta0)                    AS delta0,
                                                                   SUM(-delta1)                    AS delta1
                                                            FROM position_fees_collected
-                                                                    JOIN event_keys ON position_fees_collected.event_id = event_keys.id
+                                                                    JOIN event_keys ON position_fees_collected.event_id = event_keys.sort_id
                                                                     JOIN blocks ON event_keys.block_number = blocks.number
                                                            WHERE event_id >= (SELECT id FROM first_event_id)
                                                            GROUP BY pool_key_hash, DATE_TRUNC('hour', blocks.time)
@@ -1196,7 +1196,7 @@ export class DAO {
                                                                   SUM(amount0)                    AS delta0,
                                                                   SUM(amount1)                    AS delta1
                                                            FROM fees_accumulated
-                                                                    JOIN event_keys ON fees_accumulated.event_id = event_keys.id
+                                                                    JOIN event_keys ON fees_accumulated.event_id = event_keys.sort_id
                                                                     JOIN blocks ON event_keys.block_number = blocks.number
                                                            WHERE event_id >= (SELECT id FROM first_event_id)
                                                            GROUP BY pool_key_hash, hour),
@@ -1260,7 +1260,8 @@ export class DAO {
     const { rows } = await this.pg.query({
       text: `SELECT order_key, unique_key
                    FROM cursor
-                   WHERE id = 1;`,
+                   WHERE chain_id = $1;`,
+      values: [this.chainId],
     });
     if (rows.length === 1) {
       const { order_key, unique_key } = rows[0];
@@ -1283,13 +1284,14 @@ export class DAO {
   public async writeCursor(cursor: { orderKey: bigint; uniqueKey?: string }) {
     await this.pg.query({
       text: `
-                INSERT INTO cursor (id, order_key, unique_key, last_updated)
-                VALUES (1, $1, $2, NOW())
-                ON CONFLICT (id) DO UPDATE SET order_key    = excluded.order_key,
-                                               unique_key   = excluded.unique_key,
-                                               last_updated = NOW();
+                INSERT INTO cursor (chain_id, order_key, unique_key, last_updated)
+                VALUES ($1, $2, $3, NOW())
+                ON CONFLICT (chain_id) DO UPDATE SET order_key    = excluded.order_key,
+                                                     unique_key   = excluded.unique_key,
+                                                     last_updated = NOW();
             `,
       values: [
+        this.chainId,
         cursor.orderKey,
         typeof cursor.uniqueKey !== "undefined"
           ? BigInt(cursor.uniqueKey)
@@ -1361,7 +1363,7 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, id)
+                        RETURNING chain_id, sort_id)
                 INSERT
                 INTO position_transfers
                 (chain_id,
@@ -1369,7 +1371,7 @@ export class DAO {
                  token_id,
                  from_address,
                  to_address)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7, $8, $9)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event), $7, $8, $9)
             `,
       values: [
         this.chainId,
@@ -1394,7 +1396,7 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, id)
+                        RETURNING chain_id, sort_id)
                 INSERT
                 INTO order_transfers
                 (chain_id,
@@ -1402,7 +1404,7 @@ export class DAO {
                  token_id,
                  from_address,
                  to_address)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7, $8, $9)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event), $7, $8, $9)
             `,
       values: [
         this.chainId,
@@ -1427,7 +1429,7 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, id)
+                        RETURNING chain_id, sort_id)
                 INSERT
                 INTO position_updates
                 (chain_id,
@@ -1440,7 +1442,7 @@ export class DAO {
                  liquidity_delta,
                  delta0,
                  delta1)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7,
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event), $7,
                         (SELECT key_hash FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
                         $9, $10, $11, $12, $13, $14);
             `,
@@ -1476,7 +1478,7 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, id)
+                        RETURNING chain_id, sort_id)
                 INSERT
                 INTO position_fees_collected
                 (chain_id,
@@ -1488,7 +1490,7 @@ export class DAO {
                  upper_bound,
                  delta0,
                  delta1)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event),
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event),
                         (SELECT key_hash FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
                         $8, $9, $10, $11, $12, $13);
             `,
@@ -1528,7 +1530,7 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, id)
+                        RETURNING chain_id, sort_id)
                 INSERT
                 INTO pool_initializations
                 (chain_id,
@@ -1536,7 +1538,7 @@ export class DAO {
                  pool_key_hash,
                  tick,
                  sqrt_ratio)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7, $8, $9)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event), $7, $8, $9)
             `,
       values: [
         this.chainId,
@@ -1577,7 +1579,7 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, id)
+                        RETURNING chain_id, sort_id)
                 INSERT
                 INTO protocol_fees_withdrawn
                 (chain_id,
@@ -1585,7 +1587,7 @@ export class DAO {
                  recipient,
                  token,
                  amount)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7, $8, $9);
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event), $7, $8, $9);
             `,
       values: [
         this.chainId,
@@ -1610,11 +1612,11 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, id)
+                        RETURNING chain_id, sort_id)
                 INSERT
                 INTO extension_registrations
                     (chain_id, event_id, extension)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7);
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event), $7);
             `,
       values: [
         this.chainId,
@@ -1637,7 +1639,7 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, id)
+                        RETURNING chain_id, sort_id)
                 INSERT
                 INTO fees_accumulated
                 (chain_id,
@@ -1645,7 +1647,7 @@ export class DAO {
                  pool_key_hash,
                  amount0,
                  amount1)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event),
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event),
                         (SELECT key_hash FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
                         $8, $9);
             `,
@@ -1671,7 +1673,7 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, id)
+                        RETURNING chain_id, sort_id)
                 INSERT
                 INTO swaps
                 (chain_id,
@@ -1683,7 +1685,7 @@ export class DAO {
                  sqrt_ratio_after,
                  tick_after,
                  liquidity_after)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7,
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event), $7,
                         (SELECT key_hash FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
                         $9, $10, $11, $12, $13);
             `,
@@ -1717,9 +1719,9 @@ export class DAO {
       text: `
                 DELETE
                 FROM blocks
-                WHERE number >= $1;
+                WHERE chain_id = $1 AND number >= $2;
             `,
-      values: [invalidatedBlockNumber],
+      values: [this.chainId, invalidatedBlockNumber],
     });
     if (rowCount === null) throw new Error("Null row count after delete");
     return rowCount;
@@ -1752,7 +1754,7 @@ export class DAO {
                     INSERT INTO event_keys
                         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, id)
+                        RETURNING chain_id, sort_id)
                 INSERT
                 INTO twamm_order_updates
                 (chain_id,
@@ -1764,12 +1766,12 @@ export class DAO {
                  sale_rate_delta1,
                  start_time,
                  end_time)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event),
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event),
                         (SELECT key_hash
                          FROM pool_keys
                          WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
                                                FROM extension_registrations er
-                                                        JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.id
+                                                        JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.sort_id
                                                WHERE er.extension = $6)
                            AND pool_id = $7), $8, $9, $10, $11, $12, $13);
             `,
@@ -1819,16 +1821,16 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, id)
+                        RETURNING chain_id, sort_id)
                 INSERT
                 INTO twamm_proceeds_withdrawals
                 (chain_id, event_id, key_hash, owner, salt, amount0, amount1, start_time, end_time)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event),
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event),
                         (SELECT key_hash
                          FROM pool_keys
                          WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
                                                FROM extension_registrations er
-                                                        JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.id
+                                                        JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.sort_id
                                                WHERE er.extension = $6)
                            AND pool_id = $7), $8, $9, $10, $11, $12, $13);
             `,
@@ -1862,16 +1864,16 @@ export class DAO {
                     INSERT INTO event_keys
                         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, id)
+                        RETURNING chain_id, sort_id)
                 INSERT
                 INTO twamm_virtual_order_executions
                     (chain_id, event_id, key_hash, token0_sale_rate, token1_sale_rate)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event),
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event),
                         (SELECT key_hash
                          FROM pool_keys
                          WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
                                                FROM extension_registrations er
-                                                        JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.id
+                                                        JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.sort_id
                                                WHERE er.extension = $6)
                            AND pool_id = $7), $8, $9);
             `,
@@ -1896,12 +1898,12 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, id)
+                        RETURNING chain_id, sort_id)
                 INSERT
                 INTO oracle_snapshots
                 (chain_id, event_id, token, snapshot_block_timestamp, snapshot_tick_cumulative,
                  snapshot_seconds_per_liquidity_cumulative)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7, $8, $9, $10)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event), $7, $8, $9, $10)
             `,
       values: [
         this.chainId,
@@ -1927,11 +1929,11 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, id)
+                        RETURNING chain_id, sort_id)
                 INSERT
                 INTO incentives_refunded
                     (chain_id, event_id, owner, token, root, refund_amount)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7, $8, $9, $10)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event), $7, $8, $9, $10)
             `,
       values: [
         this.chainId,
@@ -1954,11 +1956,11 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, id)
+                        RETURNING chain_id, sort_id)
                 INSERT
                 INTO incentives_funded
                     (chain_id, event_id, owner, token, root, amount_next)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7, $8, $9, $10)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event), $7, $8, $9, $10)
             `,
       values: [
         this.chainId,
@@ -1984,11 +1986,11 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, id)
+                        RETURNING chain_id, sort_id)
                 INSERT
                 INTO token_wrapper_deployed
                     (chain_id, event_id, token_wrapper, underlying_token, unlock_time)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7, $8, $9)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event), $7, $8, $9)
             `,
       values: [
         this.chainId,
