@@ -43,7 +43,7 @@ describe("Pool Balance Changes", () => {
     const result = await client.query(`
       SELECT column_name, data_type, is_nullable
       FROM information_schema.columns
-      WHERE table_name = 'pool_balance_changes'
+      WHERE table_name = 'pool_balance_change_event'
       ORDER BY ordinal_position;
     `);
 
@@ -97,7 +97,7 @@ describe("Pool Balance Changes", () => {
     const swapResult = await client.query("SELECT * FROM swaps");
     expect(swapResult.rows).toHaveLength(1);
 
-    const balanceChangeResult = await client.query("SELECT * FROM pool_balance_changes");
+    const balanceChangeResult = await client.query("SELECT * FROM pool_balance_change_event");
     expect(balanceChangeResult.rows).toHaveLength(1);
     expect(balanceChangeResult.rows[0]).toMatchObject({
       pool_key_hash: "123",
@@ -105,7 +105,7 @@ describe("Pool Balance Changes", () => {
       delta1: "-500000",
     });
 
-    // Verify the swap table references the pool_balance_changes row
+    // Verify the swap table references the pool_balance_change_event row
     const swapRow = swapResult.rows[0];
     expect(swapRow.pool_balance_change_id).toBe(swapRow.event_id);
   });
@@ -114,7 +114,7 @@ describe("Pool Balance Changes", () => {
     // Skip if no database configured
     if (!client) return;
 
-    // This test verifies that event types can be determined by joining pool_balance_changes
+    // This test verifies that event types can be determined by joining pool_balance_change_event
     // with the specific event tables (swaps, position_updates, etc.)
     
     await client.query(`
@@ -137,22 +137,22 @@ describe("Pool Balance Changes", () => {
       VALUES (1000, 1, 0, '0xabcdef', 456), (1000, 1, 1, '0xabcdef', 456);
     `);
 
-    // Insert pool_balance_changes
+    // Insert pool_balance_change_event
     await client.query(`
-      INSERT INTO pool_balance_changes (event_id, pool_key_hash, delta0, delta1)
+      INSERT INTO pool_balance_change_event (event_id, pool_key_hash, delta0, delta1)
       VALUES ($1, 123, 1000, -500), ($2, 123, 2000, -1000);
     `, [eventId1, eventId2]);
 
-    // Insert a swap event that references the first pool_balance_changes row
+    // Insert a swap event that references the first pool_balance_change_event row
     await client.query(`
-      INSERT INTO swaps (event_id, locker, pool_key_hash, delta0, delta1, sqrt_ratio_after, tick_after, liquidity_after, pool_balance_change_id)
-      VALUES ($1, 999, 123, 1000, -500, 1500000, 100, 2000000, $1);
+      INSERT INTO swaps (event_id, locker, pool_key_hash, sqrt_ratio_after, tick_after, liquidity_after, pool_balance_change_id)
+      VALUES ($1, 999, 123, 1500000, 100, 2000000, $1);
     `, [eventId1]);
 
-    // Insert a position_updates event that references the second pool_balance_changes row
+    // Insert a position_updates event that references the second pool_balance_change_event row
     await client.query(`
-      INSERT INTO position_updates (event_id, locker, pool_key_hash, salt, lower_bound, upper_bound, liquidity_delta, delta0, delta1, pool_balance_change_id)
-      VALUES ($1, 888, 123, 777, -100, 100, 5000, 2000, -1000, $1);
+      INSERT INTO position_updates (event_id, locker, pool_key_hash, salt, lower_bound, upper_bound, liquidity_delta, pool_balance_change_id)
+      VALUES ($1, 888, 123, 777, -100, 100, 5000, $1);
     `, [eventId2]);
 
     // Query to determine event types through joins
@@ -167,7 +167,7 @@ describe("Pool Balance Changes", () => {
           WHEN tpw.event_id IS NOT NULL THEN 'twamm_proceeds_withdrawn'
           ELSE 'unknown'
         END as event_type
-      FROM pool_balance_changes pbc
+      FROM pool_balance_change_event pbc
       LEFT JOIN swaps s ON pbc.event_id = s.event_id
       LEFT JOIN position_updates pu ON pbc.event_id = pu.event_id
       LEFT JOIN position_fees_collected pfc ON pbc.event_id = pfc.event_id
