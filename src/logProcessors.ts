@@ -143,7 +143,7 @@ const processors: {
     },
     handlers: {
       async PoolInitialized(dao, key, parsed) {
-        const poolKeyHash = await dao.insertPoolInitializedEvent(
+        const poolKeyId = await dao.insertPoolInitializedEvent(
           {
             ...parsed,
             sqrtRatio: floatSqrtRatioToFixed(parsed.sqrtRatio),
@@ -153,7 +153,7 @@ const processors: {
 
         const { extension } = parsePoolKeyConfig(parsed.poolKey.config);
         if (BigInt(extension) === MEV_RESIST_ADDRESS) {
-          await dao.insertMEVResistPoolKey(poolKeyHash);
+          await dao.insertMEVResistPoolKey(poolKeyId);
         }
       },
       async PositionUpdated(dao, key, parsed) {
