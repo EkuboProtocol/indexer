@@ -1346,13 +1346,11 @@ export class DAO {
                     INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5)
                         RETURNING id),
-                pool_key AS (
-                    SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7
-                ),
                 balance_change_insert AS (
                     INSERT INTO pool_balance_change_event (event_id, pool_key_hash, delta0, delta1)
-                    SELECT ie.id, pk.key_hash, $12, $13
-                    FROM inserted_event ie, pool_key pk
+                    VALUES ((SELECT id FROM inserted_event),
+                            (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7),
+                            $12, $13)
                     RETURNING event_id
                 )
                 INSERT INTO position_updates
@@ -1364,8 +1362,11 @@ export class DAO {
                  upper_bound,
                  liquidity_delta,
                  pool_balance_change_id)
-                SELECT bci.event_id, $6, pk.key_hash, $8, $9, $10, $11, bci.event_id
-                FROM balance_change_insert bci, pool_key pk;
+                VALUES ((SELECT event_id FROM balance_change_insert),
+                        $6,
+                        (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7),
+                        $8, $9, $10, $11,
+                        (SELECT event_id FROM balance_change_insert));
             `,
       values: [
         key.blockNumber,
@@ -1399,13 +1400,11 @@ export class DAO {
                     INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5)
                         RETURNING id),
-                pool_key AS (
-                    SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $6
-                ),
                 balance_change_insert AS (
                     INSERT INTO pool_balance_change_event (event_id, pool_key_hash, delta0, delta1)
-                    SELECT ie.id, pk.key_hash, -$11, -$12
-                    FROM inserted_event ie, pool_key pk
+                    VALUES ((SELECT id FROM inserted_event),
+                            (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $6),
+                            -$11, -$12)
                     RETURNING event_id
                 )
                 INSERT INTO position_fees_collected
@@ -1416,8 +1415,10 @@ export class DAO {
                  lower_bound,
                  upper_bound,
                  pool_balance_change_id)
-                SELECT bci.event_id, pk.key_hash, $7, $8, $9, $10, bci.event_id
-                FROM balance_change_insert bci, pool_key pk;
+                VALUES ((SELECT event_id FROM balance_change_insert),
+                        (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $6),
+                        $7, $8, $9, $10,
+                        (SELECT event_id FROM balance_change_insert));
             `,
       values: [
         key.blockNumber,
@@ -1559,21 +1560,20 @@ export class DAO {
                     INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5)
                         RETURNING id),
-                pool_key AS (
-                    SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $6
-                ),
                 balance_change_insert AS (
                     INSERT INTO pool_balance_change_event (event_id, pool_key_hash, delta0, delta1)
-                    SELECT ie.id, pk.key_hash, $7, $8
-                    FROM inserted_event ie, pool_key pk
+                    VALUES ((SELECT id FROM inserted_event),
+                            (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $6),
+                            $7, $8)
                     RETURNING event_id
                 )
                 INSERT INTO fees_accumulated
                 (event_id,
                  pool_key_hash,
                  pool_balance_change_id)
-                SELECT bci.event_id, pk.key_hash, bci.event_id
-                FROM balance_change_insert bci, pool_key pk;
+                VALUES ((SELECT event_id FROM balance_change_insert),
+                        (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $6),
+                        (SELECT event_id FROM balance_change_insert));
             `,
       values: [
         key.blockNumber,
@@ -1597,13 +1597,11 @@ export class DAO {
                     INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5)
                         RETURNING id),
-                pool_key AS (
-                    SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7
-                ),
                 balance_change_insert AS (
                     INSERT INTO pool_balance_change_event (event_id, pool_key_hash, delta0, delta1)
-                    SELECT ie.id, pk.key_hash, $8, $9
-                    FROM inserted_event ie, pool_key pk
+                    VALUES ((SELECT id FROM inserted_event),
+                            (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7),
+                            $8, $9)
                     RETURNING event_id
                 )
                 INSERT INTO swaps
@@ -1614,8 +1612,11 @@ export class DAO {
                  tick_after,
                  liquidity_after,
                  pool_balance_change_id)
-                SELECT bci.event_id, $6, pk.key_hash, $10, $11, $12, bci.event_id
-                FROM balance_change_insert bci, pool_key pk;
+                VALUES ((SELECT event_id FROM balance_change_insert),
+                        $6,
+                        (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7),
+                        $10, $11, $12,
+                        (SELECT event_id FROM balance_change_insert));
             `,
       values: [
         key.blockNumber,
@@ -1747,25 +1748,31 @@ export class DAO {
                     INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5)
                         RETURNING id),
-                pool_key AS (
-                    SELECT key_hash
-                    FROM pool_keys
-                    WHERE core_address = (SELECT ek.emitter
-                                          FROM extension_registrations er
-                                                   JOIN event_keys ek ON er.event_id = ek.id
-                                          WHERE er.extension = $5)
-                      AND pool_id = $6
-                ),
                 balance_change_insert AS (
                     INSERT INTO pool_balance_change_event (event_id, pool_key_hash, delta0, delta1)
-                    SELECT ie.id, pk.key_hash, -$9, -$10
-                    FROM inserted_event ie, pool_key pk
+                    VALUES ((SELECT id FROM inserted_event),
+                            (SELECT key_hash
+                             FROM pool_keys
+                             WHERE core_address = (SELECT ek.emitter
+                                                   FROM extension_registrations er
+                                                            JOIN event_keys ek ON er.event_id = ek.id
+                                                   WHERE er.extension = $5)
+                               AND pool_id = $6),
+                            -$9, -$10)
                     RETURNING event_id
                 )
                 INSERT INTO twamm_proceeds_withdrawals
                 (event_id, key_hash, owner, salt, start_time, end_time, pool_balance_change_id)
-                SELECT bci.event_id, pk.key_hash, $7, $8, $11, $12, bci.event_id
-                FROM balance_change_insert bci, pool_key pk;
+                VALUES ((SELECT event_id FROM balance_change_insert),
+                        (SELECT key_hash
+                         FROM pool_keys
+                         WHERE core_address = (SELECT ek.emitter
+                                               FROM extension_registrations er
+                                                        JOIN event_keys ek ON er.event_id = ek.id
+                                               WHERE er.extension = $5)
+                           AND pool_id = $6),
+                        $7, $8, $11, $12,
+                        (SELECT event_id FROM balance_change_insert));
             `,
       values: [
         key.blockNumber,
