@@ -1053,12 +1053,13 @@ export class DAO {
     await this.pg.query({
       text: `
                 WITH total_swaps_per_block_pair AS (SELECT ek.block_number,
-                                                           pk.token0   AS token0,
-                                                           pk.token1   AS token1,
-                                                           SUM(delta0) AS total_delta0,
-                                                           SUM(delta1) AS total_delta1,
-                                                           COUNT(1)    AS swap_count
+                                                           pk.token0        AS token0,
+                                                           pk.token1        AS token1,
+                                                           SUM(pbc.delta0) AS total_delta0,
+                                                           SUM(pbc.delta1) AS total_delta1,
+                                                           COUNT(1)         AS swap_count
                                                     FROM swaps s
+                                                             JOIN pool_balance_change_event pbc ON s.pool_balance_change_id = pbc.event_id
                                                              JOIN event_keys ek ON s.event_id = ek.id
                                                              JOIN pool_keys pk ON s.pool_key_hash = pk.key_hash
                                                     GROUP BY block_number, pk.token0, pk.token1)
