@@ -141,7 +141,7 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS position_updates
         (
-            event_id        int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+            pool_balance_change_id int8 NOT NULL REFERENCES pool_balance_change_event (event_id) ON DELETE CASCADE PRIMARY KEY,
 
             locker          NUMERIC NOT NULL,
 
@@ -151,26 +151,22 @@ export class DAO {
             lower_bound     int4    NOT NULL,
             upper_bound     int4    NOT NULL,
 
-            liquidity_delta NUMERIC NOT NULL,
-            
-            pool_balance_change_id int8 NOT NULL REFERENCES pool_balance_change_event (event_id) ON DELETE CASCADE
+            liquidity_delta NUMERIC NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_position_updates_pool_key_hash_event_id ON position_updates USING btree (pool_key_hash, event_id);
+        CREATE INDEX IF NOT EXISTS idx_position_updates_pool_key_hash_event_id ON position_updates USING btree (pool_key_hash, pool_balance_change_id);
         CREATE INDEX IF NOT EXISTS idx_position_updates_locker_salt ON position_updates USING btree (locker, salt);
         CREATE INDEX IF NOT EXISTS idx_position_updates_salt ON position_updates USING btree (salt);
 
         CREATE TABLE IF NOT EXISTS position_fees_collected
         (
-            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+            pool_balance_change_id int8 NOT NULL REFERENCES pool_balance_change_event (event_id) ON DELETE CASCADE PRIMARY KEY,
 
             pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
             owner         NUMERIC NOT NULL,
             salt          NUMERIC NOT NULL,
             lower_bound   int4    NOT NULL,
-            upper_bound   int4    NOT NULL,
-            
-            pool_balance_change_id int8 NOT NULL REFERENCES pool_balance_change_event (event_id) ON DELETE CASCADE
+            upper_bound   int4    NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_position_fees_collected_pool_key_hash ON position_fees_collected (pool_key_hash);
         CREATE INDEX IF NOT EXISTS idx_position_fees_collected_salt ON position_fees_collected USING btree (salt);
@@ -188,11 +184,9 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS fees_accumulated
         (
-            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+            pool_balance_change_id int8 NOT NULL REFERENCES pool_balance_change_event (event_id) ON DELETE CASCADE,
 
-            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
-            
-            pool_balance_change_id int8 NOT NULL REFERENCES pool_balance_change_event (event_id) ON DELETE CASCADE
+            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_fees_accumulated_pool_key_hash ON fees_accumulated (pool_key_hash);
 
@@ -216,51 +210,49 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS swaps
         (
-            event_id         int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+            pool_balance_change_id int8 NOT NULL REFERENCES pool_balance_change_event (event_id) ON DELETE CASCADE PRIMARY KEY,
 
             locker           NUMERIC NOT NULL,
             pool_key_hash    NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
 
             sqrt_ratio_after NUMERIC NOT NULL,
             tick_after       int4    NOT NULL,
-            liquidity_after  NUMERIC NOT NULL,
-            
-            pool_balance_change_id int8 NOT NULL REFERENCES pool_balance_change_event (event_id) ON DELETE CASCADE
+            liquidity_after  NUMERIC NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_event_id ON swaps USING btree (pool_key_hash, event_id);
-        CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_event_id_desc ON swaps USING btree (pool_key_hash, event_id DESC) INCLUDE (sqrt_ratio_after, tick_after, liquidity_after);
+        CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_event_id ON swaps USING btree (pool_key_hash, pool_balance_change_id);
+        CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_event_id_desc ON swaps USING btree (pool_key_hash, pool_balance_change_id DESC) INCLUDE (sqrt_ratio_after, tick_after, liquidity_after);
 
         CREATE OR REPLACE VIEW pool_states_view AS
         (
         WITH lss AS (SELECT key_hash,
-                            COALESCE(last_swap.event_id, pi.event_id)           AS last_swap_event_id,
+                            COALESCE(last_swap.pool_balance_change_id, pi.pool_balance_change_id)           AS last_swap_event_id,
                             COALESCE(last_swap.sqrt_ratio_after, pi.sqrt_ratio) AS sqrt_ratio,
                             COALESCE(last_swap.tick_after, pi.tick)             AS tick,
                             COALESCE(last_swap.liquidity_after, 0)              AS liquidity_last
                      FROM pool_keys
                               LEFT JOIN LATERAL (
-                         SELECT event_id, sqrt_ratio_after, tick_after, liquidity_after
+                         SELECT pool_balance_change_id, sqrt_ratio_after, tick_after, liquidity_after
                          FROM swaps
                          WHERE pool_keys.key_hash = swaps.pool_key_hash
-                         ORDER BY event_id DESC
+                         ORDER BY pool_balance_change_id DESC
                          LIMIT 1
                          ) AS last_swap ON TRUE
                               LEFT JOIN LATERAL (
-                         SELECT event_id, sqrt_ratio, tick
+                         SELECT pool_balance_change_id, sqrt_ratio, tick
                          FROM pool_initializations
                          WHERE pool_initializations.pool_key_hash = pool_keys.key_hash
-                         ORDER BY event_id DESC
+                         ORDER BY pool_balance_change_id DESC
                          LIMIT 1
                          ) AS pi ON TRUE),
              pl AS (SELECT key_hash,
-                           (SELECT event_id
+                           (SELECT pool_balance_change_id
                             FROM position_updates
                             WHERE key_hash = position_updates.pool_key_hash
-                            ORDER BY event_id DESC
+                            ORDER BY pool_balance_change_id DESC
                             LIMIT 1)                                   AS last_update_event_id,
                            (COALESCE(liquidity_last, 0) + COALESCE((SELECT SUM(liquidity_delta)
                                                                     FROM position_updates AS pu
-                                                                    WHERE lss.last_swap_event_id < pu.event_id
+                                                                    WHERE lss.last_swap_event_id < pu.pool_balance_change_id
                                                                       AND pu.pool_key_hash = lss.key_hash
                                                                       AND lss.tick BETWEEN pu.lower_bound AND (pu.upper_bound - 1)),
                                                                    0)) AS liquidity
@@ -807,7 +799,7 @@ export class DAO {
           SELECT
             token0,
             token1,
-            max(event_id) AS last_swap_event_id
+            max(pool_balance_change_id) AS last_swap_event_id
         FROM
           swaps s
           JOIN pool_keys pk ON s.pool_key_hash = pk.key_hash
@@ -835,7 +827,7 @@ export class DAO {
           FROM
             swaps s
             JOIN pool_keys pk ON s.pool_key_hash = pk.key_hash
-            JOIN event_keys ek ON s.event_id = ek.id
+            JOIN event_keys ek ON s.pool_balance_change_id = ek.id
             JOIN blocks b ON b.number = ek.block_number
             JOIN last_swap_time_per_pair lstpp ON pk.token0 = lstpp.token0
               AND pk.token1 = lstpp.token1
@@ -1354,19 +1346,17 @@ export class DAO {
                     RETURNING event_id
                 )
                 INSERT INTO position_updates
-                (event_id,
+                (pool_balance_change_id,
                  locker,
                  pool_key_hash,
                  salt,
                  lower_bound,
                  upper_bound,
-                 liquidity_delta,
-                 pool_balance_change_id)
+                 liquidity_delta)
                 VALUES ((SELECT event_id FROM balance_change_insert),
                         $6,
                         (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7),
-                        $8, $9, $10, $11,
-                        (SELECT event_id FROM balance_change_insert));
+                        $8, $9, $10, $11);
             `,
       values: [
         key.blockNumber,
@@ -1404,21 +1394,19 @@ export class DAO {
                     INSERT INTO pool_balance_change_event (event_id, pool_key_hash, delta0, delta1)
                     VALUES ((SELECT id FROM inserted_event),
                             (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $6),
-                            -$11, -$12)
+                            -$11::numeric, -$12::numeric)
                     RETURNING event_id
                 )
                 INSERT INTO position_fees_collected
-                (event_id,
+                (pool_balance_change_id,
                  pool_key_hash,
                  owner,
                  salt,
                  lower_bound,
-                 upper_bound,
-                 pool_balance_change_id)
+                 upper_bound)
                 VALUES ((SELECT event_id FROM balance_change_insert),
                         (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $6),
-                        $7, $8, $9, $10,
-                        (SELECT event_id FROM balance_change_insert));
+                        $7, $8, $9, $10);
             `,
       values: [
         key.blockNumber,
@@ -1605,18 +1593,16 @@ export class DAO {
                     RETURNING event_id
                 )
                 INSERT INTO swaps
-                (event_id,
+                (pool_balance_change_id,
                  locker,
                  pool_key_hash,
                  sqrt_ratio_after,
                  tick_after,
-                 liquidity_after,
-                 pool_balance_change_id)
+                 liquidity_after)
                 VALUES ((SELECT event_id FROM balance_change_insert),
                         $6,
                         (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7),
-                        $10, $11, $12,
-                        (SELECT event_id FROM balance_change_insert));
+                        $10, $11, $12);
             `,
       values: [
         key.blockNumber,
