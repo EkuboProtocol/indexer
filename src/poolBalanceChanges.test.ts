@@ -52,7 +52,6 @@ describe("Pool Balance Changes", () => {
       { column_name: "pool_key_hash", data_type: "numeric", is_nullable: "NO" },
       { column_name: "delta0", data_type: "numeric", is_nullable: "NO" },
       { column_name: "delta1", data_type: "numeric", is_nullable: "NO" },
-      { column_name: "event_type", data_type: "text", is_nullable: "NO" },
     ]);
   });
 
@@ -104,16 +103,19 @@ describe("Pool Balance Changes", () => {
       pool_key_hash: "123",
       delta0: "1000000",
       delta1: "-500000",
-      event_type: "swap",
     });
+
+    // Verify the swap table references the pool_balance_changes row
+    const swapRow = swapResult.rows[0];
+    expect(swapRow.pool_balance_change_id).toBe(swapRow.event_id);
   });
 
-  it("should handle multiple event types in pool_balance_changes", async () => {
+  it("should determine event types through joins to specific event tables", async () => {
     // Skip if no database configured
     if (!client) return;
 
-    // This test would verify that different event types are properly categorized
-    // For now, we'll just verify the table accepts different event types
+    // This test verifies that event types can be determined by joining pool_balance_changes
+    // with the specific event tables (swaps, position_updates, etc.)
     
     await client.query(`
       INSERT INTO pool_keys (key_hash, core_address, pool_id, token0, token1, fee, tick_spacing, extension)
@@ -125,30 +127,57 @@ describe("Pool Balance Changes", () => {
       VALUES (1000, 999, NOW());
     `);
 
-    // Insert different event types
-    const eventTypes = ['swap', 'position_update', 'position_fees_collected', 'fees_accumulated', 'twamm_proceeds_withdrawn'];
-    
-    for (let i = 0; i < eventTypes.length; i++) {
-      // Insert event_keys row for each event
-      await client.query(`
-        INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
-        VALUES (1000, 1, $1, '0xabcdef', 456);
-      `, [i]);
+    // Insert a few different event types manually
+    const eventId1 = 1000 * 4294967296 + 1 * 65536 + 0;
+    const eventId2 = 1000 * 4294967296 + 1 * 65536 + 1;
 
-      // Insert corresponding pool_balance_changes row
-      await client.query(`
-        INSERT INTO pool_balance_changes (event_id, pool_key_hash, delta0, delta1, event_type)
-        VALUES ($1, 123, $2, $3, $4);
-      `, [
-        1000 * 4294967296 + 1 * 65536 + i, // Generate unique event_id
-        (i + 1) * 1000,
-        (i + 1) * -500,
-        eventTypes[i]
-      ]);
-    }
+    // Insert event_keys
+    await client.query(`
+      INSERT INTO event_keys (block_number, transaction_index, event_index, transaction_hash, emitter)
+      VALUES (1000, 1, 0, '0xabcdef', 456), (1000, 1, 1, '0xabcdef', 456);
+    `);
 
-    const result = await client.query("SELECT event_type, COUNT(*) as count FROM pool_balance_changes GROUP BY event_type ORDER BY event_type");
-    expect(result.rows).toHaveLength(5);
-    expect(result.rows.map(r => r.event_type)).toEqual(eventTypes.sort());
+    // Insert pool_balance_changes
+    await client.query(`
+      INSERT INTO pool_balance_changes (event_id, pool_key_hash, delta0, delta1)
+      VALUES ($1, 123, 1000, -500), ($2, 123, 2000, -1000);
+    `, [eventId1, eventId2]);
+
+    // Insert a swap event that references the first pool_balance_changes row
+    await client.query(`
+      INSERT INTO swaps (event_id, locker, pool_key_hash, delta0, delta1, sqrt_ratio_after, tick_after, liquidity_after, pool_balance_change_id)
+      VALUES ($1, 999, 123, 1000, -500, 1500000, 100, 2000000, $1);
+    `, [eventId1]);
+
+    // Insert a position_updates event that references the second pool_balance_changes row
+    await client.query(`
+      INSERT INTO position_updates (event_id, locker, pool_key_hash, salt, lower_bound, upper_bound, liquidity_delta, delta0, delta1, pool_balance_change_id)
+      VALUES ($1, 888, 123, 777, -100, 100, 5000, 2000, -1000, $1);
+    `, [eventId2]);
+
+    // Query to determine event types through joins
+    const result = await client.query(`
+      SELECT 
+        pbc.event_id,
+        CASE 
+          WHEN s.event_id IS NOT NULL THEN 'swap'
+          WHEN pu.event_id IS NOT NULL THEN 'position_update'
+          WHEN pfc.event_id IS NOT NULL THEN 'position_fees_collected'
+          WHEN fa.event_id IS NOT NULL THEN 'fees_accumulated'
+          WHEN tpw.event_id IS NOT NULL THEN 'twamm_proceeds_withdrawn'
+          ELSE 'unknown'
+        END as event_type
+      FROM pool_balance_changes pbc
+      LEFT JOIN swaps s ON pbc.event_id = s.event_id
+      LEFT JOIN position_updates pu ON pbc.event_id = pu.event_id
+      LEFT JOIN position_fees_collected pfc ON pbc.event_id = pfc.event_id
+      LEFT JOIN fees_accumulated fa ON pbc.event_id = fa.event_id
+      LEFT JOIN twamm_proceeds_withdrawals tpw ON pbc.event_id = tpw.event_id
+      ORDER BY pbc.event_id;
+    `);
+
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows[0].event_type).toBe('swap');
+    expect(result.rows[1].event_type).toBe('position_update');
   });
 });
