@@ -924,99 +924,6 @@ export class DAO {
         CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_market_depth
             ON pool_market_depth (pool_key_hash, depth_percent);
 
-        -- Migration: Remove delta columns from existing tables and add pool_balance_change_id
-        ALTER TABLE position_updates DROP COLUMN IF EXISTS delta0;
-        ALTER TABLE position_updates DROP COLUMN IF EXISTS delta1;
-        ALTER TABLE position_updates ADD COLUMN IF NOT EXISTS pool_balance_change_id int8;
-        
-        ALTER TABLE position_fees_collected DROP COLUMN IF EXISTS delta0;
-        ALTER TABLE position_fees_collected DROP COLUMN IF EXISTS delta1;
-        ALTER TABLE position_fees_collected ADD COLUMN IF NOT EXISTS pool_balance_change_id int8;
-        
-        ALTER TABLE fees_accumulated DROP COLUMN IF EXISTS amount0;
-        ALTER TABLE fees_accumulated DROP COLUMN IF EXISTS amount1;
-        ALTER TABLE fees_accumulated ADD COLUMN IF NOT EXISTS pool_balance_change_id int8;
-        
-        ALTER TABLE swaps DROP COLUMN IF EXISTS delta0;
-        ALTER TABLE swaps DROP COLUMN IF EXISTS delta1;
-        ALTER TABLE swaps ADD COLUMN IF NOT EXISTS pool_balance_change_id int8;
-        
-        ALTER TABLE twamm_proceeds_withdrawals DROP COLUMN IF EXISTS amount0;
-        ALTER TABLE twamm_proceeds_withdrawals DROP COLUMN IF EXISTS amount1;
-        ALTER TABLE twamm_proceeds_withdrawals ADD COLUMN IF NOT EXISTS pool_balance_change_id int8;
-
-        -- Add foreign key constraints (without CASCADE to avoid multiple cascade paths)
-        DO $$
-        BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'position_updates_pool_balance_change_id_fkey') THEN
-                ALTER TABLE position_updates ADD CONSTRAINT position_updates_pool_balance_change_id_fkey 
-                    FOREIGN KEY (pool_balance_change_id) REFERENCES pool_balance_change_event (event_id);
-            END IF;
-            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'position_fees_collected_pool_balance_change_id_fkey') THEN
-                ALTER TABLE position_fees_collected ADD CONSTRAINT position_fees_collected_pool_balance_change_id_fkey 
-                    FOREIGN KEY (pool_balance_change_id) REFERENCES pool_balance_change_event (event_id);
-            END IF;
-            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fees_accumulated_pool_balance_change_id_fkey') THEN
-                ALTER TABLE fees_accumulated ADD CONSTRAINT fees_accumulated_pool_balance_change_id_fkey 
-                    FOREIGN KEY (pool_balance_change_id) REFERENCES pool_balance_change_event (event_id);
-            END IF;
-            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'swaps_pool_balance_change_id_fkey') THEN
-                ALTER TABLE swaps ADD CONSTRAINT swaps_pool_balance_change_id_fkey 
-                    FOREIGN KEY (pool_balance_change_id) REFERENCES pool_balance_change_event (event_id);
-            END IF;
-            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'twamm_proceeds_withdrawals_pool_balance_change_id_fkey') THEN
-                ALTER TABLE twamm_proceeds_withdrawals ADD CONSTRAINT twamm_proceeds_withdrawals_pool_balance_change_id_fkey 
-                    FOREIGN KEY (pool_balance_change_id) REFERENCES pool_balance_change_event (event_id);
-            END IF;
-        END $$;
-
-        -- Backfill pool_balance_change_event from existing data (one-time migration)
-        -- Note: This assumes the old columns still exist during migration
-        INSERT INTO pool_balance_change_event (event_id, pool_key_hash, delta0, delta1)
-        SELECT s.event_id, s.pool_key_hash, 
-               COALESCE((SELECT delta0 FROM swaps s2 WHERE s2.event_id = s.event_id), 0),
-               COALESCE((SELECT delta1 FROM swaps s2 WHERE s2.event_id = s.event_id), 0)
-        FROM swaps s
-        WHERE NOT EXISTS (SELECT 1 FROM pool_balance_change_event pbc WHERE pbc.event_id = s.event_id)
-        
-        UNION ALL
-        
-        SELECT pu.event_id, pu.pool_key_hash,
-               COALESCE((SELECT delta0 FROM position_updates pu2 WHERE pu2.event_id = pu.event_id), 0),
-               COALESCE((SELECT delta1 FROM position_updates pu2 WHERE pu2.event_id = pu.event_id), 0)
-        FROM position_updates pu
-        WHERE NOT EXISTS (SELECT 1 FROM pool_balance_change_event pbc WHERE pbc.event_id = pu.event_id)
-        
-        UNION ALL
-        
-        SELECT pfc.event_id, pfc.pool_key_hash,
-               -COALESCE((SELECT delta0 FROM position_fees_collected pfc2 WHERE pfc2.event_id = pfc.event_id), 0),
-               -COALESCE((SELECT delta1 FROM position_fees_collected pfc2 WHERE pfc2.event_id = pfc.event_id), 0)
-        FROM position_fees_collected pfc
-        WHERE NOT EXISTS (SELECT 1 FROM pool_balance_change_event pbc WHERE pbc.event_id = pfc.event_id)
-        
-        UNION ALL
-        
-        SELECT fa.event_id, fa.pool_key_hash,
-               COALESCE((SELECT amount0 FROM fees_accumulated fa2 WHERE fa2.event_id = fa.event_id), 0),
-               COALESCE((SELECT amount1 FROM fees_accumulated fa2 WHERE fa2.event_id = fa.event_id), 0)
-        FROM fees_accumulated fa
-        WHERE NOT EXISTS (SELECT 1 FROM pool_balance_change_event pbc WHERE pbc.event_id = fa.event_id)
-        
-        UNION ALL
-        
-        SELECT tpw.event_id, tpw.key_hash,
-               -COALESCE((SELECT amount0 FROM twamm_proceeds_withdrawals tpw2 WHERE tpw2.event_id = tpw.event_id), 0),
-               -COALESCE((SELECT amount1 FROM twamm_proceeds_withdrawals tpw2 WHERE tpw2.event_id = tpw.event_id), 0)
-        FROM twamm_proceeds_withdrawals tpw
-        WHERE NOT EXISTS (SELECT 1 FROM pool_balance_change_event pbc WHERE pbc.event_id = tpw.event_id);
-
-        -- Update foreign key references in existing event tables
-        UPDATE position_updates SET pool_balance_change_id = event_id WHERE pool_balance_change_id IS NULL;
-        UPDATE position_fees_collected SET pool_balance_change_id = event_id WHERE pool_balance_change_id IS NULL;
-        UPDATE fees_accumulated SET pool_balance_change_id = event_id WHERE pool_balance_change_id IS NULL;
-        UPDATE swaps SET pool_balance_change_id = event_id WHERE pool_balance_change_id IS NULL;
-        UPDATE twamm_proceeds_withdrawals SET pool_balance_change_id = event_id WHERE pool_balance_change_id IS NULL;
     `);
   }
 
@@ -1026,13 +933,14 @@ export class DAO {
                 WITH swap_data AS (
                     SELECT swaps.pool_key_hash                                                      AS   key_hash,
                            DATE_TRUNC('hour', blocks.time)                                          AS   hour,
-                           (CASE WHEN swaps.delta0 >= 0 THEN pool_keys.token0 ELSE pool_keys.token1 END) token,
-                           SUM(CASE WHEN swaps.delta0 >= 0 THEN swaps.delta0 ELSE swaps.delta1 END) AS   volume,
-                           SUM(FLOOR(((CASE WHEN delta0 >= 0 THEN swaps.delta0 ELSE swaps.delta1 END) *
+                           (CASE WHEN pbc.delta0 >= 0 THEN pool_keys.token0 ELSE pool_keys.token1 END) token,
+                           SUM(CASE WHEN pbc.delta0 >= 0 THEN pbc.delta0 ELSE pbc.delta1 END) AS   volume,
+                           SUM(FLOOR(((CASE WHEN pbc.delta0 >= 0 THEN pbc.delta0 ELSE pbc.delta1 END) *
                                       pool_keys.fee) /
                                      0x10000000000000000))                                          AS   fees,
                            COUNT(1)                                                                 AS   swap_count
                     FROM swaps
+                             JOIN pool_balance_change_event pbc ON swaps.pool_balance_change_id = pbc.event_id
                              JOIN pool_keys ON swaps.pool_key_hash = pool_keys.key_hash
                              JOIN event_keys ON swaps.event_id = event_keys.id
                              JOIN blocks ON event_keys.block_number = blocks.number
@@ -1044,14 +952,15 @@ export class DAO {
                            DATE_TRUNC('hour', blocks.time) AS hour,
                            pool_keys.token0                AS token,
                            0                               AS volume,
-                           SUM(fa.amount0)                 AS fees,
+                           SUM(pbc.delta0)                 AS fees,
                            0                               AS swap_count
                     FROM fees_accumulated fa
+                             JOIN pool_balance_change_event pbc ON fa.pool_balance_change_id = pbc.event_id
                              JOIN pool_keys ON fa.pool_key_hash = pool_keys.key_hash
                              JOIN event_keys ON fa.event_id = event_keys.id
                              JOIN blocks ON event_keys.block_number = blocks.number
                     WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
-                      AND fa.amount0 > 0
+                      AND pbc.delta0 > 0
                     GROUP BY hour, fa.pool_key_hash, token
                 ),
                 fees_token1 AS (
@@ -1059,14 +968,15 @@ export class DAO {
                            DATE_TRUNC('hour', blocks.time) AS hour,
                            pool_keys.token1                AS token,
                            0                               AS volume,
-                           SUM(fa.amount1)                 AS fees,
+                           SUM(pbc.delta1)                 AS fees,
                            0                               AS swap_count
                     FROM fees_accumulated fa
+                             JOIN pool_balance_change_event pbc ON fa.pool_balance_change_id = pbc.event_id
                              JOIN pool_keys ON fa.pool_key_hash = pool_keys.key_hash
                              JOIN event_keys ON fa.event_id = event_keys.id
                              JOIN blocks ON event_keys.block_number = blocks.number
                     WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
-                      AND fa.amount1 > 0
+                      AND pbc.delta1 > 0
                     GROUP BY hour, fa.pool_key_hash, token
                 ),
                 combined_data AS (
@@ -1099,29 +1009,31 @@ export class DAO {
                     (WITH rev0 AS (SELECT pu.pool_key_hash                AS key_hash,
                                           DATE_TRUNC('hour', blocks.time) AS hour,
                                           pk.token0                          token,
-                                          SUM(CEIL((-delta0 * 0x10000000000000000::NUMERIC) /
+                                          SUM(CEIL((-pbc.delta0 * 0x10000000000000000::NUMERIC) /
                                                    (0x10000000000000000::NUMERIC - pk.fee)) +
-                                              delta0)                     AS revenue
+                                              pbc.delta0)                     AS revenue
                                    FROM position_updates pu
+                                            JOIN pool_balance_change_event pbc ON pu.pool_balance_change_id = pbc.event_id
                                             JOIN pool_keys pk ON pu.pool_key_hash = pk.key_hash
                                             JOIN event_keys ek ON pu.event_id = ek.id
                                             JOIN blocks ON ek.block_number = blocks.number
                                    WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
-                                     AND pu.delta0 < 0
+                                     AND pbc.delta0 < 0
                                      AND pk.fee != 0
                                    GROUP BY hour, pu.pool_key_hash, token),
                           rev1 AS (SELECT pu.pool_key_hash                AS key_hash,
                                           DATE_TRUNC('hour', blocks.time) AS hour,
                                           pk.token1                          token,
-                                          SUM(CEIL((-delta1 * 0x10000000000000000::NUMERIC) /
+                                          SUM(CEIL((-pbc.delta1 * 0x10000000000000000::NUMERIC) /
                                                    (0x10000000000000000::NUMERIC - pk.fee)) +
-                                              delta1)                     AS revenue
+                                              pbc.delta1)                     AS revenue
                                    FROM position_updates pu
+                                            JOIN pool_balance_change_event pbc ON pu.pool_balance_change_id = pbc.event_id
                                             JOIN pool_keys pk ON pu.pool_key_hash = pk.key_hash
                                             JOIN event_keys ek ON pu.event_id = ek.id
                                             JOIN blocks ON ek.block_number = blocks.number
                                    WHERE DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
-                                     AND pu.delta1 < 0
+                                     AND pbc.delta1 < 0
                                      AND pk.fee != 0
                                    GROUP BY hour, pu.pool_key_hash, token),
                           total AS (SELECT key_hash, hour, token, revenue
