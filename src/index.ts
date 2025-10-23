@@ -213,9 +213,9 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
           const blockTime = block.header.timestamp;
 
           await dao.insertBlock({
-            hash: BigInt(block.header.blockHash ?? 0),
-            number: block.header.blockNumber,
             chainId,
+            number: block.header.blockNumber,
+            hash: BigInt(block.header.blockHash ?? 0),
             time: blockTime,
           });
 

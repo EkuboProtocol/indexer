@@ -70,14 +70,13 @@ export class DAO {
         CREATE TABLE IF NOT EXISTS blocks
         (
             -- int4 blocks represents over a thousand years at 12 second blocks
-            number   int4        NOT NULL,
             chain_id NUMERIC     NOT NULL,
+            number   int4        NOT NULL,
             hash     NUMERIC     NOT NULL,
             time     timestamptz NOT NULL,
             inserted timestamptz NOT NULL DEFAULT NOW(),
             PRIMARY KEY (chain_id, number)
         );
-        CREATE INDEX IF NOT EXISTS idx_blocks_time ON blocks USING btree (time);
         CREATE INDEX IF NOT EXISTS idx_blocks_chain_id_time ON blocks USING btree (chain_id, time);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_blocks_hash ON blocks USING btree (hash);
 
@@ -1240,20 +1239,20 @@ export class DAO {
   }
 
   public async insertBlock({
-    number,
     chainId,
+    number,
     hash,
     time,
   }: {
-    number: bigint;
     chainId: bigint;
+    number: bigint;
     hash: bigint;
     time: Date;
   }) {
     await this.pg.query({
-      text: `INSERT INTO blocks (number, chain_id, hash, time)
+      text: `INSERT INTO blocks (chain_id, number, hash, time)
                    VALUES ($1, $2, $3, $4);`,
-      values: [number, chainId, hash, time],
+      values: [chainId, number, hash, time],
     });
   }
 
