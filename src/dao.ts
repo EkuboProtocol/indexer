@@ -153,7 +153,7 @@ export class DAO {
 
             liquidity_delta NUMERIC NOT NULL,
             
-            pool_balance_change_id int8 REFERENCES pool_balance_change_event (event_id)
+            pool_balance_change_id int8 NOT NULL REFERENCES pool_balance_change_event (event_id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_position_updates_pool_key_hash_event_id ON position_updates USING btree (pool_key_hash, event_id);
         CREATE INDEX IF NOT EXISTS idx_position_updates_locker_salt ON position_updates USING btree (locker, salt);
@@ -170,7 +170,7 @@ export class DAO {
             lower_bound   int4    NOT NULL,
             upper_bound   int4    NOT NULL,
             
-            pool_balance_change_id int8 REFERENCES pool_balance_change_event (event_id)
+            pool_balance_change_id int8 NOT NULL REFERENCES pool_balance_change_event (event_id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_position_fees_collected_pool_key_hash ON position_fees_collected (pool_key_hash);
         CREATE INDEX IF NOT EXISTS idx_position_fees_collected_salt ON position_fees_collected USING btree (salt);
@@ -192,7 +192,7 @@ export class DAO {
 
             pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
             
-            pool_balance_change_id int8 REFERENCES pool_balance_change_event (event_id)
+            pool_balance_change_id int8 NOT NULL REFERENCES pool_balance_change_event (event_id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_fees_accumulated_pool_key_hash ON fees_accumulated (pool_key_hash);
 
@@ -225,7 +225,7 @@ export class DAO {
             tick_after       int4    NOT NULL,
             liquidity_after  NUMERIC NOT NULL,
             
-            pool_balance_change_id int8 REFERENCES pool_balance_change_event (event_id)
+            pool_balance_change_id int8 NOT NULL REFERENCES pool_balance_change_event (event_id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_event_id ON swaps USING btree (pool_key_hash, event_id);
         CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_event_id_desc ON swaps USING btree (pool_key_hash, event_id DESC) INCLUDE (sqrt_ratio_after, tick_after, liquidity_after);
@@ -527,7 +527,7 @@ export class DAO {
             start_time timestamptz NOT NULL,
             end_time   timestamptz NOT NULL,
             
-            pool_balance_change_id int8 REFERENCES pool_balance_change_event (event_id)
+            pool_balance_change_id int8 NOT NULL REFERENCES pool_balance_change_event (event_id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_key_hash_event_id ON twamm_proceeds_withdrawals USING btree (key_hash, event_id);
         CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_key_hash_time ON twamm_proceeds_withdrawals USING btree (key_hash, start_time, end_time);
