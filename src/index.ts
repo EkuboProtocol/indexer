@@ -80,7 +80,7 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
       since: since.toISOString(),
     });
     const client = await pool.connect();
-    const dao = new DAO(client, BigInt(process.env.CHAIN_ID ?? 1));
+    const dao = new DAO(client, BigInt(process.env.CHAIN_ID));
     await dao.beginTransaction();
     await dao.refreshAnalyticalTables({
       since,
@@ -102,7 +102,7 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
 );
 
 (async function () {
-  const chainId = BigInt(process.env.CHAIN_ID ?? 1);
+  const chainId = BigInt(process.env.CHAIN_ID);
 
   // first set up the schema
   let databaseStartingCursor;
@@ -213,7 +213,6 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
           const blockTime = block.header.timestamp;
 
           await dao.insertBlock({
-            chainId,
             number: block.header.blockNumber,
             hash: BigInt(block.header.blockHash ?? 0),
             time: blockTime,

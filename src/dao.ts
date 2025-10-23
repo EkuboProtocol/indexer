@@ -69,19 +69,19 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS blocks
         (
-            -- int4 blocks represents over a thousand years at 12 second blocks
-            chain_id NUMERIC     NOT NULL,
-            number   int4        NOT NULL,
+            chain_id int8        NOT NULL,
+            number   int8        NOT NULL,
             hash     NUMERIC     NOT NULL,
             time     timestamptz NOT NULL,
             inserted timestamptz NOT NULL DEFAULT NOW(),
             PRIMARY KEY (chain_id, number)
         );
         CREATE INDEX IF NOT EXISTS idx_blocks_chain_id_time ON blocks USING btree (chain_id, time);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_blocks_hash ON blocks USING btree (hash);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_blocks_chain_id_hash ON blocks USING btree (chain_id, hash);
 
         CREATE TABLE IF NOT EXISTS pool_keys
         (
+            chain_id     int8    NOT NULL,
             key_hash     NUMERIC NOT NULL,
             core_address NUMERIC NOT NULL,
             pool_id      NUMERIC NOT NULL,
@@ -90,24 +90,25 @@ export class DAO {
             fee          NUMERIC NOT NULL,
             tick_spacing INT     NOT NULL,
             extension    NUMERIC NOT NULL,
-            PRIMARY KEY (key_hash)
+            PRIMARY KEY (chain_id, key_hash)
         );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_keys_core_address_pool_id ON pool_keys USING btree (core_address, pool_id);
-        CREATE INDEX IF NOT EXISTS idx_pool_keys_token1 ON pool_keys USING btree (token1);
-        CREATE INDEX IF NOT EXISTS idx_pool_keys_token1 ON pool_keys USING btree (token1);
-        CREATE INDEX IF NOT EXISTS idx_pool_keys_token0_token1 ON pool_keys USING btree (token0, token1);
-        CREATE INDEX IF NOT EXISTS idx_pool_keys_extension ON pool_keys USING btree (extension);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_pool_keys_chain_id_core_address_pool_id ON pool_keys USING btree (chain_id, core_address, pool_id);
+        CREATE INDEX IF NOT EXISTS idx_pool_keys_chain_id_token0 ON pool_keys USING btree (chain_id, token0);
+        CREATE INDEX IF NOT EXISTS idx_pool_keys_chain_id_token1 ON pool_keys USING btree (chain_id, token1);
+        CREATE INDEX IF NOT EXISTS idx_pool_keys_chain_id_token0_token1 ON pool_keys USING btree (chain_id, token0, token1);
+        CREATE INDEX IF NOT EXISTS idx_pool_keys_chain_id_extension ON pool_keys USING btree (chain_id, extension);
 
         -- all events reference an event id which contains the metadata of the event
         CREATE TABLE IF NOT EXISTS event_keys
         (
-            id                int8 GENERATED ALWAYS AS (block_number * 4294967296 + transaction_index * 65536 + event_index) STORED PRIMARY KEY,
+            chain_id          int8    NOT NULL,
+            id                int8 GENERATED ALWAYS AS (block_number * 4294967296 + transaction_index * 65536 + event_index) STORED,
             transaction_hash  NUMERIC NOT NULL,
-            chain_id          NUMERIC NOT NULL,
-            block_number      int4    NOT NULL,
+            block_number      int8    NOT NULL,
             transaction_index int2    NOT NULL,
             event_index       int2    NOT NULL,
             emitter           NUMERIC NOT NULL,
+            PRIMARY KEY (chain_id, id),
             FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, number) ON DELETE CASCADE,
             UNIQUE (chain_id, block_number, transaction_index, event_index)
         );
@@ -115,33 +116,40 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS position_transfers
         (
-            event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+            chain_id     int8    NOT NULL,
+            event_id     int8    NOT NULL,
 
             token_id     NUMERIC NOT NULL,
             from_address NUMERIC NOT NULL,
-            to_address   NUMERIC NOT NULL
+            to_address   NUMERIC NOT NULL,
+            PRIMARY KEY (chain_id, event_id),
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_position_transfers_token_id_from_to ON position_transfers (token_id, from_address, to_address);
         CREATE INDEX IF NOT EXISTS idx_position_transfers_to_address ON position_transfers (to_address);
 
         CREATE TABLE IF NOT EXISTS order_transfers
         (
-            event_id     int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+            chain_id     int8    NOT NULL,
+            event_id     int8    NOT NULL,
 
             token_id     NUMERIC NOT NULL,
             from_address NUMERIC NOT NULL,
-            to_address   NUMERIC NOT NULL
+            to_address   NUMERIC NOT NULL,
+            PRIMARY KEY (chain_id, event_id),
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_order_transfers_token_id_from_to ON order_transfers (token_id, from_address, to_address);
         CREATE INDEX IF NOT EXISTS idx_order_transfers_to_address ON order_transfers (to_address);
 
         CREATE TABLE IF NOT EXISTS position_updates
         (
-            event_id        int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+            chain_id        int8    NOT NULL,
+            event_id        int8    NOT NULL,
 
             locker          NUMERIC NOT NULL,
 
-            pool_key_hash   NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            pool_key_hash   NUMERIC NOT NULL,
 
             salt            NUMERIC NOT NULL,
             lower_bound     int4    NOT NULL,
@@ -149,7 +157,10 @@ export class DAO {
 
             liquidity_delta NUMERIC NOT NULL,
             delta0          NUMERIC NOT NULL,
-            delta1          NUMERIC NOT NULL
+            delta1          NUMERIC NOT NULL,
+            PRIMARY KEY (chain_id, event_id),
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (chain_id, pool_key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_position_updates_pool_key_hash_event_id ON position_updates USING btree (pool_key_hash, event_id);
         CREATE INDEX IF NOT EXISTS idx_position_updates_locker_salt ON position_updates USING btree (locker, salt);
@@ -157,9 +168,10 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS position_fees_collected
         (
-            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+            chain_id      int8    NOT NULL,
+            event_id      int8    NOT NULL,
 
-            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            pool_key_hash NUMERIC NOT NULL,
 
             owner         NUMERIC NOT NULL,
             salt          NUMERIC NOT NULL,
@@ -167,7 +179,10 @@ export class DAO {
             upper_bound   int4    NOT NULL,
 
             delta0        NUMERIC NOT NULL,
-            delta1        NUMERIC NOT NULL
+            delta1        NUMERIC NOT NULL,
+            PRIMARY KEY (chain_id, event_id),
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (chain_id, pool_key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_position_fees_collected_pool_key_hash ON position_fees_collected (pool_key_hash);
         CREATE INDEX IF NOT EXISTS idx_position_fees_collected_salt ON position_fees_collected USING btree (salt);
@@ -175,56 +190,74 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS protocol_fees_withdrawn
         (
-            event_id  int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+            chain_id  int8    NOT NULL,
+            event_id  int8    NOT NULL,
 
             recipient NUMERIC NOT NULL,
             token     NUMERIC NOT NULL,
-            amount    NUMERIC NOT NULL
+            amount    NUMERIC NOT NULL,
+            PRIMARY KEY (chain_id, event_id),
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE
         );
 
 
         CREATE TABLE IF NOT EXISTS fees_accumulated
         (
-            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+            chain_id      int8    NOT NULL,
+            event_id      int8    NOT NULL,
 
-            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            pool_key_hash NUMERIC NOT NULL,
 
             amount0       NUMERIC NOT NULL,
-            amount1       NUMERIC NOT NULL
+            amount1       NUMERIC NOT NULL,
+            PRIMARY KEY (chain_id, event_id),
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (chain_id, pool_key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_fees_accumulated_pool_key_hash ON fees_accumulated (pool_key_hash);
 
         CREATE TABLE IF NOT EXISTS extension_registrations
         (
-            event_id  int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
-            extension NUMERIC NOT NULL
+            chain_id  int8    NOT NULL,
+            event_id  int8    NOT NULL,
+            extension NUMERIC NOT NULL,
+            PRIMARY KEY (chain_id, event_id),
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS pool_initializations
         (
-            event_id      int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+            chain_id      int8    NOT NULL,
+            event_id      int8    NOT NULL,
 
-            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            pool_key_hash NUMERIC NOT NULL,
 
             tick          int4    NOT NULL,
-            sqrt_ratio    NUMERIC NOT NULL
+            sqrt_ratio    NUMERIC NOT NULL,
+            PRIMARY KEY (chain_id, event_id),
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (chain_id, pool_key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_pool_initializations_pool_key_hash ON pool_initializations (pool_key_hash);
 
 
         CREATE TABLE IF NOT EXISTS swaps
         (
-            event_id         int8 REFERENCES event_keys (id) ON DELETE CASCADE PRIMARY KEY,
+            chain_id         int8    NOT NULL,
+            event_id         int8    NOT NULL,
 
             locker           NUMERIC NOT NULL,
-            pool_key_hash    NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            pool_key_hash    NUMERIC NOT NULL,
 
             delta0           NUMERIC NOT NULL,
             delta1           NUMERIC NOT NULL,
 
             sqrt_ratio_after NUMERIC NOT NULL,
             tick_after       int4    NOT NULL,
-            liquidity_after  NUMERIC NOT NULL
+            liquidity_after  NUMERIC NOT NULL,
+            PRIMARY KEY (chain_id, event_id),
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (chain_id, pool_key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_event_id ON swaps USING btree (pool_key_hash, event_id);
         CREATE INDEX IF NOT EXISTS idx_swaps_pool_key_hash_event_id_desc ON swaps USING btree (pool_key_hash, event_id DESC) INCLUDE (sqrt_ratio_after, tick_after, liquidity_after);
@@ -498,16 +531,20 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS twamm_order_updates
         (
-            event_id         int8        NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+            chain_id         int8        NOT NULL,
+            event_id         int8        NOT NULL,
 
-            key_hash         NUMERIC     NOT NULL REFERENCES pool_keys (key_hash),
+            key_hash         NUMERIC     NOT NULL,
 
             owner            NUMERIC     NOT NULL,
             salt             NUMERIC     NOT NULL,
             sale_rate_delta0 NUMERIC     NOT NULL,
             sale_rate_delta1 NUMERIC     NOT NULL,
             start_time       timestamptz NOT NULL,
-            end_time         timestamptz NOT NULL
+            end_time         timestamptz NOT NULL,
+            PRIMARY KEY (chain_id, event_id),
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (chain_id, key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_key_hash_event_id ON twamm_order_updates USING btree (key_hash, event_id);
         CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_key_hash_time ON twamm_order_updates USING btree (key_hash, start_time, end_time);
@@ -517,16 +554,20 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS twamm_proceeds_withdrawals
         (
-            event_id   int8        NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+            chain_id   int8        NOT NULL,
+            event_id   int8        NOT NULL,
 
-            key_hash   NUMERIC     NOT NULL REFERENCES pool_keys (key_hash),
+            key_hash   NUMERIC     NOT NULL,
 
             owner      NUMERIC     NOT NULL,
             salt       NUMERIC     NOT NULL,
             amount0    NUMERIC     NOT NULL,
             amount1    NUMERIC     NOT NULL,
             start_time timestamptz NOT NULL,
-            end_time   timestamptz NOT NULL
+            end_time   timestamptz NOT NULL,
+            PRIMARY KEY (chain_id, event_id),
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (chain_id, key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_key_hash_event_id ON twamm_proceeds_withdrawals USING btree (key_hash, event_id);
         CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_key_hash_time ON twamm_proceeds_withdrawals USING btree (key_hash, start_time, end_time);
@@ -536,12 +577,16 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS twamm_virtual_order_executions
         (
-            event_id         int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+            chain_id         int8    NOT NULL,
+            event_id         int8    NOT NULL,
 
-            key_hash         NUMERIC NOT NULL REFERENCES pool_keys (key_hash),
+            key_hash         NUMERIC NOT NULL,
 
             token0_sale_rate NUMERIC NOT NULL,
-            token1_sale_rate NUMERIC NOT NULL
+            token1_sale_rate NUMERIC NOT NULL,
+            PRIMARY KEY (chain_id, event_id),
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (chain_id, key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
         CREATE INDEX IF NOT EXISTS idx_twamm_virtual_order_executions_pool_key_hash_event_id ON twamm_virtual_order_executions USING btree (key_hash, event_id DESC);
 
@@ -635,48 +680,63 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS oracle_snapshots
         (
-            event_id                                  int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+            chain_id                                  int8    NOT NULL,
+            event_id                                  int8    NOT NULL,
 
             token                                     NUMERIC NOT NULL,
             snapshot_block_timestamp                  int8    NOT NULL,
             snapshot_tick_cumulative                  NUMERIC NOT NULL,
-            snapshot_seconds_per_liquidity_cumulative NUMERIC NOT NULL
+            snapshot_seconds_per_liquidity_cumulative NUMERIC NOT NULL,
+            PRIMARY KEY (chain_id, event_id),
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE
         );
         CREATE INDEX IF NOT EXISTS idx_oracle_snapshots_token_snapshot_block_timestamp ON oracle_snapshots USING btree (token, snapshot_block_timestamp);
 
         CREATE TABLE IF NOT EXISTS mev_resist_pool_keys
         (
-            pool_key_hash NUMERIC NOT NULL REFERENCES pool_keys (key_hash) PRIMARY KEY
+            chain_id      int8    NOT NULL,
+            pool_key_hash NUMERIC NOT NULL,
+            PRIMARY KEY (chain_id, pool_key_hash),
+            FOREIGN KEY (chain_id, pool_key_hash) REFERENCES pool_keys (chain_id, key_hash)
         );
 
         CREATE TABLE IF NOT EXISTS incentives_funded
         (
-            event_id    int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+            chain_id    int8    NOT NULL,
+            event_id    int8    NOT NULL,
 
             owner       NUMERIC NOT NULL,
             token       NUMERIC NOT NULL,
             root        NUMERIC NOT NULL,
-            amount_next NUMERIC NOT NULL
+            amount_next NUMERIC NOT NULL,
+            PRIMARY KEY (chain_id, event_id),
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS incentives_refunded
         (
-            event_id      int8    NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+            chain_id      int8    NOT NULL,
+            event_id      int8    NOT NULL,
 
             owner         NUMERIC NOT NULL,
             token         NUMERIC NOT NULL,
             root          NUMERIC NOT NULL,
-            refund_amount NUMERIC NOT NULL
+            refund_amount NUMERIC NOT NULL,
+            PRIMARY KEY (chain_id, event_id),
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE
         );
 
 
         CREATE TABLE IF NOT EXISTS token_wrapper_deployed
         (
-            event_id    int8   NOT NULL PRIMARY KEY REFERENCES event_keys (id) ON DELETE CASCADE,
+            chain_id    int8   NOT NULL,
+            event_id    int8   NOT NULL,
 
             token_wrapper      NUMERIC NOT NULL,
             underlying_token   NUMERIC NOT NULL,
-            unlock_time        NUMERIC NOT NULL
+            unlock_time        NUMERIC NOT NULL,
+            PRIMARY KEY (chain_id, event_id),
+            FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, id) ON DELETE CASCADE
         );
 
 
@@ -1239,12 +1299,10 @@ export class DAO {
   }
 
   public async insertBlock({
-    chainId,
     number,
     hash,
     time,
   }: {
-    chainId: bigint;
     number: bigint;
     hash: bigint;
     time: Date;
@@ -1252,7 +1310,7 @@ export class DAO {
     await this.pg.query({
       text: `INSERT INTO blocks (chain_id, number, hash, time)
                    VALUES ($1, $2, $3, $4);`,
-      values: [chainId, number, hash, time],
+      values: [this.chainId, number, hash, time],
     });
   }
 
@@ -1267,7 +1325,8 @@ export class DAO {
 
     await this.pg.query({
       text: `
-                INSERT INTO pool_keys (key_hash,
+                INSERT INTO pool_keys (chain_id,
+                                       key_hash,
                                        pool_id,
                                        core_address,
                                        token0,
@@ -1275,10 +1334,11 @@ export class DAO {
                                        fee,
                                        tick_spacing,
                                        extension)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 ON CONFLICT DO NOTHING;
             `,
       values: [
+        this.chainId,
         keyHash,
         poolId,
         coreAddress,
@@ -1301,14 +1361,15 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING id)
+                        RETURNING chain_id, id)
                 INSERT
                 INTO position_transfers
-                (event_id,
+                (chain_id,
+                 event_id,
                  token_id,
                  from_address,
                  to_address)
-                VALUES ((SELECT id FROM inserted_event), $7, $8, $9)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7, $8, $9)
             `,
       values: [
         this.chainId,
@@ -1333,14 +1394,15 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING id)
+                        RETURNING chain_id, id)
                 INSERT
                 INTO order_transfers
-                (event_id,
+                (chain_id,
+                 event_id,
                  token_id,
                  from_address,
                  to_address)
-                VALUES ((SELECT id FROM inserted_event), $7, $8, $9)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7, $8, $9)
             `,
       values: [
         this.chainId,
@@ -1365,10 +1427,11 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING id)
+                        RETURNING chain_id, id)
                 INSERT
                 INTO position_updates
-                (event_id,
+                (chain_id,
+                 event_id,
                  locker,
                  pool_key_hash,
                  salt,
@@ -1377,8 +1440,8 @@ export class DAO {
                  liquidity_delta,
                  delta0,
                  delta1)
-                VALUES ((SELECT id FROM inserted_event), $7,
-                        (SELECT key_hash FROM pool_keys WHERE core_address = $6 AND pool_id = $8),
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7,
+                        (SELECT key_hash FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
                         $9, $10, $11, $12, $13, $14);
             `,
       values: [
@@ -1413,10 +1476,11 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING id)
+                        RETURNING chain_id, id)
                 INSERT
                 INTO position_fees_collected
-                (event_id,
+                (chain_id,
+                 event_id,
                  pool_key_hash,
                  owner,
                  salt,
@@ -1424,8 +1488,8 @@ export class DAO {
                  upper_bound,
                  delta0,
                  delta1)
-                VALUES ((SELECT id FROM inserted_event),
-                        (SELECT key_hash FROM pool_keys WHERE core_address = $6 AND pool_id = $7),
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event),
+                        (SELECT key_hash FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
                         $8, $9, $10, $11, $12, $13);
             `,
       values: [
@@ -1464,14 +1528,15 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING id)
+                        RETURNING chain_id, id)
                 INSERT
                 INTO pool_initializations
-                (event_id,
+                (chain_id,
+                 event_id,
                  pool_key_hash,
                  tick,
                  sqrt_ratio)
-                VALUES ((SELECT id FROM inserted_event), $7, $8, $9)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7, $8, $9)
             `,
       values: [
         this.chainId,
@@ -1495,11 +1560,11 @@ export class DAO {
     await this.pg.query({
       text: `
           INSERT
-          INTO mev_resist_pool_keys (pool_key_hash)
-          VALUES ($1::numeric)
+          INTO mev_resist_pool_keys (chain_id, pool_key_hash)
+          VALUES ($1, $2::numeric)
           ON CONFLICT DO NOTHING;
       `,
-      values: [poolKeyHash],
+      values: [this.chainId, poolKeyHash],
     });
   }
 
@@ -1512,14 +1577,15 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING id)
+                        RETURNING chain_id, id)
                 INSERT
                 INTO protocol_fees_withdrawn
-                (event_id,
+                (chain_id,
+                 event_id,
                  recipient,
                  token,
                  amount)
-                VALUES ((SELECT id FROM inserted_event), $7, $8, $9);
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7, $8, $9);
             `,
       values: [
         this.chainId,
@@ -1544,11 +1610,11 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING id)
+                        RETURNING chain_id, id)
                 INSERT
                 INTO extension_registrations
-                    (event_id, extension)
-                VALUES ((SELECT id FROM inserted_event), $7);
+                    (chain_id, event_id, extension)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7);
             `,
       values: [
         this.chainId,
@@ -1571,15 +1637,16 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING id)
+                        RETURNING chain_id, id)
                 INSERT
                 INTO fees_accumulated
-                (event_id,
+                (chain_id,
+                 event_id,
                  pool_key_hash,
                  amount0,
                  amount1)
-                VALUES ((SELECT id FROM inserted_event),
-                        (SELECT key_hash FROM pool_keys WHERE core_address = $6 AND pool_id = $7),
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event),
+                        (SELECT key_hash FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
                         $8, $9);
             `,
       values: [
@@ -1604,10 +1671,11 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING id)
+                        RETURNING chain_id, id)
                 INSERT
                 INTO swaps
-                (event_id,
+                (chain_id,
+                 event_id,
                  locker,
                  pool_key_hash,
                  delta0,
@@ -1615,8 +1683,8 @@ export class DAO {
                  sqrt_ratio_after,
                  tick_after,
                  liquidity_after)
-                VALUES ((SELECT id FROM inserted_event), $7,
-                        (SELECT key_hash FROM pool_keys WHERE core_address = $6 AND pool_id = $8),
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7,
+                        (SELECT key_hash FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
                         $9, $10, $11, $12, $13);
             `,
       values: [
@@ -1684,10 +1752,11 @@ export class DAO {
                     INSERT INTO event_keys
                         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING id)
+                        RETURNING chain_id, id)
                 INSERT
                 INTO twamm_order_updates
-                (event_id,
+                (chain_id,
+                 event_id,
                  key_hash,
                  owner,
                  salt,
@@ -1695,12 +1764,12 @@ export class DAO {
                  sale_rate_delta1,
                  start_time,
                  end_time)
-                VALUES ((SELECT id FROM inserted_event),
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event),
                         (SELECT key_hash
                          FROM pool_keys
-                         WHERE core_address = (SELECT ek.emitter
+                         WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
                                                FROM extension_registrations er
-                                                        JOIN event_keys ek ON er.event_id = ek.id
+                                                        JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.id
                                                WHERE er.extension = $6)
                            AND pool_id = $7), $8, $9, $10, $11, $12, $13);
             `,
@@ -1750,16 +1819,16 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING id)
+                        RETURNING chain_id, id)
                 INSERT
                 INTO twamm_proceeds_withdrawals
-                (event_id, key_hash, owner, salt, amount0, amount1, start_time, end_time)
-                VALUES ((SELECT id FROM inserted_event),
+                (chain_id, event_id, key_hash, owner, salt, amount0, amount1, start_time, end_time)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event),
                         (SELECT key_hash
                          FROM pool_keys
-                         WHERE core_address = (SELECT ek.emitter
+                         WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
                                                FROM extension_registrations er
-                                                        JOIN event_keys ek ON er.event_id = ek.id
+                                                        JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.id
                                                WHERE er.extension = $6)
                            AND pool_id = $7), $8, $9, $10, $11, $12, $13);
             `,
@@ -1793,16 +1862,16 @@ export class DAO {
                     INSERT INTO event_keys
                         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING id)
+                        RETURNING chain_id, id)
                 INSERT
                 INTO twamm_virtual_order_executions
-                    (event_id, key_hash, token0_sale_rate, token1_sale_rate)
-                VALUES ((SELECT id FROM inserted_event),
+                    (chain_id, event_id, key_hash, token0_sale_rate, token1_sale_rate)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event),
                         (SELECT key_hash
                          FROM pool_keys
-                         WHERE core_address = (SELECT ek.emitter
+                         WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
                                                FROM extension_registrations er
-                                                        JOIN event_keys ek ON er.event_id = ek.id
+                                                        JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.id
                                                WHERE er.extension = $6)
                            AND pool_id = $7), $8, $9);
             `,
@@ -1827,12 +1896,12 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING id)
+                        RETURNING chain_id, id)
                 INSERT
                 INTO oracle_snapshots
-                (event_id, token, snapshot_block_timestamp, snapshot_tick_cumulative,
+                (chain_id, event_id, token, snapshot_block_timestamp, snapshot_tick_cumulative,
                  snapshot_seconds_per_liquidity_cumulative)
-                VALUES ((SELECT id FROM inserted_event), $7, $8, $9, $10)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7, $8, $9, $10)
             `,
       values: [
         this.chainId,
@@ -1858,11 +1927,11 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING id)
+                        RETURNING chain_id, id)
                 INSERT
                 INTO incentives_refunded
-                    (event_id, owner, token, root, refund_amount)
-                VALUES ((SELECT id FROM inserted_event), $7, $8, $9, $10)
+                    (chain_id, event_id, owner, token, root, refund_amount)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7, $8, $9, $10)
             `,
       values: [
         this.chainId,
@@ -1885,11 +1954,11 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING id)
+                        RETURNING chain_id, id)
                 INSERT
                 INTO incentives_funded
-                    (event_id, owner, token, root, amount_next)
-                VALUES ((SELECT id FROM inserted_event), $7, $8, $9, $10)
+                    (chain_id, event_id, owner, token, root, amount_next)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7, $8, $9, $10)
             `,
       values: [
         this.chainId,
@@ -1915,11 +1984,11 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING id)
+                        RETURNING chain_id, id)
                 INSERT
                 INTO token_wrapper_deployed
-                    (event_id, token_wrapper, underlying_token, unlock_time)
-                VALUES ((SELECT id FROM inserted_event), $7, $8, $9)
+                    (chain_id, event_id, token_wrapper, underlying_token, unlock_time)
+                VALUES ((SELECT chain_id FROM inserted_event), (SELECT id FROM inserted_event), $7, $8, $9)
             `,
       values: [
         this.chainId,
