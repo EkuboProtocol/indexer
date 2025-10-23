@@ -101,16 +101,16 @@ export class DAO {
         -- all events reference an event id which contains the metadata of the event
         CREATE TABLE IF NOT EXISTS event_keys
         (
-            id                int8 GENERATED ALWAYS AS (chain_id * 281474976710656 + block_number * 4294967296 + transaction_index * 65536 + event_index) STORED PRIMARY KEY,
+            id                int8 GENERATED ALWAYS AS (block_number * 4294967296 + transaction_index * 65536 + event_index) STORED PRIMARY KEY,
             transaction_hash  NUMERIC NOT NULL,
             chain_id          NUMERIC NOT NULL,
             block_number      int4    NOT NULL,
             transaction_index int2    NOT NULL,
             event_index       int2    NOT NULL,
             emitter           NUMERIC NOT NULL,
-            FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, number) ON DELETE CASCADE
+            FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, number) ON DELETE CASCADE,
+            UNIQUE (chain_id, block_number, transaction_index, event_index)
         );
-        CREATE INDEX IF NOT EXISTS idx_event_keys_chain_id_block_number_transaction_index_event_index ON event_keys USING btree (chain_id, block_number, transaction_index, event_index);
         CREATE INDEX IF NOT EXISTS idx_event_keys_transaction_hash ON event_keys USING btree (transaction_hash);
 
         CREATE TABLE IF NOT EXISTS position_transfers
