@@ -30,9 +30,13 @@ import type { TwammVirtualOrdersExecutedEvent } from "./twammEvent.ts";
 // Data access object that manages inserts/deletes
 export class DAO {
   private pg: Client | PoolClient;
+  private chainId: bigint;
+  private indexerName: string;
 
-  constructor(pg: Client | PoolClient) {
+  constructor(pg: Client | PoolClient, chainId: bigint, indexerName: string) {
     this.pg = pg;
+    this.chainId = chainId;
+    this.indexerName = indexerName;
   }
 
   public async beginTransaction(): Promise<void> {
@@ -59,7 +63,7 @@ export class DAO {
     await this.pg.query(`
         CREATE TABLE IF NOT EXISTS cursor
         (
-            id           INT         NOT NULL UNIQUE CHECK (id = 1), -- only one row.
+            indexer_name TEXT        NOT NULL PRIMARY KEY,
             order_key    BIGINT      NOT NULL,
             unique_key   bytea,
             last_updated timestamptz NOT NULL
@@ -67,8 +71,9 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS blocks
         (
-            -- int4 blocks represents over a thousand years at 12 second blocks
-            number   int4        NOT NULL PRIMARY KEY,
+            chain_id int8        NOT NULL,
+            number   int8        NOT NULL,
+            PRIMARY KEY (chain_id, number),
             hash     NUMERIC     NOT NULL,
             time     timestamptz NOT NULL,
             inserted timestamptz NOT NULL DEFAULT NOW()
