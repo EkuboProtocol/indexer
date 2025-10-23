@@ -30,10 +30,12 @@ import type { TwammVirtualOrdersExecutedEvent } from "./twammEvent.ts";
 export class DAO {
   private pg: Client | PoolClient;
   private chainId: bigint;
+  private indexerName: string;
 
-  constructor(pg: Client | PoolClient, chainId: bigint) {
+  constructor(pg: Client | PoolClient, chainId: bigint, indexerName: string) {
     this.pg = pg;
     this.chainId = chainId;
+    this.indexerName = indexerName;
   }
 
   public async beginTransaction(): Promise<void> {
@@ -60,7 +62,7 @@ export class DAO {
     await this.pg.query(`
         CREATE TABLE IF NOT EXISTS cursor
         (
-            chain_id     int8        NOT NULL PRIMARY KEY,
+            indexer_name TEXT        NOT NULL PRIMARY KEY,
             order_key    BIGINT      NOT NULL,
             unique_key   bytea,
             last_updated timestamptz NOT NULL
@@ -264,7 +266,7 @@ export class DAO {
 
         CREATE OR REPLACE VIEW pool_states_view AS
         (
-        WITH lss AS (SELECT key_hash,
+        WITH lss AS (SELECT id AS pool_key_id,
                             COALESCE(last_swap.event_id, pi.event_id)           AS last_swap_event_id,
                             COALESCE(last_swap.sqrt_ratio_after, pi.sqrt_ratio) AS sqrt_ratio,
                             COALESCE(last_swap.tick_after, pi.tick)             AS tick,
@@ -273,38 +275,38 @@ export class DAO {
                               LEFT JOIN LATERAL (
                          SELECT event_id, sqrt_ratio_after, tick_after, liquidity_after
                          FROM swaps
-                         WHERE pool_keys.key_hash = swaps.pool_key_id
+                         WHERE pool_keys.id = swaps.pool_key_id AND pool_keys.chain_id = swaps.chain_id
                          ORDER BY event_id DESC
                          LIMIT 1
                          ) AS last_swap ON TRUE
                               LEFT JOIN LATERAL (
                          SELECT event_id, sqrt_ratio, tick
                          FROM pool_initializations
-                         WHERE pool_initializations.pool_key_id = pool_keys.key_hash
+                         WHERE pool_initializations.pool_key_id = pool_keys.id AND pool_initializations.chain_id = pool_keys.chain_id
                          ORDER BY event_id DESC
                          LIMIT 1
                          ) AS pi ON TRUE),
-             pl AS (SELECT key_hash,
+             pl AS (SELECT pool_key_id,
                            (SELECT event_id
                             FROM position_updates
-                            WHERE key_hash = position_updates.pool_key_id
+                            WHERE pool_key_id = position_updates.pool_key_id
                             ORDER BY event_id DESC
                             LIMIT 1)                                   AS last_update_event_id,
                            (COALESCE(liquidity_last, 0) + COALESCE((SELECT SUM(liquidity_delta)
                                                                     FROM position_updates AS pu
                                                                     WHERE lss.last_swap_event_id < pu.event_id
-                                                                      AND pu.pool_key_id = lss.key_hash
+                                                                      AND pu.pool_key_id = lss.pool_key_id
                                                                       AND lss.tick BETWEEN pu.lower_bound AND (pu.upper_bound - 1)),
                                                                    0)) AS liquidity
                     FROM lss)
-        SELECT lss.key_hash                                              AS pool_key_id,
+        SELECT lss.pool_key_id,
                sqrt_ratio,
                tick,
                liquidity,
                GREATEST(lss.last_swap_event_id, pl.last_update_event_id) AS last_event_id,
                pl.last_update_event_id                                   AS last_liquidity_update_event_id
         FROM lss
-                 JOIN pl ON lss.key_hash = pl.key_hash
+                 JOIN pl ON lss.pool_key_id = pl.pool_key_id
             );
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS pool_states_materialized AS
@@ -315,13 +317,13 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS hourly_volume_by_token
         (
-            key_hash   NUMERIC,
+            pool_key_id   int8,
             hour       timestamptz,
             token      NUMERIC,
             volume     NUMERIC,
             fees       NUMERIC,
             swap_count NUMERIC,
-            PRIMARY KEY (key_hash, hour, token)
+            PRIMARY KEY (pool_key_id, hour, token)
         );
 
         CREATE TABLE IF NOT EXISTS hourly_price_data
@@ -338,20 +340,20 @@ export class DAO {
 
         CREATE TABLE IF NOT EXISTS hourly_tvl_delta_by_token
         (
-            key_hash NUMERIC,
+            pool_key_id int8,
             hour     timestamptz,
             token    NUMERIC,
             delta    NUMERIC,
-            PRIMARY KEY (key_hash, hour, token)
+            PRIMARY KEY (pool_key_id, hour, token)
         );
 
         CREATE TABLE IF NOT EXISTS hourly_revenue_by_token
         (
-            key_hash NUMERIC,
+            pool_key_id int8,
             hour     timestamptz,
             token    NUMERIC,
             revenue  NUMERIC,
-            PRIMARY KEY (key_hash, hour, token)
+            PRIMARY KEY (pool_key_id, hour, token)
         );
 
         CREATE OR REPLACE VIEW per_pool_per_tick_liquidity_view AS
@@ -534,7 +536,7 @@ export class DAO {
             chain_id         int8        NOT NULL,
             event_id         int8        NOT NULL,
 
-            key_hash         NUMERIC     NOT NULL,
+            pool_key_id         int8     NOT NULL,
 
             owner            NUMERIC     NOT NULL,
             salt             NUMERIC     NOT NULL,
@@ -544,20 +546,20 @@ export class DAO {
             end_time         timestamptz NOT NULL,
             PRIMARY KEY (chain_id, event_id),
             FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE,
-            FOREIGN KEY (chain_id, key_hash) REFERENCES pool_keys (chain_id, id)
+            FOREIGN KEY (chain_id, pool_key_id) REFERENCES pool_keys (chain_id, id)
         );
-        CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_key_hash_event_id ON twamm_order_updates USING btree (key_hash, event_id);
-        CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_key_hash_time ON twamm_order_updates USING btree (key_hash, start_time, end_time);
+        CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_pool_key_id_event_id ON twamm_order_updates USING btree (pool_key_id, event_id);
+        CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_pool_key_id_time ON twamm_order_updates USING btree (pool_key_id, start_time, end_time);
         CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_owner_salt ON twamm_order_updates USING btree (owner, salt);
         CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_salt ON twamm_order_updates USING btree (salt);
-        CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_salt_key_hash_start_end_owner_event_id ON twamm_order_updates (salt, key_hash, start_time, end_time, owner, event_id);
+        CREATE INDEX IF NOT EXISTS idx_twamm_order_updates_salt_key_hash_start_end_owner_event_id ON twamm_order_updates (salt, pool_key_id, start_time, end_time, owner, event_id);
 
         CREATE TABLE IF NOT EXISTS twamm_proceeds_withdrawals
         (
             chain_id   int8        NOT NULL,
             event_id   int8        NOT NULL,
 
-            key_hash   NUMERIC     NOT NULL,
+            pool_key_id   int8     NOT NULL,
 
             owner      NUMERIC     NOT NULL,
             salt       NUMERIC     NOT NULL,
@@ -567,10 +569,10 @@ export class DAO {
             end_time   timestamptz NOT NULL,
             PRIMARY KEY (chain_id, event_id),
             FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE,
-            FOREIGN KEY (chain_id, key_hash) REFERENCES pool_keys (chain_id, id)
+            FOREIGN KEY (chain_id, pool_key_id) REFERENCES pool_keys (chain_id, id)
         );
-        CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_key_hash_event_id ON twamm_proceeds_withdrawals USING btree (key_hash, event_id);
-        CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_key_hash_time ON twamm_proceeds_withdrawals USING btree (key_hash, start_time, end_time);
+        CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_pool_key_id_event_id ON twamm_proceeds_withdrawals USING btree (pool_key_id, event_id);
+        CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_pool_key_id_time ON twamm_proceeds_withdrawals USING btree (pool_key_id, start_time, end_time);
         CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_owner_salt ON twamm_proceeds_withdrawals USING btree (owner, salt);
         CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_salt ON twamm_proceeds_withdrawals USING btree (salt);
         CREATE INDEX IF NOT EXISTS idx_twamm_proceeds_withdrawals_salt_event_id_desc ON twamm_proceeds_withdrawals (salt, event_id DESC);
@@ -580,56 +582,56 @@ export class DAO {
             chain_id         int8    NOT NULL,
             event_id         int8    NOT NULL,
 
-            key_hash         NUMERIC NOT NULL,
+            pool_key_id         int8 NOT NULL,
 
             token0_sale_rate NUMERIC NOT NULL,
             token1_sale_rate NUMERIC NOT NULL,
             PRIMARY KEY (chain_id, event_id),
             FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE,
-            FOREIGN KEY (chain_id, key_hash) REFERENCES pool_keys (chain_id, id)
+            FOREIGN KEY (chain_id, pool_key_id) REFERENCES pool_keys (chain_id, id)
         );
-        CREATE INDEX IF NOT EXISTS idx_twamm_virtual_order_executions_pool_key_id_event_id ON twamm_virtual_order_executions USING btree (key_hash, event_id DESC);
+        CREATE INDEX IF NOT EXISTS idx_twamm_virtual_order_executions_pool_key_id_event_id ON twamm_virtual_order_executions USING btree (pool_key_id, event_id DESC);
 
         CREATE OR REPLACE VIEW twamm_pool_states_view AS
         (
-        WITH lvoe_id AS (SELECT key_hash, MAX(event_id) AS event_id
+        WITH lvoe_id AS (SELECT pool_key_id, MAX(event_id) AS event_id
                          FROM twamm_virtual_order_executions
-                         GROUP BY key_hash),
+                         GROUP BY pool_key_id),
 
-             last_virtual_order_execution AS (SELECT pk.key_hash,
+             last_virtual_order_execution AS (SELECT pk.id AS pool_key_id,
                                                      last_voe.token0_sale_rate,
                                                      last_voe.token1_sale_rate,
                                                      last_voe.event_id AS last_virtual_order_execution_event_id,
                                                      b.time            AS last_virtual_execution_time
                                               FROM pool_keys pk
-                                                       JOIN lvoe_id ON lvoe_id.key_hash = pk.key_hash
+                                                       JOIN lvoe_id ON lvoe_id.pool_key_id = pk.id
                                                        JOIN twamm_virtual_order_executions last_voe
-                                                            ON last_voe.event_id = lvoe_id.event_id
-                                                       JOIN event_keys ek ON last_voe.event_id = ek.sort_id
-                                                       JOIN blocks b ON ek.block_number = b.number),
-             active_order_updates_after_lvoe AS (SELECT lvoe_1.key_hash,
+                                                            ON last_voe.chain_id = pk.chain_id AND last_voe.event_id = lvoe_id.event_id
+                                                       JOIN event_keys ek ON last_voe.chain_id = ek.chain_id AND last_voe.event_id = ek.sort_id
+                                                       JOIN blocks b ON ek.chain_id = b.chain_id AND ek.block_number = b.number),
+             active_order_updates_after_lvoe AS (SELECT lvoe_1.pool_key_id,
                                                         SUM(tou.sale_rate_delta0) AS sale_rate_delta0,
                                                         SUM(tou.sale_rate_delta1) AS sale_rate_delta1,
                                                         MAX(tou.event_id)         AS last_order_update_event_id
                                                  FROM last_virtual_order_execution lvoe_1
                                                           JOIN twamm_order_updates tou
-                                                               ON tou.key_hash = lvoe_1.key_hash AND
+                                                               ON tou.pool_key_id = lvoe_1.pool_key_id AND
                                                                   tou.event_id >
                                                                   lvoe_1.last_virtual_order_execution_event_id AND
                                                                   tou.start_time <=
                                                                   lvoe_1.last_virtual_execution_time AND
                                                                   tou.end_time >
                                                                   lvoe_1.last_virtual_execution_time
-                                                 GROUP BY lvoe_1.key_hash)
-        SELECT lvoe.key_hash                                                          AS pool_key_id,
+                                                 GROUP BY lvoe_1.pool_key_id)
+        SELECT lvoe.pool_key_id,
                lvoe.token0_sale_rate + COALESCE(ou_lvoe.sale_rate_delta0, 0::NUMERIC) AS token0_sale_rate,
                lvoe.token1_sale_rate + COALESCE(ou_lvoe.sale_rate_delta1, 0::NUMERIC) AS token1_sale_rate,
                lvoe.last_virtual_execution_time,
                GREATEST(COALESCE(ou_lvoe.last_order_update_event_id, lvoe.last_virtual_order_execution_event_id),
                         psm.last_event_id)                                            AS last_event_id
         FROM last_virtual_order_execution lvoe
-                 JOIN pool_states_materialized psm ON lvoe.key_hash = psm.pool_key_id
-                 LEFT JOIN active_order_updates_after_lvoe ou_lvoe ON lvoe.key_hash = ou_lvoe.key_hash
+                 JOIN pool_states_materialized psm ON lvoe.pool_key_id = psm.pool_key_id
+                 LEFT JOIN active_order_updates_after_lvoe ou_lvoe ON lvoe.pool_key_id = ou_lvoe.pool_key_id
             );
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS twamm_pool_states_materialized AS
@@ -644,30 +646,30 @@ export class DAO {
 
         CREATE OR REPLACE VIEW twamm_sale_rate_deltas_view AS
         (
-        WITH all_order_deltas AS (SELECT key_hash,
+        WITH all_order_deltas AS (SELECT pool_key_id,
                                          start_time AS         time,
                                          SUM(sale_rate_delta0) net_sale_rate_delta0,
                                          SUM(sale_rate_delta1) net_sale_rate_delta1
                                   FROM twamm_order_updates
-                                  GROUP BY key_hash, start_time
+                                  GROUP BY pool_key_id, start_time
                                   UNION ALL
-                                  SELECT key_hash,
+                                  SELECT pool_key_id,
                                          end_time AS            time,
                                          -SUM(sale_rate_delta0) net_sale_rate_delta0,
                                          -SUM(sale_rate_delta1) net_sale_rate_delta1
                                   FROM twamm_order_updates
-                                  GROUP BY key_hash, end_time),
-             summed AS (SELECT key_hash,
+                                  GROUP BY pool_key_id, end_time),
+             summed AS (SELECT pool_key_id,
                                time,
                                SUM(net_sale_rate_delta0) AS net_sale_rate_delta0,
                                SUM(net_sale_rate_delta1) AS net_sale_rate_delta1
                         FROM all_order_deltas
-                        GROUP BY key_hash, time)
-        SELECT key_hash AS pool_key_id, time, net_sale_rate_delta0, net_sale_rate_delta1
+                        GROUP BY pool_key_id, time)
+        SELECT pool_key_id, time, net_sale_rate_delta0, net_sale_rate_delta1
         FROM summed
         WHERE net_sale_rate_delta0 != 0
            OR net_sale_rate_delta1 != 0
-        ORDER BY key_hash, time);
+        ORDER BY pool_key_id, time);
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS twamm_sale_rate_deltas_materialized AS
         (
@@ -742,29 +744,29 @@ export class DAO {
 
         CREATE OR REPLACE VIEW last_24h_pool_stats_view AS
         (
-        WITH volume AS (SELECT vbt.key_hash,
+        WITH volume AS (SELECT vbt.pool_key_id,
                                SUM(CASE WHEN vbt.token = token0 THEN vbt.volume ELSE 0 END) AS volume0,
                                SUM(CASE WHEN vbt.token = token1 THEN vbt.volume ELSE 0 END) AS volume1,
                                SUM(CASE WHEN vbt.token = token0 THEN vbt.fees ELSE 0 END)   AS fees0,
                                SUM(CASE WHEN vbt.token = token1 THEN vbt.fees ELSE 0 END)   AS fees1
                         FROM hourly_volume_by_token vbt
-                                 JOIN pool_keys ON vbt.key_hash = pool_keys.key_hash
+                                 JOIN pool_keys ON vbt.pool_key_id = pool_keys.id
                         WHERE hour >= NOW() - INTERVAL '24 hours'
-                        GROUP BY vbt.key_hash),
-             tvl_total AS (SELECT tbt.key_hash,
+                        GROUP BY vbt.pool_key_id),
+             tvl_total AS (SELECT tbt.pool_key_id,
                                   SUM(CASE WHEN token = token0 THEN delta ELSE 0 END) AS tvl0,
                                   SUM(CASE WHEN token = token1 THEN delta ELSE 0 END) AS tvl1
                            FROM hourly_tvl_delta_by_token tbt
-                                    JOIN pool_keys pk ON tbt.key_hash = pk.key_hash
-                           GROUP BY tbt.key_hash),
-             tvl_delta_24h AS (SELECT tbt.key_hash,
+                                    JOIN pool_keys pk ON tbt.pool_key_id = pk.id
+                           GROUP BY tbt.pool_key_id),
+             tvl_delta_24h AS (SELECT tbt.pool_key_id,
                                       SUM(CASE WHEN token = token0 THEN delta ELSE 0 END) AS tvl0,
                                       SUM(CASE WHEN token = token1 THEN delta ELSE 0 END) AS tvl1
                                FROM hourly_tvl_delta_by_token tbt
-                                        JOIN pool_keys pk ON tbt.key_hash = pk.key_hash
+                                        JOIN pool_keys pk ON tbt.pool_key_id = pk.id
                                WHERE hour >= NOW() - INTERVAL '24 hours'
-                               GROUP BY tbt.key_hash)
-        SELECT pool_keys.key_hash,
+                               GROUP BY tbt.pool_key_id)
+        SELECT pool_keys.id,
                COALESCE(volume.volume0, 0)     AS volume0_24h,
                COALESCE(volume.volume1, 0)     AS volume1_24h,
                COALESCE(volume.fees0, 0)       AS fees0_24h,
@@ -774,16 +776,16 @@ export class DAO {
                COALESCE(tvl_delta_24h.tvl0, 0) AS tvl0_delta_24h,
                COALESCE(tvl_delta_24h.tvl1, 0) AS tvl1_delta_24h
         FROM pool_keys
-                 LEFT JOIN volume ON volume.key_hash = pool_keys.key_hash
+                 LEFT JOIN volume ON volume.pool_key_id = pool_keys.id
                  LEFT JOIN
-             tvl_total ON pool_keys.key_hash = tvl_total.key_hash
+             tvl_total ON pool_keys.id = tvl_total.pool_key_id
                  LEFT JOIN tvl_delta_24h
-                           ON tvl_delta_24h.key_hash = pool_keys.key_hash
+                           ON tvl_delta_24h.pool_key_id = pool_keys.id
             );
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS last_24h_pool_stats_materialized AS
         (
-        SELECT key_hash,
+        SELECT pool_key_id,
                volume0_24h,
                volume1_24h,
                fees0_24h,
@@ -794,15 +796,15 @@ export class DAO {
                tvl1_delta_24h
         FROM last_24h_pool_stats_view
             );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_last_24h_pool_stats_materialized_key_hash ON last_24h_pool_stats_materialized USING btree (key_hash);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_last_24h_pool_stats_materialized_pool_key_id ON last_24h_pool_stats_materialized USING btree (pool_key_id);
 
         CREATE OR REPLACE VIEW oracle_pool_states_view AS
         (
-        SELECT pk.key_hash AS pool_key_id, MAX(snapshot_block_timestamp) AS last_snapshot_block_timestamp
+        SELECT pk.id AS pool_key_id, MAX(snapshot_block_timestamp) AS last_snapshot_block_timestamp
         FROM oracle_snapshots os
                  JOIN event_keys ek ON ek.sort_id = os.event_id
                  JOIN pool_keys pk ON ek.emitter = pk.extension AND pk.token1 = os.token
-        GROUP BY pk.key_hash);
+        GROUP BY pk.id);
 
         CREATE MATERIALIZED VIEW IF NOT EXISTS oracle_pool_states_materialized AS
         (
@@ -869,7 +871,7 @@ export class DAO {
             max(event_id) AS last_swap_event_id
         FROM
           swaps s
-          JOIN pool_keys pk ON s.pool_key_id = pk.key_hash
+          JOIN pool_keys pk ON s.pool_key_id = pk.id
           WHERE
             liquidity_after != 0
           GROUP BY
@@ -893,7 +895,7 @@ export class DAO {
             percentile_cont(0.5) WITHIN GROUP (ORDER BY tick_after) AS median_tick
           FROM
             swaps s
-            JOIN pool_keys pk ON s.pool_key_id = pk.key_hash
+            JOIN pool_keys pk ON s.pool_key_id = pk.id
             JOIN event_keys ek ON s.event_id = ek.sort_id
             JOIN blocks b ON b.number = ek.block_number
             JOIN last_swap_time_per_pair lstpp ON pk.token0 = lstpp.token0
@@ -906,7 +908,7 @@ export class DAO {
         ),
         pool_states AS (
           SELECT
-            pk.key_hash,
+            pk.id,
             pk.token0,
             pk.token1,
             dp.depth_percent,
@@ -937,7 +939,7 @@ export class DAO {
             int4range(ps.last_tick + ps.fee_in_ticks, ps.last_tick + ps.depth_in_ticks) * int4range(pt.tick_start, pt.tick_end) AS overlap_range_above
         FROM
           pool_ticks pt
-        JOIN pool_states ps ON pt.pool_key_id = ps.key_hash
+        JOIN pool_states ps ON pt.pool_key_id = ps.pool_key_id
         WHERE
           liquidity != 0
           AND ps.fee_in_ticks < ps.depth_in_ticks
@@ -989,7 +991,7 @@ export class DAO {
     await this.pg.query({
       text: `
                 WITH swap_data AS (
-                    SELECT swaps.pool_key_id                                                      AS   key_hash,
+                    SELECT swaps.pool_key_id                                                      AS   pool_key_id,
                            DATE_TRUNC('hour', blocks.time)                                          AS   hour,
                            (CASE WHEN swaps.delta0 >= 0 THEN pool_keys.token0 ELSE pool_keys.token1 END) token,
                            SUM(CASE WHEN swaps.delta0 >= 0 THEN swaps.delta0 ELSE swaps.delta1 END) AS   volume,
@@ -998,21 +1000,21 @@ export class DAO {
                                      0x10000000000000000))                                          AS   fees,
                            COUNT(1)                                                                 AS   swap_count
                     FROM swaps
-                             JOIN pool_keys ON swaps.chain_id = pool_keys.chain_id AND swaps.pool_key_id = pool_keys.key_hash
+                             JOIN pool_keys ON swaps.chain_id = pool_keys.chain_id AND swaps.pool_key_id = pool_keys.id
                              JOIN event_keys ON swaps.chain_id = event_keys.chain_id AND swaps.event_id = event_keys.sort_id
                              JOIN blocks ON event_keys.chain_id = blocks.chain_id AND event_keys.block_number = blocks.number
                     WHERE swaps.chain_id = $2 AND DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
                     GROUP BY hour, swaps.pool_key_id, token
                 ),
                 fees_token0 AS (
-                    SELECT fa.pool_key_id                AS key_hash,
+                    SELECT fa.pool_key_id                AS pool_key_id,
                            DATE_TRUNC('hour', blocks.time) AS hour,
                            pool_keys.token0                AS token,
                            0                               AS volume,
                            SUM(fa.amount0)                 AS fees,
                            0                               AS swap_count
                     FROM fees_accumulated fa
-                             JOIN pool_keys ON fa.chain_id = pool_keys.chain_id AND fa.pool_key_id = pool_keys.key_hash
+                             JOIN pool_keys ON fa.chain_id = pool_keys.chain_id AND fa.pool_key_id = pool_keys.id
                              JOIN event_keys ON fa.chain_id = event_keys.chain_id AND fa.event_id = event_keys.sort_id
                              JOIN blocks ON event_keys.chain_id = blocks.chain_id AND event_keys.block_number = blocks.number
                     WHERE fa.chain_id = $2 AND DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
@@ -1020,14 +1022,14 @@ export class DAO {
                     GROUP BY hour, fa.pool_key_id, token
                 ),
                 fees_token1 AS (
-                    SELECT fa.pool_key_id                AS key_hash,
+                    SELECT fa.pool_key_id                AS pool_key_id,
                            DATE_TRUNC('hour', blocks.time) AS hour,
                            pool_keys.token1                AS token,
                            0                               AS volume,
                            SUM(fa.amount1)                 AS fees,
                            0                               AS swap_count
                     FROM fees_accumulated fa
-                             JOIN pool_keys ON fa.chain_id = pool_keys.chain_id AND fa.pool_key_id = pool_keys.key_hash
+                             JOIN pool_keys ON fa.chain_id = pool_keys.chain_id AND fa.pool_key_id = pool_keys.id
                              JOIN event_keys ON fa.chain_id = event_keys.chain_id AND fa.event_id = event_keys.sort_id
                              JOIN blocks ON event_keys.chain_id = blocks.chain_id AND event_keys.block_number = blocks.number
                     WHERE fa.chain_id = $2 AND DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
@@ -1035,22 +1037,22 @@ export class DAO {
                     GROUP BY hour, fa.pool_key_id, token
                 ),
                 combined_data AS (
-                    SELECT key_hash, hour, token, volume, fees, swap_count FROM swap_data
+                    SELECT pool_key_id, hour, token, volume, fees, swap_count FROM swap_data
                     UNION ALL
-                    SELECT key_hash, hour, token, volume, fees, swap_count FROM fees_token0
+                    SELECT pool_key_id, hour, token, volume, fees, swap_count FROM fees_token0
                     UNION ALL
-                    SELECT key_hash, hour, token, volume, fees, swap_count FROM fees_token1
+                    SELECT pool_key_id, hour, token, volume, fees, swap_count FROM fees_token1
                 )
-                INSERT INTO hourly_volume_by_token (key_hash, hour, token, volume, fees, swap_count)
-                SELECT key_hash,
+                INSERT INTO hourly_volume_by_token (pool_key_id, hour, token, volume, fees, swap_count)
+                SELECT pool_key_id,
                        hour,
                        token,
                        SUM(volume)     AS volume,
                        SUM(fees)       AS fees,
                        SUM(swap_count) AS swap_count
                 FROM combined_data
-                GROUP BY key_hash, hour, token
-                ON CONFLICT (key_hash, hour, token)
+                GROUP BY pool_key_id, hour, token
+                ON CONFLICT (pool_key_id, hour, token)
                     DO UPDATE SET volume     = excluded.volume,
                                   fees       = excluded.fees,
                                   swap_count = excluded.swap_count;
@@ -1061,43 +1063,43 @@ export class DAO {
     await this.pg.query({
       text: `
                 INSERT INTO hourly_revenue_by_token
-                    (WITH rev0 AS (SELECT pu.pool_key_id                AS key_hash,
+                    (WITH rev0 AS (SELECT pu.pool_key_id                AS pool_key_id,
                                           DATE_TRUNC('hour', blocks.time) AS hour,
                                           pk.token0                          token,
                                           SUM(CEIL((-delta0 * 0x10000000000000000::NUMERIC) /
                                                    (0x10000000000000000::NUMERIC - pk.fee)) +
                                               delta0)                     AS revenue
                                    FROM position_updates pu
-                                            JOIN pool_keys pk ON pu.chain_id = pk.chain_id AND pu.pool_key_id = pk.key_hash
+                                            JOIN pool_keys pk ON pu.chain_id = pk.chain_id AND pu.pool_key_id = pk.id
                                             JOIN event_keys ek ON pu.chain_id = ek.chain_id AND pu.event_id = ek.sort_id
                                             JOIN blocks ON ek.chain_id = blocks.chain_id AND ek.block_number = blocks.number
                                    WHERE pu.chain_id = $2 AND DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
                                      AND pu.delta0 < 0
                                      AND pk.fee != 0
                                    GROUP BY hour, pu.pool_key_id, token),
-                          rev1 AS (SELECT pu.pool_key_id                AS key_hash,
+                          rev1 AS (SELECT pu.pool_key_id                AS pool_key_id,
                                           DATE_TRUNC('hour', blocks.time) AS hour,
                                           pk.token1                          token,
                                           SUM(CEIL((-delta1 * 0x10000000000000000::NUMERIC) /
                                                    (0x10000000000000000::NUMERIC - pk.fee)) +
                                               delta1)                     AS revenue
                                    FROM position_updates pu
-                                            JOIN pool_keys pk ON pu.chain_id = pk.chain_id AND pu.pool_key_id = pk.key_hash
+                                            JOIN pool_keys pk ON pu.chain_id = pk.chain_id AND pu.pool_key_id = pk.id
                                             JOIN event_keys ek ON pu.chain_id = ek.chain_id AND pu.event_id = ek.sort_id
                                             JOIN blocks ON ek.chain_id = blocks.chain_id AND ek.block_number = blocks.number
                                    WHERE pu.chain_id = $2 AND DATE_TRUNC('hour', blocks.time) >= DATE_TRUNC('hour', $1::timestamptz)
                                      AND pu.delta1 < 0
                                      AND pk.fee != 0
                                    GROUP BY hour, pu.pool_key_id, token),
-                          total AS (SELECT key_hash, hour, token, revenue
+                          total AS (SELECT pool_key_id, hour, token, revenue
                                     FROM rev0
                                     UNION ALL
-                                    SELECT key_hash, hour, token, revenue
+                                    SELECT pool_key_id, hour, token, revenue
                                     FROM rev1)
-                     SELECT key_hash, hour, token, SUM(revenue) AS revenue
+                     SELECT pool_key_id, hour, token, SUM(revenue) AS revenue
                      FROM total
-                     GROUP BY key_hash, hour, token)
-                ON CONFLICT (key_hash, hour, token)
+                     GROUP BY pool_key_id, hour, token)
+                ON CONFLICT (pool_key_id, hour, token)
                     DO UPDATE SET revenue = excluded.revenue;
             `,
       values: [since, this.chainId],
@@ -1113,7 +1115,7 @@ export class DAO {
                                                            COUNT(1)    AS swap_count
                                                     FROM swaps s
                                                              JOIN event_keys ek ON s.event_id = ek.sort_id
-                                                             JOIN pool_keys pk ON s.pool_key_id = pk.key_hash
+                                                             JOIN pool_keys pk ON s.pool_key_id = pk.id
                                                     GROUP BY block_number, pk.token0, pk.token1)
                 INSERT
                 INTO hourly_price_data
@@ -1173,7 +1175,7 @@ export class DAO {
                                                            FROM position_updates pu
                                                                     JOIN event_keys ON pu.event_id = event_keys.sort_id
                                                                     JOIN blocks ON event_keys.block_number = blocks.number
-                                                                    JOIN pool_keys pk ON pu.pool_key_id = pk.key_hash
+                                                                    JOIN pool_keys pk ON pu.pool_key_id = pk.id
                                                            WHERE event_id >= (SELECT id FROM first_event_id)
                                                            GROUP BY pool_key_id, DATE_TRUNC('hour', blocks.time)
 
@@ -1206,7 +1208,7 @@ export class DAO {
                                                   SUM(delta0)      AS delta
                                            FROM grouped_pool_key_id_deltas
                                                     JOIN pool_keys
-                                                         ON pool_keys.key_hash = grouped_pool_key_id_deltas.pool_key_id
+                                                         ON pool_keys.id = grouped_pool_key_id_deltas.pool_key_id
                                            GROUP BY pool_key_id, grouped_pool_key_id_deltas.hour,
                                                     pool_keys.token0
 
@@ -1218,16 +1220,16 @@ export class DAO {
                                                   SUM(delta1)      AS delta
                                            FROM grouped_pool_key_id_deltas
                                                     JOIN pool_keys
-                                                         ON pool_keys.key_hash = grouped_pool_key_id_deltas.pool_key_id
+                                                         ON pool_keys.id = grouped_pool_key_id_deltas.pool_key_id
                                            GROUP BY pool_key_id, grouped_pool_key_id_deltas.hour,
                                                     pool_keys.token1)
-                     SELECT pool_key_id AS key_hash,
+                     SELECT pool_key_id AS pool_key_id,
                             token_deltas.hour,
                             token_deltas.token,
                             SUM(delta)    AS delta
                      FROM token_deltas
                      GROUP BY token_deltas.pool_key_id, token_deltas.hour, token_deltas.token)
-                ON CONFLICT (key_hash, hour, token)
+                ON CONFLICT (pool_key_id, hour, token)
                     DO UPDATE SET delta = excluded.delta;
             `,
       values: [since],
@@ -1260,8 +1262,8 @@ export class DAO {
     const { rows } = await this.pg.query({
       text: `SELECT order_key, unique_key
                    FROM cursor
-                   WHERE chain_id = $1;`,
-      values: [this.chainId],
+                   WHERE indexer_name = $1;`,
+      values: [this.indexerName],
     });
     if (rows.length === 1) {
       const { order_key, unique_key } = rows[0];
@@ -1284,14 +1286,14 @@ export class DAO {
   public async writeCursor(cursor: { orderKey: bigint; uniqueKey?: string }) {
     await this.pg.query({
       text: `
-                INSERT INTO cursor (chain_id, order_key, unique_key, last_updated)
+                INSERT INTO cursor (indexer_name, order_key, unique_key, last_updated)
                 VALUES ($1, $2, $3, NOW())
-                ON CONFLICT (chain_id) DO UPDATE SET order_key    = excluded.order_key,
-                                                     unique_key   = excluded.unique_key,
-                                                     last_updated = NOW();
+                ON CONFLICT (indexer_name) DO UPDATE SET order_key    = excluded.order_key,
+                                                         unique_key   = excluded.unique_key,
+                                                         last_updated = NOW();
             `,
       values: [
-        this.chainId,
+        this.indexerName,
         cursor.orderKey,
         typeof cursor.uniqueKey !== "undefined"
           ? BigInt(cursor.uniqueKey)
@@ -1442,7 +1444,7 @@ export class DAO {
                  delta0,
                  delta1)
                 VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event), $7,
-                        (SELECT key_hash FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
+                        (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
                         $9, $10, $11, $12, $13, $14);
             `,
       values: [
@@ -1490,7 +1492,7 @@ export class DAO {
                  delta0,
                  delta1)
                 VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event),
-                        (SELECT key_hash FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
+                        (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
                         $8, $9, $10, $11, $12, $13);
             `,
       values: [
@@ -1647,7 +1649,7 @@ export class DAO {
                  amount0,
                  amount1)
                 VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event),
-                        (SELECT key_hash FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
+                        (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
                         $8, $9);
             `,
       values: [
@@ -1685,7 +1687,7 @@ export class DAO {
                  tick_after,
                  liquidity_after)
                 VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event), $7,
-                        (SELECT key_hash FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
+                        (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
                         $9, $10, $11, $12, $13);
             `,
       values: [
@@ -1758,7 +1760,7 @@ export class DAO {
                 INTO twamm_order_updates
                 (chain_id,
                  event_id,
-                 key_hash,
+                 pool_key_id,
                  owner,
                  salt,
                  sale_rate_delta0,
@@ -1766,7 +1768,7 @@ export class DAO {
                  start_time,
                  end_time)
                 VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event),
-                        (SELECT key_hash
+                        (SELECT id
                          FROM pool_keys
                          WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
                                                FROM extension_registrations er
@@ -1823,9 +1825,9 @@ export class DAO {
                         RETURNING chain_id, sort_id)
                 INSERT
                 INTO twamm_proceeds_withdrawals
-                (chain_id, event_id, key_hash, owner, salt, amount0, amount1, start_time, end_time)
+                (chain_id, event_id, pool_key_id, owner, salt, amount0, amount1, start_time, end_time)
                 VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event),
-                        (SELECT key_hash
+                        (SELECT id
                          FROM pool_keys
                          WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
                                                FROM extension_registrations er
@@ -1866,9 +1868,9 @@ export class DAO {
                         RETURNING chain_id, sort_id)
                 INSERT
                 INTO twamm_virtual_order_executions
-                    (chain_id, event_id, key_hash, token0_sale_rate, token1_sale_rate)
+                    (chain_id, event_id, pool_key_id, token0_sale_rate, token1_sale_rate)
                 VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event),
-                        (SELECT key_hash
+                        (SELECT id
                          FROM pool_keys
                          WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
                                                FROM extension_registrations er
