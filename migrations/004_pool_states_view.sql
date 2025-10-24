@@ -3,7 +3,7 @@ CREATE OR REPLACE VIEW pool_states_view AS (
             SELECT id AS pool_key_id,
                 COALESCE(
                     last_swap.pool_balance_change_id,
-                    pi.pool_balance_change_id
+                    pi.event_id
                 ) AS last_swap_event_id,
                 COALESCE(last_swap.sqrt_ratio_after, pi.sqrt_ratio) AS sqrt_ratio,
                 COALESCE(last_swap.tick_after, pi.tick) AS tick,
@@ -14,29 +14,29 @@ CREATE OR REPLACE VIEW pool_states_view AS (
                         sqrt_ratio_after,
                         tick_after,
                         liquidity_after
-                    FROM swaps
-                    WHERE pool_keys.id = swaps.pool_key_id
-                        AND pool_keys.chain_id = swaps.chain_id
+                    FROM swaps s
+                        JOIN pool_balance_change_event pbc on s.chain_id = pbc.chain_id
+                        and s.pool_balance_change_id = pbc.event_id
+                    WHERE pool_keys.id = pbc.pool_key_id
                     ORDER BY pool_balance_change_id DESC
                     LIMIT 1
                 ) AS last_swap ON TRUE
                 LEFT JOIN LATERAL (
-                    SELECT pool_balance_change_id,
+                    SELECT event_id,
                         sqrt_ratio,
                         tick
                     FROM pool_initializations
                     WHERE pool_initializations.pool_key_id = pool_keys.id
-                        AND pool_initializations.chain_id = pool_keys.chain_id
-                    ORDER BY pool_balance_change_id DESC
-                    LIMIT 1
                 ) AS pi ON TRUE
         ),
         pl AS (
             SELECT pool_key_id,
                 (
                     SELECT pool_balance_change_id
-                    FROM position_updates
-                    WHERE pool_key_id = position_updates.pool_key_id
+                    FROM position_updates pu
+                        JOIN pool_balance_change_event pbc on pu.chain_id = pbc.chain_id
+                        and pu.pool_balance_change_id = pbc.event_id
+                    WHERE lss.pool_key_id = pbc.pool_key_id
                     ORDER BY pool_balance_change_id DESC
                     LIMIT 1
                 ) AS last_update_event_id,
@@ -45,8 +45,10 @@ CREATE OR REPLACE VIEW pool_states_view AS (
                         (
                             SELECT SUM(liquidity_delta)
                             FROM position_updates AS pu
+                                JOIN pool_balance_change_event pbc on pu.chain_id = pbc.chain_id
+                                and pu.pool_balance_change_id = pbc.event_id
                             WHERE lss.last_swap_event_id < pu.pool_balance_change_id
-                                AND pu.pool_key_id = lss.pool_key_id
+                                AND pbc.pool_key_id = lss.pool_key_id
                                 AND lss.tick BETWEEN pu.lower_bound AND (pu.upper_bound - 1)
                         ),
                         0

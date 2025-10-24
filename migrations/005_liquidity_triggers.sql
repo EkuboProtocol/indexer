@@ -4,7 +4,9 @@ CREATE OR REPLACE VIEW per_pool_per_tick_liquidity_view AS (
                 lower_bound AS tick,
                 SUM(liquidity_delta) net_liquidity_delta,
                 SUM(liquidity_delta) total_liquidity_on_tick
-            FROM position_updates
+            FROM position_updates pu
+                join pool_balance_change_event pbc on pu.chain_id = pbc.chain_id
+                and pu.pool_balance_change_id = pbc.event_id
             GROUP BY pool_key_id,
                 lower_bound
             UNION ALL
@@ -12,7 +14,9 @@ CREATE OR REPLACE VIEW per_pool_per_tick_liquidity_view AS (
                 upper_bound AS tick,
                 SUM(- liquidity_delta) net_liquidity_delta,
                 SUM(liquidity_delta) total_liquidity_on_tick
-            FROM position_updates
+            FROM position_updates pu
+                join pool_balance_change_event pbc on pu.chain_id = pbc.chain_id
+                and pu.pool_balance_change_id = pbc.event_id
             GROUP BY pool_key_id,
                 upper_bound
         ),

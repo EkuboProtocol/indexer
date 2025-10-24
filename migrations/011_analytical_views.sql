@@ -67,7 +67,7 @@ CREATE OR REPLACE VIEW last_24h_pool_stats_view AS (
             WHERE hour >= NOW() - INTERVAL '24 hours'
             GROUP BY tbt.pool_key_id
         )
-        SELECT pool_keys.id,
+        SELECT pool_keys.id as pool_key_id,
             COALESCE(volume.volume0, 0) AS volume0_24h,
             COALESCE(volume.volume1, 0) AS volume1_24h,
             COALESCE(volume.fees0, 0) AS fees0_24h,
@@ -186,7 +186,9 @@ CREATE OR REPLACE VIEW pool_market_depth_view AS WITH depth_percentages AS (
                 ORDER BY tick_after
             ) AS median_tick
         FROM swaps s
-            JOIN pool_keys pk ON s.pool_key_id = pk.id
+            JOIN pool_balance_change_event pbc on s.chain_id = pbc.chain_id
+            and s.pool_balance_change_id = pbc.event_id
+            JOIN pool_keys pk ON pbc.pool_key_id = pk.id
             JOIN event_keys ek ON s.pool_balance_change_id = ek.sort_id
             JOIN blocks b ON b.number = ek.block_number
             JOIN last_swap_time_per_pair lstpp ON pk.token0 = lstpp.token0
@@ -197,7 +199,7 @@ CREATE OR REPLACE VIEW pool_market_depth_view AS WITH depth_percentages AS (
             pk.token1
     ),
     pool_states AS (
-        SELECT pk.id,
+        SELECT pk.id as pool_key_id,
             pk.token0,
             pk.token1,
             dp.depth_percent,

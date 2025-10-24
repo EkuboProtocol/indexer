@@ -58,6 +58,7 @@ CREATE TABLE fees_accumulated (
 CREATE TABLE pool_initializations (
     chain_id int8 NOT NULL,
     event_id int8 NOT NULL,
+    pool_key_id int8 NOT NULL REFERENCES pool_keys (id),
     tick int4 NOT NULL,
     sqrt_ratio NUMERIC NOT NULL,
     PRIMARY KEY (chain_id, event_id),
