@@ -164,7 +164,9 @@ CREATE OR REPLACE VIEW pool_market_depth_view AS WITH depth_percentages AS (
             token1,
             max(pool_balance_change_id) AS last_swap_event_id
         FROM swaps s
-            JOIN pool_keys pk ON s.pool_key_id = pk.id
+            JOIN pool_balance_change_event pbc on s.chain_id = pbc.chain_id
+            and s.pool_balance_change_id = pbc.event_id
+            JOIN pool_keys pk ON pbc.pool_key_id = pk.id
         WHERE liquidity_after != 0
         GROUP BY token0,
             token1

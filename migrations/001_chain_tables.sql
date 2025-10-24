@@ -23,8 +23,7 @@ CREATE TABLE pool_keys (
     token1 NUMERIC NOT NULL,
     fee NUMERIC NOT NULL,
     tick_spacing INT NOT NULL,
-    extension NUMERIC NOT NULL,
-    config NUMERIC NOT NULL
+    extension NUMERIC NOT NULL
 );
 CREATE UNIQUE INDEX idx_pool_keys_chain_id_core_address_pool_id ON pool_keys USING btree (chain_id, core_address, pool_id);
 CREATE INDEX idx_pool_keys_chain_id_token0 ON pool_keys USING btree (chain_id, token0);
@@ -40,7 +39,7 @@ CREATE TABLE event_keys (
     ) STORED,
     transaction_hash NUMERIC NOT NULL,
     block_number int8 NOT NULL,
-    transaction_index int2 NOT NULL,
+    transaction_index int4 NOT NULL,
     event_index int2 NOT NULL,
     emitter NUMERIC NOT NULL,
     PRIMARY KEY (chain_id, sort_id),
