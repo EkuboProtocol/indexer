@@ -4,6 +4,9 @@ declare namespace NodeJS {
 
     LOG_LEVEL: string;
 
+    CHAIN_ID: string;
+    INDEXER_NAME: string;
+
     CORE_ADDRESS: `0x${string}`;
     POSITIONS_ADDRESS: `0x${string}`;
     ORACLE_ADDRESS: `0x${string}`;

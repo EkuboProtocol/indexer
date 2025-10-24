@@ -80,7 +80,7 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
       since: since.toISOString(),
     });
     const client = await pool.connect();
-    const dao = new DAO(client);
+    const dao = new DAO(client, BigInt(process.env.CHAIN_ID), process.env.INDEXER_NAME);
     await dao.beginTransaction();
     await dao.refreshAnalyticalTables({
       since,
@@ -102,11 +102,13 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
 );
 
 (async function () {
+  const chainId = BigInt(process.env.CHAIN_ID);
+
   // first set up the schema
   let databaseStartingCursor;
   {
     const client = await pool.connect();
-    const dao = new DAO(client);
+    const dao = new DAO(client, chainId, process.env.INDEXER_NAME);
 
     const initializeTimer = logger.startTimer();
     databaseStartingCursor = await dao.initializeSchema();
@@ -172,7 +174,7 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
           });
 
           const client = await pool.connect();
-          const dao = new DAO(client);
+          const dao = new DAO(client, chainId, process.env.INDEXER_NAME);
 
           await dao.beginTransaction();
           await dao.deleteOldBlockNumbers(
@@ -194,7 +196,7 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
         const blockProcessingTimer = logger.startTimer();
 
         const client = await pool.connect();
-        const dao = new DAO(client);
+        const dao = new DAO(client, chainId, process.env.INDEXER_NAME);
 
         await dao.beginTransaction();
 
@@ -211,8 +213,8 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
           const blockTime = block.header.timestamp;
 
           await dao.insertBlock({
-            hash: BigInt(block.header.blockHash ?? 0),
             number: block.header.blockNumber,
+            hash: BigInt(block.header.blockHash ?? 0),
             time: blockTime,
           });
 
