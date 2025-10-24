@@ -15,7 +15,7 @@ CREATE VIEW pool_states_view AS (
                     tick_after,
                     liquidity_after
                 FROM swaps s
-                    JOIN pool_balance_change_event pbc on s.chain_id = pbc.chain_id
+                    JOIN pool_balance_change pbc on s.chain_id = pbc.chain_id
                     and s.pool_balance_change_id = pbc.event_id
                 WHERE pool_keys.id = pbc.pool_key_id
                 ORDER BY pool_balance_change_id DESC
@@ -34,7 +34,7 @@ CREATE VIEW pool_states_view AS (
             (
                 SELECT pool_balance_change_id
                 FROM position_updates pu
-                    JOIN pool_balance_change_event pbc on pu.chain_id = pbc.chain_id
+                    JOIN pool_balance_change pbc on pu.chain_id = pbc.chain_id
                     and pu.pool_balance_change_id = pbc.event_id
                 WHERE lss.pool_key_id = pbc.pool_key_id
                 ORDER BY pool_balance_change_id DESC
@@ -45,7 +45,7 @@ CREATE VIEW pool_states_view AS (
                     (
                         SELECT SUM(liquidity_delta)
                         FROM position_updates AS pu
-                            JOIN pool_balance_change_event pbc on pu.chain_id = pbc.chain_id
+                            JOIN pool_balance_change pbc on pu.chain_id = pbc.chain_id
                             and pu.pool_balance_change_id = pbc.event_id
                         WHERE lss.last_swap_event_id < pu.pool_balance_change_id
                             AND pbc.pool_key_id = lss.pool_key_id

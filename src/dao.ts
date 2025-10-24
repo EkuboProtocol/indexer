@@ -66,7 +66,7 @@ export class DAO {
                                      0x10000000000000000))                                          AS   fees,
                            COUNT(1)                                                                 AS   swap_count
                     FROM swaps
-                             JOIN pool_balance_change_event pbc ON swaps.pool_balance_change_id = pbc.event_id
+                             JOIN pool_balance_change pbc ON swaps.pool_balance_change_id = pbc.event_id
                              JOIN pool_keys ON swaps.chain_id = pool_keys.chain_id AND swaps.pool_key_id = pool_keys.id
                              JOIN event_keys ON swaps.chain_id = event_keys.chain_id AND swaps.event_id = event_keys.sort_id
                              JOIN blocks ON event_keys.chain_id = blocks.chain_id AND event_keys.block_number = blocks.number
@@ -81,7 +81,7 @@ export class DAO {
                            SUM(pbc.delta0)                 AS fees,
                            0                               AS swap_count
                     FROM fees_accumulated fa
-                             JOIN pool_balance_change_event pbc ON fa.pool_balance_change_id = pbc.event_id
+                             JOIN pool_balance_change pbc ON fa.pool_balance_change_id = pbc.event_id
                              JOIN pool_keys ON fa.chain_id = pool_keys.chain_id AND fa.pool_key_id = pool_keys.id
                              JOIN event_keys ON fa.chain_id = event_keys.chain_id AND fa.event_id = event_keys.sort_id
                              JOIN blocks ON event_keys.chain_id = blocks.chain_id AND event_keys.block_number = blocks.number
@@ -97,7 +97,7 @@ export class DAO {
                            SUM(pbc.delta1)                 AS fees,
                            0                               AS swap_count
                     FROM fees_accumulated fa
-                             JOIN pool_balance_change_event pbc ON fa.pool_balance_change_id = pbc.event_id
+                             JOIN pool_balance_change pbc ON fa.pool_balance_change_id = pbc.event_id
                              JOIN pool_keys ON fa.chain_id = pool_keys.chain_id AND fa.pool_key_id = pool_keys.id
                              JOIN event_keys ON fa.chain_id = event_keys.chain_id AND fa.event_id = event_keys.sort_id
                              JOIN blocks ON event_keys.chain_id = blocks.chain_id AND event_keys.block_number = blocks.number
@@ -139,7 +139,7 @@ export class DAO {
                                                    (0x10000000000000000::NUMERIC - pk.fee)) +
                                               pbc.delta0)                     AS revenue
                                    FROM position_updates pu
-                                            JOIN pool_balance_change_event pbc ON pu.pool_balance_change_id = pbc.event_id
+                                            JOIN pool_balance_change pbc ON pu.pool_balance_change_id = pbc.event_id
                                             JOIN pool_keys pk ON pu.chain_id = pk.chain_id AND pu.pool_key_id = pk.id
                                             JOIN event_keys ek ON pu.chain_id = ek.chain_id AND pu.event_id = ek.sort_id
                                             JOIN blocks ON ek.chain_id = blocks.chain_id AND ek.block_number = blocks.number
@@ -154,7 +154,7 @@ export class DAO {
                                                    (0x10000000000000000::NUMERIC - pk.fee)) +
                                               pbc.delta1)                     AS revenue
                                    FROM position_updates pu
-                                            JOIN pool_balance_change_event pbc ON pu.pool_balance_change_id = pbc.event_id
+                                            JOIN pool_balance_change pbc ON pu.pool_balance_change_id = pbc.event_id
                                             JOIN pool_keys pk ON pu.chain_id = pk.chain_id AND pu.pool_key_id = pk.id
                                             JOIN event_keys ek ON pu.chain_id = ek.chain_id AND pu.event_id = ek.sort_id
                                             JOIN blocks ON ek.chain_id = blocks.chain_id AND ek.block_number = blocks.number
@@ -185,7 +185,7 @@ export class DAO {
                                                            SUM(pbc.delta1) AS total_delta1,
                                                            COUNT(1)         AS swap_count
                                                     FROM swaps s
-                                                             JOIN pool_balance_change_event pbc ON s.pool_balance_change_id = pbc.event_id
+                                                             JOIN pool_balance_change pbc ON s.pool_balance_change_id = pbc.event_id
                                                              JOIN event_keys ek ON s.event_id = ek.sort_id
                                                              JOIN pool_keys pk ON s.pool_key_id = pk.id
                                                     GROUP BY block_number, pk.token0, pk.token1)
@@ -220,7 +220,7 @@ export class DAO {
                                              WHERE b.time >= DATE_TRUNC('hour', $1::timestamptz)
                                              ORDER BY id
                                              LIMIT 1),
-                          -- Use the unified pool_balance_change_event table with fee adjustments for position updates
+                          -- Use the unified pool_balance_change table with fee adjustments for position updates
                           adjusted_pool_balance_changes AS (
                               SELECT 
                                   pbc.pool_key_id,
@@ -235,7 +235,7 @@ export class DAO {
                                           CEIL((pbc.delta1 * 0x10000000000000000::NUMERIC) / (0x10000000000000000::NUMERIC - pk.fee))
                                       ELSE pbc.delta1 
                                   END AS delta1
-                              FROM pool_balance_change_event pbc
+                              FROM pool_balance_change pbc
                               JOIN event_keys ek ON pbc.event_id = ek.id
                               JOIN blocks ON ek.block_number = blocks.number
                               JOIN pool_keys pk ON pbc.pool_key_id = pk.key_hash
@@ -471,7 +471,7 @@ export class DAO {
                 VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING chain_id, sort_id),
         balance_change_insert AS (
-            INSERT INTO pool_balance_change_event (chain_id, event_id, pool_key_id, delta0, delta1)
+            INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
             VALUES ($1, (SELECT sort_id FROM inserted_event),
                     (SELECT id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
                     $13, $14)
@@ -511,30 +511,22 @@ export class DAO {
   ) {
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING sort_id),
-                balance_change_insert AS (
-                    INSERT INTO pool_balance_change_event (chain_id, event_id, pool_key_id, delta0, delta1)
-                    VALUES ($1,
-                            (SELECT sort_id FROM inserted_event),
-                            (SELECT pool_key_id FROM pool_keys WHERE core_address = $5 AND pool_id = $6),
-                            -$12::numeric, -$13::numeric)
-                    RETURNING event_id
-                )
-                INSERT INTO position_fees_collected
-                (chain_id,
-                 pool_balance_change_id,
-                 pool_key_id,
-                 owner,
-                 salt,
-                 lower_bound,
-                 upper_bound)
-                VALUES ((SELECT chain_id FROM inserted_event), 
-                        (SELECT sort_event_id FROM balance_change_insert),
-                        $8, $9, $10, $13);
-            `,
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING sort_id),
+        balance_change_insert AS (
+            INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
+            VALUES ($1, (SELECT sort_id FROM inserted_event),
+                    (SELECT id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
+                    -$12::numeric, -$13::numeric)
+            RETURNING event_id
+        )
+        INSERT INTO position_fees_collected
+        (chain_id, pool_balance_change_id, locker, salt, lower_bound, upper_bound)
+        VALUES ($1, (SELECT event_id FROM balance_change_insert),
+                $8, $9, $10, $11);
+      `,
       values: [
         this.chainId,
         key.blockNumber,
@@ -676,7 +668,7 @@ export class DAO {
                         VALUES ($1, $2, $3, $4, $5)
                         RETURNING chain_id, sort_id),
                 balance_change_insert AS (
-                    INSERT INTO pool_balance_change_event (event_id, pool_key_id, delta0, delta1)
+                    INSERT INTO pool_balance_change (event_id, pool_key_id, delta0, delta1)
                     VALUES ((SELECT id FROM inserted_event),
                             (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $6),
                             $7, $8)
@@ -708,29 +700,22 @@ export class DAO {
   public async insertSwappedEvent(event: CoreSwapped, key: EventKey) {
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, sort_id),
-                balance_change_insert AS (
-                    INSERT INTO pool_balance_change_event (event_id, pool_key_hash, delta0, delta1)
-                    VALUES ((SELECT id FROM inserted_event),
-                            (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7),
-                            $8, $9)
-                    RETURNING event_id
-                )
-                INSERT INTO swaps
-                (chain_id,
-                 pool_balance_change_id,
-                 locker,
-                 pool_key_id,
-                 sqrt_ratio_after,
-                 tick_after,
-                 liquidity_after)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event), $7,
-                        (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
-                        $9, $10, $11, $12, $13);
-            `,
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING sort_id),
+        balance_change_insert AS (
+            INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
+            VALUES ($1, (SELECT sort_id FROM inserted_event),
+                    (SELECT id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
+                    $9, $10)
+            RETURNING event_id
+        )
+        INSERT INTO swaps
+        (chain_id, pool_balance_change_id, locker, sqrt_ratio_after, tick_after, liquidity_after)
+        VALUES ($1, (SELECT sort_id FROM inserted_event), $7,
+                $11, $12, $13);
+      `,
       values: [
         this.chainId,
         key.blockNumber,

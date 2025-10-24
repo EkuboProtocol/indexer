@@ -5,16 +5,18 @@ CREATE TABLE per_pool_per_tick_liquidity_incremental_view (
     total_liquidity_on_tick NUMERIC,
     PRIMARY KEY (pool_key_id, tick)
 );
-CREATE OR REPLACE FUNCTION net_liquidity_deltas_after_insert() RETURNS TRIGGER AS $$ BEGIN -- Update or insert for lower_bound
+CREATE OR REPLACE FUNCTION net_liquidity_deltas_after_insert() RETURNS TRIGGER AS $$
+DECLARE v_pool_key_id int8;
+BEGIN
+SELECT pool_key_id INTO STRICT v_pool_key_id
+FROM pool_balance_change pbc
+WHERE pbc.chain_id = new.chain_id
+    AND pbc.event_id = new.pool_balance_change_id;
+-- Update or insert for lower_bound
 UPDATE per_pool_per_tick_liquidity_incremental_view
 SET net_liquidity_delta_diff = net_liquidity_delta_diff + new.liquidity_delta,
     total_liquidity_on_tick = total_liquidity_on_tick + new.liquidity_delta
-WHERE pool_key_id = (
-        SELECT pool_key_id
-        FROM pool_balance_change_event pbc
-        WHERE pbc.chain_id = new.chain_id
-            AND pbc.event_id = new.pool_balance_change_id
-    )
+WHERE pool_key_id = v_pool_key_id
     AND tick = new.lower_bound;
 IF NOT found THEN
 INSERT INTO per_pool_per_tick_liquidity_incremental_view (
@@ -24,12 +26,7 @@ INSERT INTO per_pool_per_tick_liquidity_incremental_view (
         total_liquidity_on_tick
     )
 VALUES (
-        (
-            SELECT pool_key_id
-            FROM pool_balance_change_event pbc
-            WHERE pbc.chain_id = new.chain_id
-                AND pbc.event_id = new.pool_balance_change_id
-        ),
+        v_pool_key_id,
         new.lower_bound,
         new.liquidity_delta,
         new.liquidity_delta
@@ -37,24 +34,14 @@ VALUES (
 END IF;
 -- Delete if total_liquidity_on_tick is zero
 DELETE FROM per_pool_per_tick_liquidity_incremental_view
-WHERE pool_key_id = (
-        SELECT pool_key_id
-        FROM pool_balance_change_event pbc
-        WHERE pbc.chain_id = new.chain_id
-            AND pbc.event_id = new.pool_balance_change_id
-    )
+WHERE pool_key_id = v_pool_key_id
     AND tick = new.lower_bound
     AND total_liquidity_on_tick = 0;
 -- Update or insert for upper_bound
 UPDATE per_pool_per_tick_liquidity_incremental_view
 SET net_liquidity_delta_diff = net_liquidity_delta_diff - new.liquidity_delta,
     total_liquidity_on_tick = total_liquidity_on_tick + new.liquidity_delta
-WHERE pool_key_id = (
-        SELECT pool_key_id
-        FROM pool_balance_change_event pbc
-        WHERE pbc.chain_id = new.chain_id
-            AND pbc.event_id = new.pool_balance_change_id
-    )
+WHERE pool_key_id = v_pool_key_id
     AND tick = new.upper_bound;
 IF NOT found THEN
 INSERT INTO per_pool_per_tick_liquidity_incremental_view (
@@ -64,12 +51,7 @@ INSERT INTO per_pool_per_tick_liquidity_incremental_view (
         total_liquidity_on_tick
     )
 VALUES (
-        (
-            SELECT pool_key_id
-            FROM pool_balance_change_event pbc
-            WHERE pbc.chain_id = new.chain_id
-                AND pbc.event_id = new.pool_balance_change_id
-        ),
+        v_pool_key_id,
         new.upper_bound,
         - new.liquidity_delta,
         new.liquidity_delta
@@ -77,27 +59,24 @@ VALUES (
 END IF;
 -- Delete if net_liquidity_delta_diff is zero
 DELETE FROM per_pool_per_tick_liquidity_incremental_view
-WHERE pool_key_id = (
-        SELECT pool_key_id
-        FROM pool_balance_change_event pbc
-        WHERE pbc.chain_id = new.chain_id
-            AND pbc.event_id = new.pool_balance_change_id
-    )
+WHERE pool_key_id = v_pool_key_id
     AND tick = new.upper_bound
     AND total_liquidity_on_tick = 0;
 RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION net_liquidity_deltas_after_delete() RETURNS TRIGGER AS $$ BEGIN -- Reverse effect for lower_bound
+CREATE OR REPLACE FUNCTION net_liquidity_deltas_after_delete() RETURNS TRIGGER AS $$
+DECLARE v_pool_key_id int8;
+BEGIN
+SELECT pool_key_id INTO STRICT v_pool_key_id
+FROM pool_balance_change pbc
+WHERE pbc.chain_id = old.chain_id
+    AND pbc.event_id = old.pool_balance_change_id;
+-- Reverse effect for lower_bound
 UPDATE per_pool_per_tick_liquidity_incremental_view
 SET net_liquidity_delta_diff = net_liquidity_delta_diff - old.liquidity_delta,
     total_liquidity_on_tick = total_liquidity_on_tick - old.liquidity_delta
-WHERE pool_key_id = (
-        SELECT pool_key_id
-        FROM pool_balance_change_event pbc
-        WHERE pbc.chain_id = old.chain_id
-            AND pbc.event_id = old.pool_balance_change_id
-    )
+WHERE pool_key_id = v_pool_key_id
     AND tick = old.lower_bound;
 IF NOT found THEN
 INSERT INTO per_pool_per_tick_liquidity_incremental_view (
@@ -107,12 +86,7 @@ INSERT INTO per_pool_per_tick_liquidity_incremental_view (
         total_liquidity_on_tick
     )
 VALUES (
-        (
-            SELECT pool_key_id
-            FROM pool_balance_change_event pbc
-            WHERE pbc.chain_id = old.chain_id
-                AND pbc.event_id = old.pool_balance_change_id
-        ),
+        v_pool_key_id,
         old.lower_bound,
         - old.liquidity_delta,
         - old.liquidity_delta
@@ -120,24 +94,14 @@ VALUES (
 END IF;
 -- Delete if net_liquidity_delta_diff is zero
 DELETE FROM per_pool_per_tick_liquidity_incremental_view
-WHERE pool_key_id = (
-        SELECT pool_key_id
-        FROM pool_balance_change_event pbc
-        WHERE pbc.chain_id = old.chain_id
-            AND pbc.event_id = old.pool_balance_change_id
-    )
+WHERE pool_key_id = v_pool_key_id
     AND tick = old.lower_bound
     AND total_liquidity_on_tick = 0;
 -- Reverse effect for upper_bound
 UPDATE per_pool_per_tick_liquidity_incremental_view
 SET net_liquidity_delta_diff = net_liquidity_delta_diff + old.liquidity_delta,
     total_liquidity_on_tick = total_liquidity_on_tick - old.liquidity_delta
-WHERE pool_key_id = (
-        SELECT pool_key_id
-        FROM pool_balance_change_event pbc
-        WHERE pbc.chain_id = old.chain_id
-            AND pbc.event_id = old.pool_balance_change_id
-    )
+WHERE pool_key_id = v_pool_key_id
     AND tick = old.upper_bound;
 IF NOT found THEN
 INSERT INTO per_pool_per_tick_liquidity_incremental_view (
@@ -147,12 +111,7 @@ INSERT INTO per_pool_per_tick_liquidity_incremental_view (
         total_liquidity_on_tick
     )
 VALUES (
-        (
-            SELECT pool_key_id
-            FROM pool_balance_change_event pbc
-            WHERE pbc.chain_id = old.chain_id
-                AND pbc.event_id = old.pool_balance_change_id
-        ),
+        v_pool_key_id,
         old.upper_bound,
         old.liquidity_delta,
         - old.liquidity_delta
@@ -160,7 +119,7 @@ VALUES (
 END IF;
 -- Delete if net_liquidity_delta_diff is zero
 DELETE FROM per_pool_per_tick_liquidity_incremental_view
-WHERE pool_key_id = old.pool_key_id
+WHERE pool_key_id = v_pool_key_id
     AND tick = old.upper_bound
     AND total_liquidity_on_tick = 0;
 RETURN NULL;

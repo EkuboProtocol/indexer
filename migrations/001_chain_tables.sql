@@ -18,8 +18,8 @@ CREATE UNIQUE INDEX idx_blocks_chain_id_hash ON blocks USING btree (chain_id, ha
 CREATE TABLE event_keys (
     chain_id int8 NOT NULL,
     sort_id int8 GENERATED ALWAYS AS (
-        -- this allows for 2**16 = ~65k events per transaction and 2**20 = ~1M transactions per block while maintaining sort order
-        block_number * pow(2, 20) + transaction_index * pow(2, 16) + event_index
+        -- this allows for 2**12 == 4096 events per transaction and 2**16 == 65,536 transactions per block and 2**(63-28) = 34,359,738,368 blocks
+        (block_number * pow(2, 28)) + (transaction_index * pow(2, 12)) + event_index
     ) STORED,
     transaction_hash NUMERIC NOT NULL,
     block_number int8 NOT NULL,
