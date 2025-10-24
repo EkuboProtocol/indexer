@@ -94,10 +94,10 @@ CREATE VIEW twamm_pool_states_view AS (
                 ou_lvoe.last_order_update_event_id,
                 lvoe.last_virtual_order_execution_event_id
             ),
-            psm.last_event_id
+            psv.last_event_id
         ) AS last_event_id
     FROM last_virtual_order_execution lvoe
-        JOIN pool_states_materialized psm ON lvoe.pool_key_id = psm.pool_key_id
+        JOIN pool_states_view psv ON lvoe.pool_key_id = psv.pool_key_id
         LEFT JOIN active_order_updates_after_lvoe ou_lvoe ON lvoe.pool_key_id = ou_lvoe.pool_key_id
 );
 CREATE MATERIALIZED VIEW twamm_pool_states_materialized AS (
