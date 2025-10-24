@@ -7,6 +7,7 @@
   "scripts": {
     "start": "NETWORK=mainnet jiti src/index.ts",
     "start:sepolia": "NETWORK=sepolia jiti src/index.ts",
+    "migrate": "jiti src/migrate.ts",
     "test": "vitest"
   },
   "author": "Moody Salem",
@@ -26,6 +27,7 @@
     "dotenv": "^16.4.7",
     "jiti": "^2.4.2",
     "pg": "^8.13.1",
+    "postgres-migrations": "^5.3.0",
     "tadaaa": "^1.0.1",
     "viem": "^2.22.9",
     "winston": "^3.17.0"

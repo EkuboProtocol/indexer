@@ -111,10 +111,10 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
     const dao = new DAO(client, chainId, process.env.INDEXER_NAME);
 
     const initializeTimer = logger.startTimer();
-    databaseStartingCursor = await dao.initializeSchema();
+    databaseStartingCursor = await dao.initializeState();
     await dao.refreshOperationalMaterializedView();
     initializeTimer.done({
-      message: "Initialized schema",
+      message: "Prepared indexer state",
       startingCursor: databaseStartingCursor,
     });
     client.release();
