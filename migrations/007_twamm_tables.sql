@@ -31,6 +31,8 @@ CREATE TABLE twamm_proceeds_withdrawals (
     salt NUMERIC NOT NULL,
     start_time timestamptz NOT NULL,
     end_time timestamptz NOT NULL,
+    amount0 NUMERIC NOT NULL,
+    amount1 NUMERIC NOT NULL,
     PRIMARY KEY (chain_id, event_id),
     FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
 );
