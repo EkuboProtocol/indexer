@@ -9,15 +9,15 @@ CREATE TABLE oracle_snapshots (
     FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
 );
 CREATE INDEX idx_oracle_snapshots_token_snapshot_block_timestamp ON oracle_snapshots USING btree (token, snapshot_block_timestamp);
-CREATE OR REPLACE VIEW oracle_pool_states_view AS (
-        SELECT pk.id AS pool_key_id,
-            MAX(snapshot_block_timestamp) AS last_snapshot_block_timestamp
-        FROM oracle_snapshots os
-            JOIN event_keys ek ON ek.sort_id = os.event_id
-            JOIN pool_keys pk ON ek.emitter = pk.extension
-            AND pk.token1 = os.token
-        GROUP BY pk.id
-    );
+CREATE VIEW oracle_pool_states_view AS (
+    SELECT pk.id AS pool_key_id,
+        MAX(snapshot_block_timestamp) AS last_snapshot_block_timestamp
+    FROM oracle_snapshots os
+        JOIN event_keys ek ON ek.sort_id = os.event_id
+        JOIN pool_keys pk ON ek.emitter = pk.extension
+        AND pk.token1 = os.token
+    GROUP BY pk.id
+);
 CREATE MATERIALIZED VIEW oracle_pool_states_materialized AS (
     SELECT pool_key_id,
         last_snapshot_block_timestamp

@@ -1,3 +1,19 @@
+CREATE TABLE pool_keys (
+    id serial8 NOT NULL PRIMARY KEY,
+    chain_id int8 NOT NULL,
+    core_address NUMERIC NOT NULL,
+    pool_id NUMERIC NOT NULL,
+    token0 NUMERIC NOT NULL,
+    token1 NUMERIC NOT NULL,
+    fee NUMERIC NOT NULL,
+    tick_spacing INT NOT NULL,
+    extension NUMERIC NOT NULL
+);
+CREATE UNIQUE INDEX idx_pool_keys_chain_id_core_address_pool_id ON pool_keys USING btree (chain_id, core_address, pool_id);
+CREATE INDEX idx_pool_keys_chain_id_token0 ON pool_keys USING btree (chain_id, token0);
+CREATE INDEX idx_pool_keys_chain_id_token1 ON pool_keys USING btree (chain_id, token1);
+CREATE INDEX idx_pool_keys_chain_id_token0_token1 ON pool_keys USING btree (chain_id, token0, token1);
+CREATE INDEX idx_pool_keys_chain_id_extension ON pool_keys USING btree (chain_id, extension);
 CREATE TABLE extension_registrations (
     chain_id int8 NOT NULL,
     event_id int8 NOT NULL,

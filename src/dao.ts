@@ -375,19 +375,11 @@ export class DAO {
 
     const { rows } = await this.pg.query({
       text: `
-                INSERT INTO pool_keys (chain_id,
-                                       pool_id,
-                                       core_address,
-                                       token0,
-                                       token1,
-                                       fee,
-                                       tick_spacing,
-                                       extension,
-                                       config)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                ON CONFLICT (chain_id, core_address, pool_id) DO UPDATE SET id = pool_keys.id
-                RETURNING id;
-            `,
+        INSERT INTO pool_keys (chain_id, pool_id, core_address, token0, token1, fee, tick_spacing, extension)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (chain_id, core_address, pool_id) DO UPDATE SET id = pool_keys.id
+        RETURNING id;
+      `,
       values: [
         this.chainId,
         poolId,
@@ -397,7 +389,6 @@ export class DAO {
         fee,
         tickSpacing,
         BigInt(extension),
-        BigInt(poolKey.config),
       ],
     });
     return BigInt(rows[0].id);
@@ -475,31 +466,22 @@ export class DAO {
   ) {
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, sort_id),
-                balance_change_insert AS (
-                    INSERT INTO pool_balance_change_event (event_id, pool_key_hash, delta0, delta1)
-                    VALUES ((SELECT id FROM inserted_event),
-                            (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $7),
-                            $12, $13)
-                    RETURNING event_id
-                )
-                INSERT INTO position_updates
-                (chain_id,
-                 pool_balance_change_id,
-                 locker,
-                 pool_key_id,
-                 salt,
-                 lower_bound,
-                 upper_bound,
-                 liquidity_delta)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_event_id FROM balance_change_insert),
-                        $7,
-                        (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
-                        $9, $10, $11, $14);
-            `,
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING chain_id, sort_id),
+        balance_change_insert AS (
+            INSERT INTO pool_balance_change_event (chain_id, event_id, pool_key_id, delta0, delta1)
+            VALUES ($1, (SELECT sort_id FROM inserted_event),
+                    (SELECT id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
+                    $13, $14)
+            RETURNING event_id, pool_key_id
+        )
+        INSERT INTO position_updates
+        (chain_id, pool_balance_change_id, locker, salt, lower_bound, upper_bound, liquidity_delta)
+        VALUES ($1, (SELECT event_id FROM balance_change_insert),
+                $7, $9, $10, $11, $12);
+      `,
       values: [
         this.chainId,
         key.blockNumber,
@@ -532,12 +514,13 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, sort_id),
+                        RETURNING sort_id),
                 balance_change_insert AS (
-                    INSERT INTO pool_balance_change_event (event_id, pool_key_hash, delta0, delta1)
-                    VALUES ((SELECT id FROM inserted_event),
-                            (SELECT key_hash FROM pool_keys WHERE core_address = $5 AND pool_id = $6),
-                            -$11::numeric, -$12::numeric)
+                    INSERT INTO pool_balance_change_event (chain_id, event_id, pool_key_id, delta0, delta1)
+                    VALUES ($1,
+                            (SELECT sort_id FROM inserted_event),
+                            (SELECT pool_key_id FROM pool_keys WHERE core_address = $5 AND pool_id = $6),
+                            -$12::numeric, -$13::numeric)
                     RETURNING event_id
                 )
                 INSERT INTO position_fees_collected
@@ -548,8 +531,8 @@ export class DAO {
                  salt,
                  lower_bound,
                  upper_bound)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_event_id FROM balance_change_insert),
-                        (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
+                VALUES ((SELECT chain_id FROM inserted_event), 
+                        (SELECT sort_event_id FROM balance_change_insert),
                         $8, $9, $10, $13);
             `,
       values: [
@@ -585,19 +568,13 @@ export class DAO {
 
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING chain_id, sort_id)
-                INSERT
-                INTO pool_initializations
-                (chain_id,
-                 event_id,
-                 pool_key_id,
-                 tick,
-                 sqrt_ratio)
-                VALUES ((SELECT chain_id FROM inserted_event), (SELECT sort_id FROM inserted_event), $7, $8, $9)
-            `,
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING chain_id, sort_id)
+        INSERT INTO pool_initializations (chain_id, event_id, pool_key_id, tick, sqrt_ratio)
+        VALUES ($1, (SELECT sort_id FROM inserted_event), $7, $8, $9)
+      `,
       values: [
         this.chainId,
         key.blockNumber,
