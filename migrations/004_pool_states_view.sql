@@ -252,11 +252,3 @@ FROM (
         FROM lss
             JOIN pl ON lss.pool_key_id = pl.pool_key_id
     ) AS initial_states;
-CREATE VIEW pool_states_view AS
-SELECT pool_key_id,
-    sqrt_ratio,
-    tick,
-    liquidity,
-    last_event_id,
-    last_liquidity_update_event_id
-FROM pool_states_incremental_view;
