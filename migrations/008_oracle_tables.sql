@@ -8,7 +8,7 @@ CREATE TABLE oracle_snapshots (
     PRIMARY KEY (chain_id, event_id),
     FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
 );
-CREATE INDEX idx_oracle_snapshots_token_snapshot_block_timestamp ON oracle_snapshots USING btree (token, snapshot_block_timestamp);
+CREATE INDEX idx_oracle_snapshots_chain_id_token_snapshot_block_timestamp ON oracle_snapshots USING btree (chain_id, token, snapshot_block_timestamp);
 CREATE VIEW oracle_pool_states_view AS (
     SELECT pk.id AS pool_key_id,
         MAX(snapshot_block_timestamp) AS last_snapshot_block_timestamp
