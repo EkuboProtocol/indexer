@@ -128,9 +128,8 @@ SELECT pbc.pool_key_id,
     v_fees
 FROM pool_balance_change pbc
     JOIN event_keys ek USING (chain_id, event_id)
+    JOIN blocks b USING (chain_id, block_number)
     JOIN pool_keys pk ON pk.id = pbc.pool_key_id
-    JOIN blocks b ON b.chain_id = ek.chain_id
-    AND b.number = ek.block_number
 WHERE pbc.chain_id = p_chain_id
     AND pbc.event_id = p_pool_balance_change_id;
 IF NOT FOUND THEN RETURN;
@@ -173,9 +172,8 @@ SELECT pbc.pool_key_id,
     v_fee1
 FROM pool_balance_change pbc
     JOIN event_keys ek USING (chain_id, event_id)
+    JOIN blocks b USING (chain_id, block_number)
     JOIN pool_keys pk ON pk.id = pbc.pool_key_id
-    JOIN blocks b ON b.chain_id = ek.chain_id
-    AND b.number = ek.block_number
 WHERE pbc.chain_id = p_chain_id
     AND pbc.event_id = p_pool_balance_change_id;
 IF NOT FOUND THEN RETURN;
@@ -298,9 +296,8 @@ SELECT pk.token0,
     v_delta1
 FROM pool_balance_change pbc
     JOIN event_keys ek USING (chain_id, event_id)
+    JOIN blocks b USING (chain_id, block_number)
     JOIN pool_keys pk ON pk.id = pbc.pool_key_id
-    JOIN blocks b ON b.chain_id = ek.chain_id
-    AND b.number = ek.block_number
 WHERE pbc.chain_id = p_chain_id
     AND pbc.event_id = p_pool_balance_change_id;
 IF NOT FOUND THEN RETURN;
@@ -452,10 +449,9 @@ SELECT pbc.pool_key_id,
     v_fee
 FROM pool_balance_change pbc
     JOIN event_keys ek USING (chain_id, event_id)
+    JOIN blocks b USING (chain_id, block_number)
     LEFT JOIN position_updates pu USING (chain_id, event_id)
     JOIN pool_keys pk ON pk.id = pbc.pool_key_id
-    JOIN blocks b ON b.chain_id = ek.chain_id
-    AND b.number = ek.block_number
 WHERE pbc.chain_id = p_chain_id
     AND pbc.event_id = p_event_id;
 IF NOT FOUND THEN RETURN;
@@ -551,9 +547,8 @@ SELECT pbc.pool_key_id,
 FROM position_updates pu
     JOIN pool_balance_change pbc USING (chain_id, event_id)
     JOIN event_keys ek USING (chain_id, event_id)
+    JOIN blocks b USING (chain_id, block_number)
     JOIN pool_keys pk ON pk.id = pbc.pool_key_id
-    JOIN blocks b ON b.chain_id = ek.chain_id
-    AND b.number = ek.block_number
 WHERE pu.chain_id = p_chain_id
     AND pu.event_id = p_pool_balance_change_id;
 IF NOT FOUND THEN RETURN;

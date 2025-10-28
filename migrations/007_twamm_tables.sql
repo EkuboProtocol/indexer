@@ -71,7 +71,7 @@ CREATE VIEW twamm_pool_states_view AS (
             JOIN event_keys ek ON last_voe.chain_id = ek.chain_id
             AND last_voe.event_id = ek.event_id
             JOIN blocks b ON ek.chain_id = b.chain_id
-            AND ek.block_number = b.number
+            AND ek.block_number = b.block_number
     ),
     active_order_updates_after_lvoe AS (
         SELECT lvoe_1.pool_key_id,

@@ -6,11 +6,14 @@ CREATE TABLE cursor (
 );
 CREATE TABLE blocks (
     chain_id int8 NOT NULL,
-    number int8 NOT NULL,
+    block_number int8 NOT NULL CHECK (
+        block_number >= 0
+        AND block_number < pow(2, 32)::int8
+    ),
     hash NUMERIC NOT NULL,
     time timestamptz NOT NULL,
     inserted timestamptz NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (chain_id, number)
+    PRIMARY KEY (chain_id, block_number)
 );
 CREATE INDEX idx_blocks_chain_id_time ON blocks USING btree (chain_id, time);
 CREATE UNIQUE INDEX idx_blocks_chain_id_hash ON blocks USING btree (chain_id, hash);
@@ -25,7 +28,7 @@ CREATE TABLE event_keys (
     transaction_hash NUMERIC NOT NULL,
     block_number int8 NOT NULL CHECK (
         block_number >= 0
-        AND block_number < pow(2, 32)
+        AND block_number < pow(2, 32)::int8
     ),
     transaction_index int4 NOT NULL CHECK (
         transaction_index >= 0
@@ -37,7 +40,7 @@ CREATE TABLE event_keys (
     ),
     emitter NUMERIC NOT NULL,
     PRIMARY KEY (chain_id, event_id),
-    FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, number) ON DELETE CASCADE,
+    FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE,
     UNIQUE (
         chain_id,
         block_number,

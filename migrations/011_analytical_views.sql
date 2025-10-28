@@ -98,7 +98,7 @@ CREATE VIEW token_pair_realized_volatility_view AS WITH times AS (
     SELECT blocks.time - INTERVAL '7 days' AS start_time,
         blocks.time AS end_time
     FROM blocks
-    ORDER BY number DESC
+    ORDER BY block_number DESC
     LIMIT 1
 ), prices AS (
     SELECT token0,
@@ -176,7 +176,7 @@ last_swap_time_per_pair AS (
         b.time
     FROM last_swap_per_pair ls
         JOIN event_keys ek ON ls.last_swap_event_id = ek.event_id
-        JOIN blocks b ON ek.block_number = b.number
+        JOIN blocks b ON ek.block_number = b.block_number
 ),
 median_ticks AS (
     SELECT pk.token0,
@@ -189,7 +189,7 @@ median_ticks AS (
         and s.event_id = pbc.event_id
         JOIN pool_keys pk ON pbc.pool_key_id = pk.id
         JOIN event_keys ek ON s.event_id = ek.event_id
-        JOIN blocks b ON b.number = ek.block_number
+        JOIN blocks b ON b.block_number = ek.block_number
         JOIN last_swap_time_per_pair lstpp ON pk.token0 = lstpp.token0
         AND pk.token1 = lstpp.token1
     WHERE b.time >= lstpp.time - interval '1 hour'

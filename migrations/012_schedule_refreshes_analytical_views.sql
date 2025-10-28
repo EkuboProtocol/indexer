@@ -5,28 +5,28 @@ CREATE OR REPLACE FUNCTION safe_refresh_mv(viewname text) RETURNS void LANGUAGE 
 DECLARE ok boolean;
 BEGIN ok := pg_try_advisory_lock(hashtext(viewname)::bigint);
 IF ok THEN EXECUTE format(
-    'REFRESH MATERIALIZED VIEW CONCURRENTLY %I',
-    viewname
+        'REFRESH MATERIALIZED VIEW CONCURRENTLY %I',
+        viewname
 );
 PERFORM pg_advisory_unlock(hashtext(viewname)::bigint);
 END IF;
 END;
 $$;
 SELECT cron.schedule(
-        'refresh_last_24h_pool_stats_materialized',
-        '0 * * * *',
-        $$SELECT safe_refresh_mv('analytics.last_24h_pool_stats_materialized');
+                'refresh_last_24h_pool_stats_materialized',
+                '0 * * * *',
+                $$SELECT safe_refresh_mv('last_24h_pool_stats_materialized');
 $$
 );
 SELECT cron.schedule(
-        'refresh_token_pair_realized_volatility',
-        '*/5 * * * *',
-        $$SELECT safe_refresh_mv('analytics.token_pair_realized_volatility');
+                'refresh_token_pair_realized_volatility',
+                '*/5 * * * *',
+                $$SELECT safe_refresh_mv('token_pair_realized_volatility');
 $$
 );
 SELECT cron.schedule(
-        'refresh_pool_market_depth',
-        '*/5 * * * *',
-        $$SELECT safe_refresh_mv('analytics.pool_market_depth');
+                'refresh_pool_market_depth',
+                '*/5 * * * *',
+                $$SELECT safe_refresh_mv('pool_market_depth');
 $$
 );

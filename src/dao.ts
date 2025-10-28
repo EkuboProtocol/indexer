@@ -129,7 +129,7 @@ export class DAO {
     time: Date;
   }) {
     await this.pg.query({
-      text: `INSERT INTO blocks (chain_id, number, hash, time)
+      text: `INSERT INTO blocks (chain_id, block_number, hash, time)
                    VALUES ($1, $2, $3, $4);`,
       values: [this.chainId, number, hash, time],
     });
@@ -512,7 +512,7 @@ export class DAO {
       text: `
                 DELETE
                 FROM blocks
-                WHERE chain_id = $1 AND number >= $2;
+                WHERE chain_id = $1 AND block_number >= $2;
             `,
       values: [this.chainId, invalidatedBlockNumber],
     });
