@@ -6,7 +6,7 @@ CREATE TABLE incentives_funded (
   root NUMERIC NOT NULL,
   amount_next NUMERIC NOT NULL,
   PRIMARY KEY (chain_id, event_id),
-  FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
+  FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
 CREATE TABLE incentives_refunded (
   chain_id int8 NOT NULL,
@@ -16,7 +16,7 @@ CREATE TABLE incentives_refunded (
   root NUMERIC NOT NULL,
   refund_amount NUMERIC NOT NULL,
   PRIMARY KEY (chain_id, event_id),
-  FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
+  FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
 CREATE TABLE token_wrapper_deployed (
   chain_id int8 NOT NULL,
@@ -25,7 +25,7 @@ CREATE TABLE token_wrapper_deployed (
   underlying_token NUMERIC NOT NULL,
   unlock_time NUMERIC NOT NULL,
   PRIMARY KEY (chain_id, event_id),
-  FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
+  FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
 CREATE SCHEMA IF NOT EXISTS incentives;
 CREATE FUNCTION incentives.percent_within_std(z DOUBLE PRECISION) RETURNS DOUBLE PRECISION LANGUAGE sql IMMUTABLE STRICT AS $$

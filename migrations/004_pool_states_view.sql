@@ -10,22 +10,21 @@ CREATE OR REPLACE FUNCTION refresh_pool_state(p_pool_key_id int8) RETURNS VOID A
 DECLARE v_state RECORD;
 BEGIN WITH lss AS (
     SELECT pk.id AS pool_key_id,
-        COALESCE(last_swap.pool_balance_change_id, pi.event_id) AS last_swap_event_id,
+        COALESCE(last_swap.event_id, pi.event_id) AS last_swap_event_id,
         COALESCE(last_swap.sqrt_ratio_after, pi.sqrt_ratio) AS sqrt_ratio,
         COALESCE(last_swap.tick_after, pi.tick) AS tick,
         COALESCE(last_swap.liquidity_after, 0::NUMERIC) AS liquidity_last
     FROM pool_keys pk
         LEFT JOIN LATERAL (
             SELECT pbc.pool_key_id,
-                s.pool_balance_change_id,
+                s.event_id,
                 s.sqrt_ratio_after,
                 s.tick_after,
                 s.liquidity_after
             FROM swaps s
-                JOIN pool_balance_change pbc ON s.chain_id = pbc.chain_id
-                AND s.pool_balance_change_id = pbc.event_id
+                JOIN pool_balance_change pbc USING (chain_id, event_id)
             WHERE pk.id = pbc.pool_key_id
-            ORDER BY pool_balance_change_id DESC
+            ORDER BY event_id DESC
             LIMIT 1
         ) AS last_swap ON TRUE
         LEFT JOIN LATERAL (
@@ -42,12 +41,11 @@ BEGIN WITH lss AS (
 pl AS (
     SELECT lss.pool_key_id,
         (
-            SELECT pool_balance_change_id
+            SELECT event_id
             FROM position_updates pu
-                JOIN pool_balance_change pbc ON pu.chain_id = pbc.chain_id
-                AND pu.pool_balance_change_id = pbc.event_id
+                JOIN pool_balance_change pbc USING (chain_id, event_id)
             WHERE lss.pool_key_id = pbc.pool_key_id
-            ORDER BY pool_balance_change_id DESC
+            ORDER BY event_id DESC
             LIMIT 1
         ) AS last_update_event_id,
         (
@@ -55,9 +53,8 @@ pl AS (
                 (
                     SELECT SUM(liquidity_delta)
                     FROM position_updates pu
-                        JOIN pool_balance_change pbc ON pu.chain_id = pbc.chain_id
-                        AND pu.pool_balance_change_id = pbc.event_id
-                    WHERE lss.last_swap_event_id < pu.pool_balance_change_id
+                        JOIN pool_balance_change pbc USING (chain_id, event_id)
+                    WHERE lss.last_swap_event_id < pu.event_id
                         AND pbc.pool_key_id = lss.pool_key_id
                         AND lss.tick BETWEEN pu.lower_bound AND (pu.upper_bound - 1)
                 ),
@@ -108,9 +105,9 @@ DECLARE v_chain_id int8;
 v_event_id int8;
 v_pool_key_id int8;
 BEGIN IF TG_OP = 'DELETE' THEN v_chain_id := OLD.chain_id;
-v_event_id := OLD.pool_balance_change_id;
+v_event_id := OLD.event_id;
 ELSE v_chain_id := NEW.chain_id;
-v_event_id := NEW.pool_balance_change_id;
+v_event_id := NEW.event_id;
 END IF;
 SELECT pool_key_id INTO v_pool_key_id
 FROM pool_balance_change
@@ -126,9 +123,9 @@ DECLARE v_chain_id int8;
 v_event_id int8;
 v_pool_key_id int8;
 BEGIN IF TG_OP = 'DELETE' THEN v_chain_id := OLD.chain_id;
-v_event_id := OLD.pool_balance_change_id;
+v_event_id := OLD.event_id;
 ELSE v_chain_id := NEW.chain_id;
-v_event_id := NEW.pool_balance_change_id;
+v_event_id := NEW.event_id;
 END IF;
 SELECT pool_key_id INTO v_pool_key_id
 FROM pool_balance_change
@@ -187,7 +184,7 @@ FROM (
         WITH lss AS (
             SELECT id AS pool_key_id,
                 COALESCE(
-                    last_swap.pool_balance_change_id,
+                    last_swap.event_id,
                     pi.event_id
                 ) AS last_swap_event_id,
                 COALESCE(last_swap.sqrt_ratio_after, pi.sqrt_ratio) AS sqrt_ratio,
@@ -195,15 +192,14 @@ FROM (
                 COALESCE(last_swap.liquidity_after, 0::NUMERIC) AS liquidity_last
             FROM pool_keys
                 LEFT JOIN LATERAL (
-                    SELECT pool_balance_change_id,
+                    SELECT event_id,
                         sqrt_ratio_after,
                         tick_after,
                         liquidity_after
                     FROM swaps s
-                        JOIN pool_balance_change pbc ON s.chain_id = pbc.chain_id
-                        AND s.pool_balance_change_id = pbc.event_id
+                        JOIN pool_balance_change pbc USING (chain_id, event_id)
                     WHERE pool_keys.id = pbc.pool_key_id
-                    ORDER BY pool_balance_change_id DESC
+                    ORDER BY event_id DESC
                     LIMIT 1
                 ) AS last_swap ON TRUE
                 LEFT JOIN LATERAL (
@@ -219,12 +215,11 @@ FROM (
         pl AS (
             SELECT pool_key_id,
                 (
-                    SELECT pool_balance_change_id
+                    SELECT event_id
                     FROM position_updates pu
-                        JOIN pool_balance_change pbc ON pu.chain_id = pbc.chain_id
-                        AND pu.pool_balance_change_id = pbc.event_id
+                        JOIN pool_balance_change pbc USING (chain_id, event_id)
                     WHERE lss.pool_key_id = pbc.pool_key_id
-                    ORDER BY pool_balance_change_id DESC
+                    ORDER BY event_id DESC
                     LIMIT 1
                 ) AS last_update_event_id,
                 (
@@ -232,9 +227,8 @@ FROM (
                         (
                             SELECT SUM(liquidity_delta)
                             FROM position_updates AS pu
-                                JOIN pool_balance_change pbc ON pu.chain_id = pbc.chain_id
-                                AND pu.pool_balance_change_id = pbc.event_id
-                            WHERE lss.last_swap_event_id < pu.pool_balance_change_id
+                                JOIN pool_balance_change pbc USING (chain_id, event_id)
+                            WHERE lss.last_swap_event_id < pu.event_id
                                 AND pbc.pool_key_id = lss.pool_key_id
                                 AND lss.tick BETWEEN pu.lower_bound AND (pu.upper_bound - 1)
                         ),

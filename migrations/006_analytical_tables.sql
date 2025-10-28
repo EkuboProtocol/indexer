@@ -127,9 +127,8 @@ SELECT pbc.pool_key_id,
     v_volume,
     v_fees
 FROM pool_balance_change pbc
+    JOIN event_keys ek USING (chain_id, event_id)
     JOIN pool_keys pk ON pk.id = pbc.pool_key_id
-    JOIN event_keys ek ON ek.chain_id = pbc.chain_id
-    AND ek.sort_id = pbc.event_id
     JOIN blocks b ON b.chain_id = ek.chain_id
     AND b.number = ek.block_number
 WHERE pbc.chain_id = p_chain_id
@@ -173,9 +172,8 @@ SELECT pbc.pool_key_id,
     v_fee0,
     v_fee1
 FROM pool_balance_change pbc
+    JOIN event_keys ek USING (chain_id, event_id)
     JOIN pool_keys pk ON pk.id = pbc.pool_key_id
-    JOIN event_keys ek ON ek.chain_id = pbc.chain_id
-    AND ek.sort_id = pbc.event_id
     JOIN blocks b ON b.chain_id = ek.chain_id
     AND b.number = ek.block_number
 WHERE pbc.chain_id = p_chain_id
@@ -299,9 +297,8 @@ SELECT pk.token0,
     v_delta0,
     v_delta1
 FROM pool_balance_change pbc
+    JOIN event_keys ek USING (chain_id, event_id)
     JOIN pool_keys pk ON pk.id = pbc.pool_key_id
-    JOIN event_keys ek ON ek.chain_id = pbc.chain_id
-    AND ek.sort_id = pbc.event_id
     JOIN blocks b ON b.chain_id = ek.chain_id
     AND b.number = ek.block_number
 WHERE pbc.chain_id = p_chain_id
@@ -454,13 +451,11 @@ SELECT pbc.pool_key_id,
     v_liquidity_delta,
     v_fee
 FROM pool_balance_change pbc
+    JOIN event_keys ek USING (chain_id, event_id)
+    LEFT JOIN position_updates pu USING (chain_id, event_id)
     JOIN pool_keys pk ON pk.id = pbc.pool_key_id
-    JOIN event_keys ek ON ek.chain_id = pbc.chain_id
-    AND ek.sort_id = pbc.event_id
     JOIN blocks b ON b.chain_id = ek.chain_id
     AND b.number = ek.block_number
-    LEFT JOIN position_updates pu ON pu.chain_id = pbc.chain_id
-    AND pu.pool_balance_change_id = pbc.event_id
 WHERE pbc.chain_id = p_chain_id
     AND pbc.event_id = p_event_id;
 IF NOT FOUND THEN RETURN;
@@ -554,15 +549,13 @@ SELECT pbc.pool_key_id,
     v_revenue0,
     v_revenue1
 FROM position_updates pu
-    JOIN pool_balance_change pbc ON pu.chain_id = pbc.chain_id
-    AND pu.pool_balance_change_id = pbc.event_id
+    JOIN pool_balance_change pbc USING (chain_id, event_id)
+    JOIN event_keys ek USING (chain_id, event_id)
     JOIN pool_keys pk ON pk.id = pbc.pool_key_id
-    JOIN event_keys ek ON ek.chain_id = pu.chain_id
-    AND ek.sort_id = pu.pool_balance_change_id
     JOIN blocks b ON b.chain_id = ek.chain_id
     AND b.number = ek.block_number
 WHERE pu.chain_id = p_chain_id
-    AND pu.pool_balance_change_id = p_pool_balance_change_id;
+    AND pu.event_id = p_pool_balance_change_id;
 IF NOT FOUND THEN RETURN;
 END IF;
 IF v_revenue0 <> 0 THEN PERFORM apply_hourly_revenue_delta(
@@ -583,22 +576,22 @@ IF v_revenue1 <> 0 THEN PERFORM apply_hourly_revenue_delta(
 END IF;
 END;
 $$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION maintain_hourly_metrics_from_swaps() RETURNS TRIGGER AS $$ BEGIN IF TG_OP = 'INSERT' THEN PERFORM apply_hourly_volume_from_swap(NEW.chain_id, NEW.pool_balance_change_id, 1);
-PERFORM apply_hourly_price_from_swap(NEW.chain_id, NEW.pool_balance_change_id, 1);
-ELSIF TG_OP = 'UPDATE' THEN PERFORM apply_hourly_volume_from_swap(OLD.chain_id, OLD.pool_balance_change_id, -1);
-PERFORM apply_hourly_price_from_swap(OLD.chain_id, OLD.pool_balance_change_id, -1);
-PERFORM apply_hourly_volume_from_swap(NEW.chain_id, NEW.pool_balance_change_id, 1);
-PERFORM apply_hourly_price_from_swap(NEW.chain_id, NEW.pool_balance_change_id, 1);
-ELSIF TG_OP = 'DELETE' THEN PERFORM apply_hourly_volume_from_swap(OLD.chain_id, OLD.pool_balance_change_id, -1);
-PERFORM apply_hourly_price_from_swap(OLD.chain_id, OLD.pool_balance_change_id, -1);
+CREATE OR REPLACE FUNCTION maintain_hourly_metrics_from_swaps() RETURNS TRIGGER AS $$ BEGIN IF TG_OP = 'INSERT' THEN PERFORM apply_hourly_volume_from_swap(NEW.chain_id, NEW.event_id, 1);
+PERFORM apply_hourly_price_from_swap(NEW.chain_id, NEW.event_id, 1);
+ELSIF TG_OP = 'UPDATE' THEN PERFORM apply_hourly_volume_from_swap(OLD.chain_id, OLD.event_id, -1);
+PERFORM apply_hourly_price_from_swap(OLD.chain_id, OLD.event_id, -1);
+PERFORM apply_hourly_volume_from_swap(NEW.chain_id, NEW.event_id, 1);
+PERFORM apply_hourly_price_from_swap(NEW.chain_id, NEW.event_id, 1);
+ELSIF TG_OP = 'DELETE' THEN PERFORM apply_hourly_volume_from_swap(OLD.chain_id, OLD.event_id, -1);
+PERFORM apply_hourly_price_from_swap(OLD.chain_id, OLD.event_id, -1);
 END IF;
 RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION maintain_hourly_volume_from_fees_accumulated() RETURNS TRIGGER AS $$ BEGIN IF TG_OP = 'INSERT' THEN PERFORM apply_hourly_volume_from_fees_accumulated(NEW.chain_id, NEW.pool_balance_change_id, 1);
-ELSIF TG_OP = 'UPDATE' THEN PERFORM apply_hourly_volume_from_fees_accumulated(OLD.chain_id, OLD.pool_balance_change_id, -1);
-PERFORM apply_hourly_volume_from_fees_accumulated(NEW.chain_id, NEW.pool_balance_change_id, 1);
-ELSIF TG_OP = 'DELETE' THEN PERFORM apply_hourly_volume_from_fees_accumulated(OLD.chain_id, OLD.pool_balance_change_id, -1);
+CREATE OR REPLACE FUNCTION maintain_hourly_volume_from_fees_accumulated() RETURNS TRIGGER AS $$ BEGIN IF TG_OP = 'INSERT' THEN PERFORM apply_hourly_volume_from_fees_accumulated(NEW.chain_id, NEW.event_id, 1);
+ELSIF TG_OP = 'UPDATE' THEN PERFORM apply_hourly_volume_from_fees_accumulated(OLD.chain_id, OLD.event_id, -1);
+PERFORM apply_hourly_volume_from_fees_accumulated(NEW.chain_id, NEW.event_id, 1);
+ELSIF TG_OP = 'DELETE' THEN PERFORM apply_hourly_volume_from_fees_accumulated(OLD.chain_id, OLD.event_id, -1);
 END IF;
 RETURN NULL;
 END;
@@ -611,10 +604,10 @@ END IF;
 RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION maintain_hourly_revenue_from_position_updates() RETURNS TRIGGER AS $$ BEGIN IF TG_OP = 'INSERT' THEN PERFORM apply_hourly_revenue_from_position_update(NEW.chain_id, NEW.pool_balance_change_id, 1);
-ELSIF TG_OP = 'UPDATE' THEN PERFORM apply_hourly_revenue_from_position_update(OLD.chain_id, OLD.pool_balance_change_id, -1);
-PERFORM apply_hourly_revenue_from_position_update(NEW.chain_id, NEW.pool_balance_change_id, 1);
-ELSIF TG_OP = 'DELETE' THEN PERFORM apply_hourly_revenue_from_position_update(OLD.chain_id, OLD.pool_balance_change_id, -1);
+CREATE OR REPLACE FUNCTION maintain_hourly_revenue_from_position_updates() RETURNS TRIGGER AS $$ BEGIN IF TG_OP = 'INSERT' THEN PERFORM apply_hourly_revenue_from_position_update(NEW.chain_id, NEW.event_id, 1);
+ELSIF TG_OP = 'UPDATE' THEN PERFORM apply_hourly_revenue_from_position_update(OLD.chain_id, OLD.event_id, -1);
+PERFORM apply_hourly_revenue_from_position_update(NEW.chain_id, NEW.event_id, 1);
+ELSIF TG_OP = 'DELETE' THEN PERFORM apply_hourly_revenue_from_position_update(OLD.chain_id, OLD.event_id, -1);
 END IF;
 RETURN NULL;
 END;

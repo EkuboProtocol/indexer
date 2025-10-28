@@ -9,7 +9,7 @@ CREATE TABLE twamm_order_updates (
     start_time timestamptz NOT NULL,
     end_time timestamptz NOT NULL,
     PRIMARY KEY (chain_id, event_id),
-    FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
+    FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
 CREATE INDEX idx_twamm_order_updates_pool_key_id_event_id ON twamm_order_updates USING btree (pool_key_id, event_id);
 CREATE INDEX idx_twamm_order_updates_pool_key_id_time ON twamm_order_updates USING btree (pool_key_id, start_time, end_time);
@@ -34,7 +34,7 @@ CREATE TABLE twamm_proceeds_withdrawals (
     amount0 NUMERIC NOT NULL,
     amount1 NUMERIC NOT NULL,
     PRIMARY KEY (chain_id, event_id),
-    FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
+    FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
 CREATE INDEX idx_twamm_proceeds_withdrawals_pool_key_id_event_id ON twamm_proceeds_withdrawals USING btree (pool_key_id, event_id);
 CREATE INDEX idx_twamm_proceeds_withdrawals_pool_key_id_time ON twamm_proceeds_withdrawals USING btree (pool_key_id, start_time, end_time);
@@ -48,7 +48,7 @@ CREATE TABLE twamm_virtual_order_executions (
     token0_sale_rate NUMERIC NOT NULL,
     token1_sale_rate NUMERIC NOT NULL,
     PRIMARY KEY (chain_id, event_id),
-    FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, sort_id) ON DELETE CASCADE
+    FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
 CREATE INDEX idx_twamm_virtual_order_executions_pool_key_id_event_id ON twamm_virtual_order_executions USING btree (pool_key_id, event_id DESC);
 CREATE VIEW twamm_pool_states_view AS (
@@ -69,7 +69,7 @@ CREATE VIEW twamm_pool_states_view AS (
             JOIN twamm_virtual_order_executions last_voe ON last_voe.chain_id = pk.chain_id
             AND last_voe.event_id = lvoe_id.event_id
             JOIN event_keys ek ON last_voe.chain_id = ek.chain_id
-            AND last_voe.event_id = ek.sort_id
+            AND last_voe.event_id = ek.event_id
             JOIN blocks b ON ek.chain_id = b.chain_id
             AND ek.block_number = b.number
     ),

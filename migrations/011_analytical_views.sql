@@ -162,10 +162,9 @@ CREATE VIEW pool_market_depth_view AS WITH depth_percentages AS (
 last_swap_per_pair AS (
     SELECT token0,
         token1,
-        max(pool_balance_change_id) AS last_swap_event_id
+        max(event_id) AS last_swap_event_id
     FROM swaps s
-        JOIN pool_balance_change pbc on s.chain_id = pbc.chain_id
-        and s.pool_balance_change_id = pbc.event_id
+        JOIN pool_balance_change pbc USING (chain_id, event_id)
         JOIN pool_keys pk ON pbc.pool_key_id = pk.id
     WHERE liquidity_after != 0
     GROUP BY token0,
@@ -176,7 +175,7 @@ last_swap_time_per_pair AS (
         token1,
         b.time
     FROM last_swap_per_pair ls
-        JOIN event_keys ek ON ls.last_swap_event_id = ek.sort_id
+        JOIN event_keys ek ON ls.last_swap_event_id = ek.event_id
         JOIN blocks b ON ek.block_number = b.number
 ),
 median_ticks AS (
@@ -187,9 +186,9 @@ median_ticks AS (
         ) AS median_tick
     FROM swaps s
         JOIN pool_balance_change pbc on s.chain_id = pbc.chain_id
-        and s.pool_balance_change_id = pbc.event_id
+        and s.event_id = pbc.event_id
         JOIN pool_keys pk ON pbc.pool_key_id = pk.id
-        JOIN event_keys ek ON s.pool_balance_change_id = ek.sort_id
+        JOIN event_keys ek ON s.event_id = ek.event_id
         JOIN blocks b ON b.number = ek.block_number
         JOIN last_swap_time_per_pair lstpp ON pk.token0 = lstpp.token0
         AND pk.token1 = lstpp.token1

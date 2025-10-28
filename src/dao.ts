@@ -169,19 +169,19 @@ export class DAO {
   ) {
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING sort_id)
-                INSERT
-                INTO position_transfers
-                (chain_id,
-                 event_id,
-                 token_id,
-                 from_address,
-                 to_address)
-                VALUES ($1, (SELECT sort_id FROM inserted_event), $7, $8, $9)
-            `,
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING event_id)
+        INSERT
+        INTO position_transfers
+        (chain_id,
+          event_id,
+          token_id,
+          from_address,
+          to_address)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9)
+      `,
       values: [
         this.chainId,
         key.blockNumber,
@@ -205,7 +205,7 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING sort_id)
+                        RETURNING event_id)
                 INSERT
                 INTO order_transfers
                 (chain_id,
@@ -213,7 +213,7 @@ export class DAO {
                  token_id,
                  from_address,
                  to_address)
-                VALUES ($1, (SELECT sort_id FROM inserted_event), $7, $8, $9)
+                VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9)
             `,
       values: [
         this.chainId,
@@ -238,16 +238,16 @@ export class DAO {
         WITH inserted_event AS (
             INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                 VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING sort_id),
+                RETURNING event_id),
         balance_change_insert AS (
             INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
-            VALUES ($1, (SELECT sort_id FROM inserted_event),
+            VALUES ($1, (SELECT event_id FROM inserted_event),
                     (SELECT id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
                     $13, $14)
             RETURNING event_id, pool_key_id
         )
         INSERT INTO position_updates
-        (chain_id, pool_balance_change_id, locker, salt, lower_bound, upper_bound, liquidity_delta)
+        (chain_id, event_id, locker, salt, lower_bound, upper_bound, liquidity_delta)
         VALUES ($1, (SELECT event_id FROM balance_change_insert),
                 $7, $9, $10, $11, $12);
       `,
@@ -283,16 +283,16 @@ export class DAO {
         WITH inserted_event AS (
             INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                 VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING sort_id),
+                RETURNING event_id),
         balance_change_insert AS (
             INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
-            VALUES ($1, (SELECT sort_id FROM inserted_event),
+            VALUES ($1, (SELECT event_id FROM inserted_event),
                     (SELECT id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
                     -$12::numeric, -$13::numeric)
             RETURNING event_id
         )
         INSERT INTO position_fees_collected
-        (chain_id, pool_balance_change_id, locker, salt, lower_bound, upper_bound)
+        (chain_id, event_id, locker, salt, lower_bound, upper_bound)
         VALUES ($1, (SELECT event_id FROM balance_change_insert),
                 $8, $9, $10, $11);
       `,
@@ -332,9 +332,9 @@ export class DAO {
         WITH inserted_event AS (
             INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                 VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING sort_id)
+                RETURNING event_id)
         INSERT INTO pool_initializations (chain_id, event_id, pool_key_id, tick, sqrt_ratio)
-        VALUES ($1, (SELECT sort_id FROM inserted_event), $7, $8, $9)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9)
       `,
       values: [
         this.chainId,
@@ -375,7 +375,7 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING sort_id)
+                        RETURNING event_id)
                 INSERT
                 INTO protocol_fees_withdrawn
                 (chain_id,
@@ -383,7 +383,7 @@ export class DAO {
                  recipient,
                  token,
                  amount)
-                VALUES ($1, (SELECT sort_id FROM inserted_event), $7, $8, $9);
+                VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9);
             `,
       values: [
         this.chainId,
@@ -408,11 +408,11 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING sort_id)
+                        RETURNING event_id)
                 INSERT
                 INTO extension_registrations
                     (chain_id, event_id, extension)
-                VALUES ($1, (SELECT sort_id FROM inserted_event), $7);
+                VALUES ($1, (SELECT event_id FROM inserted_event), $7);
             `,
       values: [
         this.chainId,
@@ -435,16 +435,16 @@ export class DAO {
         WITH inserted_event AS (
             INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                 VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING sort_id),
+                RETURNING event_id),
         balance_change_insert AS (
             INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
-            VALUES ($1, (SELECT sort_id FROM inserted_event),
+            VALUES ($1, (SELECT event_id FROM inserted_event),
                     (SELECT id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
                     $8, $9)
             RETURNING event_id
         )
         INSERT INTO fees_accumulated
-        (chain_id, pool_balance_change_id)
+        (chain_id, event_id)
         VALUES ($1, (SELECT event_id FROM balance_change_insert));
       `,
       values: [
@@ -469,17 +469,17 @@ export class DAO {
         WITH inserted_event AS (
             INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                 VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING sort_id),
+                RETURNING event_id),
         balance_change_insert AS (
             INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
-            VALUES ($1, (SELECT sort_id FROM inserted_event),
+            VALUES ($1, (SELECT event_id FROM inserted_event),
                     (SELECT id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
                     $9, $10)
             RETURNING event_id
         )
         INSERT INTO swaps
-        (chain_id, pool_balance_change_id, locker, sqrt_ratio_after, tick_after, liquidity_after)
-        VALUES ($1, (SELECT sort_id FROM inserted_event), $7,
+        (chain_id, event_id, locker, sqrt_ratio_after, tick_after, liquidity_after)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7,
                 $11, $12, $13);
       `,
       values: [
@@ -547,16 +547,16 @@ export class DAO {
             INSERT INTO event_keys
                 (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                 VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING sort_id)
+                RETURNING event_id)
         INSERT
         INTO twamm_order_updates
         (chain_id, event_id, pool_key_id, locker, salt, sale_rate_delta0, sale_rate_delta1, start_time, end_time)
-        VALUES ($1, (SELECT sort_id FROM inserted_event),
+        VALUES ($1, (SELECT event_id FROM inserted_event),
                 (SELECT id
                   FROM pool_keys
                   WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
                                         FROM extension_registrations er
-                                                JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.sort_id
+                                                JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.event_id
                                         WHERE er.extension = $6)
                     AND pool_id = $7),
                 $8, $9, $10, $11, $12, $13);
@@ -607,16 +607,16 @@ export class DAO {
         WITH inserted_event AS (
             INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                 VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING sort_id)
+                RETURNING event_id)
         INSERT
         INTO twamm_proceeds_withdrawals
         (chain_id, event_id, pool_key_id, locker, salt, amount0, amount1, start_time, end_time)
-        VALUES ($1, (SELECT sort_id FROM inserted_event),
+        VALUES ($1, (SELECT event_id FROM inserted_event),
                 (SELECT id
                   FROM pool_keys
                   WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
                                         FROM extension_registrations er
-                                                JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.sort_id
+                                                JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.event_id
                                         WHERE er.extension = $6)
                     AND pool_id = $7), 
                 $8, $9, $10, $11, $12, $13);
@@ -651,16 +651,16 @@ export class DAO {
             INSERT INTO event_keys
                 (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                 VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING sort_id)
+                RETURNING event_id)
         INSERT
         INTO twamm_virtual_order_executions
             (chain_id, event_id, pool_key_id, token0_sale_rate, token1_sale_rate)
-        VALUES ($1, (SELECT sort_id FROM inserted_event),
+        VALUES ($1, (SELECT event_id FROM inserted_event),
                 (SELECT id
                   FROM pool_keys
                   WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
                                         FROM extension_registrations er
-                                                JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.sort_id
+                                                JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.event_id
                                         WHERE er.extension = $6)
                     AND pool_id = $7),
                 $8, $9);
@@ -686,12 +686,12 @@ export class DAO {
         WITH inserted_event AS (
             INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                 VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING sort_id)
+                RETURNING event_id)
         INSERT
         INTO oracle_snapshots
         (chain_id, event_id, token, snapshot_block_timestamp, snapshot_tick_cumulative,
           snapshot_seconds_per_liquidity_cumulative)
-        VALUES ($1, (SELECT sort_id FROM inserted_event), $7, $8, $9, $10)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10)
       `,
       values: [
         this.chainId,
@@ -717,11 +717,11 @@ export class DAO {
                 WITH inserted_event AS (
                     INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING sort_id)
+                        RETURNING event_id)
                 INSERT
                 INTO incentives_refunded
                     (chain_id, event_id, owner, token, root, refund_amount)
-                VALUES ($1, (SELECT sort_id FROM inserted_event), $7, $8, $9, $10)
+                VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10)
             `,
       values: [
         this.chainId,
@@ -744,11 +744,11 @@ export class DAO {
         WITH inserted_event AS (
             INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                 VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING sort_id)
+                RETURNING event_id)
         INSERT
         INTO incentives_funded
             (chain_id, event_id, owner, token, root, amount_next)
-        VALUES ($1, (SELECT sort_id FROM inserted_event), $7, $8, $9, $10)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10)
       `,
       values: [
         this.chainId,
@@ -774,11 +774,11 @@ export class DAO {
         WITH inserted_event AS (
             INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
                 VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING sort_id)
+                RETURNING event_id)
         INSERT
         INTO token_wrapper_deployed
             (chain_id, event_id, token_wrapper, underlying_token, unlock_time)
-        VALUES ($1, (SELECT sort_id FROM inserted_event), $7, $8, $9)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9)
       `,
       values: [
         this.chainId,

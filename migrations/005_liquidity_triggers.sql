@@ -11,7 +11,7 @@ BEGIN
 SELECT pool_key_id INTO STRICT v_pool_key_id
 FROM pool_balance_change pbc
 WHERE pbc.chain_id = new.chain_id
-    AND pbc.event_id = new.pool_balance_change_id;
+    AND pbc.event_id = new.event_id;
 -- Update or insert for lower_bound
 UPDATE per_pool_per_tick_liquidity_incremental_view
 SET net_liquidity_delta_diff = net_liquidity_delta_diff + new.liquidity_delta,
@@ -71,7 +71,7 @@ BEGIN
 SELECT pool_key_id INTO STRICT v_pool_key_id
 FROM pool_balance_change pbc
 WHERE pbc.chain_id = old.chain_id
-    AND pbc.event_id = old.pool_balance_change_id;
+    AND pbc.event_id = old.event_id;
 -- Reverse effect for lower_bound
 UPDATE per_pool_per_tick_liquidity_incremental_view
 SET net_liquidity_delta_diff = net_liquidity_delta_diff - old.liquidity_delta,
