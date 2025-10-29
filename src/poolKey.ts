@@ -4,7 +4,7 @@ import {
   keccak256,
   numberToHex,
 } from "viem";
-import type { PoolKey } from "./eventTypes.ts";
+import type { PoolKey } from "./evm/eventTypes.ts";
 
 export function parsePoolKeyConfig(config: `0x${string}`): {
   fee: bigint;
@@ -31,7 +31,7 @@ export function toPoolConfig({
   if (fee > 2n ** 64n - 1n) throw new Error("Invalid fee");
   return numberToHex(
     BigInt(tickSpacing) + (fee << 32n) + (BigInt(extension) << 96n),
-    { size: 32 },
+    { size: 32 }
   );
 }
 
@@ -47,14 +47,14 @@ export function toPoolId(poolKey: PoolKey): `0x${string}` {
         { name: "token1", type: "address" },
         { name: "config", type: "bytes32" },
       ],
-      [poolKey.token0, poolKey.token1, poolKey.config],
-    ),
+      [poolKey.token0, poolKey.token1, poolKey.config]
+    )
   );
 }
 
 export function toKeyHash(
   coreAddress: `0x${string}`,
-  poolId: `0x${string}`,
+  poolId: `0x${string}`
 ): `0x${string}` {
   return keccak256(
     encodeAbiParameters(
@@ -62,7 +62,7 @@ export function toKeyHash(
         { name: "coreAddress", type: "address" },
         { name: "poolId", type: "bytes32" },
       ],
-      [coreAddress, poolId],
-    ),
+      [coreAddress, poolId]
+    )
   );
 }

@@ -1,6 +1,6 @@
 declare namespace NodeJS {
   export interface ProcessEnv {
-    NETWORK: "sepolia" | "mainnet" | string;
+    NETWORK: string;
 
     LOG_LEVEL: string;
 
@@ -20,7 +20,6 @@ declare namespace NodeJS {
 
     DNA_TOKEN: string;
 
-    REFRESH_RATE_ANALYTICAL_VIEWS: string;
     APIBARA_URL: string;
 
     PG_CONNECTION_STRING: string;

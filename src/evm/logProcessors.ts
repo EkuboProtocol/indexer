@@ -1,5 +1,5 @@
-import { DAO } from "./dao.ts";
-import type { EventKey } from "./processor.ts";
+import { DAO } from "../dao.ts";
+import type { EventKey } from "../processor.ts";
 import {
   CORE_ABI,
   INCENTIVES_ABI,
@@ -20,11 +20,11 @@ import {
   decodeEventLog,
   encodeEventTopics,
 } from "viem";
-import { logger } from "./logger.ts";
-import { floatSqrtRatioToFixed, parseSwapEvent } from "./swapEvent.ts";
+import { logger } from "../logger.ts";
+import { floatSqrtRatioToFixed, parseSwapEvent } from "../swapEvent.ts";
 import { parseOracleEvent } from "./oracleEvent.ts";
 import { parseTwammVirtualOrdersExecuted } from "./twammEvent.ts";
-import { parsePoolKeyConfig } from "./poolKey.ts";
+import { parsePoolKeyConfig } from "../poolKey.ts";
 
 export type ContractEvent<
   abi extends Abi,

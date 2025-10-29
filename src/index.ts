@@ -3,9 +3,8 @@ import type { EventKey } from "./processor";
 import { logger } from "./logger";
 import { DAO } from "./dao";
 import { Pool } from "pg";
-import { throttle } from "tadaaa";
 import { EvmStream } from "@apibara/evm";
-import { LOG_PROCESSORS } from "./logProcessors.ts";
+import { LOG_PROCESSORS } from "./evm/logProcessors.ts";
 import { createClient, Metadata } from "@apibara/protocol";
 
 const pool = new Pool({
@@ -38,7 +37,9 @@ function resetNoBlocksTimer() {
   if (NO_BLOCKS_TIMEOUT_MS > 0) {
     noBlocksTimer = setTimeout(() => {
       logger.error(
-        `No blocks received in the last ${msToHumanShort(NO_BLOCKS_TIMEOUT_MS)}. Exiting process.`,
+        `No blocks received in the last ${msToHumanShort(
+          NO_BLOCKS_TIMEOUT_MS
+        )}. Exiting process.`
       );
       process.exit(1);
     }, NO_BLOCKS_TIMEOUT_MS);
@@ -67,39 +68,6 @@ function msToHumanShort(ms: number): string {
 
   return parts.join(", ") || "0ms";
 }
-
-const asyncThrottledRefreshAnalyticalTables = throttle(
-  async function (
-    since: Date = new Date(
-      Date.now() - parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS) * 2,
-    ),
-  ) {
-    const timer = logger.startTimer();
-    logger.info("Started refreshing analytical tables", {
-      start: timer.start,
-      since: since.toISOString(),
-    });
-    const client = await pool.connect();
-    const dao = new DAO(client, BigInt(process.env.CHAIN_ID), process.env.INDEXER_NAME);
-    await dao.beginTransaction();
-    await dao.refreshAnalyticalTables({
-      since,
-    });
-    await dao.commitTransaction();
-    client.release();
-    timer.done({
-      message: "Refreshed analytical tables",
-      since: since.toISOString(),
-    });
-  },
-  {
-    delay: parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS),
-    leading: true,
-    async onError(err) {
-      logger.error("Failed to refresh analytical tables", err);
-    },
-  },
-);
 
 (async function () {
   const chainId = BigInt(process.env.CHAIN_ID);
@@ -178,7 +146,7 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
 
           await dao.beginTransaction();
           await dao.deleteOldBlockNumbers(
-            Number(invalidatedCursor.orderKey) + 1,
+            Number(invalidatedCursor.orderKey) + 1
           );
           await dao.writeCursor(invalidatedCursor);
           await dao.commitTransaction();
@@ -240,9 +208,9 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
                   {
                     topics: event.topics,
                     data: event.data,
-                  },
+                  }
                 );
-              }),
+              })
             );
           }
 
@@ -268,18 +236,12 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
             eventsProcessed,
             blockTimestamp: blockTime,
             lag: msToHumanShort(
-              Math.floor(Date.now() - Number(blockTime.getTime())),
+              Math.floor(Date.now() - Number(blockTime.getTime()))
             ),
           });
         }
 
         client.release();
-
-        if (isHead) {
-          asyncThrottledRefreshAnalyticalTables(
-            !lastIsHead ? new Date(0) : undefined,
-          );
-        }
 
         lastIsHead = isHead;
 

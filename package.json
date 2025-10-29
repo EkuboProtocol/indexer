@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "main": "index.js",
-  "description": "Indexes Ekubo data",
+  "description": "Indexes Ekubo data into a Postgres database",
   "scripts": {
     "start": "NETWORK=mainnet jiti src/index.ts",
     "start:sepolia": "NETWORK=sepolia jiti src/index.ts",
@@ -25,10 +25,10 @@
   "dependencies": {
     "@apibara/evm": "^2.1.0-beta.34",
     "@apibara/protocol": "^2.1.0-beta.34",
+    "@apibara/starknet": "^2.1.0-beta.34",
     "dotenv": "^16.4.7",
     "jiti": "^2.4.2",
     "pg": "^8.13.1",
-    "tadaaa": "^1.0.1",
     "viem": "^2.22.9",
     "winston": "^3.17.0"
   }

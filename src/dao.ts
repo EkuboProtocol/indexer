@@ -17,10 +17,10 @@ import type {
   TokenWrapperDeployed,
   TwammOrderProceedsWithdrawn,
   TwammOrderUpdated,
-} from "./eventTypes.ts";
-import type { CoreSwapped } from "./swapEvent.ts";
-import type { OracleEvent } from "./oracleEvent.ts";
-import type { TwammVirtualOrdersExecutedEvent } from "./twammEvent.ts";
+} from "./evm/eventTypes.ts";
+import type { CoreSwapped } from "./evm/swapEvent.ts";
+import type { OracleEvent } from "./evm/oracleEvent.ts";
+import type { TwammVirtualOrdersExecutedEvent } from "./evm/twammEvent.ts";
 
 // Data access object that manages inserts/deletes
 export class DAO {
@@ -51,14 +51,6 @@ export class DAO {
     }
     await this.commitTransaction();
     return cursor;
-  }
-
-  public async refreshAnalyticalTables({ since }: { since: Date }) {
-    await this.pg.query(`
-      REFRESH MATERIALIZED VIEW CONCURRENTLY last_24h_pool_stats_materialized;
-      REFRESH MATERIALIZED VIEW CONCURRENTLY token_pair_realized_volatility;
-      REFRESH MATERIALIZED VIEW CONCURRENTLY pool_market_depth;
-    `);
   }
 
   // These are updated at every tip block because they must be consistent with all other tables
