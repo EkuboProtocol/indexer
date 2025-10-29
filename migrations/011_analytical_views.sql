@@ -95,13 +95,15 @@ CREATE MATERIALIZED VIEW last_24h_pool_stats_materialized AS (
 );
 CREATE UNIQUE INDEX idx_last_24h_pool_stats_materialized_pool_key_id ON last_24h_pool_stats_materialized USING btree (pool_key_id);
 CREATE VIEW token_pair_realized_volatility_view AS WITH times AS (
-    SELECT blocks.time - INTERVAL '7 days' AS start_time,
-        blocks.time AS end_time
+    SELECT chain_id,
+        MAX(blocks.time) - INTERVAL '7 days' AS start_time,
+        MAX(blocks.time) AS end_time
     FROM blocks
-    ORDER BY block_number DESC
-    LIMIT 1
-), prices AS (
-    SELECT token0,
+    GROUP BY chain_id
+),
+prices AS (
+    SELECT hpd.chain_id,
+        token0,
         token1,
         hour,
         LN(total / k_volume) AS log_price,
@@ -110,13 +112,14 @@ CREATE VIEW token_pair_realized_volatility_view AS WITH times AS (
             token1
             ORDER BY hour
         ) AS row_no
-    FROM hourly_price_data hpd,
-        times t
+    FROM hourly_price_data hpd
+        JOIN times t on hpd.chain_id = t.chain_id
     WHERE hpd.hour BETWEEN t.start_time AND t.end_time
         AND hpd.k_volume <> 0
 ),
 log_price_changes AS (
-    SELECT token0,
+    SELECT chain_id,
+        token0,
         token1,
         log_price - LAG(log_price) OVER (
             PARTITION BY token0,
@@ -135,15 +138,18 @@ log_price_changes AS (
     WHERE p.row_no != 1
 ),
 realized_volatility_by_pair AS (
-    SELECT token0,
+    SELECT chain_id,
+        token0,
         token1,
         COUNT(1) AS observation_count,
         SQRT(SUM(price_change * price_change)) AS realized_volatility
     FROM log_price_changes lpc
-    GROUP BY token0,
+    GROUP BY chain_id,
+        token0,
         token1
 )
-SELECT token0,
+SELECT chain_id,
+    token0,
     token1,
     realized_volatility,
     observation_count,
@@ -155,46 +161,51 @@ WHERE realized_volatility IS NOT NULL;
 CREATE MATERIALIZED VIEW token_pair_realized_volatility AS
 SELECT *
 FROM token_pair_realized_volatility_view;
-CREATE UNIQUE INDEX idx_token_pair_realized_volatility_pair ON token_pair_realized_volatility (token0, token1);
+CREATE UNIQUE INDEX idx_token_pair_realized_volatility_pair ON token_pair_realized_volatility (chain_id, token0, token1);
 CREATE VIEW pool_market_depth_view AS WITH depth_percentages AS (
     SELECT (POWER(1.21, generate_series(0, 40)) * 0.00005)::float AS depth_percent
 ),
 last_swap_per_pair AS (
-    SELECT token0,
+    SELECT s.chain_id,
+        token0,
         token1,
-        max(event_id) AS last_swap_event_id
+        max(event_id) AS event_id
     FROM swaps s
         JOIN pool_balance_change pbc USING (chain_id, event_id)
         JOIN pool_keys pk ON pbc.pool_key_id = pk.id
     WHERE liquidity_after != 0
-    GROUP BY token0,
+    GROUP BY s.chain_id,
+        token0,
         token1
 ),
 last_swap_time_per_pair AS (
-    SELECT token0,
+    SELECT chain_id,
+        token0,
         token1,
         b.time
     FROM last_swap_per_pair ls
-        JOIN event_keys ek ON ls.last_swap_event_id = ek.event_id
-        JOIN blocks b ON ek.block_number = b.block_number
+        JOIN event_keys ek USING (chain_id, event_id)
+        JOIN blocks b USING (chain_id, block_number)
 ),
 median_ticks AS (
-    SELECT pk.token0,
+    SELECT pk.chain_id,
+        pk.token0,
         pk.token1,
         percentile_cont(0.5) WITHIN GROUP (
             ORDER BY tick_after
         ) AS median_tick
     FROM swaps s
-        JOIN pool_balance_change pbc on s.chain_id = pbc.chain_id
-        and s.event_id = pbc.event_id
+        JOIN pool_balance_change pbc USING (chain_id, event_id)
+        JOIN event_keys ek USING (chain_id, event_id)
+        JOIN blocks b USING (chain_id, block_number)
         JOIN pool_keys pk ON pbc.pool_key_id = pk.id
-        JOIN event_keys ek ON s.event_id = ek.event_id
-        JOIN blocks b ON b.block_number = ek.block_number
-        JOIN last_swap_time_per_pair lstpp ON pk.token0 = lstpp.token0
+        JOIN last_swap_time_per_pair lstpp ON pk.chain_id = lstpp.chain_id
+        AND pk.token0 = lstpp.token0
         AND pk.token1 = lstpp.token1
     WHERE b.time >= lstpp.time - interval '1 hour'
         AND liquidity_after != 0
-    GROUP BY pk.token0,
+    GROUP BY pk.chain_id,
+        pk.token0,
         pk.token1
 ),
 pool_states AS (
@@ -211,7 +222,8 @@ pool_states AS (
         round(mt.median_tick)::int4 AS last_tick
     FROM pool_keys pk
         CROSS JOIN depth_percentages dp
-        LEFT JOIN median_ticks mt ON pk.token0 = mt.token0
+        LEFT JOIN median_ticks mt ON pk.chain_id = mt.chain_id
+        AND pk.token0 = mt.token0
         AND pk.token1 = mt.token1
 ),
 pool_ticks AS (
