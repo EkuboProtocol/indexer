@@ -681,9 +681,9 @@ export class DAO {
                 RETURNING event_id)
         INSERT
         INTO oracle_snapshots
-        (chain_id, event_id, token, snapshot_block_timestamp, snapshot_tick_cumulative,
+        (chain_id, event_id, token0, token1, snapshot_block_timestamp, snapshot_tick_cumulative,
           snapshot_seconds_per_liquidity_cumulative)
-        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10)
+        VALUES ($1, (SELECT event_id FROM inserted_event), 0::numeric, $7, $8, $9, $10)
       `,
       values: [
         this.chainId,
