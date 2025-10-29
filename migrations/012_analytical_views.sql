@@ -30,24 +30,6 @@ CREATE VIEW last_24h_pool_stats_view AS (
         WHERE hour >= NOW() - INTERVAL '24 hours'
         GROUP BY vbt.pool_key_id
     ),
-    tvl_total AS (
-        SELECT tbt.pool_key_id,
-            SUM(
-                CASE
-                    WHEN token = token0 THEN delta
-                    ELSE 0
-                END
-            ) AS tvl0,
-            SUM(
-                CASE
-                    WHEN token = token1 THEN delta
-                    ELSE 0
-                END
-            ) AS tvl1
-        FROM hourly_tvl_delta_by_token tbt
-            JOIN pool_keys pk ON tbt.pool_key_id = pk.id
-        GROUP BY tbt.pool_key_id
-    ),
     tvl_delta_24h AS (
         SELECT tbt.pool_key_id,
             SUM(
@@ -72,13 +54,13 @@ CREATE VIEW last_24h_pool_stats_view AS (
         COALESCE(volume.volume1, 0) AS volume1_24h,
         COALESCE(volume.fees0, 0) AS fees0_24h,
         COALESCE(volume.fees1, 0) AS fees1_24h,
-        COALESCE(tvl_total.tvl0, 0) AS tvl0_total,
-        COALESCE(tvl_total.tvl1, 0) AS tvl1_total,
+        COALESCE(ptvl.balance0, 0) AS tvl0_total,
+        COALESCE(ptvl.balance1, 0) AS tvl1_total,
         COALESCE(tvl_delta_24h.tvl0, 0) AS tvl0_delta_24h,
         COALESCE(tvl_delta_24h.tvl1, 0) AS tvl1_delta_24h
     FROM pool_keys
+        JOIN pool_tvl ptvl on pool_keys.id = ptvl.pool_key_id
         LEFT JOIN volume ON volume.pool_key_id = pool_keys.id
-        LEFT JOIN tvl_total ON pool_keys.id = tvl_total.pool_key_id
         LEFT JOIN tvl_delta_24h ON tvl_delta_24h.pool_key_id = pool_keys.id
 );
 CREATE MATERIALIZED VIEW last_24h_pool_stats_materialized AS (

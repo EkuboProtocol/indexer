@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTwammVirtualOrdersExecuted } from "../twammEvent.ts";
+import { parseTwammVirtualOrdersExecuted } from "./twammEvent.ts";
 
 describe(parseTwammVirtualOrdersExecuted, () => {
   it("works for example", () => {

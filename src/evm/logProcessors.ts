@@ -21,7 +21,7 @@ import {
   encodeEventTopics,
 } from "viem";
 import { logger } from "../logger.ts";
-import { floatSqrtRatioToFixed, parseSwapEvent } from "../swapEvent.ts";
+import { floatSqrtRatioToFixed, parseSwapEvent } from "./swapEvent.ts";
 import { parseOracleEvent } from "./oracleEvent.ts";
 import { parseTwammVirtualOrdersExecuted } from "./twammEvent.ts";
 import { parsePoolKeyConfig } from "../poolKey.ts";
