@@ -87,7 +87,7 @@ function resetNoBlocksTimer() {
   const evmProcessors =
     process.env.NETWORK_TYPE === "evm"
       ? createLogProcessors({
-          mevResistAddress: process.env.MEV_RESIST_ADDRESS,
+          mevCaptureAddress: process.env.MEV_CAPTURE_ADDRESS,
           coreAddress: process.env.CORE_ADDRESS,
           positionsAddress: process.env.POSITIONS_ADDRESS,
           oracleAddress: process.env.ORACLE_ADDRESS,

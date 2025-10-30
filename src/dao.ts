@@ -55,6 +55,7 @@ export class DAO {
 
   // These are updated at every tip block because they must be consistent with all other tables
   public async refreshOperationalMaterializedView() {
+    // todo: turn these into tables with triggers as well
     await this.pg.query(`
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_pool_states_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_sale_rate_deltas_materialized;
@@ -350,13 +351,13 @@ export class DAO {
     return poolKeyId;
   }
 
-  public async insertMEVResistPoolKey(poolKeyId: bigint) {
+  public async insertMEVCapturePoolKey(poolKeyId: bigint) {
     await this.pg.query({
       text: `
-          INSERT
-          INTO mev_capture_pool_keys (pool_key_id)
-          VALUES ($1)
-          ON CONFLICT DO NOTHING;
+        INSERT
+        INTO mev_capture_pool_keys (pool_key_id)
+        VALUES ($1)
+        ON CONFLICT DO NOTHING;
       `,
       values: [poolKeyId],
     });

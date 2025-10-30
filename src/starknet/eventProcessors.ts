@@ -74,6 +74,9 @@ import type { LiquidityUpdatedEvent } from "./spline";
 import type { EventKey } from "../eventKey";
 import type { Parser } from "./parse";
 import { DAO } from "../dao";
+import { computeKeyHash } from "./poolKeyHash";
+import { toHex } from "viem";
+import { toPoolConfig } from "../poolKey";
 
 export interface ParsedEventWithKey<T> {
   key: EventKey;
@@ -105,6 +108,8 @@ export interface StarknetEventProcessorConfig {
   limitOrdersAddress: `0x${string}`;
   splineLiquidityProviderAddress: `0x${string}`;
 }
+
+const STARKNET_POOL_FEE_DENOMINATOR = 1n << 128n;
 
 export function createEventProcessors({
   positionsAddress,
@@ -221,7 +226,20 @@ export function createEventProcessors({
       parser: parsePoolInitializedEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("PoolInitialized", { parsed, key });
-        await dao.insertInitializationEvent(parsed, key);
+        await dao.insertPoolInitializedEvent(
+          {
+            poolId: `0x${computeKeyHash(parsed.pool_key).toString(16)}`,
+            poolKey: {
+              token0: toHex(parsed.pool_key.token0, { size: 32 }),
+              token1: toHex(parsed.pool_key.token0, { size: 32 }),
+              token1: toPoolConfig({ extension: parsed.extension }),
+            },
+            sqrtRatio: parsed.sqrt_ratio,
+            tick: parsed.tick,
+          },
+          key,
+          STARKNET_POOL_FEE_DENOMINATOR
+        );
       },
     },
     <StarknetEventProcessor<ProtocolFeesWithdrawnEvent>>{

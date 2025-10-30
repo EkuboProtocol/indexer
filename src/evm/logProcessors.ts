@@ -121,7 +121,7 @@ type ContractHandlers<T extends Abi> = {
 const EVM_POOL_FEE_DENOMINATOR = 1n << 64n;
 
 export interface LogProcessorConfig {
-  mevResistAddress: string | bigint;
+  mevCaptureAddress: `0x${string}`;
   coreAddress: `0x${string}`;
   positionsAddress: `0x${string}`;
   oracleAddress: `0x${string}`;
@@ -142,7 +142,7 @@ type ProcessorDefinitions = {
 };
 
 export function createLogProcessors({
-  mevResistAddress,
+  mevCaptureAddress,
   coreAddress,
   positionsAddress,
   oracleAddress,
@@ -151,10 +151,7 @@ export function createLogProcessors({
   incentivesAddress,
   tokenWrapperFactoryAddress,
 }: LogProcessorConfig): EvmLogProcessor[] {
-  const mevResistAddressBigInt =
-    typeof mevResistAddress === "bigint"
-      ? mevResistAddress
-      : BigInt(mevResistAddress);
+  const mevCaptureAddressBigInt = BigInt(mevCaptureAddress);
 
   const processors: ProcessorDefinitions = {
     Core: {
@@ -181,8 +178,8 @@ export function createLogProcessors({
           );
 
           const { extension } = parsePoolKeyConfig(parsed.poolKey.config);
-          if (BigInt(extension) === mevResistAddressBigInt) {
-            await dao.insertMEVResistPoolKey(poolKeyId);
+          if (BigInt(extension) === mevCaptureAddressBigInt) {
+            await dao.insertMEVCapturePoolKey(poolKeyId);
           }
         },
         async PositionUpdated(dao, key, parsed) {

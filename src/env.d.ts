@@ -23,7 +23,7 @@ interface EvmConfig extends CommonConfiguration {
   TWAMM_ADDRESS: `0x${string}`;
   ORDERS_ADDRESS: `0x${string}`;
   INCENTIVES_ADDRESS: `0x${string}`;
-  MEV_RESIST_ADDRESS: `0x${string}`;
+  MEV_CAPTURE_ADDRESS: `0x${string}`;
   TOKEN_WRAPPER_FACTORY_ADDRESS: `0x${string}`;
 }
 
