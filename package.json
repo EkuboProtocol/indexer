@@ -8,7 +8,8 @@
     "eth:start": "NETWORK_TYPE=evm NETWORK=mainnet jiti src/index.ts",
     "sepolia:start": "NETWORK_TYPE=evm NETWORK=sepolia jiti src/index.ts",
     "migrate": "jiti src/migrate.ts",
-    "test": "vitest"
+    "test": "vitest",
+    "check-ts": "tsc --noEmit"
   },
   "author": "Moody Salem",
   "type": "module",

@@ -4,8 +4,11 @@ import { logger } from "./logger";
 import { DAO } from "./dao";
 import { Pool } from "pg";
 import { EvmStream } from "@apibara/evm";
+import { StarknetStream } from "@apibara/starknet";
 import { createLogProcessors } from "./evm/logProcessors.ts";
+import { createEventProcessors } from "./starknet/eventProcessors.ts";
 import { createClient, Metadata } from "@apibara/protocol";
+import { msToHumanShort } from "./msToHumanShort.ts";
 
 if (!["starknet", "evm"].includes(process.env.NETWORK_TYPE)) {
   throw new Error(`Invalid NETWORK_TYPE: "${process.env.NETWORK_TYPE}"`);
@@ -35,16 +38,6 @@ const pool = new Pool({
   connectionTimeoutMillis: 1000,
 });
 
-const streamClient = createClient(EvmStream, process.env.APIBARA_URL, {
-  defaultCallOptions: {
-    "*": {
-      metadata: Metadata({
-        Authorization: `Bearer ${process.env.DNA_TOKEN}`,
-      }),
-    },
-  },
-});
-
 // Timer for exiting if no blocks are received within the configured time
 const NO_BLOCKS_TIMEOUT_MS = parseInt(process.env.NO_BLOCKS_TIMEOUT_MS || "0");
 let noBlocksTimer: NodeJS.Timeout | null = null;
@@ -69,29 +62,6 @@ function resetNoBlocksTimer() {
   }
 }
 
-function msToHumanShort(ms: number): string {
-  const units = [
-    { label: "d", ms: 86400000 },
-    { label: "h", ms: 3600000 },
-    { label: "min", ms: 60000 },
-    { label: "s", ms: 1000 },
-    { label: "ms", ms: 1 },
-  ];
-
-  const parts: string[] = [];
-
-  for (const { label, ms: unitMs } of units) {
-    if (ms >= unitMs) {
-      const count = Math.floor(ms / unitMs);
-      ms %= unitMs;
-      parts.push(`${count}${label}`);
-      if (parts.length === 3) break; // Limit to 2 components
-    }
-  }
-
-  return parts.join(", ") || "0ms";
-}
-
 (async function () {
   // first set up the schema
   let databaseStartingCursor;
@@ -114,32 +84,84 @@ function msToHumanShort(ms: number): string {
   // Start the no-blocks timer when application starts
   resetNoBlocksTimer();
 
-  const LOG_PROCESSORS =
+  const evmProcessors =
     process.env.NETWORK_TYPE === "evm"
       ? createLogProcessors({
-          mevResistAddress: process.env.MEV_RESIST_ADDRESS!,
-          coreAddress: process.env.CORE_ADDRESS! as `0x${string}`,
-          positionsAddress: process.env.POSITIONS_ADDRESS! as `0x${string}`,
-          oracleAddress: process.env.ORACLE_ADDRESS! as `0x${string}`,
-          twammAddress: process.env.TWAMM_ADDRESS! as `0x${string}`,
-          ordersAddress: process.env.ORDERS_ADDRESS! as `0x${string}`,
-          incentivesAddress: process.env.INCENTIVES_ADDRESS! as `0x${string}`,
-          tokenWrapperFactoryAddress: process.env
-            .TOKEN_WRAPPER_FACTORY_ADDRESS! as `0x${string}`,
+          mevResistAddress: process.env.MEV_RESIST_ADDRESS,
+          coreAddress: process.env.CORE_ADDRESS,
+          positionsAddress: process.env.POSITIONS_ADDRESS,
+          oracleAddress: process.env.ORACLE_ADDRESS,
+          twammAddress: process.env.TWAMM_ADDRESS,
+          ordersAddress: process.env.ORDERS_ADDRESS,
+          incentivesAddress: process.env.INCENTIVES_ADDRESS,
+          tokenWrapperFactoryAddress: process.env.TOKEN_WRAPPER_FACTORY_ADDRESS,
         })
-      : [];
+      : undefined;
+
+  const starknetProcessors =
+    process.env.NETWORK_TYPE === "starknet"
+      ? createEventProcessors({
+          positionsAddress: process.env.POSITIONS_ADDRESS,
+          nftAddress: process.env.NFT_ADDRESS,
+          coreAddress: process.env.CORE_ADDRESS,
+          tokenRegistryAddress: process.env.TOKEN_REGISTRY_ADDRESS,
+          tokenRegistryV2Address: process.env.TOKEN_REGISTRY_V2_ADDRESS,
+          tokenRegistryV3Address: process.env.TOKEN_REGISTRY_V3_ADDRESS,
+          twammAddress: process.env.TWAMM_ADDRESS,
+          stakerAddress: process.env.STAKER_ADDRESS as `0x${string}`,
+          governorAddress: process.env.GOVERNOR_ADDRESS as `0x${string}`,
+          oracleAddress: process.env.ORACLE_ADDRESS as `0x${string}`,
+          limitOrdersAddress: process.env.LIMIT_ORDERS_ADDRESS,
+          splineLiquidityProviderAddress: process.env
+            .SPLINE_LIQUIDITY_PROVIDER_ADDRESS as `0x${string}`,
+        })
+      : undefined;
+
+  const filterConfig =
+    process.env.NETWORK_TYPE === "evm"
+      ? [
+          {
+            logs: evmProcessors.map((lp, ix) => ({
+              id: ix + 1,
+              address: lp.address,
+              topics: lp.filter.topics,
+              strict: lp.filter.strict,
+            })),
+          },
+        ]
+      : [
+          {
+            events: starknetProcessors.map((processor, ix) => ({
+              id: ix + 1,
+              address: processor.filter.fromAddress,
+              keys: processor.filter.keys,
+            })),
+          },
+        ];
+
+  const streamClient =
+    process.env.NETWORK_TYPE === "evm"
+      ? createClient(EvmStream, process.env.APIBARA_URL, {
+          defaultCallOptions: {
+            "*": {
+              metadata: Metadata({
+                Authorization: `Bearer ${process.env.DNA_TOKEN}`,
+              }),
+            },
+          },
+        })
+      : createClient(StarknetStream, process.env.APIBARA_URL, {
+          defaultCallOptions: {
+            "*": {
+              metadata: Metadata({
+                Authorization: `Bearer ${process.env.DNA_TOKEN}`,
+              }),
+            },
+          },
+        });
 
   for await (const message of streamClient.streamData({
-    filter: [
-      {
-        logs: LOG_PROCESSORS.map((lp, ix) => ({
-          id: ix + 1,
-          address: lp.address,
-          topics: lp.filter.topics,
-          strict: lp.filter.strict,
-        })),
-      },
-    ],
+    filter: filterConfig,
     finality: "accepted",
     startingCursor: databaseStartingCursor
       ? databaseStartingCursor
@@ -216,38 +238,65 @@ function msToHumanShort(ms: number): string {
 
           const blockTime = block.header.timestamp;
 
+          const blockHashHex = (block.header.blockHash ??
+            "0x0") as `0x${string}`;
+
           await dao.insertBlock({
             number: block.header.blockNumber,
-            hash: BigInt(block.header.blockHash ?? 0),
+            hash: BigInt(blockHashHex),
             time: blockTime,
           });
 
-          for (const event of block.logs) {
-            const eventKey: EventKey = {
-              blockNumber,
-              transactionIndex: event.transactionIndex,
-              eventIndex: event.logIndexInTransaction,
-              emitter: event.address,
-              transactionHash: event.transactionHash,
-            };
+          if (process.env.NETWORK_TYPE === "evm") {
+            for (const log of block.logs) {
+              const eventKey: EventKey = {
+                blockNumber,
+                transactionIndex: log.transactionIndex,
+                eventIndex:
+                  log.logIndexInTransaction ??
+                  // fallback to block-level index if transaction-scoped index missing
+                  log.logIndex,
+                emitter: log.address,
+                transactionHash: log.transactionHash,
+              };
 
-            // process each event sequentially through all the event processors in parallel
-            // assumption is that none of the event processors operate on the same events, i.e. have the same filters
-            // this assumption could be validated at runtime
-            await Promise.all(
-              event.filterIds.map(async (matchingFilterId) => {
-                eventsProcessed++;
+              await Promise.all(
+                (log.filterIds ?? []).map(async (matchingFilterId) => {
+                  eventsProcessed++;
 
-                await LOG_PROCESSORS[matchingFilterId - 1].handler(
-                  dao,
-                  eventKey,
-                  {
-                    topics: event.topics,
-                    data: event.data,
-                  }
-                );
-              })
-            );
+                  await evmProcessors[matchingFilterId - 1].handler(
+                    dao,
+                    eventKey,
+                    {
+                      topics: log.topics,
+                      data: log.data,
+                    }
+                  );
+                })
+              );
+            }
+          } else {
+            for (const event of block.events) {
+              const eventKey: EventKey = {
+                blockNumber,
+                transactionIndex: event.transactionIndex,
+                eventIndex: event.eventIndexInTransaction ?? event.eventIndex,
+                emitter: event.address,
+                transactionHash: event.transactionHash,
+              };
+
+              await Promise.all(
+                (event.filterIds ?? []).map(async (matchingFilterId) => {
+                  eventsProcessed++;
+                  const processor = starknetProcessors[matchingFilterId - 1];
+                  const { value: parsed } = processor.parser(
+                    event.data ?? [],
+                    0
+                  );
+                  await processor.handle(dao, { key: eventKey, parsed });
+                })
+              );
+            }
           }
 
           // endCursor is what we write so when we restart we delete any pending block information
