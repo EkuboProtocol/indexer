@@ -6,6 +6,7 @@ CREATE TABLE pool_keys (
     token0 NUMERIC NOT NULL,
     token1 NUMERIC NOT NULL,
     fee NUMERIC NOT NULL,
+    fee_denominator NUMERIC NOT NULL CHECK (fee_denominator > 0),
     tick_spacing INT NOT NULL,
     extension NUMERIC NOT NULL
 );

@@ -130,14 +130,15 @@ export class DAO {
   private async insertPoolKey(
     coreAddress: `0x${string}`,
     poolKey: PoolKey,
-    poolId: `0x${string}`
+    poolId: `0x${string}`,
+    feeDenominator: bigint
   ): Promise<bigint> {
     const { fee, tickSpacing, extension } = parsePoolKeyConfig(poolKey.config);
 
     const { rows } = await this.pg.query({
       text: `
-        INSERT INTO pool_keys (chain_id, pool_id, core_address, token0, token1, fee, tick_spacing, extension)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO pool_keys (chain_id, pool_id, core_address, token0, token1, fee, tick_spacing, extension, fee_denominator)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT (chain_id, core_address, pool_id) DO UPDATE SET id = pool_keys.id
         RETURNING id;
       `,
@@ -150,6 +151,7 @@ export class DAO {
         fee,
         tickSpacing,
         BigInt(extension),
+        feeDenominator,
       ],
     });
     return BigInt(rows[0].id);
@@ -311,12 +313,14 @@ export class DAO {
 
   public async insertPoolInitializedEvent(
     event: CorePoolInitialized,
-    key: EventKey
+    key: EventKey,
+    feeDenominator: bigint
   ): Promise<bigint> {
     const poolKeyId = await this.insertPoolKey(
       key.emitter,
       event.poolKey,
-      event.poolId
+      event.poolId,
+      feeDenominator
     );
 
     await this.pg.query({

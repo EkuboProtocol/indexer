@@ -198,7 +198,7 @@ pool_states AS (
         floor(ln(1::numeric + dp.depth_percent) / ln(1.000001))::int4 AS depth_in_ticks,
         ceil(
             log(
-                1::numeric + (pk.fee / 0x10000000000000000::numeric)
+                1::numeric + (pk.fee / pk.fee_denominator)
             ) / log(1.000001)
         )::int4 AS fee_in_ticks,
         round(mt.median_tick)::int4 AS last_tick

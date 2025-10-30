@@ -119,6 +119,7 @@ type ContractHandlers<T extends Abi> = {
 };
 
 const MEV_RESIST_ADDRESS = BigInt(process.env.MEV_RESIST_ADDRESS);
+const EVM_POOL_FEE_DENOMINATOR = 1n << 64n;
 
 const processors: {
   Core: ContractHandlers<typeof CORE_ABI>;
@@ -148,7 +149,8 @@ const processors: {
             ...parsed,
             sqrtRatio: floatSqrtRatioToFixed(parsed.sqrtRatio),
           },
-          key
+          key,
+          EVM_POOL_FEE_DENOMINATOR
         );
 
         const { extension } = parsePoolKeyConfig(parsed.poolKey.config);

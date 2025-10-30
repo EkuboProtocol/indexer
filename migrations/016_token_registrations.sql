@@ -20,7 +20,7 @@ CREATE TABLE token_registrations_v3 (
     PRIMARY KEY (chain_id, event_id),
     FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
-CREATE FUNCTION parse_starknet_short_string(numeric_value NUMERIC) RETURNS VARCHAR AS $$
+CREATE OR REPLACE FUNCTION parse_starknet_short_string(numeric_value NUMERIC) RETURNS VARCHAR AS $$
 DECLARE result_text TEXT := '';
 byte_value INTEGER;
 ascii_char TEXT;

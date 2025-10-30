@@ -28,11 +28,11 @@ CREATE TABLE token_wrapper_deployed (
   FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
 CREATE SCHEMA IF NOT EXISTS incentives;
-CREATE FUNCTION incentives.percent_within_std(z DOUBLE PRECISION) RETURNS DOUBLE PRECISION LANGUAGE sql IMMUTABLE STRICT AS $$
+CREATE OR REPLACE FUNCTION incentives.percent_within_std(z DOUBLE PRECISION) RETURNS DOUBLE PRECISION LANGUAGE sql IMMUTABLE STRICT AS $$
 SELECT (1.0 - erfc(ABS($1) / SQRT(2.0)));
 $$;
 -- Approximate inverse error function via Winitzki’s approximation + Newton-Raphson
-CREATE FUNCTION incentives.erfinv(y DOUBLE PRECISION) RETURNS DOUBLE PRECISION LANGUAGE plpgsql IMMUTABLE STRICT AS $$
+CREATE OR REPLACE FUNCTION incentives.erfinv(y DOUBLE PRECISION) RETURNS DOUBLE PRECISION LANGUAGE plpgsql IMMUTABLE STRICT AS $$
 DECLARE a CONSTANT DOUBLE PRECISION := 0.147;
 s INTEGER := CASE
   WHEN y < 0 THEN -1
@@ -51,11 +51,11 @@ $$;
 -- Requires erfinv(y) to be defined (e.g. as in the previous example).
 -- Returns an array of z‐multiples [z₁, z₂, …] such that
 -- P(|X| ≤ zₖ) = k * percent_step (capped at max_coverage).
-CREATE FUNCTION incentives.linear_percent_std_multiples(
-  percent_step DOUBLE PRECISION,
-  -- e.g. 0.03 for 3% increments
-  max_coverage DOUBLE PRECISION -- e.g. 0.99 for 99% max
-) RETURNS DOUBLE PRECISION [] LANGUAGE plpgsql IMMUTABLE STRICT AS $$
+CREATE OR REPLACE FUNCTION incentives.linear_percent_std_multiples(
+    percent_step DOUBLE PRECISION,
+    -- e.g. 0.03 for 3% increments
+    max_coverage DOUBLE PRECISION -- e.g. 0.99 for 99% max
+  ) RETURNS DOUBLE PRECISION [] LANGUAGE plpgsql IMMUTABLE STRICT AS $$
 DECLARE steps INTEGER := CEIL(max_coverage / percent_step);
 out_arr DOUBLE PRECISION [] := ARRAY []::DOUBLE PRECISION [];
 k INTEGER;
@@ -182,20 +182,20 @@ CREATE TYPE incentives.token_pair_budget AS (
   realized_volatility DOUBLE PRECISION
 );
 -- 2. Function creates campaign + allowed extensions + reward periods
-CREATE FUNCTION incentives.create_campaign(
-  p_name TEXT,
-  p_slug VARCHAR(20),
-  p_start_time timestamptz,
-  p_end_time timestamptz,
-  p_interval INTERVAL,
-  p_reward_token NUMERIC,
-  p_pairs incentives.token_pair_budget [],
-  p_default_fee_denominator NUMERIC,
-  p_allowed_extensions NUMERIC [] DEFAULT '{0}',
-  p_excluded_locker_salts incentives.locker_salt_pair [] DEFAULT '{}',
-  p_percent_step DOUBLE PRECISION DEFAULT NULL,
-  p_max_coverage DOUBLE PRECISION DEFAULT NULL
-) RETURNS BIGINT LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION incentives.create_campaign(
+    p_name TEXT,
+    p_slug VARCHAR(20),
+    p_start_time timestamptz,
+    p_end_time timestamptz,
+    p_interval INTERVAL,
+    p_reward_token NUMERIC,
+    p_pairs incentives.token_pair_budget [],
+    p_default_fee_denominator NUMERIC,
+    p_allowed_extensions NUMERIC [] DEFAULT '{0}',
+    p_excluded_locker_salts incentives.locker_salt_pair [] DEFAULT '{}',
+    p_percent_step DOUBLE PRECISION DEFAULT NULL,
+    p_max_coverage DOUBLE PRECISION DEFAULT NULL
+  ) RETURNS BIGINT LANGUAGE plpgsql AS $$
 DECLARE v_campaign_id BIGINT;
 v_total_budget NUMERIC := 0;
 v_periods INTEGER;

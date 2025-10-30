@@ -120,7 +120,7 @@ SELECT pbc.pool_key_id,
                 WHEN pbc.delta0 >= 0 THEN pbc.delta0
                 ELSE pbc.delta1
             END * pk.fee
-        ) / 18446744073709551616::NUMERIC
+        ) / pk.fee_denominator
     ) AS fees INTO v_pool_key_id,
     v_hour,
     v_token,
@@ -431,6 +431,7 @@ v_delta0 NUMERIC;
 v_delta1 NUMERIC;
 v_liquidity_delta NUMERIC;
 v_fee NUMERIC;
+v_fee_denominator NUMERIC;
 BEGIN
 SELECT pbc.pool_key_id,
     DATE_TRUNC('hour', b.time) AS hour,
@@ -439,14 +440,16 @@ SELECT pbc.pool_key_id,
     pbc.delta0,
     pbc.delta1,
     pu.liquidity_delta,
-    pk.fee INTO v_pool_key_id,
+    pk.fee,
+    pk.fee_denominator INTO v_pool_key_id,
     v_hour,
     v_token0,
     v_token1,
     v_delta0,
     v_delta1,
     v_liquidity_delta,
-    v_fee
+    v_fee,
+    v_fee_denominator
 FROM pool_balance_change pbc
     JOIN event_keys ek USING (chain_id, event_id)
     JOIN blocks b USING (chain_id, block_number)
@@ -458,10 +461,10 @@ IF NOT FOUND THEN RETURN;
 END IF;
 IF v_liquidity_delta IS NOT NULL
 AND v_liquidity_delta < 0 THEN v_delta0 := CEIL(
-    (v_delta0 * 18446744073709551616::NUMERIC) / (18446744073709551616::NUMERIC - v_fee)
+    (v_delta0 * v_fee_denominator) / (v_fee_denominator - v_fee)
 );
 v_delta1 := CEIL(
-    (v_delta1 * 18446744073709551616::NUMERIC) / (18446744073709551616::NUMERIC - v_fee)
+    (v_delta1 * v_fee_denominator) / (v_fee_denominator - v_fee)
 );
 END IF;
 v_delta0 := v_delta0 * p_multiplier;
@@ -528,14 +531,14 @@ SELECT pbc.pool_key_id,
     CASE
         WHEN pbc.delta0 < 0
         AND pk.fee <> 0 THEN CEIL(
-            (- pbc.delta0 * 18446744073709551616::NUMERIC) / (18446744073709551616::NUMERIC - pk.fee)
+            (- pbc.delta0 * pk.fee_denominator) / (pk.fee_denominator - pk.fee)
         ) + pbc.delta0
         ELSE 0
     END AS revenue0,
     CASE
         WHEN pbc.delta1 < 0
         AND pk.fee <> 0 THEN CEIL(
-            (- pbc.delta1 * 18446744073709551616::NUMERIC) / (18446744073709551616::NUMERIC - pk.fee)
+            (- pbc.delta1 * pk.fee_denominator) / (pk.fee_denominator - pk.fee)
         ) + pbc.delta1
         ELSE 0
     END AS revenue1 INTO v_pool_key_id,
