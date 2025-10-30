@@ -118,10 +118,20 @@ type ContractHandlers<T extends Abi> = {
   ) => Promise<void>;
 };
 
-const MEV_RESIST_ADDRESS = BigInt(process.env.MEV_RESIST_ADDRESS);
 const EVM_POOL_FEE_DENOMINATOR = 1n << 64n;
 
-const processors: {
+export interface LogProcessorConfig {
+  mevResistAddress: string | bigint;
+  coreAddress: `0x${string}`;
+  positionsAddress: `0x${string}`;
+  oracleAddress: `0x${string}`;
+  twammAddress: `0x${string}`;
+  ordersAddress: `0x${string}`;
+  incentivesAddress: `0x${string}`;
+  tokenWrapperFactoryAddress: `0x${string}`;
+}
+
+type ProcessorDefinitions = {
   Core: ContractHandlers<typeof CORE_ABI>;
   Positions: ContractHandlers<typeof POSITIONS_ABI>;
   Oracle: ContractHandlers<typeof ORACLE_ABI>;
@@ -129,155 +139,173 @@ const processors: {
   Orders: ContractHandlers<typeof ORDERS_ABI>;
   Incentives: ContractHandlers<typeof INCENTIVES_ABI>;
   TokenWrapperFactory: ContractHandlers<typeof TOKEN_WRAPPER_FACTORY_ABI>;
-} = {
-  Core: {
-    address: process.env.CORE_ADDRESS,
-    abi: CORE_ABI,
-    async noTopics(dao, key, data) {
-      if (!data) throw new Error("Event with no data from core");
-      const event = parseSwapEvent(data);
-      logger.debug(`Parsed Swapped Event`, {
-        event,
-        rawData: data,
-      });
-      await dao.insertSwappedEvent(event, key);
-    },
-    handlers: {
-      async PoolInitialized(dao, key, parsed) {
-        const poolKeyId = await dao.insertPoolInitializedEvent(
-          {
-            ...parsed,
-            sqrtRatio: floatSqrtRatioToFixed(parsed.sqrtRatio),
-          },
-          key,
-          EVM_POOL_FEE_DENOMINATOR
-        );
-
-        const { extension } = parsePoolKeyConfig(parsed.poolKey.config);
-        if (BigInt(extension) === MEV_RESIST_ADDRESS) {
-          await dao.insertMEVResistPoolKey(poolKeyId);
-        }
-      },
-      async PositionUpdated(dao, key, parsed) {
-        await dao.insertPositionUpdatedEvent(parsed, key);
-      },
-      async PositionFeesCollected(dao, key, parsed) {
-        await dao.insertPositionFeesCollectedEvent(parsed, key);
-      },
-      async ProtocolFeesWithdrawn(dao, key, parsed) {
-        await dao.insertProtocolFeesWithdrawn(parsed, key);
-      },
-      async FeesAccumulated(dao, key, parsed) {
-        await dao.insertFeesAccumulatedEvent(parsed, key);
-      },
-      async ExtensionRegistered(dao, key, parsed) {
-        await dao.insertExtensionRegistered(parsed, key);
-      },
-    },
-  },
-  Positions: {
-    address: process.env.POSITIONS_ADDRESS,
-    abi: POSITIONS_ABI,
-    handlers: {
-      async Transfer(dao, key, parsed) {
-        await dao.insertPositionTransferEvent(parsed, key);
-      },
-    },
-  },
-  Oracle: {
-    address: process.env.ORACLE_ADDRESS,
-    abi: ORACLE_ABI,
-    async noTopics(dao, key, data) {
-      if (!data) throw new Error("Event with no data from Oracle");
-      const event = parseOracleEvent(data);
-      logger.debug(`Parsed Oracle Event`, {
-        event,
-        rawData: data,
-      });
-      await dao.insertOracleSnapshotEvent(event, key);
-    },
-  },
-  TWAMM: {
-    address: process.env.TWAMM_ADDRESS,
-    abi: TWAMM_ABI,
-    async noTopics(dao, key, data) {
-      if (!data) throw new Error("Event with no data from TWAMM");
-      const event = parseTwammVirtualOrdersExecuted(data);
-      logger.debug(`Parsed TWAMM Event`, {
-        event,
-        rawData: data,
-      });
-      await dao.insertTWAMMVirtualOrdersExecutedEvent(event, key);
-    },
-    handlers: {
-      async OrderUpdated(dao, key, parsed) {
-        await dao.insertTWAMMOrderUpdatedEvent(parsed, key);
-      },
-      async OrderProceedsWithdrawn(dao, key, parsed) {
-        await dao.insertTWAMMOrderProceedsWithdrawnEvent(parsed, key);
-      },
-    },
-  },
-  Orders: {
-    address: process.env.ORDERS_ADDRESS,
-    abi: ORDERS_ABI,
-    handlers: {
-      async Transfer(dao, key, parsed) {
-        await dao.insertOrdersTransferEvent(parsed, key);
-      },
-    },
-  },
-  Incentives: {
-    address: process.env.INCENTIVES_ADDRESS,
-    abi: INCENTIVES_ABI,
-    handlers: {
-      async Funded(dao, key, event) {
-        await dao.insertIncentivesFundedEvent(key, event);
-      },
-      async Refunded(dao, key, event) {
-        await dao.insertIncentivesRefundedEvent(key, event);
-      },
-    },
-  },
-  TokenWrapperFactory: {
-    address: process.env.TOKEN_WRAPPER_FACTORY_ADDRESS,
-    abi: TOKEN_WRAPPER_FACTORY_ABI,
-    handlers: {
-      async TokenWrapperDeployed(dao, key, event) {
-        await dao.insertTokenWrapperDeployed(key, event);
-      },
-    },
-  },
 };
 
-export const LOG_PROCESSORS = Object.entries(processors).flatMap(
-  ([contractName, { address, abi, handlers, noTopics }]) =>
-    (noTopics
-      ? [
-          <EvmLogProcessor>{
-            address,
-            filter: {
-              topics: [],
-              strict: true,
+export function createLogProcessors({
+  mevResistAddress,
+  coreAddress,
+  positionsAddress,
+  oracleAddress,
+  twammAddress,
+  ordersAddress,
+  incentivesAddress,
+  tokenWrapperFactoryAddress,
+}: LogProcessorConfig): EvmLogProcessor[] {
+  const mevResistAddressBigInt =
+    typeof mevResistAddress === "bigint"
+      ? mevResistAddress
+      : BigInt(mevResistAddress);
+
+  const processors: ProcessorDefinitions = {
+    Core: {
+      address: coreAddress,
+      abi: CORE_ABI,
+      async noTopics(dao, key, data) {
+        if (!data) throw new Error("Event with no data from core");
+        const event = parseSwapEvent(data);
+        logger.debug(`Parsed Swapped Event`, {
+          event,
+          rawData: data,
+        });
+        await dao.insertSwappedEvent(event, key);
+      },
+      handlers: {
+        async PoolInitialized(dao, key, parsed) {
+          const poolKeyId = await dao.insertPoolInitializedEvent(
+            {
+              ...parsed,
+              sqrtRatio: floatSqrtRatioToFixed(parsed.sqrtRatio),
             },
-            handler(dao, eventKey, log): Promise<void> {
-              return noTopics(dao, eventKey, log.data);
+            key,
+            EVM_POOL_FEE_DENOMINATOR
+          );
+
+          const { extension } = parsePoolKeyConfig(parsed.poolKey.config);
+          if (BigInt(extension) === mevResistAddressBigInt) {
+            await dao.insertMEVResistPoolKey(poolKeyId);
+          }
+        },
+        async PositionUpdated(dao, key, parsed) {
+          await dao.insertPositionUpdatedEvent(parsed, key);
+        },
+        async PositionFeesCollected(dao, key, parsed) {
+          await dao.insertPositionFeesCollectedEvent(parsed, key);
+        },
+        async ProtocolFeesWithdrawn(dao, key, parsed) {
+          await dao.insertProtocolFeesWithdrawn(parsed, key);
+        },
+        async FeesAccumulated(dao, key, parsed) {
+          await dao.insertFeesAccumulatedEvent(parsed, key);
+        },
+        async ExtensionRegistered(dao, key, parsed) {
+          await dao.insertExtensionRegistered(parsed, key);
+        },
+      },
+    },
+    Positions: {
+      address: positionsAddress,
+      abi: POSITIONS_ABI,
+      handlers: {
+        async Transfer(dao, key, parsed) {
+          await dao.insertPositionTransferEvent(parsed, key);
+        },
+      },
+    },
+    Oracle: {
+      address: oracleAddress,
+      abi: ORACLE_ABI,
+      async noTopics(dao, key, data) {
+        if (!data) throw new Error("Event with no data from Oracle");
+        const event = parseOracleEvent(data);
+        logger.debug(`Parsed Oracle Event`, {
+          event,
+          rawData: data,
+        });
+        await dao.insertOracleSnapshotEvent(event, key);
+      },
+    },
+    TWAMM: {
+      address: twammAddress,
+      abi: TWAMM_ABI,
+      async noTopics(dao, key, data) {
+        if (!data) throw new Error("Event with no data from TWAMM");
+        const event = parseTwammVirtualOrdersExecuted(data);
+        logger.debug(`Parsed TWAMM Event`, {
+          event,
+          rawData: data,
+        });
+        await dao.insertTWAMMVirtualOrdersExecutedEvent(event, key);
+      },
+      handlers: {
+        async OrderUpdated(dao, key, parsed) {
+          await dao.insertTWAMMOrderUpdatedEvent(parsed, key);
+        },
+        async OrderProceedsWithdrawn(dao, key, parsed) {
+          await dao.insertTWAMMOrderProceedsWithdrawnEvent(parsed, key);
+        },
+      },
+    },
+    Orders: {
+      address: ordersAddress,
+      abi: ORDERS_ABI,
+      handlers: {
+        async Transfer(dao, key, parsed) {
+          await dao.insertOrdersTransferEvent(parsed, key);
+        },
+      },
+    },
+    Incentives: {
+      address: incentivesAddress,
+      abi: INCENTIVES_ABI,
+      handlers: {
+        async Funded(dao, key, event) {
+          await dao.insertIncentivesFundedEvent(key, event);
+        },
+        async Refunded(dao, key, event) {
+          await dao.insertIncentivesRefundedEvent(key, event);
+        },
+      },
+    },
+    TokenWrapperFactory: {
+      address: tokenWrapperFactoryAddress,
+      abi: TOKEN_WRAPPER_FACTORY_ABI,
+      handlers: {
+        async TokenWrapperDeployed(dao, key, event) {
+          await dao.insertTokenWrapperDeployed(key, event);
+        },
+      },
+    },
+  };
+
+  return Object.entries(processors).flatMap(
+    ([contractName, { address, abi, handlers, noTopics }]) =>
+      (noTopics
+        ? [
+            <EvmLogProcessor>{
+              address,
+              filter: {
+                topics: [],
+                strict: true,
+              },
+              handler(dao, eventKey, log): Promise<void> {
+                return noTopics(dao, eventKey, log.data);
+              },
             },
-          },
-        ]
-      : []
-    ).concat(
-      handlers
-        ? Object.entries(handlers).map(
-            ([eventName, handler]): EvmLogProcessor =>
-              createContractEventProcessor({
-                contractName,
-                address,
-                abi,
-                eventName: eventName as ExtractAbiEventNames<typeof abi>,
-                handler: handler as any,
-              })
-          )
+          ]
         : []
-    )
-) as EvmLogProcessor[];
+      ).concat(
+        handlers
+          ? Object.entries(handlers).map(
+              ([eventName, handler]): EvmLogProcessor =>
+                createContractEventProcessor({
+                  contractName,
+                  address,
+                  abi,
+                  eventName: eventName as ExtractAbiEventNames<typeof abi>,
+                  handler: handler as any,
+                })
+            )
+          : []
+      )
+  ) as EvmLogProcessor[];
+}

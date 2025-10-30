@@ -4,7 +4,7 @@ import { logger } from "./logger";
 import { DAO } from "./dao";
 import { Pool } from "pg";
 import { EvmStream } from "@apibara/evm";
-import { LOG_PROCESSORS } from "./evm/logProcessors.ts";
+import { createLogProcessors } from "./evm/logProcessors.ts";
 import { createClient, Metadata } from "@apibara/protocol";
 
 if (!["starknet", "evm"].includes(process.env.NETWORK_TYPE)) {
@@ -113,6 +113,21 @@ function msToHumanShort(ms: number): string {
 
   // Start the no-blocks timer when application starts
   resetNoBlocksTimer();
+
+  const LOG_PROCESSORS =
+    process.env.NETWORK_TYPE === "evm"
+      ? createLogProcessors({
+          mevResistAddress: process.env.MEV_RESIST_ADDRESS!,
+          coreAddress: process.env.CORE_ADDRESS! as `0x${string}`,
+          positionsAddress: process.env.POSITIONS_ADDRESS! as `0x${string}`,
+          oracleAddress: process.env.ORACLE_ADDRESS! as `0x${string}`,
+          twammAddress: process.env.TWAMM_ADDRESS! as `0x${string}`,
+          ordersAddress: process.env.ORDERS_ADDRESS! as `0x${string}`,
+          incentivesAddress: process.env.INCENTIVES_ADDRESS! as `0x${string}`,
+          tokenWrapperFactoryAddress: process.env
+            .TOKEN_WRAPPER_FACTORY_ADDRESS! as `0x${string}`,
+        })
+      : [];
 
   for await (const message of streamClient.streamData({
     filter: [
