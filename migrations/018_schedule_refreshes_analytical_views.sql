@@ -30,3 +30,15 @@ SELECT cron.schedule(
                 $$SELECT safe_refresh_mv('pool_market_depth');
 $$
 );
+SELECT cron.schedule(
+                'refresh_proposal_delegate_voting_weights_materialized',
+                '*/5 * * * *',
+                $$SELECT safe_refresh_mv('proposal_delegate_voting_weights_materialized');
+$$
+);
+SELECT cron.schedule(
+                'refresh_latest_token_registrations',
+                '*/5 * * * *',
+                $$SELECT safe_refresh_mv('latest_token_registrations');
+$$
+);
