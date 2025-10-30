@@ -7,6 +7,18 @@ import { EvmStream } from "@apibara/evm";
 import { LOG_PROCESSORS } from "./evm/logProcessors.ts";
 import { createClient, Metadata } from "@apibara/protocol";
 
+if (!["starknet", "evm"].includes(process.env.NETWORK_TYPE)) {
+  throw new Error(`Invalid NETWORK_TYPE: "${process.env.NETWORK_TYPE}"`);
+}
+
+if (!process.env.NETWORK) {
+  throw new Error(`Missing NETWORK`);
+}
+
+if (!process.env.INDEXER_NAME) {
+  throw new Error("Missing INDEXER_NAME");
+}
+
 const pool = new Pool({
   connectionString: process.env.PG_CONNECTION_STRING,
   connectionTimeoutMillis: 1000,

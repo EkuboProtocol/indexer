@@ -5,8 +5,8 @@
   "main": "index.js",
   "description": "Indexes Ekubo data into a Postgres database",
   "scripts": {
-    "start": "NETWORK=mainnet jiti src/index.ts",
-    "start:sepolia": "NETWORK=sepolia jiti src/index.ts",
+    "eth:start": "NETWORK_TYPE=evm NETWORK=mainnet jiti src/index.ts",
+    "sepolia:start": "NETWORK_TYPE=evm NETWORK=sepolia jiti src/index.ts",
     "migrate": "jiti src/migrate.ts",
     "test": "vitest"
   },
