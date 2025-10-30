@@ -37,7 +37,7 @@ export type ContractEvent<
     : never]: AbiParameterToPrimitiveType<P>;
 };
 
-interface LogProcessor {
+interface EvmLogProcessor {
   address: `0x${string}`;
 
   filter: {
@@ -55,7 +55,7 @@ interface LogProcessor {
   ) => Promise<void>;
 }
 
-export function createContractEventProcessor<
+function createContractEventProcessor<
   T extends Abi,
   N extends ContractEventName<T>
 >({
@@ -70,7 +70,7 @@ export function createContractEventProcessor<
   abi: T;
   eventName: N;
   handler(dao: DAO, key: EventKey, event: ContractEvent<T, N>): Promise<void>;
-}): LogProcessor {
+}): EvmLogProcessor {
   return {
     address,
     filter: {
@@ -254,7 +254,7 @@ export const LOG_PROCESSORS = Object.entries(processors).flatMap(
   ([contractName, { address, abi, handlers, noTopics }]) =>
     (noTopics
       ? [
-          <LogProcessor>{
+          <EvmLogProcessor>{
             address,
             filter: {
               topics: [],
@@ -269,7 +269,7 @@ export const LOG_PROCESSORS = Object.entries(processors).flatMap(
     ).concat(
       handlers
         ? Object.entries(handlers).map(
-            ([eventName, handler]): LogProcessor =>
+            ([eventName, handler]): EvmLogProcessor =>
               createContractEventProcessor({
                 contractName,
                 address,
@@ -280,4 +280,4 @@ export const LOG_PROCESSORS = Object.entries(processors).flatMap(
           )
         : []
     )
-) as LogProcessor[];
+) as EvmLogProcessor[];

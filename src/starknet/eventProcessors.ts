@@ -1,4 +1,3 @@
-import type { EventProcessor } from "./processor";
 import { logger } from "../logger";
 import { parseTransferEvent } from "./nft";
 import type { TransferEvent } from "./nft";
@@ -72,9 +71,28 @@ import { parseOrderClosed, parseOrderPlaced } from "./limitOrders";
 import type { OrderClosedEvent, OrderPlacedEvent } from "./limitOrders";
 import { parseLiquidityUpdated } from "./spline";
 import type { LiquidityUpdatedEvent } from "./spline";
+import type { EventKey } from "../eventKey";
+import type { Parser } from "./parse";
+import { DAO } from "../dao";
+
+export interface ParsedEventWithKey<T> {
+  key: EventKey;
+  parsed: T;
+}
+
+export interface StarknetEventProcessor<T> {
+  filter: {
+    keys: `0x${string}`[];
+    fromAddress: `0x${string}`;
+  };
+
+  parser: Parser<T>;
+
+  handle(dao: DAO, result: ParsedEventWithKey<T>): Promise<void>;
+}
 
 export const EVENT_PROCESSORS = [
-  <EventProcessor<LegacyPositionMintedEvent>>{
+  <StarknetEventProcessor<LegacyPositionMintedEvent>>{
     filter: {
       fromAddress: process.env.POSITIONS_ADDRESS,
       keys: [
@@ -93,7 +111,7 @@ export const EVENT_PROCESSORS = [
       }
     },
   },
-  <EventProcessor<PositionMintedWithReferrer>>{
+  <StarknetEventProcessor<PositionMintedWithReferrer>>{
     filter: {
       fromAddress: process.env.POSITIONS_ADDRESS,
       keys: [
@@ -107,7 +125,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertPositionMintedWithReferrerEvent(parsed, key);
     },
   },
-  <EventProcessor<TransferEvent>>{
+  <StarknetEventProcessor<TransferEvent>>{
     filter: {
       fromAddress: process.env.NFT_ADDRESS,
       keys: [
@@ -121,7 +139,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertPositionTransferEvent(parsed, key);
     },
   },
-  <EventProcessor<PositionUpdatedEvent>>{
+  <StarknetEventProcessor<PositionUpdatedEvent>>{
     filter: {
       fromAddress: process.env.CORE_ADDRESS,
       keys: [
@@ -135,7 +153,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertPositionUpdatedEvent(parsed, key);
     },
   },
-  <EventProcessor<PositionFeesCollectedEvent>>{
+  <StarknetEventProcessor<PositionFeesCollectedEvent>>{
     filter: {
       fromAddress: process.env.CORE_ADDRESS,
       keys: [
@@ -149,7 +167,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertPositionFeesCollectedEvent(parsed, key);
     },
   },
-  <EventProcessor<SwappedEvent>>{
+  <StarknetEventProcessor<SwappedEvent>>{
     filter: {
       fromAddress: process.env.CORE_ADDRESS,
       keys: [
@@ -163,7 +181,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertSwappedEvent(parsed, key);
     },
   },
-  <EventProcessor<PoolInitializationEvent>>{
+  <StarknetEventProcessor<PoolInitializationEvent>>{
     filter: {
       fromAddress: process.env.CORE_ADDRESS,
       keys: [
@@ -177,7 +195,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertInitializationEvent(parsed, key);
     },
   },
-  <EventProcessor<ProtocolFeesWithdrawnEvent>>{
+  <StarknetEventProcessor<ProtocolFeesWithdrawnEvent>>{
     filter: {
       fromAddress: process.env.CORE_ADDRESS,
       keys: [
@@ -191,7 +209,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertProtocolFeesWithdrawn(parsed, key);
     },
   },
-  <EventProcessor<ProtocolFeesPaidEvent>>{
+  <StarknetEventProcessor<ProtocolFeesPaidEvent>>{
     filter: {
       fromAddress: process.env.CORE_ADDRESS,
       keys: [
@@ -205,7 +223,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertProtocolFeesPaid(parsed, key);
     },
   },
-  <EventProcessor<FeesAccumulatedEvent>>{
+  <StarknetEventProcessor<FeesAccumulatedEvent>>{
     filter: {
       fromAddress: process.env.CORE_ADDRESS,
       keys: [
@@ -219,7 +237,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertFeesAccumulatedEvent(parsed, key);
     },
   },
-  <EventProcessor<TokenRegistrationEvent>>{
+  <StarknetEventProcessor<TokenRegistrationEvent>>{
     filter: {
       fromAddress: process.env.TOKEN_REGISTRY_ADDRESS,
       keys: [
@@ -233,7 +251,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertRegistration(parsed, key);
     },
   },
-  <EventProcessor<TokenRegistrationEvent>>{
+  <StarknetEventProcessor<TokenRegistrationEvent>>{
     filter: {
       fromAddress: process.env.TOKEN_REGISTRY_V2_ADDRESS,
       keys: [
@@ -250,7 +268,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertRegistration(parsed, key);
     },
   },
-  <EventProcessor<TokenRegistrationEventV3>>{
+  <StarknetEventProcessor<TokenRegistrationEventV3>>{
     filter: {
       fromAddress: process.env.TOKEN_REGISTRY_V3_ADDRESS,
       keys: [
@@ -264,7 +282,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertRegistrationV3(parsed, key);
     },
   },
-  <EventProcessor<OrderUpdatedEvent>>{
+  <StarknetEventProcessor<OrderUpdatedEvent>>{
     filter: {
       fromAddress: process.env.TWAMM_ADDRESS,
       keys: [
@@ -278,7 +296,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertTWAMMOrderUpdatedEvent(parsed, key);
     },
   },
-  <EventProcessor<OrderProceedsWithdrawnEvent>>{
+  <StarknetEventProcessor<OrderProceedsWithdrawnEvent>>{
     filter: {
       fromAddress: process.env.TWAMM_ADDRESS,
       keys: [
@@ -292,7 +310,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertTWAMMOrderProceedsWithdrawnEvent(parsed, key);
     },
   },
-  <EventProcessor<VirtualOrdersExecutedEvent>>{
+  <StarknetEventProcessor<VirtualOrdersExecutedEvent>>{
     filter: {
       fromAddress: process.env.TWAMM_ADDRESS,
       keys: [
@@ -306,7 +324,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertTWAMMVirtualOrdersExecutedEvent(parsed, key);
     },
   },
-  <EventProcessor<StakedEvent>>{
+  <StarknetEventProcessor<StakedEvent>>{
     filter: {
       fromAddress: process.env.STAKER_ADDRESS,
       keys: [
@@ -320,7 +338,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertStakerStakedEvent(parsed, key);
     },
   },
-  <EventProcessor<WithdrawnEvent>>{
+  <StarknetEventProcessor<WithdrawnEvent>>{
     filter: {
       fromAddress: process.env.STAKER_ADDRESS,
       keys: [
@@ -334,7 +352,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertStakerWithdrawnEvent(parsed, key);
     },
   },
-  <EventProcessor<GovernorProposedEvent>>{
+  <StarknetEventProcessor<GovernorProposedEvent>>{
     filter: {
       fromAddress: process.env.GOVERNOR_ADDRESS,
       keys: [
@@ -348,7 +366,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertGovernorProposedEvent(parsed, key);
     },
   },
-  <EventProcessor<GovernorCanceledEvent>>{
+  <StarknetEventProcessor<GovernorCanceledEvent>>{
     filter: {
       fromAddress: process.env.GOVERNOR_ADDRESS,
       keys: [
@@ -362,7 +380,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertGovernorCanceledEvent(parsed, key);
     },
   },
-  <EventProcessor<GovernorCreationThresholdBreached>>{
+  <StarknetEventProcessor<GovernorCreationThresholdBreached>>{
     filter: {
       fromAddress: process.env.GOVERNOR_ADDRESS,
       keys: [
@@ -377,7 +395,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertGovernorCanceledEvent(parsed, key);
     },
   },
-  <EventProcessor<GovernorVotedEvent>>{
+  <StarknetEventProcessor<GovernorVotedEvent>>{
     filter: {
       fromAddress: process.env.GOVERNOR_ADDRESS,
       keys: [
@@ -391,7 +409,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertGovernorVotedEvent(parsed, key);
     },
   },
-  <EventProcessor<GovernorExecutedEvent>>{
+  <StarknetEventProcessor<GovernorExecutedEvent>>{
     filter: {
       fromAddress: process.env.GOVERNOR_ADDRESS,
       keys: [
@@ -405,7 +423,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertGovernorExecutedEvent(parsed, key);
     },
   },
-  <EventProcessor<DescribedEvent>>{
+  <StarknetEventProcessor<DescribedEvent>>{
     filter: {
       fromAddress: process.env.GOVERNOR_ADDRESS,
       keys: [
@@ -419,7 +437,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertGovernorProposalDescribedEvent(parsed, key);
     },
   },
-  <EventProcessor<GovernorReconfiguredEvent>>{
+  <StarknetEventProcessor<GovernorReconfiguredEvent>>{
     filter: {
       fromAddress: process.env.GOVERNOR_ADDRESS,
       keys: [
@@ -433,7 +451,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertGovernorReconfiguredEvent(parsed, key);
     },
   },
-  <EventProcessor<SnapshotEvent>>{
+  <StarknetEventProcessor<SnapshotEvent>>{
     filter: {
       fromAddress: process.env.ORACLE_ADDRESS,
       keys: [
@@ -447,7 +465,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertOracleSnapshotEvent(parsed, key);
     },
   },
-  <EventProcessor<OrderPlacedEvent>>{
+  <StarknetEventProcessor<OrderPlacedEvent>>{
     filter: {
       fromAddress: process.env.LIMIT_ORDERS_ADDRESS,
       keys: [
@@ -461,7 +479,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertOrderPlacedEvent(parsed, key);
     },
   },
-  <EventProcessor<OrderClosedEvent>>{
+  <StarknetEventProcessor<OrderClosedEvent>>{
     filter: {
       fromAddress: process.env.LIMIT_ORDERS_ADDRESS,
       keys: [
@@ -475,7 +493,7 @@ export const EVENT_PROCESSORS = [
       await dao.insertOrderClosedEvent(parsed, key);
     },
   },
-  <EventProcessor<LiquidityUpdatedEvent>>{
+  <StarknetEventProcessor<LiquidityUpdatedEvent>>{
     filter: {
       fromAddress: process.env.LIQUIDITY_PROVIDER_ADDRESS,
       keys: [
