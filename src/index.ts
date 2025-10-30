@@ -1,5 +1,5 @@
 import "./config";
-import type { EventKey } from "./processor";
+import type { EventKey } from "./eventKey.ts";
 import { logger } from "./logger";
 import { DAO } from "./dao";
 import { Pool } from "pg";
@@ -16,6 +16,17 @@ if (!process.env.NETWORK) {
 }
 
 if (!process.env.INDEXER_NAME) {
+  throw new Error("Missing INDEXER_NAME");
+}
+
+const chainId = BigInt(process.env.CHAIN_ID);
+
+if (!chainId) {
+  throw new Error("Missing CHAIN_ID");
+}
+
+const indexerName = process.env.INDEXER_NAME;
+if (!indexerName) {
   throw new Error("Missing INDEXER_NAME");
 }
 
@@ -82,13 +93,11 @@ function msToHumanShort(ms: number): string {
 }
 
 (async function () {
-  const chainId = BigInt(process.env.CHAIN_ID);
-
   // first set up the schema
   let databaseStartingCursor;
   {
     const client = await pool.connect();
-    const dao = new DAO(client, chainId, process.env.INDEXER_NAME);
+    const dao = new DAO(client, chainId, indexerName);
 
     const initializeTimer = logger.startTimer();
     databaseStartingCursor = await dao.initializeState();

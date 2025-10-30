@@ -1,5 +1,5 @@
 import { DAO } from "../dao.ts";
-import type { EventKey } from "../processor.ts";
+import type { EventKey } from "../eventKey.ts";
 import {
   CORE_ABI,
   INCENTIVES_ABI,

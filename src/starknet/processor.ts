@@ -1,13 +1,7 @@
+import type { EventKey } from "../eventKey";
+
 import type { Parser } from "./parse";
 import { DAO } from "../dao";
-
-export interface EventKey {
-  blockNumber: number;
-  transactionIndex: number;
-  eventIndex: number;
-  emitter: bigint;
-  transactionHash: bigint;
-}
 
 export interface ParsedEventWithKey<T> {
   key: EventKey;

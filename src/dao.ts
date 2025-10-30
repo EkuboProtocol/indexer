@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import { Client } from "pg";
-import type { EventKey } from "./processor";
+import type { EventKey } from "./eventKey.ts";
 import { parsePoolKeyConfig, toPoolConfig, toPoolId } from "./poolKey.ts";
 import type {
   CoreExtensionRegistered,
