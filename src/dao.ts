@@ -1,26 +1,161 @@
 import type { PoolClient } from "pg";
 import { Client } from "pg";
 import type { EventKey } from "./eventKey.ts";
-import { parsePoolKeyConfig, toPoolConfig, toPoolId } from "./poolKey.ts";
-import type {
-  CoreExtensionRegistered,
-  CoreFeesAccumulated,
-  CorePoolInitialized,
-  CorePositionFeesCollected,
-  CorePositionUpdated,
-  CoreProtocolFeesWithdrawn,
-  IncentivesFunded,
-  IncentivesRefunded,
-  OrderTransfer,
-  PoolKey,
-  PositionTransfer,
-  TokenWrapperDeployed,
-  TwammOrderProceedsWithdrawn,
-  TwammOrderUpdated,
-} from "./evm/eventTypes.ts";
-import type { CoreSwapped } from "./evm/swapEvent.ts";
-import type { OracleEvent } from "./evm/oracleEvent.ts";
-import type { TwammVirtualOrdersExecutedEvent } from "./evm/twammEvent.ts";
+import { toPoolConfig, toPoolId } from "./poolKey.ts";
+
+export type NumericValue = bigint | number | `0x${string}`;
+export type AddressValue = bigint | `0x${string}`;
+
+export interface PositionTransferInsert {
+  id: bigint;
+  from: AddressValue;
+  to: AddressValue;
+}
+
+export interface OrderTransferInsert {
+  id: bigint;
+  from: AddressValue;
+  to: AddressValue;
+}
+
+export interface BoundsDescriptor {
+  lower: NumericValue;
+  upper: NumericValue;
+}
+
+export interface PositionUpdateParams {
+  salt: NumericValue;
+  bounds: BoundsDescriptor;
+  liquidityDelta: NumericValue;
+}
+
+export interface PositionUpdatedInsert {
+  locker: AddressValue;
+  poolId: `0x${string}`;
+  params: PositionUpdateParams;
+  delta0: bigint;
+  delta1: bigint;
+}
+
+export interface PositionKeyDescriptor {
+  owner: AddressValue;
+  salt: NumericValue;
+  bounds: BoundsDescriptor;
+}
+
+export interface PositionFeesCollectedInsert {
+  poolId: `0x${string}`;
+  positionKey: PositionKeyDescriptor;
+  amount0: NumericValue;
+  amount1: NumericValue;
+}
+
+export interface PoolKeyInsert {
+  token0: AddressValue;
+  token1: AddressValue;
+  fee: NumericValue;
+  tickSpacing: number;
+  extension: AddressValue;
+}
+
+export interface PoolInitializedInsert {
+  poolId: `0x${string}`;
+  poolKey: PoolKeyInsert;
+  tick: number;
+  sqrtRatio: bigint;
+}
+
+export interface ProtocolFeesWithdrawnInsert {
+  recipient: AddressValue;
+  token: AddressValue;
+  amount: NumericValue;
+}
+
+export interface ExtensionRegisteredInsert {
+  extension: AddressValue;
+}
+
+export interface FeesAccumulatedInsert {
+  poolId: `0x${string}`;
+  amount0: NumericValue;
+  amount1: NumericValue;
+}
+
+export interface SwapEventInsert {
+  locker: AddressValue;
+  poolId: `0x${string}`;
+  delta0: bigint;
+  delta1: bigint;
+  sqrtRatioAfter: bigint;
+  tickAfter: number;
+  liquidityAfter: bigint;
+}
+
+export interface TwammOrderKeyInsert {
+  sellToken: AddressValue;
+  buyToken: AddressValue;
+  fee: NumericValue;
+  startTime: bigint;
+  endTime: bigint;
+}
+
+export interface TwammOrderUpdatedInsert {
+  orderKey: TwammOrderKeyInsert;
+  saleRateDelta: bigint;
+  owner: AddressValue;
+  salt: NumericValue;
+}
+
+export interface TwammOrderProceedsWithdrawnInsert {
+  orderKey: TwammOrderKeyInsert;
+  amount: NumericValue;
+  owner: AddressValue;
+  salt: NumericValue;
+}
+
+export interface TwammVirtualOrdersExecutedInsert {
+  poolId: `0x${string}`;
+  saleRateToken0: bigint;
+  saleRateToken1: bigint;
+}
+
+export interface OracleSnapshotInsert {
+  token: AddressValue;
+  timestamp: NumericValue;
+  secondsPerLiquidityCumulative: NumericValue;
+  tickCumulative: NumericValue;
+}
+
+export interface IncentivesKeyDescriptor {
+  owner: AddressValue;
+  token: AddressValue;
+  root: AddressValue;
+}
+
+export interface IncentivesRefundedInsert {
+  key: IncentivesKeyDescriptor;
+  refundAmount: NumericValue;
+}
+
+export interface IncentivesFundedInsert {
+  key: IncentivesKeyDescriptor;
+  amountNext: NumericValue;
+}
+
+export interface TokenWrapperDeployedInsert {
+  tokenWrapper: AddressValue;
+  underlyingToken: AddressValue;
+  unlockTime: NumericValue;
+}
+
+function toHexAddress(value: AddressValue): `0x${string}` {
+  if (typeof value === "string") {
+    return value;
+  }
+  const hex = value.toString(16);
+  const padded = hex.length % 2 === 0 ? hex : `0${hex}`;
+  return `0x${padded}` as `0x${string}`;
+}
 
 // Data access object that manages inserts/deletes
 export class DAO {
@@ -96,12 +231,12 @@ export class DAO {
   public async writeCursor(cursor: { orderKey: bigint; uniqueKey?: string }) {
     await this.pg.query({
       text: `
-                INSERT INTO cursor (indexer_name, order_key, unique_key, last_updated)
-                VALUES ($1, $2, $3, NOW())
-                ON CONFLICT (indexer_name) DO UPDATE SET order_key    = excluded.order_key,
-                                                         unique_key   = excluded.unique_key,
-                                                         last_updated = NOW();
-            `,
+        INSERT INTO cursor (indexer_name, order_key, unique_key, last_updated)
+        VALUES ($1, $2, $3, NOW())
+        ON CONFLICT (indexer_name) DO UPDATE SET order_key    = excluded.order_key,
+                                                  unique_key   = excluded.unique_key,
+                                                  last_updated = NOW();
+      `,
       values: [
         this.indexerName,
         cursor.orderKey,
@@ -129,13 +264,11 @@ export class DAO {
   }
 
   private async insertPoolKey(
-    coreAddress: `0x${string}`,
-    poolKey: PoolKey,
+    coreAddress: AddressValue,
+    poolKey: PoolKeyInsert,
     poolId: `0x${string}`,
     feeDenominator: bigint
   ): Promise<bigint> {
-    const { fee, tickSpacing, extension } = parsePoolKeyConfig(poolKey.config);
-
     const { rows } = await this.pg.query({
       text: `
         INSERT INTO pool_keys (chain_id, pool_id, core_address, token0, token1, fee, tick_spacing, extension, fee_denominator)
@@ -149,9 +282,9 @@ export class DAO {
         coreAddress,
         BigInt(poolKey.token0),
         BigInt(poolKey.token1),
-        fee,
-        tickSpacing,
-        BigInt(extension),
+        BigInt(poolKey.fee),
+        poolKey.tickSpacing,
+        BigInt(poolKey.extension),
         feeDenominator,
       ],
     });
@@ -159,7 +292,7 @@ export class DAO {
   }
 
   public async insertPositionTransferEvent(
-    transfer: PositionTransfer,
+    transfer: PositionTransferInsert,
     key: EventKey
   ) {
     await this.pg.query({
@@ -192,7 +325,7 @@ export class DAO {
   }
 
   public async insertOrdersTransferEvent(
-    transfer: OrderTransfer,
+    transfer: OrderTransferInsert,
     key: EventKey
   ) {
     await this.pg.query({
@@ -225,7 +358,7 @@ export class DAO {
   }
 
   public async insertPositionUpdatedEvent(
-    event: CorePositionUpdated,
+    event: PositionUpdatedInsert,
     key: EventKey
   ) {
     await this.pg.query({
@@ -270,7 +403,7 @@ export class DAO {
   }
 
   public async insertPositionFeesCollectedEvent(
-    event: CorePositionFeesCollected,
+    event: PositionFeesCollectedInsert,
     key: EventKey
   ) {
     await this.pg.query({
@@ -313,7 +446,7 @@ export class DAO {
   }
 
   public async insertPoolInitializedEvent(
-    event: CorePoolInitialized,
+    event: PoolInitializedInsert,
     key: EventKey,
     feeDenominator: bigint
   ): Promise<bigint> {
@@ -364,7 +497,7 @@ export class DAO {
   }
 
   public async insertProtocolFeesWithdrawn(
-    event: CoreProtocolFeesWithdrawn,
+    event: ProtocolFeesWithdrawnInsert,
     key: EventKey
   ) {
     await this.pg.query({
@@ -397,7 +530,7 @@ export class DAO {
   }
 
   public async insertExtensionRegistered(
-    event: CoreExtensionRegistered,
+    event: ExtensionRegisteredInsert,
     key: EventKey
   ) {
     await this.pg.query({
@@ -424,7 +557,7 @@ export class DAO {
   }
 
   public async insertFeesAccumulatedEvent(
-    event: CoreFeesAccumulated,
+    event: FeesAccumulatedInsert,
     key: EventKey
   ) {
     await this.pg.query({
@@ -460,7 +593,7 @@ export class DAO {
     });
   }
 
-  public async insertSwappedEvent(event: CoreSwapped, key: EventKey) {
+  public async insertSwappedEvent(event: SwapEventInsert, key: EventKey) {
     await this.pg.query({
       text: `
         WITH inserted_event AS (
@@ -518,7 +651,7 @@ export class DAO {
   }
 
   public async insertTWAMMOrderUpdatedEvent(
-    event: TwammOrderUpdated,
+    event: TwammOrderUpdatedInsert,
     key: EventKey
   ) {
     const { orderKey } = event;
@@ -529,10 +662,10 @@ export class DAO {
         : [orderKey.sellToken, orderKey.buyToken, event.saleRateDelta, 0];
 
     const poolId = toPoolId({
-      token0,
-      token1,
+      token0: toHexAddress(token0),
+      token1: toHexAddress(token1),
       config: toPoolConfig({
-        fee: orderKey.fee,
+        fee: BigInt(orderKey.fee),
         tickSpacing: 0,
         extension: key.emitter,
       }),
@@ -579,7 +712,7 @@ export class DAO {
   }
 
   public async insertTWAMMOrderProceedsWithdrawnEvent(
-    event: TwammOrderProceedsWithdrawn,
+    event: TwammOrderProceedsWithdrawnInsert,
     key: EventKey
   ) {
     const { orderKey } = event;
@@ -590,10 +723,10 @@ export class DAO {
         : [orderKey.sellToken, orderKey.buyToken, event.amount, 0];
 
     const poolId = toPoolId({
-      token0,
-      token1,
+      token0: toHexAddress(token0),
+      token1: toHexAddress(token1),
       config: toPoolConfig({
-        fee: orderKey.fee,
+        fee: BigInt(orderKey.fee),
         tickSpacing: 0,
         extension: key.emitter,
       }),
@@ -639,7 +772,7 @@ export class DAO {
   }
 
   public async insertTWAMMVirtualOrdersExecutedEvent(
-    event: TwammVirtualOrdersExecutedEvent,
+    event: TwammVirtualOrdersExecutedInsert,
     key: EventKey
   ) {
     await this.pg.query({
@@ -677,7 +810,7 @@ export class DAO {
     });
   }
 
-  async insertOracleSnapshotEvent(parsed: OracleEvent, key: EventKey) {
+  async insertOracleSnapshotEvent(parsed: OracleSnapshotInsert, key: EventKey) {
     await this.pg.query({
       text: `
         WITH inserted_event AS (
@@ -707,7 +840,7 @@ export class DAO {
 
   async insertIncentivesRefundedEvent(
     key: EventKey,
-    parsed: IncentivesRefunded
+    parsed: IncentivesRefundedInsert
   ) {
     await this.pg.query({
       text: `
@@ -735,7 +868,10 @@ export class DAO {
     });
   }
 
-  async insertIncentivesFundedEvent(key: EventKey, parsed: IncentivesFunded) {
+  async insertIncentivesFundedEvent(
+    key: EventKey,
+    parsed: IncentivesFundedInsert
+  ) {
     await this.pg.query({
       text: `
         WITH inserted_event AS (
@@ -764,7 +900,7 @@ export class DAO {
 
   async insertTokenWrapperDeployed(
     key: EventKey,
-    parsed: TokenWrapperDeployed
+    parsed: TokenWrapperDeployedInsert
   ) {
     await this.pg.query({
       text: `

@@ -13,6 +13,7 @@ import {
 import type {
   FeesAccumulatedEvent,
   PoolInitializationEvent,
+  PoolKey,
   PositionFeesCollectedEvent,
   PositionUpdatedEvent,
   ProtocolFeesPaidEvent,
@@ -75,8 +76,6 @@ import type { EventKey } from "../eventKey";
 import type { Parser } from "./parse";
 import { DAO } from "../dao";
 import { computeKeyHash } from "./poolKeyHash";
-import { toHex } from "viem";
-import { toPoolConfig } from "../poolKey";
 
 export interface ParsedEventWithKey<T> {
   key: EventKey;
@@ -110,6 +109,10 @@ export interface StarknetEventProcessorConfig {
 }
 
 const STARKNET_POOL_FEE_DENOMINATOR = 1n << 128n;
+
+function poolKeyToPoolId(pool_key: PoolKey): `0x${string}` {
+  return `0x${computeKeyHash(pool_key).toString(16)}`;
+}
 
 export function createEventProcessors({
   positionsAddress,
@@ -184,7 +187,20 @@ export function createEventProcessors({
       parser: parsePositionUpdatedEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("PositionUpdated", { parsed, key });
-        await dao.insertPositionUpdatedEvent(parsed, key);
+        await dao.insertPositionUpdatedEvent(
+          {
+            delta0: parsed.delta.amount0,
+            delta1: parsed.delta.amount1,
+            locker: parsed.locker,
+            params: {
+              bounds: parsed.params.bounds,
+              liquidityDelta: parsed.params.liquidity_delta,
+              salt: parsed.params.salt,
+            },
+            poolId: poolKeyToPoolId(parsed.pool_key),
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<PositionFeesCollectedEvent>>{
@@ -228,14 +244,16 @@ export function createEventProcessors({
         logger.debug("PoolInitialized", { parsed, key });
         await dao.insertPoolInitializedEvent(
           {
-            poolId: `0x${computeKeyHash(parsed.pool_key).toString(16)}`,
+            poolId: poolKeyToPoolId(parsed.pool_key),
             poolKey: {
-              token0: toHex(parsed.pool_key.token0, { size: 32 }),
-              token1: toHex(parsed.pool_key.token0, { size: 32 }),
-              token1: toPoolConfig({ extension: parsed.extension }),
+              token0: parsed.pool_key.token0,
+              token1: parsed.pool_key.token1,
+              fee: parsed.pool_key.fee,
+              tickSpacing: Number(parsed.pool_key.tick_spacing),
+              extension: parsed.pool_key.extension,
             },
             sqrtRatio: parsed.sqrt_ratio,
-            tick: parsed.tick,
+            tick: Number(parsed.tick),
           },
           key,
           STARKNET_POOL_FEE_DENOMINATOR

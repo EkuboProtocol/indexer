@@ -4,7 +4,12 @@ import {
   keccak256,
   numberToHex,
 } from "viem";
-import type { PoolKey } from "./evm/eventTypes.ts";
+
+export interface EncodedPoolKey {
+  token0: `0x${string}`;
+  token1: `0x${string}`;
+  config: `0x${string}`;
+}
 
 export function parsePoolKeyConfig(config: `0x${string}`): {
   fee: bigint;
@@ -39,7 +44,7 @@ export function toPoolConfig({
  * This exactly matches the pool ID that is used in the mappings in core
  * @param poolKey the pool key that is encoded and then hashed
  */
-export function toPoolId(poolKey: PoolKey): `0x${string}` {
+export function toPoolId(poolKey: EncodedPoolKey): `0x${string}` {
   return keccak256(
     encodeAbiParameters(
       [

@@ -1,4 +1,4 @@
-import { DAO } from "../dao.ts";
+import { DAO, type PoolInitializedInsert } from "../dao.ts";
 import type { EventKey } from "../eventKey.ts";
 import {
   CORE_ABI,
@@ -168,16 +168,30 @@ export function createLogProcessors({
       },
       handlers: {
         async PoolInitialized(dao, key, parsed) {
-          const poolKeyId = await dao.insertPoolInitializedEvent(
-            {
-              ...parsed,
-              sqrtRatio: floatSqrtRatioToFixed(parsed.sqrtRatio),
+          const { fee, tickSpacing, extension } = parsePoolKeyConfig(
+            parsed.poolKey.config
+          );
+          const poolInitialized: PoolInitializedInsert = {
+            poolId: parsed.poolId,
+            poolKey: {
+              token0: parsed.poolKey.token0,
+              token1: parsed.poolKey.token1,
+              fee,
+              tickSpacing,
+              extension,
             },
+            tick:
+              typeof parsed.tick === "bigint"
+                ? Number(parsed.tick)
+                : parsed.tick,
+            sqrtRatio: floatSqrtRatioToFixed(parsed.sqrtRatio),
+          };
+          const poolKeyId = await dao.insertPoolInitializedEvent(
+            poolInitialized,
             key,
             EVM_POOL_FEE_DENOMINATOR
           );
 
-          const { extension } = parsePoolKeyConfig(parsed.poolKey.config);
           if (BigInt(extension) === mevCaptureAddressBigInt) {
             await dao.insertMEVCapturePoolKey(poolKeyId);
           }
