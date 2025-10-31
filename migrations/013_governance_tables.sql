@@ -40,15 +40,14 @@ CREATE UNIQUE INDEX idx_governor_reconfigured_chain_id_version ON governor_recon
 CREATE TABLE governor_proposed (
     chain_id int8 NOT NULL,
     event_id int8 NOT NULL,
-    id NUMERIC NOT NULL,
+    proposal_id NUMERIC NOT NULL,
     proposer NUMERIC NOT NULL,
     config_version BIGINT NOT NULL,
     PRIMARY KEY (chain_id, event_id),
     FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE,
-    FOREIGN KEY (chain_id, config_version) REFERENCES governor_reconfigured (chain_id, version) ON DELETE CASCADE,
-    UNIQUE (chain_id, id)
+    UNIQUE (chain_id, proposal_id)
 );
-CREATE UNIQUE INDEX idx_governor_proposed_chain_id_id ON governor_proposed USING btree (chain_id, id);
+CREATE UNIQUE INDEX idx_governor_proposed_chain_id_id ON governor_proposed USING btree (chain_id, proposal_id);
 CREATE TABLE governor_proposed_calls (
     chain_id int8 NOT NULL,
     proposal_id NUMERIC NOT NULL,
@@ -57,59 +56,59 @@ CREATE TABLE governor_proposed_calls (
     selector NUMERIC NOT NULL,
     calldata NUMERIC [] NOT NULL,
     PRIMARY KEY (chain_id, proposal_id, index),
-    FOREIGN KEY (chain_id, proposal_id) REFERENCES governor_proposed (chain_id, id) ON DELETE CASCADE
+    FOREIGN KEY (chain_id, proposal_id) REFERENCES governor_proposed (chain_id, proposal_id)
 );
 CREATE TABLE governor_canceled (
     chain_id int8 NOT NULL,
     event_id int8 NOT NULL,
-    id NUMERIC NOT NULL,
+    proposal_id NUMERIC NOT NULL,
     PRIMARY KEY (chain_id, event_id),
     FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE,
-    FOREIGN KEY (chain_id, id) REFERENCES governor_proposed (chain_id, id) ON DELETE CASCADE,
-    UNIQUE (chain_id, id)
+    FOREIGN KEY (chain_id, proposal_id) REFERENCES governor_proposed (chain_id, proposal_id),
+    UNIQUE (chain_id, proposal_id)
 );
-CREATE UNIQUE INDEX idx_governor_canceled_chain_id_id ON governor_canceled USING btree (chain_id, id);
+CREATE UNIQUE INDEX idx_governor_canceled_chain_id_id ON governor_canceled USING btree (chain_id, proposal_id);
 CREATE TABLE governor_voted (
     chain_id int8 NOT NULL,
     event_id int8 NOT NULL,
-    id NUMERIC NOT NULL,
+    proposal_id NUMERIC NOT NULL,
     voter NUMERIC NOT NULL,
     weight NUMERIC NOT NULL,
     yea BOOLEAN NOT NULL,
     PRIMARY KEY (chain_id, event_id),
     FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE,
-    FOREIGN KEY (chain_id, id) REFERENCES governor_proposed (chain_id, id) ON DELETE CASCADE
+    FOREIGN KEY (chain_id, proposal_id) REFERENCES governor_proposed (chain_id, proposal_id)
 );
 CREATE TABLE governor_executed (
     chain_id int8 NOT NULL,
     event_id int8 NOT NULL,
-    id NUMERIC NOT NULL,
+    proposal_id NUMERIC NOT NULL,
     PRIMARY KEY (chain_id, event_id),
     FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE,
-    FOREIGN KEY (chain_id, id) REFERENCES governor_proposed (chain_id, id) ON DELETE CASCADE,
-    UNIQUE (chain_id, id)
+    FOREIGN KEY (chain_id, proposal_id) REFERENCES governor_proposed (chain_id, proposal_id),
+    UNIQUE (chain_id, proposal_id)
 );
-CREATE UNIQUE INDEX idx_governor_executed_chain_id_id ON governor_executed USING btree (chain_id, id);
+CREATE UNIQUE INDEX idx_governor_executed_chain_id_id ON governor_executed USING btree (chain_id, proposal_id);
 CREATE TABLE governor_executed_results (
     chain_id int8 NOT NULL,
     proposal_id NUMERIC NOT NULL,
     index int2 NOT NULL,
     results NUMERIC [] NOT NULL,
     PRIMARY KEY (chain_id, proposal_id, index),
-    FOREIGN KEY (chain_id, proposal_id) REFERENCES governor_executed (chain_id, id) ON DELETE CASCADE
+    FOREIGN KEY (chain_id, proposal_id) REFERENCES governor_executed (chain_id, proposal_id)
 );
 CREATE TABLE governor_proposal_described (
     chain_id int8 NOT NULL,
     event_id int8 NOT NULL,
-    id NUMERIC NOT NULL,
+    proposal_id NUMERIC NOT NULL,
     description TEXT NOT NULL,
     PRIMARY KEY (chain_id, event_id),
     FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE,
-    FOREIGN KEY (chain_id, id) REFERENCES governor_proposed (chain_id, id) ON DELETE CASCADE
+    FOREIGN KEY (chain_id, proposal_id) REFERENCES governor_proposed (chain_id, proposal_id)
 );
 CREATE OR REPLACE VIEW proposal_delegate_voting_weights_view AS (
         WITH proposal_times AS (
-            SELECT gp.id AS proposal_id,
+            SELECT gp.proposal_id AS proposal_id,
                 b.time AS proposal_time,
                 b.time + gr.voting_start_delay * INTERVAL '1 second' AS vote_start,
                 gr.voting_start_delay AS window_secs

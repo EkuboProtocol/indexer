@@ -199,30 +199,30 @@ export interface GovernorCallInsert {
 }
 
 export interface GovernorProposedInsert {
-  id: NumericValue;
+  proposal_id: NumericValue;
   proposer: AddressValue;
   configVersion: NumericValue | null;
   calls: GovernorCallInsert[];
 }
 
 export interface GovernorCanceledInsert {
-  id: NumericValue;
+  proposal_id: NumericValue;
 }
 
 export interface GovernorVotedInsert {
-  id: NumericValue;
+  proposal_id: NumericValue;
   voter: AddressValue;
   weight: NumericValue;
   yea: boolean;
 }
 
 export interface GovernorExecutedInsert {
-  id: NumericValue;
+  proposal_id: NumericValue;
   results: NumericValue[][];
 }
 
 export interface GovernorProposalDescribedInsert {
-  id: NumericValue;
+  proposal_id: NumericValue;
   description: string;
 }
 
@@ -901,7 +901,7 @@ export class DAO {
                 VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING event_id)
         INSERT INTO governor_proposed
-            (chain_id, event_id, id, proposer, config_version)
+            (chain_id, event_id, proposal_id, proposer, config_version)
         VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9);
       `,
       values: [
@@ -911,7 +911,7 @@ export class DAO {
         key.eventIndex,
         key.transactionHash,
         key.emitter,
-        event.id,
+        event.proposal_id,
         event.proposer,
         configVersion,
       ],
@@ -927,7 +927,7 @@ export class DAO {
         `,
         values: [
           this.chainId,
-          event.id,
+          event.proposal_id,
           i,
           call.to,
           call.selector,
@@ -948,9 +948,9 @@ export class DAO {
                 VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING event_id)
         INSERT INTO governor_canceled
-            (chain_id, event_id, id)
+            (chain_id, event_id, proposal_id)
         VALUES ($1, (SELECT event_id FROM inserted_event), $7)
-        ON CONFLICT (chain_id, id) DO NOTHING;
+        ON CONFLICT (chain_id, proposal_id) DO NOTHING;
       `,
       values: [
         this.chainId,
@@ -959,7 +959,7 @@ export class DAO {
         key.eventIndex,
         key.transactionHash,
         key.emitter,
-        event.id,
+        event.proposal_id,
       ],
     });
   }
@@ -975,7 +975,7 @@ export class DAO {
                 VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING event_id)
         INSERT INTO governor_voted
-            (chain_id, event_id, id, voter, weight, yea)
+            (chain_id, event_id, proposal_id, voter, weight, yea)
         VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10);
       `,
       values: [
@@ -985,7 +985,7 @@ export class DAO {
         key.eventIndex,
         key.transactionHash,
         key.emitter,
-        event.id,
+        event.proposal_id,
         event.voter,
         event.weight,
         event.yea,
@@ -1004,9 +1004,9 @@ export class DAO {
                 VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING event_id)
         INSERT INTO governor_executed
-            (chain_id, event_id, id)
+            (chain_id, event_id, proposal_id)
         VALUES ($1, (SELECT event_id FROM inserted_event), $7)
-        ON CONFLICT (chain_id, id) DO NOTHING;
+        ON CONFLICT (chain_id, proposal_id) DO NOTHING;
       `,
       values: [
         this.chainId,
@@ -1015,7 +1015,7 @@ export class DAO {
         key.eventIndex,
         key.transactionHash,
         key.emitter,
-        event.id,
+        event.proposal_id,
       ],
     });
 
@@ -1029,7 +1029,7 @@ export class DAO {
         `,
         values: [
           this.chainId,
-          event.id,
+          event.proposal_id,
           i,
           result.map((value) => BigInt(value).toString()),
         ],
@@ -1048,7 +1048,7 @@ export class DAO {
                 VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING event_id)
         INSERT INTO governor_proposal_described
-            (chain_id, event_id, id, description)
+            (chain_id, event_id, proposal_id, description)
         VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8);
       `,
       values: [
@@ -1058,7 +1058,7 @@ export class DAO {
         key.eventIndex,
         key.transactionHash,
         key.emitter,
-        event.id,
+        event.proposal_id,
         event.description,
       ],
     });

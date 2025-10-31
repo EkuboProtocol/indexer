@@ -603,7 +603,7 @@ export function createEventProcessors({
         logger.debug("GovernorProposed", { parsed, key });
         await dao.insertGovernorProposedEvent(
           {
-            id: parsed.id,
+            proposal_id: parsed.id,
             proposer: parsed.proposer,
             configVersion: parsed.config_version,
             calls: parsed.calls.map((call) => ({
@@ -629,7 +629,7 @@ export function createEventProcessors({
         logger.debug("GovernorCanceled", { parsed, key });
         await dao.insertGovernorCanceledEvent(
           {
-            id: parsed.id,
+            proposal_id: parsed.id,
           },
           key
         );
@@ -649,7 +649,7 @@ export function createEventProcessors({
         // just use the canceled table
         await dao.insertGovernorCanceledEvent(
           {
-            id: parsed.id,
+            proposal_id: parsed.id,
           },
           key
         );
@@ -668,7 +668,7 @@ export function createEventProcessors({
         logger.debug("GovernorVoted", { parsed, key });
         await dao.insertGovernorVotedEvent(
           {
-            id: parsed.id,
+            proposal_id: parsed.id,
             voter: parsed.voter,
             weight: parsed.weight,
             yea: parsed.yea,
@@ -690,7 +690,7 @@ export function createEventProcessors({
         logger.debug("GovernorExecuted", { parsed, key });
         await dao.insertGovernorExecutedEvent(
           {
-            id: parsed.id,
+            proposal_id: parsed.id,
             results: parsed.result_data,
           },
           key
@@ -710,7 +710,7 @@ export function createEventProcessors({
         logger.debug("GovernorProposalDescribed", { parsed, key });
         await dao.insertGovernorProposalDescribedEvent(
           {
-            id: parsed.id,
+            proposal_id: parsed.id,
             description: parsed.description,
           },
           key
