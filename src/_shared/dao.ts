@@ -135,7 +135,9 @@ export interface TwammVirtualOrdersExecutedInsert {
 }
 
 export interface OracleSnapshotInsert {
-  poolId: `0x${string}`;
+  oracleVersion: number;
+  token0: AddressValue;
+  token1: AddressValue;
   timestamp: NumericValue;
   secondsPerLiquidityCumulative: NumericValue | null;
   tickCumulative: NumericValue;
@@ -1422,7 +1424,10 @@ export class DAO {
     });
   }
 
-  async insertOracleSnapshotEvent(parsed: OracleSnapshotInsert, key: EventKey) {
+  async insertOracleSnapshotEvent(
+    snapshot: OracleSnapshotInsert,
+    key: EventKey
+  ) {
     await this.pg.query({
       text: `
         WITH inserted_event AS (
@@ -1431,17 +1436,10 @@ export class DAO {
                 RETURNING event_id)
         INSERT
         INTO oracle_snapshots
-        (chain_id, event_id, pool_key_id, snapshot_block_timestamp, snapshot_tick_cumulative, snapshot_seconds_per_liquidity_cumulative)
+        (chain_id, event_id, oracle_version,
+          token0, token1, snapshot_block_timestamp, snapshot_tick_cumulative, snapshot_seconds_per_liquidity_cumulative)
         VALUES ($1, (SELECT event_id FROM inserted_event), 
-                (SELECT pk.id
-                          FROM pool_keys pk
-                            LEFT JOIN extension_registrations er 
-                              ON er.chain_id = pk.chain_id AND er.extension = pk.extension
-                            LEFT JOIN event_keys ek on er.chain_id = ek.chain_id AND er.event_id = ek.event_id
-                          WHERE pk.chain_id = $1 
-                            AND (ek.emitter IS NULL OR pk.core_address = ek.emitter)
-                            AND pool_id = $7),
-                $8, $9, $10)
+                $7, $8, $9, $10, $11, $12)
       `,
       values: [
         this.chainId,
@@ -1451,11 +1449,14 @@ export class DAO {
         key.transactionHash,
         key.emitter,
 
-        parsed.poolId,
+        snapshot.oracleVersion,
 
-        parsed.timestamp,
-        parsed.tickCumulative,
-        parsed.secondsPerLiquidityCumulative,
+        snapshot.token0,
+        snapshot.token1,
+
+        snapshot.timestamp,
+        snapshot.tickCumulative,
+        snapshot.secondsPerLiquidityCumulative,
       ],
     });
   }

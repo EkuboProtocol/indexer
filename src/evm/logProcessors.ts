@@ -234,15 +234,9 @@ export function createLogProcessors({
         });
         await dao.insertOracleSnapshotEvent(
           {
-            poolId: toPoolId({
-              token0: "0x0000000000000000000000000000000000000000",
-              token1: event.token,
-              config: toPoolConfig({
-                fee: 0n,
-                tickSpacing: 0,
-                extension: key.emitter,
-              }),
-            }),
+            oracleVersion: 0,
+            token0: "0x0000000000000000000000000000000000000000",
+            token1: event.token,
 
             secondsPerLiquidityCumulative: event.secondsPerLiquidityCumulative,
             tickCumulative: event.tickCumulative,
