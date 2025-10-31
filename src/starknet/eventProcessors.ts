@@ -184,7 +184,7 @@ export function createEventProcessors({
       parser: parseTransferEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("NFT transferred", { parsed, key });
-        await dao.insertPositionTransferEvent(
+        await dao.insertNonfungibleTokenTransferEvent(
           {
             id: parsed.id,
             from: parsed.from,
@@ -758,7 +758,6 @@ export function createEventProcessors({
         logger.debug("Snapshot", { parsed, key });
         await dao.insertOracleSnapshotEvent(
           {
-            oracleVersion: 0,
             token0: parsed.token0,
             token1: parsed.token1,
             timestamp: parsed.snapshot.block_timestamp,

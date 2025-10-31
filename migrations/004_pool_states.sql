@@ -45,12 +45,12 @@ BEGIN
 			FROM
 				pool_initializations
 			WHERE
-				pool_initializations.pool_key_id = pk.id
+				pool_initializations.pool_key_id = pk.pool_key_id
 			ORDER BY
 				event_id DESC
 			LIMIT 1) AS pi ON TRUE
 	WHERE
-		pk.id = p_pool_key_id
+		pk.pool_key_id = p_pool_key_id
 ),
 pl AS (
 	SELECT

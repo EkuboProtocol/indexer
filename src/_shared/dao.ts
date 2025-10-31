@@ -5,7 +5,7 @@ import type { EventKey } from "./eventKey.ts";
 export type NumericValue = bigint | number | `0x${string}`;
 export type AddressValue = bigint | `0x${string}`;
 
-export interface PositionTransferInsert {
+export interface NonfungibleTokenTransfer {
   id: bigint;
   from: AddressValue;
   to: AddressValue;
@@ -136,7 +136,6 @@ export interface TwammVirtualOrdersExecutedInsert {
 }
 
 export interface OracleSnapshotInsert {
-  oracleVersion: number;
   token0: AddressValue;
   token1: AddressValue;
   timestamp: NumericValue;
@@ -310,7 +309,6 @@ export class DAO {
     await this.pg.query(`
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_pool_states_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_sale_rate_deltas_materialized;
-      REFRESH MATERIALIZED VIEW CONCURRENTLY oracle_pool_states_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY limit_order_pool_states_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY spline_pools_materialized;
     `);
@@ -381,8 +379,8 @@ export class DAO {
     });
   }
 
-  public async insertPositionTransferEvent(
-    transfer: PositionTransferInsert,
+  public async insertNonfungibleTokenTransferEvent(
+    transfer: NonfungibleTokenTransfer,
     key: EventKey
   ) {
     await this.pg.query({
@@ -392,7 +390,7 @@ export class DAO {
                 VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING event_id)
         INSERT
-        INTO position_transfers
+        INTO nonfungible_token_transfers
         (chain_id,
           event_id,
           token_id,
@@ -400,39 +398,6 @@ export class DAO {
           to_address)
         VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9)
       `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        transfer.id,
-        transfer.from,
-        transfer.to,
-      ],
-    });
-  }
-
-  public async insertOrdersTransferEvent(
-    transfer: OrderTransferInsert,
-    key: EventKey
-  ) {
-    await this.pg.query({
-      text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING event_id)
-                INSERT
-                INTO order_transfers
-                (chain_id,
-                 event_id,
-                 token_id,
-                 from_address,
-                 to_address)
-                VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9)
-            `,
       values: [
         this.chainId,
         key.blockNumber,
@@ -487,7 +452,7 @@ export class DAO {
         balance_change_insert AS (
             INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
             VALUES ($1, (SELECT event_id FROM inserted_event),
-                    (SELECT id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
+                    (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
                     $13, $14)
             RETURNING event_id, pool_key_id
         )
@@ -532,7 +497,7 @@ export class DAO {
         balance_change_insert AS (
             INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
             VALUES ($1, (SELECT event_id FROM inserted_event),
-                    (SELECT id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
+                    (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
                     -$12::numeric, -$13::numeric)
             RETURNING event_id
         )
@@ -569,7 +534,7 @@ export class DAO {
     await this.pg.query({
       text: `
         WITH inserted_pool_key AS (
-        INSERT INTO pool_keys (chain_id, core_address, pool_id, token0, token1, fee, tick_spacing, EXTENSION, fee_denominator)
+        INSERT INTO pool_keys (chain_id, core_address, pool_id, token0, token1, fee, tick_spacing, pool_extension, fee_denominator)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING
               pool_key_id
@@ -712,7 +677,7 @@ export class DAO {
                         RETURNING event_id)
                 INSERT
                 INTO extension_registrations
-                    (chain_id, event_id, extension)
+                    (chain_id, event_id, pool_extension)
                 VALUES ($1, (SELECT event_id FROM inserted_event), $7);
             `,
       values: [
@@ -1102,7 +1067,7 @@ export class DAO {
         balance_change_insert AS (
             INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
             VALUES ($1, (SELECT event_id FROM inserted_event),
-                    (SELECT id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
+                    (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
                     $9, $10)
             RETURNING event_id
         )
@@ -1423,10 +1388,10 @@ export class DAO {
                 RETURNING event_id)
         INSERT
         INTO oracle_snapshots
-        (chain_id, event_id, oracle_version,
+        (chain_id, event_id,
           token0, token1, snapshot_block_timestamp, snapshot_tick_cumulative, snapshot_seconds_per_liquidity_cumulative)
         VALUES ($1, (SELECT event_id FROM inserted_event), 
-                $7, $8, $9, $10, $11, $12)
+                $7, $8, $9, $10, $11)
       `,
       values: [
         this.chainId,
@@ -1435,8 +1400,6 @@ export class DAO {
         key.eventIndex,
         key.transactionHash,
         key.emitter,
-
-        snapshot.oracleVersion,
 
         snapshot.token0,
         snapshot.token1,

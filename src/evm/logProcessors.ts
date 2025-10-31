@@ -218,7 +218,7 @@ export function createLogProcessors({
       abi: POSITIONS_ABI,
       handlers: {
         async Transfer(dao, key, parsed) {
-          await dao.insertPositionTransferEvent(parsed, key);
+          await dao.insertNonfungibleTokenTransferEvent(parsed, key);
         },
       },
     },
@@ -234,7 +234,6 @@ export function createLogProcessors({
         });
         await dao.insertOracleSnapshotEvent(
           {
-            oracleVersion: 0,
             token0: "0x0000000000000000000000000000000000000000",
             token1: event.token,
 
@@ -310,7 +309,7 @@ export function createLogProcessors({
       abi: ORDERS_ABI,
       handlers: {
         async Transfer(dao, key, parsed) {
-          await dao.insertOrdersTransferEvent(parsed, key);
+          await dao.insertNonfungibleTokenTransferEvent(parsed, key);
         },
       },
     },

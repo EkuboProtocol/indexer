@@ -42,7 +42,7 @@ BEGIN
 		VALUES (v_pool_key_id, NEW.snapshot_block_timestamp)
 	ON CONFLICT (pool_key_id)
 		DO UPDATE SET
-			last_snapshot_block_timestamp = GREATEST (last_snapshot_block_timestamp, EXCLUDED.last_snapshot_block_timestamp);
+			last_snapshot_block_timestamp = GREATEST (oracle_pool_states.last_snapshot_block_timestamp, EXCLUDED.last_snapshot_block_timestamp);
 	RETURN NEW;
 END;
 $$
@@ -69,6 +69,7 @@ BEGIN
 		pk.chain_id = OLD.chain_id
 		AND pk.token0 = OLD.token0
 		AND pk.token1 = OLD.token1
+		-- todo: this row is already deleted, which prevents the rollback
 		AND pk.pool_extension = (
 			SELECT
 				ek.emitter
