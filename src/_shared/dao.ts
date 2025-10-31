@@ -1443,7 +1443,7 @@ export class DAO {
                           WHERE pk.chain_id = $1 
                             AND (ek.emitter IS NULL OR pk.core_address = ek.emitter)
                             AND pool_id = $7),
-                $8, $9, $10, $11, $12)
+                $8, $9, $10)
       `,
       values: [
         this.chainId,
@@ -1455,11 +1455,8 @@ export class DAO {
 
         parsed.poolId,
 
-        parsed.token0,
-        parsed.token1,
         parsed.timestamp,
         parsed.tickCumulative,
-
         parsed.secondsPerLiquidityCumulative,
       ],
     });
