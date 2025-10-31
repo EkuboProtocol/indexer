@@ -530,8 +530,10 @@ export class DAO {
   public async insertPoolInitializedEvent(
     newPool: PoolInitializedInsert,
     key: EventKey
-  ) {
-    await this.pg.query({
+  ): Promise<bigint> {
+    const {
+      rows: [{ pool_key_id }],
+    } = await this.pg.query({
       text: `
         WITH inserted_pool_key AS (
         INSERT INTO pool_keys (chain_id, core_address, pool_id, token0, token1, fee, tick_spacing, pool_extension, fee_denominator)
@@ -556,6 +558,7 @@ export class DAO {
                     inserted_pool_key),
                   $15,
                   $16)
+            RETURNING pool_key_id;
       `,
       values: [
         this.chainId,
@@ -578,16 +581,13 @@ export class DAO {
         newPool.sqrtRatio,
       ],
     });
+
+    return BigInt(pool_key_id);
   }
 
   public async insertMEVCapturePoolKey(poolKeyId: bigint) {
     await this.pg.query({
-      text: `
-        INSERT
-        INTO mev_capture_pool_keys (pool_key_id)
-        VALUES ($1)
-        ON CONFLICT DO NOTHING;
-      `,
+      text: `INSERT INTO mev_capture_pool_keys (pool_key_id) VALUES ($1) ON CONFLICT DO NOTHING;`,
       values: [poolKeyId],
     });
   }
@@ -638,7 +638,7 @@ export class DAO {
         balance_change_insert AS (
             INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
             VALUES ($1, (SELECT event_id FROM inserted_event),
-                    (SELECT id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
+                    (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
                     -$12::numeric, -$13::numeric)
             RETURNING event_id, pool_key_id
         )
@@ -1033,7 +1033,7 @@ export class DAO {
         balance_change_insert AS (
             INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
             VALUES ($1, (SELECT event_id FROM inserted_event),
-                    (SELECT id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
+                    (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
                     $8, $9)
             RETURNING event_id
         )
@@ -1136,10 +1136,10 @@ export class DAO {
         INTO twamm_order_updates
         (chain_id, event_id, pool_key_id, locker, salt, sale_rate_delta0, sale_rate_delta1, start_time, end_time)
         VALUES ($1, (SELECT event_id FROM inserted_event),
-                (SELECT pk.id
+                (SELECT pk.pool_key_id
                   FROM pool_keys pk
                     LEFT JOIN extension_registrations er 
-                      ON er.chain_id = pk.chain_id AND er.extension = pk.extension
+                      ON er.chain_id = pk.chain_id AND er.pool_extension = pk.pool_extension
                     LEFT JOIN event_keys ek on er.chain_id = ek.chain_id AND er.event_id = ek.event_id
                   WHERE pk.chain_id = $1 
                     AND (ek.emitter IS NULL OR pk.core_address = ek.emitter)
@@ -1187,10 +1187,10 @@ export class DAO {
         INTO twamm_proceeds_withdrawals
         (chain_id, event_id, pool_key_id, locker, salt, amount0, amount1, start_time, end_time)
         VALUES ($1, (SELECT event_id FROM inserted_event),
-                (SELECT pk.id
+                (SELECT pk.pool_key_id
                   FROM pool_keys pk
                     LEFT JOIN extension_registrations er 
-                      ON er.chain_id = pk.chain_id AND er.extension = pk.extension
+                      ON er.chain_id = pk.chain_id AND er.pool_extension = pk.pool_extension
                     LEFT JOIN event_keys ek on er.chain_id = ek.chain_id AND er.event_id = ek.event_id
                   WHERE pk.chain_id = $1 
                     AND (ek.emitter IS NULL OR pk.core_address = ek.emitter)
@@ -1232,10 +1232,10 @@ export class DAO {
         INTO twamm_virtual_order_executions
             (chain_id, event_id, pool_key_id, token0_sale_rate, token1_sale_rate)
         VALUES ($1, (SELECT event_id FROM inserted_event),
-                (SELECT pk.id
+                (SELECT pk.pool_key_id
                   FROM pool_keys pk
                     LEFT JOIN extension_registrations er 
-                      ON er.chain_id = pk.chain_id AND er.extension = pk.extension
+                      ON er.chain_id = pk.chain_id AND er.pool_extension = pk.pool_extension
                     LEFT JOIN event_keys ek on er.chain_id = ek.chain_id AND er.event_id = ek.event_id
                   WHERE pk.chain_id = $1 
                     AND (ek.emitter IS NULL OR pk.core_address = ek.emitter)
@@ -1272,7 +1272,7 @@ export class DAO {
         INSERT INTO limit_order_placed
             (chain_id, event_id, pool_key_id, owner, salt, token0, token1, tick, liquidity, amount)
         VALUES ($1, (SELECT event_id FROM inserted_event),
-                (SELECT id
+                (SELECT pool_key_id
                   FROM pool_keys
                   WHERE chain_id = $1 AND pool_id = $7),
                 $8, $9, $10, $11, $12, $13, $14);
@@ -1310,7 +1310,7 @@ export class DAO {
         INSERT INTO limit_order_closed
             (chain_id, event_id, pool_key_id, owner, salt, token0, token1, tick, amount0, amount1)
         VALUES ($1, (SELECT event_id FROM inserted_event),
-                (SELECT id
+                (SELECT pool_key_id
                   FROM pool_keys
                   WHERE chain_id = $1 AND pool_id = $7),
                 $8, $9, $10, $11, $12, $13, $14);
@@ -1348,12 +1348,12 @@ export class DAO {
         INSERT INTO spline_liquidity_updated
             (chain_id, event_id, pool_key_id, sender, liquidity_factor, shares, amount0, amount1, protocol_fees0, protocol_fees1)
         VALUES ($1, (SELECT event_id FROM inserted_event),
-                (SELECT id
+                (SELECT pool_key_id
                   FROM pool_keys
                   WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
                                         FROM extension_registrations er
                                                 JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.event_id
-                                        WHERE er.extension = $6)
+                                        WHERE er.pool_extension = $6)
                     AND pool_id = $7),
                 $8, $9, $10, $11, $12, $13, $14);
       `,

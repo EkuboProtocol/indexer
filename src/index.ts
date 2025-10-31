@@ -313,7 +313,8 @@ function resetNoBlocksTimer() {
           await dao.commitTransaction();
 
           blockProcessingTimer.done({
-            message: `Processed to block`,
+            indexerName,
+            message: `Block processed`,
             chainId,
             blockNumber,
             isHead,
