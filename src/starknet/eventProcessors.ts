@@ -758,11 +758,6 @@ export function createEventProcessors({
         logger.debug("Snapshot", { parsed, key });
         await dao.insertOracleSnapshotEvent(
           {
-            token0: parsed.token0,
-            token1: parsed.token1,
-            timestamp: parsed.snapshot.block_timestamp,
-            tickCumulative: parsed.snapshot.tick_cumulative,
-            secondsPerLiquidityCumulative: null,
             poolId: poolKeyToPoolId({
               token0: parsed.token0,
               token1: parsed.token1,
@@ -770,6 +765,9 @@ export function createEventProcessors({
               tick_spacing: MAX_TICK_SPACING,
               extension: BigInt(key.emitter),
             }),
+            timestamp: parsed.snapshot.block_timestamp,
+            tickCumulative: parsed.snapshot.tick_cumulative,
+            secondsPerLiquidityCumulative: null,
           },
           key
         );

@@ -136,8 +136,6 @@ export interface TwammVirtualOrdersExecutedInsert {
 
 export interface OracleSnapshotInsert {
   poolId: `0x${string}`;
-  token0: AddressValue;
-  token1: AddressValue;
   timestamp: NumericValue;
   secondsPerLiquidityCumulative: NumericValue | null;
   tickCumulative: NumericValue;
