@@ -109,6 +109,8 @@ export interface StarknetEventProcessorConfig {
 }
 
 const STARKNET_POOL_FEE_DENOMINATOR = 1n << 128n;
+const LIMIT_ORDER_TICK_SPACING = 128n;
+const MAX_TICK_SPACING = 354892n;
 
 function poolKeyToPoolId(pool_key: PoolKey): `0x${string}` {
   return `0x${computeKeyHash(pool_key).toString(16)}`;
@@ -142,7 +144,10 @@ export function createEventProcessors({
         logger.debug("PositionMinted", { parsed, key });
         if (parsed.referrer !== null && parsed.referrer !== 0n) {
           await dao.insertPositionMintedWithReferrerEvent(
-            { id: parsed.id, referrer: parsed.referrer ?? 0n },
+            {
+              tokenId: parsed.id,
+              referrer: parsed.referrer,
+            },
             key
           );
         }
@@ -159,7 +164,13 @@ export function createEventProcessors({
       parser: parsePositionMintedWithReferrerEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("Referral", { parsed, key });
-        await dao.insertPositionMintedWithReferrerEvent(parsed, key);
+        await dao.insertPositionMintedWithReferrerEvent(
+          {
+            tokenId: parsed.id,
+            referrer: parsed.referrer,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<TransferEvent>>{
@@ -173,7 +184,14 @@ export function createEventProcessors({
       parser: parseTransferEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("NFT transferred", { parsed, key });
-        await dao.insertPositionTransferEvent(parsed, key);
+        await dao.insertPositionTransferEvent(
+          {
+            id: parsed.id,
+            from: parsed.from,
+            to: parsed.to,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<PositionUpdatedEvent>>{
@@ -214,7 +232,19 @@ export function createEventProcessors({
       parser: parsePositionFeesCollectedEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("PositionFeesCollected", { parsed, key });
-        await dao.insertPositionFeesCollectedEvent(parsed, key);
+        await dao.insertPositionFeesCollectedEvent(
+          {
+            poolId: poolKeyToPoolId(parsed.pool_key),
+            positionKey: {
+              owner: parsed.position_key.owner,
+              salt: parsed.position_key.salt,
+              bounds: parsed.position_key.bounds,
+            },
+            amount0: parsed.delta.amount0,
+            amount1: parsed.delta.amount1,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<SwappedEvent>>{
@@ -228,7 +258,18 @@ export function createEventProcessors({
       parser: parseSwappedEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("Swapped", { parsed, key });
-        await dao.insertSwappedEvent(parsed, key);
+        await dao.insertSwappedEvent(
+          {
+            locker: parsed.locker,
+            poolId: poolKeyToPoolId(parsed.pool_key),
+            delta0: parsed.delta.amount0,
+            delta1: parsed.delta.amount1,
+            sqrtRatioAfter: parsed.sqrt_ratio_after,
+            tickAfter: Number(parsed.tick_after),
+            liquidityAfter: parsed.liquidity_after,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<PoolInitializationEvent>>{
@@ -271,7 +312,14 @@ export function createEventProcessors({
       parser: parseProtocolFeesWithdrawnEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("ProtocolFeesWithdrawn", { parsed, key });
-        await dao.insertProtocolFeesWithdrawn(parsed, key);
+        await dao.insertProtocolFeesWithdrawn(
+          {
+            recipient: parsed.recipient,
+            token: parsed.token,
+            amount: parsed.amount,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<ProtocolFeesPaidEvent>>{
@@ -285,7 +333,17 @@ export function createEventProcessors({
       parser: parseProtocolFeesPaidEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("ProtocolFeesPaid", { parsed, key });
-        await dao.insertProtocolFeesPaid(parsed, key);
+        await dao.insertProtocolFeesPaid(
+          {
+            poolId: poolKeyToPoolId(parsed.pool_key),
+            owner: parsed.position_key.owner,
+            salt: parsed.position_key.salt,
+            bounds: parsed.position_key.bounds,
+            delta0: parsed.delta.amount0,
+            delta1: parsed.delta.amount1,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<FeesAccumulatedEvent>>{
@@ -299,7 +357,14 @@ export function createEventProcessors({
       parser: parseFeesAccumulatedEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("FeesAccumulated", { parsed, key });
-        await dao.insertFeesAccumulatedEvent(parsed, key);
+        await dao.insertFeesAccumulatedEvent(
+          {
+            poolId: poolKeyToPoolId(parsed.pool_key),
+            amount0: parsed.amount0,
+            amount1: parsed.amount1,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<TokenRegistrationEvent>>{
@@ -313,7 +378,16 @@ export function createEventProcessors({
       parser: parseRegistrationEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("Registration from V1 Registry", { parsed, key });
-        await dao.insertRegistration(parsed, key);
+        await dao.insertRegistration(
+          {
+            address: parsed.address,
+            name: parsed.name,
+            symbol: parsed.symbol,
+            decimals: parsed.decimals,
+            totalSupply: parsed.total_supply,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<TokenRegistrationEvent>>{
@@ -330,7 +404,16 @@ export function createEventProcessors({
           parsed,
           key,
         });
-        await dao.insertRegistration(parsed, key);
+        await dao.insertRegistration(
+          {
+            address: parsed.address,
+            name: parsed.name,
+            symbol: parsed.symbol,
+            decimals: parsed.decimals,
+            totalSupply: parsed.total_supply,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<TokenRegistrationEventV3>>{
@@ -344,7 +427,16 @@ export function createEventProcessors({
       parser: parseRegistrationEventV3,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("Registration event from V3 Registry", { parsed, key });
-        await dao.insertRegistrationV3(parsed, key);
+        await dao.insertRegistrationV3(
+          {
+            address: parsed.address,
+            name: parsed.name,
+            symbol: parsed.symbol,
+            decimals: parsed.decimals,
+            totalSupply: parsed.total_supply,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<OrderUpdatedEvent>>{
@@ -358,7 +450,34 @@ export function createEventProcessors({
       parser: parseOrderUpdated,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("OrderUpdated", { parsed, key });
-        await dao.insertTWAMMOrderUpdatedEvent(parsed, key);
+
+        const [token0, token1] =
+          parsed.order_key.sell_token < parsed.order_key.buy_token
+            ? [parsed.order_key.sell_token, parsed.order_key.buy_token]
+            : [parsed.order_key.buy_token, parsed.order_key.sell_token];
+
+        await dao.insertTWAMMOrderUpdatedEvent(
+          {
+            poolId: poolKeyToPoolId({
+              token0,
+              token1,
+              fee: parsed.order_key.fee,
+              tick_spacing: MAX_TICK_SPACING,
+              extension: BigInt(key.emitter),
+            }),
+            owner: parsed.owner,
+            salt: parsed.salt,
+            saleRateDelta: parsed.sale_rate_delta,
+            orderKey: {
+              sellToken: parsed.order_key.sell_token,
+              buyToken: parsed.order_key.buy_token,
+              fee: parsed.order_key.fee,
+              startTime: parsed.order_key.start_time,
+              endTime: parsed.order_key.end_time,
+            },
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<OrderProceedsWithdrawnEvent>>{
@@ -372,7 +491,32 @@ export function createEventProcessors({
       parser: parseOrderProceedsWithdrawn,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("OrderProceedsWithdrawn", { parsed, key });
-        await dao.insertTWAMMOrderProceedsWithdrawnEvent(parsed, key);
+        const [token0, token1] =
+          parsed.order_key.sell_token < parsed.order_key.buy_token
+            ? [parsed.order_key.sell_token, parsed.order_key.buy_token]
+            : [parsed.order_key.buy_token, parsed.order_key.sell_token];
+        await dao.insertTWAMMOrderProceedsWithdrawnEvent(
+          {
+            poolId: poolKeyToPoolId({
+              token0,
+              token1,
+              fee: parsed.order_key.fee,
+              tick_spacing: MAX_TICK_SPACING,
+              extension: BigInt(key.emitter),
+            }),
+            amount: parsed.amount,
+            owner: parsed.owner,
+            salt: parsed.salt,
+            orderKey: {
+              sellToken: parsed.order_key.sell_token,
+              buyToken: parsed.order_key.buy_token,
+              fee: parsed.order_key.fee,
+              startTime: parsed.order_key.start_time,
+              endTime: parsed.order_key.end_time,
+            },
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<VirtualOrdersExecutedEvent>>{
@@ -386,7 +530,21 @@ export function createEventProcessors({
       parser: parseVirtualOrdersExecuted,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("VirtualOrdersExecuted", { parsed, key });
-        await dao.insertTWAMMVirtualOrdersExecutedEvent(parsed, key);
+        const poolId = poolKeyToPoolId({
+          token0: parsed.key.token0,
+          token1: parsed.key.token1,
+          fee: parsed.key.fee,
+          tick_spacing: MAX_TICK_SPACING,
+          extension: BigInt(key.emitter),
+        });
+        await dao.insertTWAMMVirtualOrdersExecutedEvent(
+          {
+            poolId,
+            saleRateToken0: parsed.token0_sale_rate,
+            saleRateToken1: parsed.token1_sale_rate,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<StakedEvent>>{
@@ -400,7 +558,14 @@ export function createEventProcessors({
       parser: parseStakedEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("StakerStakedEvent", { parsed, key });
-        await dao.insertStakerStakedEvent(parsed, key);
+        await dao.insertStakerStakedEvent(
+          {
+            from: parsed.from,
+            amount: parsed.amount,
+            delegate: parsed.delegate,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<WithdrawnEvent>>{
@@ -414,7 +579,15 @@ export function createEventProcessors({
       parser: parseWithdrawnEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("StakerWithdrawnEvent", { parsed, key });
-        await dao.insertStakerWithdrawnEvent(parsed, key);
+        await dao.insertStakerWithdrawnEvent(
+          {
+            from: parsed.from,
+            amount: parsed.amount,
+            recipient: parsed.to,
+            delegate: parsed.delegate,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<GovernorProposedEvent>>{
@@ -428,7 +601,19 @@ export function createEventProcessors({
       parser: parseGovernorProposedEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("GovernorProposed", { parsed, key });
-        await dao.insertGovernorProposedEvent(parsed, key);
+        await dao.insertGovernorProposedEvent(
+          {
+            id: parsed.id,
+            proposer: parsed.proposer,
+            configVersion: parsed.config_version,
+            calls: parsed.calls.map((call) => ({
+              to: call.to,
+              selector: call.selector,
+              calldata: call.calldata,
+            })),
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<GovernorCanceledEvent>>{
@@ -442,7 +627,12 @@ export function createEventProcessors({
       parser: parseGovernorCanceledEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("GovernorCanceled", { parsed, key });
-        await dao.insertGovernorCanceledEvent(parsed, key);
+        await dao.insertGovernorCanceledEvent(
+          {
+            id: parsed.id,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<GovernorCreationThresholdBreached>>{
@@ -457,7 +647,12 @@ export function createEventProcessors({
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("GovernorCreationThresholdBreached", { parsed, key });
         // just use the canceled table
-        await dao.insertGovernorCanceledEvent(parsed, key);
+        await dao.insertGovernorCanceledEvent(
+          {
+            id: parsed.id,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<GovernorVotedEvent>>{
@@ -471,7 +666,15 @@ export function createEventProcessors({
       parser: parseGovernorVotedEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("GovernorVoted", { parsed, key });
-        await dao.insertGovernorVotedEvent(parsed, key);
+        await dao.insertGovernorVotedEvent(
+          {
+            id: parsed.id,
+            voter: parsed.voter,
+            weight: parsed.weight,
+            yea: parsed.yea,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<GovernorExecutedEvent>>{
@@ -485,7 +688,13 @@ export function createEventProcessors({
       parser: parseGovernorExecutedEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("GovernorExecuted", { parsed, key });
-        await dao.insertGovernorExecutedEvent(parsed, key);
+        await dao.insertGovernorExecutedEvent(
+          {
+            id: parsed.id,
+            results: parsed.result_data,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<DescribedEvent>>{
@@ -499,7 +708,13 @@ export function createEventProcessors({
       parser: parseDescribedEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("GovernorProposalDescribed", { parsed, key });
-        await dao.insertGovernorProposalDescribedEvent(parsed, key);
+        await dao.insertGovernorProposalDescribedEvent(
+          {
+            id: parsed.id,
+            description: parsed.description,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<GovernorReconfiguredEvent>>{
@@ -513,7 +728,21 @@ export function createEventProcessors({
       parser: parseGovernorReconfigured,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("GovernorReconfigured", { parsed, key });
-        await dao.insertGovernorReconfiguredEvent(parsed, key);
+        await dao.insertGovernorReconfiguredEvent(
+          {
+            version: parsed.version,
+            votingStartDelay: parsed.new_config.voting_start_delay,
+            votingPeriod: parsed.new_config.voting_period,
+            votingWeightSmoothingDuration:
+              parsed.new_config.voting_weight_smoothing_duration,
+            quorum: parsed.new_config.quorum,
+            proposalCreationThreshold:
+              parsed.new_config.proposal_creation_threshold,
+            executionDelay: parsed.new_config.execution_delay,
+            executionWindow: parsed.new_config.execution_window,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<SnapshotEvent>>{
@@ -527,7 +756,15 @@ export function createEventProcessors({
       parser: parseSnapshotEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("Snapshot", { parsed, key });
-        await dao.insertOracleSnapshotEvent(parsed, key);
+        await dao.insertOracleSnapshotEvent(
+          {
+            token: parsed.token1,
+            timestamp: parsed.snapshot.block_timestamp,
+            tickCumulative: parsed.snapshot.tick_cumulative,
+            secondsPerLiquidityCumulative: null,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<OrderPlacedEvent>>{
@@ -541,7 +778,26 @@ export function createEventProcessors({
       parser: parseOrderPlaced,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("OrderPlaced", { parsed, key });
-        await dao.insertOrderPlacedEvent(parsed, key);
+        const poolId = poolKeyToPoolId({
+          token0: parsed.order_key.token0,
+          token1: parsed.order_key.token1,
+          fee: 0n,
+          tick_spacing: LIMIT_ORDER_TICK_SPACING,
+          extension: BigInt(key.emitter),
+        });
+        await dao.insertOrderPlacedEvent(
+          {
+            poolId,
+            owner: parsed.owner,
+            salt: parsed.salt,
+            token0: parsed.order_key.token0,
+            token1: parsed.order_key.token1,
+            tick: Number(parsed.order_key.tick),
+            liquidity: parsed.liquidity,
+            amount: parsed.amount,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<OrderClosedEvent>>{
@@ -555,7 +811,26 @@ export function createEventProcessors({
       parser: parseOrderClosed,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("OrderClosed", { parsed, key });
-        await dao.insertOrderClosedEvent(parsed, key);
+        const poolId = poolKeyToPoolId({
+          token0: parsed.order_key.token0,
+          token1: parsed.order_key.token1,
+          fee: 0n,
+          tick_spacing: LIMIT_ORDER_TICK_SPACING,
+          extension: BigInt(key.emitter),
+        });
+        await dao.insertOrderClosedEvent(
+          {
+            poolId,
+            owner: parsed.owner,
+            salt: parsed.salt,
+            token0: parsed.order_key.token0,
+            token1: parsed.order_key.token1,
+            tick: Number(parsed.order_key.tick),
+            amount0: parsed.amount0,
+            amount1: parsed.amount1,
+          },
+          key
+        );
       },
     },
     <StarknetEventProcessor<LiquidityUpdatedEvent>>{
@@ -570,7 +845,20 @@ export function createEventProcessors({
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("LiquidityUpdated", { parsed, key });
         if (parsed.liquidity_factor !== 0n) {
-          await dao.insertLiquidityUpdatedEvent(parsed, key);
+          const poolId = poolKeyToPoolId(parsed.pool_key);
+          await dao.insertLiquidityUpdatedEvent(
+            {
+              poolId,
+              sender: parsed.sender,
+              liquidityFactor: parsed.liquidity_factor,
+              shares: parsed.shares,
+              amount0: parsed.amount0,
+              amount1: parsed.amount1,
+              protocolFees0: parsed.protocol_fees0,
+              protocolFees1: parsed.protocol_fees1,
+            },
+            key
+          );
         }
       },
     },

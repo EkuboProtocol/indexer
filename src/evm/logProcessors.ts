@@ -24,7 +24,7 @@ import { logger } from "../logger.ts";
 import { floatSqrtRatioToFixed, parseSwapEvent } from "./swapEvent.ts";
 import { parseOracleEvent } from "./oracleEvent.ts";
 import { parseTwammVirtualOrdersExecuted } from "./twammEvent.ts";
-import { parsePoolKeyConfig } from "../poolKey.ts";
+import { parsePoolKeyConfig, toPoolConfig, toPoolId } from "./poolKey.ts";
 
 export type ContractEvent<
   abi extends Abi,
@@ -249,10 +249,48 @@ export function createLogProcessors({
       },
       handlers: {
         async OrderUpdated(dao, key, parsed) {
-          await dao.insertTWAMMOrderUpdatedEvent(parsed, key);
+          const [token0, token1] =
+            BigInt(parsed.orderKey.sellToken) < BigInt(parsed.orderKey.buyToken)
+              ? [parsed.orderKey.sellToken, parsed.orderKey.buyToken]
+              : [parsed.orderKey.buyToken, parsed.orderKey.sellToken];
+
+          await dao.insertTWAMMOrderUpdatedEvent(
+            {
+              ...parsed,
+              poolId: toPoolId({
+                token0,
+                token1,
+                config: toPoolConfig({
+                  fee: BigInt(parsed.orderKey.fee),
+                  tickSpacing: 0,
+                  extension: key.emitter,
+                }),
+              }),
+            },
+            key
+          );
         },
         async OrderProceedsWithdrawn(dao, key, parsed) {
-          await dao.insertTWAMMOrderProceedsWithdrawnEvent(parsed, key);
+          const [token0, token1] =
+            BigInt(parsed.orderKey.sellToken) < BigInt(parsed.orderKey.buyToken)
+              ? [parsed.orderKey.sellToken, parsed.orderKey.buyToken]
+              : [parsed.orderKey.buyToken, parsed.orderKey.sellToken];
+
+          await dao.insertTWAMMOrderProceedsWithdrawnEvent(
+            {
+              ...parsed,
+              poolId: toPoolId({
+                token0,
+                token1,
+                config: toPoolConfig({
+                  fee: BigInt(parsed.orderKey.fee),
+                  tickSpacing: 0,
+                  extension: key.emitter,
+                }),
+              }),
+            },
+            key
+          );
         },
       },
     },

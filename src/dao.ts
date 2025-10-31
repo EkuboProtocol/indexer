@@ -1,7 +1,6 @@
 import type { PoolClient } from "pg";
 import { Client } from "pg";
 import type { EventKey } from "./eventKey.ts";
-import { toPoolConfig, toPoolId } from "./poolKey.ts";
 
 export type NumericValue = bigint | number | `0x${string}`;
 export type AddressValue = bigint | `0x${string}`;
@@ -16,6 +15,11 @@ export interface OrderTransferInsert {
   id: bigint;
   from: AddressValue;
   to: AddressValue;
+}
+
+export interface PositionMintedWithReferrerInsert {
+  tokenId: NumericValue;
+  referrer: AddressValue;
 }
 
 export interface BoundsDescriptor {
@@ -71,6 +75,15 @@ export interface ProtocolFeesWithdrawnInsert {
   amount: NumericValue;
 }
 
+export interface ProtocolFeesPaidInsert {
+  poolId: `0x${string}`;
+  owner: AddressValue;
+  salt: NumericValue;
+  bounds: BoundsDescriptor;
+  delta0: bigint;
+  delta1: bigint;
+}
+
 export interface ExtensionRegisteredInsert {
   extension: AddressValue;
 }
@@ -100,6 +113,7 @@ export interface TwammOrderKeyInsert {
 }
 
 export interface TwammOrderUpdatedInsert {
+  poolId: `0x${string}`;
   orderKey: TwammOrderKeyInsert;
   saleRateDelta: bigint;
   owner: AddressValue;
@@ -107,6 +121,7 @@ export interface TwammOrderUpdatedInsert {
 }
 
 export interface TwammOrderProceedsWithdrawnInsert {
+  poolId: `0x${string}`;
   orderKey: TwammOrderKeyInsert;
   amount: NumericValue;
   owner: AddressValue;
@@ -122,7 +137,7 @@ export interface TwammVirtualOrdersExecutedInsert {
 export interface OracleSnapshotInsert {
   token: AddressValue;
   timestamp: NumericValue;
-  secondsPerLiquidityCumulative: NumericValue;
+  secondsPerLiquidityCumulative: NumericValue | null;
   tickCumulative: NumericValue;
 }
 
@@ -148,13 +163,111 @@ export interface TokenWrapperDeployedInsert {
   unlockTime: NumericValue;
 }
 
-function toHexAddress(value: AddressValue): `0x${string}` {
-  if (typeof value === "string") {
-    return value;
-  }
-  const hex = value.toString(16);
-  const padded = hex.length % 2 === 0 ? hex : `0${hex}`;
-  return `0x${padded}` as `0x${string}`;
+export interface TokenRegistrationInsert {
+  address: AddressValue;
+  name: NumericValue;
+  symbol: NumericValue;
+  decimals: number;
+  totalSupply: NumericValue;
+}
+
+export interface TokenRegistrationV3Insert {
+  address: AddressValue;
+  name: string;
+  symbol: string;
+  decimals: number;
+  totalSupply: NumericValue;
+}
+
+export interface StakerStakedInsert {
+  from: AddressValue;
+  amount: NumericValue;
+  delegate: AddressValue;
+}
+
+export interface StakerWithdrawnInsert {
+  from: AddressValue;
+  amount: NumericValue;
+  recipient: AddressValue;
+  delegate: AddressValue;
+}
+
+export interface GovernorCallInsert {
+  to: AddressValue;
+  selector: NumericValue;
+  calldata: NumericValue[];
+}
+
+export interface GovernorProposedInsert {
+  id: NumericValue;
+  proposer: AddressValue;
+  configVersion: NumericValue | null;
+  calls: GovernorCallInsert[];
+}
+
+export interface GovernorCanceledInsert {
+  id: NumericValue;
+}
+
+export interface GovernorVotedInsert {
+  id: NumericValue;
+  voter: AddressValue;
+  weight: NumericValue;
+  yea: boolean;
+}
+
+export interface GovernorExecutedInsert {
+  id: NumericValue;
+  results: NumericValue[][];
+}
+
+export interface GovernorProposalDescribedInsert {
+  id: NumericValue;
+  description: string;
+}
+
+export interface GovernorReconfiguredInsert {
+  version: NumericValue;
+  votingStartDelay: NumericValue;
+  votingPeriod: NumericValue;
+  votingWeightSmoothingDuration: NumericValue;
+  quorum: NumericValue;
+  proposalCreationThreshold: NumericValue;
+  executionDelay: NumericValue;
+  executionWindow: NumericValue;
+}
+
+export interface LimitOrderPlacedInsert {
+  poolId: `0x${string}`;
+  owner: AddressValue;
+  salt: NumericValue;
+  token0: AddressValue;
+  token1: AddressValue;
+  tick: number;
+  liquidity: NumericValue;
+  amount: NumericValue;
+}
+
+export interface LimitOrderClosedInsert {
+  poolId: `0x${string}`;
+  owner: AddressValue;
+  salt: NumericValue;
+  token0: AddressValue;
+  token1: AddressValue;
+  tick: number;
+  amount0: NumericValue;
+  amount1: NumericValue;
+}
+
+export interface LiquidityUpdatedInsert {
+  poolId: `0x${string}`;
+  sender: AddressValue;
+  liquidityFactor: NumericValue;
+  shares: NumericValue;
+  amount0: NumericValue;
+  amount1: NumericValue;
+  protocolFees0: NumericValue;
+  protocolFees1: NumericValue;
 }
 
 // Data access object that manages inserts/deletes
@@ -357,6 +470,33 @@ export class DAO {
     });
   }
 
+  public async insertPositionMintedWithReferrerEvent(
+    event: PositionMintedWithReferrerInsert,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING event_id)
+        INSERT INTO position_minted_with_referrer
+            (chain_id, event_id, token_id, referrer)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8);
+      `,
+      values: [
+        this.chainId,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.tokenId,
+        event.referrer,
+      ],
+    });
+  }
+
   public async insertPositionUpdatedEvent(
     event: PositionUpdatedInsert,
     key: EventKey
@@ -529,6 +669,46 @@ export class DAO {
     });
   }
 
+  public async insertProtocolFeesPaid(
+    event: ProtocolFeesPaidInsert,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING event_id),
+        balance_change_insert AS (
+            INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
+            VALUES ($1, (SELECT event_id FROM inserted_event),
+                    (SELECT id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
+                    -$12::numeric, -$13::numeric)
+            RETURNING event_id, pool_key_id
+        )
+        INSERT INTO protocol_fees_paid
+            (chain_id, event_id, pool_key_id, owner, salt, lower_bound, upper_bound, delta0, delta1)
+        VALUES ($1, (SELECT event_id FROM balance_change_insert),
+                (SELECT pool_key_id FROM balance_change_insert), $8, $9, $10, $11, $12, $13);
+      `,
+      values: [
+        this.chainId,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.poolId,
+        event.owner,
+        event.salt,
+        event.bounds.lower,
+        event.bounds.upper,
+        event.delta0,
+        event.delta1,
+      ],
+    });
+  }
+
   public async insertExtensionRegistered(
     event: ExtensionRegisteredInsert,
     key: EventKey
@@ -552,6 +732,334 @@ export class DAO {
         key.transactionHash,
         key.emitter,
         event.extension,
+      ],
+    });
+  }
+
+  public async insertRegistration(
+    event: TokenRegistrationInsert,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING event_id)
+        INSERT INTO token_registrations
+            (chain_id, event_id, address, name, symbol, decimals, total_supply)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10, $11);
+      `,
+      values: [
+        this.chainId,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.address,
+        event.name,
+        event.symbol,
+        event.decimals,
+        event.totalSupply,
+      ],
+    });
+  }
+
+  public async insertRegistrationV3(
+    event: TokenRegistrationV3Insert,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING event_id)
+        INSERT INTO token_registrations_v3
+            (chain_id, event_id, address, name, symbol, decimals, total_supply)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10, $11);
+      `,
+      values: [
+        this.chainId,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.address,
+        event.name,
+        event.symbol,
+        event.decimals,
+        event.totalSupply,
+      ],
+    });
+  }
+
+  public async insertStakerStakedEvent(
+    event: StakerStakedInsert,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING event_id)
+        INSERT INTO staker_staked
+            (chain_id, event_id, from_address, amount, delegate)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9);
+      `,
+      values: [
+        this.chainId,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.from,
+        event.amount,
+        event.delegate,
+      ],
+    });
+  }
+
+  public async insertStakerWithdrawnEvent(
+    event: StakerWithdrawnInsert,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING event_id)
+        INSERT INTO staker_withdrawn
+            (chain_id, event_id, from_address, amount, recipient, delegate)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10);
+      `,
+      values: [
+        this.chainId,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.from,
+        event.amount,
+        event.recipient,
+        event.delegate,
+      ],
+    });
+  }
+
+  public async insertGovernorReconfiguredEvent(
+    event: GovernorReconfiguredInsert,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING event_id)
+        INSERT INTO governor_reconfigured
+            (chain_id, event_id, version, voting_start_delay, voting_period, voting_weight_smoothing_duration,
+             quorum, proposal_creation_threshold, execution_delay, execution_window)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10, $11, $12, $13, $14);
+      `,
+      values: [
+        this.chainId,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.version,
+        event.votingStartDelay,
+        event.votingPeriod,
+        event.votingWeightSmoothingDuration,
+        event.quorum,
+        event.proposalCreationThreshold,
+        event.executionDelay,
+        event.executionWindow,
+      ],
+    });
+  }
+
+  public async insertGovernorProposedEvent(
+    event: GovernorProposedInsert,
+    key: EventKey
+  ) {
+    const configVersion =
+      event.configVersion === null ? 0n : BigInt(event.configVersion);
+
+    await this.pg.query({
+      text: `
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING event_id)
+        INSERT INTO governor_proposed
+            (chain_id, event_id, id, proposer, config_version)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9);
+      `,
+      values: [
+        this.chainId,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.id,
+        event.proposer,
+        configVersion,
+      ],
+    });
+
+    for (let i = 0; i < event.calls.length; i++) {
+      const call = event.calls[i];
+      await this.pg.query({
+        text: `
+          INSERT INTO governor_proposed_calls
+              (chain_id, proposal_id, index, to_address, selector, calldata)
+          VALUES ($1, $2, $3, $4, $5, $6);
+        `,
+        values: [
+          this.chainId,
+          event.id,
+          i,
+          call.to,
+          call.selector,
+          call.calldata.map((value) => BigInt(value).toString()),
+        ],
+      });
+    }
+  }
+
+  public async insertGovernorCanceledEvent(
+    event: GovernorCanceledInsert,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING event_id)
+        INSERT INTO governor_canceled
+            (chain_id, event_id, id)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7)
+        ON CONFLICT (chain_id, id) DO NOTHING;
+      `,
+      values: [
+        this.chainId,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.id,
+      ],
+    });
+  }
+
+  public async insertGovernorVotedEvent(
+    event: GovernorVotedInsert,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING event_id)
+        INSERT INTO governor_voted
+            (chain_id, event_id, id, voter, weight, yea)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10);
+      `,
+      values: [
+        this.chainId,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.id,
+        event.voter,
+        event.weight,
+        event.yea,
+      ],
+    });
+  }
+
+  public async insertGovernorExecutedEvent(
+    event: GovernorExecutedInsert,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING event_id)
+        INSERT INTO governor_executed
+            (chain_id, event_id, id)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7)
+        ON CONFLICT (chain_id, id) DO NOTHING;
+      `,
+      values: [
+        this.chainId,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.id,
+      ],
+    });
+
+    for (let i = 0; i < event.results.length; i++) {
+      const result = event.results[i];
+      await this.pg.query({
+        text: `
+          INSERT INTO governor_executed_results
+              (chain_id, proposal_id, index, results)
+          VALUES ($1, $2, $3, $4);
+        `,
+        values: [
+          this.chainId,
+          event.id,
+          i,
+          result.map((value) => BigInt(value).toString()),
+        ],
+      });
+    }
+  }
+
+  public async insertGovernorProposalDescribedEvent(
+    event: GovernorProposalDescribedInsert,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+        WITH inserted_event AS (
+            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING event_id)
+        INSERT INTO governor_proposal_described
+            (chain_id, event_id, id, description)
+        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8);
+      `,
+      values: [
+        this.chainId,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.id,
+        event.description,
       ],
     });
   }
@@ -654,22 +1162,12 @@ export class DAO {
     event: TwammOrderUpdatedInsert,
     key: EventKey
   ) {
-    const { orderKey } = event;
+    const { orderKey, poolId } = event;
 
-    const [token0, token1, sale_rate_delta0, sale_rate_delta1] =
+    const [sale_rate_delta0, sale_rate_delta1] =
       BigInt(orderKey.sellToken) > BigInt(orderKey.buyToken)
         ? [orderKey.buyToken, orderKey.sellToken, 0, event.saleRateDelta]
         : [orderKey.sellToken, orderKey.buyToken, event.saleRateDelta, 0];
-
-    const poolId = toPoolId({
-      token0: toHexAddress(token0),
-      token1: toHexAddress(token1),
-      config: toPoolConfig({
-        fee: BigInt(orderKey.fee),
-        tickSpacing: 0,
-        extension: key.emitter,
-      }),
-    });
 
     await this.pg.query({
       text: `
@@ -682,12 +1180,13 @@ export class DAO {
         INTO twamm_order_updates
         (chain_id, event_id, pool_key_id, locker, salt, sale_rate_delta0, sale_rate_delta1, start_time, end_time)
         VALUES ($1, (SELECT event_id FROM inserted_event),
-                (SELECT id
-                  FROM pool_keys
-                  WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
-                                        FROM extension_registrations er
-                                                JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.event_id
-                                        WHERE er.extension = $6)
+                (SELECT pk.id
+                  FROM pool_keys pk
+                    LEFT JOIN extension_registrations er 
+                      ON er.chain_id = pk.chain_id AND er.extension = pk.extension
+                    LEFT JOIN event_keys ek on er.chain_id = ek.chain_id AND er.event_id = ek.event_id
+                  WHERE pk.chain_id = $1 
+                    AND (ek.emitter IS NULL OR pk.core_address = ek.emitter)
                     AND pool_id = $7),
                 $8, $9, $10, $11, $12, $13);
       `,
@@ -715,22 +1214,12 @@ export class DAO {
     event: TwammOrderProceedsWithdrawnInsert,
     key: EventKey
   ) {
-    const { orderKey } = event;
+    const { orderKey, poolId } = event;
 
-    const [token0, token1, amount0, amount1] =
+    const [amount0, amount1] =
       BigInt(orderKey.sellToken) > BigInt(orderKey.buyToken)
         ? [orderKey.buyToken, orderKey.sellToken, 0, event.amount]
         : [orderKey.sellToken, orderKey.buyToken, event.amount, 0];
-
-    const poolId = toPoolId({
-      token0: toHexAddress(token0),
-      token1: toHexAddress(token1),
-      config: toPoolConfig({
-        fee: BigInt(orderKey.fee),
-        tickSpacing: 0,
-        extension: key.emitter,
-      }),
-    });
 
     await this.pg.query({
       text: `
@@ -742,12 +1231,13 @@ export class DAO {
         INTO twamm_proceeds_withdrawals
         (chain_id, event_id, pool_key_id, locker, salt, amount0, amount1, start_time, end_time)
         VALUES ($1, (SELECT event_id FROM inserted_event),
-                (SELECT id
-                  FROM pool_keys
-                  WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
-                                        FROM extension_registrations er
-                                                JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.event_id
-                                        WHERE er.extension = $6)
+                (SELECT pk.id
+                  FROM pool_keys pk
+                    LEFT JOIN extension_registrations er 
+                      ON er.chain_id = pk.chain_id AND er.extension = pk.extension
+                    LEFT JOIN event_keys ek on er.chain_id = ek.chain_id AND er.event_id = ek.event_id
+                  WHERE pk.chain_id = $1 
+                    AND (ek.emitter IS NULL OR pk.core_address = ek.emitter)
                     AND pool_id = $7), 
                 $8, $9, $10, $11, $12, $13);
       `,
@@ -786,15 +1276,17 @@ export class DAO {
         INTO twamm_virtual_order_executions
             (chain_id, event_id, pool_key_id, token0_sale_rate, token1_sale_rate)
         VALUES ($1, (SELECT event_id FROM inserted_event),
-                (SELECT id
-                  FROM pool_keys
-                  WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
-                                        FROM extension_registrations er
-                                                JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.event_id
-                                        WHERE er.extension = $6)
+                (SELECT pk.id
+                  FROM pool_keys pk
+                    LEFT JOIN extension_registrations er 
+                      ON er.chain_id = pk.chain_id AND er.extension = pk.extension
+                    LEFT JOIN event_keys ek on er.chain_id = ek.chain_id AND er.event_id = ek.event_id
+                  WHERE pk.chain_id = $1 
+                    AND (ek.emitter IS NULL OR pk.core_address = ek.emitter)
                     AND pool_id = $7),
                 $8, $9);
       `,
+      // note on starknet we do not have an extension registration event
       values: [
         this.chainId,
         key.blockNumber,
@@ -806,6 +1298,132 @@ export class DAO {
         event.poolId,
         event.saleRateToken0,
         event.saleRateToken1,
+      ],
+    });
+  }
+
+  public async insertOrderPlacedEvent(
+    event: LimitOrderPlacedInsert,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+        WITH inserted_event AS (
+            INSERT INTO event_keys
+                (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING event_id)
+        INSERT INTO limit_order_placed
+            (chain_id, event_id, pool_key_id, owner, salt, token0, token1, tick, liquidity, amount)
+        VALUES ($1, (SELECT event_id FROM inserted_event),
+                (SELECT id
+                  FROM pool_keys
+                  WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
+                                        FROM extension_registrations er
+                                                JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.event_id
+                                        WHERE er.extension = $6)
+                    AND pool_id = $7),
+                $8, $9, $10, $11, $12, $13, $14);
+      `,
+      values: [
+        this.chainId,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.poolId,
+        event.owner,
+        event.salt,
+        event.token0,
+        event.token1,
+        event.tick,
+        event.liquidity,
+        event.amount,
+      ],
+    });
+  }
+
+  public async insertOrderClosedEvent(
+    event: LimitOrderClosedInsert,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+        WITH inserted_event AS (
+            INSERT INTO event_keys
+                (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING event_id)
+        INSERT INTO limit_order_closed
+            (chain_id, event_id, pool_key_id, owner, salt, token0, token1, tick, amount0, amount1)
+        VALUES ($1, (SELECT event_id FROM inserted_event),
+                (SELECT id
+                  FROM pool_keys
+                  WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
+                                        FROM extension_registrations er
+                                                JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.event_id
+                                        WHERE er.extension = $6)
+                    AND pool_id = $7),
+                $8, $9, $10, $11, $12, $13, $14);
+      `,
+      values: [
+        this.chainId,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.poolId,
+        event.owner,
+        event.salt,
+        event.token0,
+        event.token1,
+        event.tick,
+        event.amount0,
+        event.amount1,
+      ],
+    });
+  }
+
+  public async insertLiquidityUpdatedEvent(
+    event: LiquidityUpdatedInsert,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+        WITH inserted_event AS (
+            INSERT INTO event_keys
+                (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING event_id)
+        INSERT INTO spline_liquidity_updated
+            (chain_id, event_id, pool_key_id, sender, liquidity_factor, shares, amount0, amount1, protocol_fees0, protocol_fees1)
+        VALUES ($1, (SELECT event_id FROM inserted_event),
+                (SELECT id
+                  FROM pool_keys
+                  WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
+                                        FROM extension_registrations er
+                                                JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.event_id
+                                        WHERE er.extension = $6)
+                    AND pool_id = $7),
+                $8, $9, $10, $11, $12, $13, $14);
+      `,
+      values: [
+        this.chainId,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.poolId,
+        event.sender,
+        event.liquidityFactor,
+        event.shares,
+        event.amount0,
+        event.amount1,
+        event.protocolFees0,
+        event.protocolFees1,
       ],
     });
   }
