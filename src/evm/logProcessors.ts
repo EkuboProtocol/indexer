@@ -240,7 +240,7 @@ export function createLogProcessors({
             token1: event.token,
             timestamp: event.timestamp,
             poolId: toPoolId({
-              token0: `0x0`,
+              token0: "0x0000000000000000000000000000000000000000",
               token1: event.token,
               config: toPoolConfig({
                 fee: 0n,
