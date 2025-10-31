@@ -1,5 +1,5 @@
 CREATE TABLE pool_tvl (
-	pool_key_id int8 NOT NULL PRIMARY KEY REFERENCES pool_keys (id),
+	pool_key_id int8 NOT NULL PRIMARY KEY REFERENCES pool_keys (pool_key_id),
 	balance0 numeric NOT NULL,
 	balance1 numeric NOT NULL
 );

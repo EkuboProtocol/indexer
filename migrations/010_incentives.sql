@@ -30,7 +30,7 @@ CREATE TABLE token_wrapper_deployed (
 	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
 
-CREATE SCHEMA IF NOT EXISTS incentives;
+CREATE SCHEMA incentives;
 
 CREATE OR REPLACE FUNCTION incentives.percent_within_std (z double precision)
 	RETURNS double precision
@@ -110,8 +110,10 @@ EXCEPTION
 END
 $$;
 
-CREATE TABLE IF NOT EXISTS incentives.campaigns (
+CREATE TABLE incentives.campaigns (
 	id SERIAL8 NOT NULL,
+	-- the chain on which the campaign lives
+	chain_id int8 NOT NULL,
 	-- when the campaign rewards are expected to start accumulating
 	start_time timestamptz NOT NULL,
 	-- when campaign will end, if it is known
@@ -138,10 +140,10 @@ CREATE TABLE IF NOT EXISTS incentives.campaigns (
 	PRIMARY KEY (id)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_incentive_campaigns_slug ON incentives.campaigns (slug);
+CREATE UNIQUE INDEX idx_incentive_campaigns_slug ON incentives.campaigns (slug);
 
 -- specific dates on which rewards are provided to pairs
-CREATE TABLE IF NOT EXISTS incentives.campaign_reward_periods (
+CREATE TABLE incentives.campaign_reward_periods (
 	campaign_id int REFERENCES incentives.campaigns (id) ON DELETE CASCADE,
 	id SERIAL8,
 	-- token pair being incentivized
@@ -165,9 +167,9 @@ CREATE TABLE IF NOT EXISTS incentives.campaign_reward_periods (
 	PRIMARY KEY (id)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_campaign_reward_periods_pair_period ON incentives.campaign_reward_periods (campaign_id, token0, token1, start_time, end_time);
+CREATE UNIQUE INDEX idx_campaign_reward_periods_pair_period ON incentives.campaign_reward_periods (campaign_id, token0, token1, start_time, end_time);
 
-CREATE TABLE IF NOT EXISTS incentives.computed_rewards (
+CREATE TABLE incentives.computed_rewards (
 	campaign_reward_period_id int8 NOT NULL REFERENCES incentives.campaign_reward_periods (id),
 	locker numeric NOT NULL,
 	salt numeric NOT NULL,
@@ -175,27 +177,27 @@ CREATE TABLE IF NOT EXISTS incentives.computed_rewards (
 	PRIMARY KEY (campaign_reward_period_id, locker, salt)
 );
 
-CREATE INDEX IF NOT EXISTS idx_computed_rewards_salt ON incentives.computed_rewards (salt);
+CREATE INDEX idx_computed_rewards_salt ON incentives.computed_rewards (salt);
 
-CREATE INDEX IF NOT EXISTS idx_computed_rewards_locker_salt ON incentives.computed_rewards (locker, salt);
+CREATE INDEX idx_computed_rewards_locker_salt ON incentives.computed_rewards (locker, salt);
 
-CREATE TABLE IF NOT EXISTS incentives.generated_drop (
+CREATE TABLE incentives.generated_drop (
 	id SERIAL8 PRIMARY KEY,
 	root numeric NOT NULL,
 	generated_at timestamptz DEFAULT CURRENT_TIMESTAMP
 );
 
 -- the periods that were included in the generated merkle root
-CREATE TABLE IF NOT EXISTS incentives.generated_drop_reward_periods (
+CREATE TABLE incentives.generated_drop_reward_periods (
 	drop_id int8 NOT NULL REFERENCES incentives.generated_drop (id) ON DELETE CASCADE,
 	-- this should not cascade, because it means the source of the data is being deleted
 	campaign_reward_period_id int8 NOT NULL REFERENCES incentives.campaign_reward_periods (id),
 	PRIMARY KEY (drop_id, campaign_reward_period_id)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_generated_drop_reward_periods_crp_id ON incentives.generated_drop_reward_periods (campaign_reward_period_id);
+CREATE UNIQUE INDEX idx_generated_drop_reward_periods_crp_id ON incentives.generated_drop_reward_periods (campaign_reward_period_id);
 
-CREATE TABLE IF NOT EXISTS incentives.generated_drop_proof (
+CREATE TABLE incentives.generated_drop_proof (
 	drop_id int REFERENCES incentives.generated_drop (id) ON DELETE CASCADE,
 	id int NOT NULL,
 	address numeric NOT NULL,
@@ -205,14 +207,14 @@ CREATE TABLE IF NOT EXISTS incentives.generated_drop_proof (
 );
 
 -- meant to be manually populated
-CREATE TABLE IF NOT EXISTS incentives.deployed_airdrop_contracts (
+CREATE TABLE incentives.deployed_airdrop_contracts (
 	address numeric NOT NULL PRIMARY KEY,
 	token numeric NOT NULL,
 	drop_id int REFERENCES incentives.generated_drop (id) ON DELETE CASCADE
 );
 
 -- this prevents us from deploying the same drop multiple times
-CREATE UNIQUE INDEX IF NOT EXISTS idx_deployed_airdrop_contracts_drop_id ON incentives.deployed_airdrop_contracts (drop_id);
+CREATE UNIQUE INDEX idx_deployed_airdrop_contracts_drop_id ON incentives.deployed_airdrop_contracts (drop_id);
 
 -- 1. Redefine token_pair to include per-pair budget & realized_volatility
 DROP TYPE IF EXISTS incentives.token_pair_budget CASCADE;
@@ -225,7 +227,7 @@ CREATE TYPE incentives.token_pair_budget AS (
 );
 
 -- 2. Function creates campaign + allowed extensions + reward periods
-CREATE OR REPLACE FUNCTION incentives.create_campaign (p_name text, p_slug varchar(20), p_start_time timestamptz, p_end_time timestamptz, p_interval interval, p_reward_token numeric, p_pairs incentives.token_pair_budget[], p_default_fee_denominator numeric, p_allowed_extensions numeric[] DEFAULT '{0}', p_excluded_locker_salts incentives.locker_salt_pair[] DEFAULT '{}', p_percent_step double precision DEFAULT NULL, p_max_coverage double precision DEFAULT NULL)
+CREATE OR REPLACE FUNCTION incentives.create_campaign (p_chain_id int8, p_name text, p_slug varchar(20), p_start_time timestamptz, p_end_time timestamptz, p_interval interval, p_reward_token numeric, p_pairs incentives.token_pair_budget[], p_default_fee_denominator numeric, p_allowed_extensions numeric[] DEFAULT '{0}', p_excluded_locker_salts incentives.locker_salt_pair[] DEFAULT '{}', p_percent_step double precision DEFAULT NULL, p_max_coverage double precision DEFAULT NULL)
 	RETURNS bigint
 	LANGUAGE plpgsql
 	AS $$
@@ -243,8 +245,8 @@ BEGIN
 		v_total_budget := v_total_budget + v_pair.budget;
 	END LOOP;
 	-- insert campaign
-	INSERT INTO incentives.campaigns (name, slug, start_time, end_time, reward_token, allowed_extensions, excluded_locker_salts, default_fee_denominator)
-		VALUES (p_name, p_slug, p_start_time, p_end_time, p_reward_token, p_allowed_extensions, p_excluded_locker_salts, p_default_fee_denominator)
+	INSERT INTO incentives.campaigns (chain_id, name, slug, start_time, end_time, reward_token, allowed_extensions, excluded_locker_salts, default_fee_denominator)
+		VALUES (p_chain_id, p_name, p_slug, p_start_time, p_end_time, p_reward_token, p_allowed_extensions, p_excluded_locker_salts, p_default_fee_denominator)
 	RETURNING
 		id INTO v_campaign_id;
 	-- compute number of full intervals

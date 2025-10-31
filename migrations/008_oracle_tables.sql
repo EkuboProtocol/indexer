@@ -1,8 +1,6 @@
 CREATE TABLE oracle_snapshots (
 	chain_id int8 NOT NULL,
 	event_id int8 NOT NULL,
-	-- we include an arbitrary version number so we can distinguish between different oracles in the group
-	oracle_version int2 NOT NULL,
 	token0 numeric NOT NULL,
 	token1 numeric NOT NULL,
 	snapshot_block_timestamp int8 NOT NULL,
@@ -13,46 +11,113 @@ CREATE TABLE oracle_snapshots (
 	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_oracle_snapshots_chain_id_token0_token1_timestamp ON oracle_snapshots (chain_id, oracle_version, token0, token1, snapshot_block_timestamp DESC);
+CREATE TABLE oracle_pool_states (
+	pool_key_id int8 PRIMARY KEY NOT NULL REFERENCES pool_keys (pool_key_id),
+	last_snapshot_block_timestamp int8 NOT NULL
+);
 
-CREATE VIEW oracle_pool_states_view AS (
-	WITH last_snapshot AS (
-		SELECT DISTINCT ON (chain_id,
-			oracle_version,
-			token0,
-			token1)
-			chain_id,
-			event_id,
-			oracle_version,
-			token0,
-			token1,
-			snapshot_block_timestamp
-		FROM
-			oracle_snapshots
-		ORDER BY
-			chain_id,
-			oracle_version,
-			token0,
-			token1,
-			snapshot_block_timestamp DESC
-)
-		SELECT
-			pk.id AS pool_key_id,
-			snapshot_block_timestamp AS last_snapshot_block_timestamp
-		FROM
-			last_snapshot ls
-			JOIN event_keys ek USING (chain_id,
-				event_id)
-			JOIN pool_keys pk ON pk.chain_id = ls.chain_id
-				AND pk.token0 = ls.token0
-				AND pk.token1 = ls.token1
-				AND pk.extension = ek.emitter);
-
-CREATE MATERIALIZED VIEW oracle_pool_states_materialized AS (
+CREATE OR REPLACE FUNCTION oracle_apply_snapshot_deferred ()
+	RETURNS TRIGGER
+	AS $$
+DECLARE
+	v_pool_key_id bigint;
+BEGIN
 	SELECT
-		pool_key_id,
-		last_snapshot_block_timestamp
+		pk.pool_key_id INTO v_pool_key_id STRICT
 	FROM
-		oracle_pool_states_view);
+		pool_keys pk
+	WHERE
+		pk.chain_id = NEW.chain_id
+		AND pk.token0 = NEW.token0
+		AND pk.token1 = NEW.token1
+		AND pk.pool_extension = (
+			SELECT
+				ek.emitter
+			FROM
+				event_keys ek
+			WHERE
+				ek.chain_id = NEW.chain_id
+				AND ek.event_id = NEW.event_id);
+	INSERT INTO oracle_pool_states (pool_key_id, last_snapshot_block_timestamp)
+		VALUES (v_pool_key_id, NEW.snapshot_block_timestamp)
+	ON CONFLICT (pool_key_id)
+		DO UPDATE SET
+			last_snapshot_block_timestamp = GREATEST (last_snapshot_block_timestamp, EXCLUDED.last_snapshot_block_timestamp);
+	RETURN NEW;
+END;
+$$
+LANGUAGE plpgsql;
 
-CREATE UNIQUE INDEX idx_oracle_pool_states_materialized_pool_key_id ON oracle_pool_states_materialized USING btree (pool_key_id);
+CREATE CONSTRAINT TRIGGER trg_oracle_apply_snapshot
+	AFTER INSERT ON oracle_snapshots DEFERRABLE INITIALLY DEFERRED
+	FOR EACH ROW
+	EXECUTE FUNCTION oracle_apply_snapshot_deferred ();
+	
+CREATE OR REPLACE FUNCTION oracle_rollback_snapshot ()
+	RETURNS TRIGGER
+	AS $$
+DECLARE
+	v_pool_key_id bigint;
+	v_last_ts bigint;
+BEGIN
+	-- find the pool for this snapshot (strict one-row match)
+	SELECT
+		pk.pool_key_id INTO STRICT v_pool_key_id
+	FROM
+		pool_keys pk
+	WHERE
+		pk.chain_id = OLD.chain_id
+		AND pk.token0 = OLD.token0
+		AND pk.token1 = OLD.token1
+		AND pk.pool_extension = (
+			SELECT
+				ek.emitter
+			FROM
+				event_keys ek
+			WHERE
+				ek.chain_id = OLD.chain_id
+				AND ek.event_id = OLD.event_id);
+	-- get the most recent remaining snapshot (by event_id, not timestamp)
+	SELECT
+		os.snapshot_block_timestamp INTO v_last_ts
+	FROM
+		oracle_snapshots os
+		JOIN event_keys ek ON ek.chain_id = os.chain_id
+			AND ek.event_id = os.event_id
+	WHERE
+		os.chain_id = OLD.chain_id
+		AND os.token0 = OLD.token0
+		AND os.token1 = OLD.token1
+		AND ek.emitter = (
+			SELECT
+				pool_extension
+			FROM
+				pool_keys
+			WHERE
+				pool_key_id = v_pool_key_id)
+	ORDER BY
+		os.event_id DESC
+	LIMIT 1;
+	IF v_last_ts IS NULL THEN
+		-- no snapshots remain → delete state row
+		DELETE FROM oracle_pool_states
+		WHERE pool_key_id = v_pool_key_id;
+	ELSE
+		-- set state to last surviving snapshot
+		UPDATE
+			oracle_pool_states
+		SET
+			last_snapshot_block_timestamp = v_last_ts
+		WHERE
+			pool_key_id = v_pool_key_id;
+	END IF;
+	RETURN OLD;
+END;
+$$
+LANGUAGE plpgsql;
+
+
+CREATE TRIGGER trg_oracle_rollback_snapshot
+	AFTER DELETE ON oracle_snapshots
+	FOR EACH ROW
+	EXECUTE FUNCTION oracle_rollback_snapshot ();

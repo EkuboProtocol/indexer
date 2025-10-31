@@ -172,7 +172,7 @@ export function createLogProcessors({
             parsed.poolKey.config
           );
           const poolInitialized: PoolInitializedInsert = {
-            poolId: parsed.poolId,
+            feeDenominator: EVM_POOL_FEE_DENOMINATOR,
             poolKey: {
               token0: parsed.poolKey.token0,
               token1: parsed.poolKey.token1,
@@ -180,6 +180,7 @@ export function createLogProcessors({
               tickSpacing,
               extension,
             },
+            poolId: parsed.poolId,
             tick:
               typeof parsed.tick === "bigint"
                 ? Number(parsed.tick)
@@ -188,8 +189,7 @@ export function createLogProcessors({
           };
           const poolKeyId = await dao.insertPoolInitializedEvent(
             poolInitialized,
-            key,
-            EVM_POOL_FEE_DENOMINATOR
+            key
           );
 
           if (BigInt(extension) === mevCaptureAddressBigInt) {

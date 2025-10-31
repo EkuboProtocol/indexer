@@ -1,5 +1,5 @@
 CREATE TABLE hourly_volume_by_token (
-	pool_key_id int8 NOT NULL REFERENCES pool_keys (id),
+	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	hour timestamptz NOT NULL,
 	token numeric NOT NULL,
 	volume numeric NOT NULL,
@@ -32,7 +32,7 @@ CREATE TABLE hourly_price_block_totals (
 );
 
 CREATE TABLE hourly_tvl_delta_by_token (
-	pool_key_id int8 NOT NULL REFERENCES pool_keys (id),
+	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	hour timestamptz NOT NULL,
 	token numeric NOT NULL,
 	delta numeric NOT NULL,
@@ -40,7 +40,7 @@ CREATE TABLE hourly_tvl_delta_by_token (
 );
 
 CREATE TABLE hourly_revenue_by_token (
-	pool_key_id int8 NOT NULL REFERENCES pool_keys (id),
+	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	hour timestamptz NOT NULL,
 	token numeric NOT NULL,
 	revenue numeric NOT NULL,
@@ -96,7 +96,7 @@ DECLARE
 	v_fees numeric;
 BEGIN
 	SELECT
-		pbc.pool_key_id,
+		pool_key_id,
 		date_trunc('hour', b.time) AS hour,
 		CASE WHEN pbc.delta0 >= 0 THEN
 			pk.token0
@@ -122,7 +122,7 @@ BEGIN
 		pool_balance_change pbc
 		JOIN event_keys ek USING (chain_id, event_id)
 		JOIN blocks b USING (chain_id, block_number)
-		JOIN pool_keys pk ON pk.id = pbc.pool_key_id
+		JOIN pool_keys pk USING (pool_key_id)
 	WHERE
 		pbc.chain_id = p_chain_id
 		AND pbc.event_id = p_pool_balance_change_id;
@@ -149,7 +149,7 @@ DECLARE
 	v_fee1 numeric;
 BEGIN
 	SELECT
-		pbc.pool_key_id,
+		pool_key_id,
 		date_trunc('hour', b.time) AS hour,
 		pk.token0,
 		pk.token1,
@@ -164,7 +164,7 @@ BEGIN
 		pool_balance_change pbc
 		JOIN event_keys ek USING (chain_id, event_id)
 		JOIN blocks b USING (chain_id, block_number)
-		JOIN pool_keys pk ON pk.id = pbc.pool_key_id
+		JOIN pool_keys pk USING (pool_key_id)
 	WHERE
 		pbc.chain_id = p_chain_id
 		AND pbc.event_id = p_pool_balance_change_id;
@@ -265,7 +265,7 @@ BEGIN
 		pool_balance_change pbc
 		JOIN event_keys ek USING (chain_id, event_id)
 		JOIN blocks b USING (chain_id, block_number)
-		JOIN pool_keys pk ON pk.id = pbc.pool_key_id
+		JOIN pool_keys pk USING (pool_key_id)
 	WHERE
 		pbc.chain_id = p_chain_id
 		AND pbc.event_id = p_pool_balance_change_id;
@@ -408,7 +408,7 @@ BEGIN
 		JOIN event_keys ek USING (chain_id, event_id)
 		JOIN blocks b USING (chain_id, block_number)
 		LEFT JOIN position_updates pu USING (chain_id, event_id)
-		JOIN pool_keys pk ON pk.id = pbc.pool_key_id
+		JOIN pool_keys pk USING (pool_key_id)
 	WHERE
 		pbc.chain_id = p_chain_id
 		AND pbc.event_id = p_event_id;
@@ -501,7 +501,7 @@ BEGIN
 		JOIN pool_balance_change pbc USING (chain_id, event_id)
 		JOIN event_keys ek USING (chain_id, event_id)
 		JOIN blocks b USING (chain_id, block_number)
-		JOIN pool_keys pk ON pk.id = pbc.pool_key_id
+		JOIN pool_keys pk USING (pool_key_id)
 	WHERE
 		pu.chain_id = p_chain_id
 		AND pu.event_id = p_pool_balance_change_id;

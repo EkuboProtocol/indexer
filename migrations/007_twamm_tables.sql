@@ -1,7 +1,7 @@
 CREATE TABLE twamm_order_updates (
 	chain_id int8 NOT NULL,
 	event_id int8 NOT NULL,
-	pool_key_id int8 NOT NULL REFERENCES pool_keys (id),
+	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	locker numeric NOT NULL,
 	salt numeric NOT NULL,
 	sale_rate_delta0 numeric NOT NULL,
@@ -25,7 +25,7 @@ CREATE INDEX idx_twamm_order_updates_salt_key_hash_start_end_owner_event_id ON t
 CREATE TABLE twamm_proceeds_withdrawals (
 	chain_id int8 NOT NULL,
 	event_id int8 NOT NULL,
-	pool_key_id int8 NOT NULL REFERENCES pool_keys (id),
+	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	locker numeric NOT NULL,
 	salt numeric NOT NULL,
 	start_time timestamptz NOT NULL,
@@ -49,7 +49,7 @@ CREATE INDEX idx_twamm_proceeds_withdrawals_salt_event_id_desc ON twamm_proceeds
 CREATE TABLE twamm_virtual_order_executions (
 	chain_id int8 NOT NULL,
 	event_id int8 NOT NULL,
-	pool_key_id int8 NOT NULL REFERENCES pool_keys (id),
+	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	token0_sale_rate numeric NOT NULL,
 	token1_sale_rate numeric NOT NULL,
 	PRIMARY KEY (chain_id, event_id),
@@ -69,14 +69,14 @@ CREATE VIEW twamm_pool_states_view AS (
 			pool_key_id),
 		last_virtual_order_execution AS (
 			SELECT
-				pk.id AS pool_key_id,
+				pk.pool_key_id,
 				last_voe.token0_sale_rate,
 				last_voe.token1_sale_rate,
 				last_voe.event_id AS last_virtual_order_execution_event_id,
 				b.time AS last_virtual_execution_time
 			FROM
 				pool_keys pk
-				JOIN lvoe_id ON lvoe_id.pool_key_id = pk.id
+				JOIN lvoe_id ON lvoe_id.pool_key_id = pk.pool_key_id
 				JOIN twamm_virtual_order_executions last_voe ON last_voe.chain_id = pk.chain_id
 					AND last_voe.event_id = lvoe_id.event_id
 				JOIN event_keys ek ON last_voe.chain_id = ek.chain_id
@@ -106,7 +106,7 @@ CREATE VIEW twamm_pool_states_view AS (
 				GREATEST (coalesce(ou_lvoe.last_order_update_event_id, lvoe.last_virtual_order_execution_event_id), psv.last_event_id) AS last_event_id
 			FROM
 				last_virtual_order_execution lvoe
-				JOIN pool_states_incremental_view psv ON lvoe.pool_key_id = psv.pool_key_id
+				JOIN pool_states psv ON lvoe.pool_key_id = psv.pool_key_id
 				LEFT JOIN active_order_updates_after_lvoe ou_lvoe ON lvoe.pool_key_id = ou_lvoe.pool_key_id);
 
 CREATE MATERIALIZED VIEW twamm_pool_states_materialized AS (

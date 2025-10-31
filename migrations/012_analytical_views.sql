@@ -1,7 +1,7 @@
 CREATE VIEW last_24h_pool_stats_view AS (
 	WITH volume AS (
 		SELECT
-			vbt.pool_key_id,
+			pool_key_id,
 			sum(
 				CASE WHEN vbt.token = token0 THEN
 					vbt.volume
@@ -28,7 +28,7 @@ CREATE VIEW last_24h_pool_stats_view AS (
 				END) AS fees1
 		FROM
 			hourly_volume_by_token vbt
-			JOIN pool_keys ON vbt.pool_key_id = pool_keys.id
+			JOIN pool_keys USING (pool_key_id)
 		WHERE
 			hour >= now() - INTERVAL '24 hours'
 		GROUP BY
@@ -50,14 +50,14 @@ CREATE VIEW last_24h_pool_stats_view AS (
 					END) AS tvl1
 			FROM
 				hourly_tvl_delta_by_token tbt
-				JOIN pool_keys pk ON tbt.pool_key_id = pk.id
+				JOIN pool_keys pk ON tbt.pool_key_id = pk.pool_key_id
 			WHERE
 				hour >= now() - INTERVAL '24 hours'
 			GROUP BY
 				tbt.pool_key_id
 )
 			SELECT
-				pool_keys.id AS pool_key_id,
+				pool_keys.pool_key_id,
 				coalesce(volume.volume0, 0) AS volume0_24h,
 				coalesce(volume.volume1, 0) AS volume1_24h,
 				coalesce(volume.fees0, 0) AS fees0_24h,
@@ -68,9 +68,9 @@ CREATE VIEW last_24h_pool_stats_view AS (
 				coalesce(tvl_delta_24h.tvl1, 0) AS tvl1_delta_24h
 			FROM
 				pool_keys
-				JOIN pool_tvl ptvl ON pool_keys.id = ptvl.pool_key_id
-				LEFT JOIN volume ON volume.pool_key_id = pool_keys.id
-				LEFT JOIN tvl_delta_24h ON tvl_delta_24h.pool_key_id = pool_keys.id);
+				JOIN pool_tvl ptvl ON pool_keys.pool_key_id = ptvl.pool_key_id
+				LEFT JOIN volume ON volume.pool_key_id = pool_keys.pool_key_id
+				LEFT JOIN tvl_delta_24h ON tvl_delta_24h.pool_key_id = pool_keys.pool_key_id);
 
 CREATE MATERIALIZED VIEW last_24h_pool_stats_materialized AS (
 	SELECT
@@ -170,7 +170,7 @@ last_swap_per_pair AS (
 FROM
 	swaps s
 	JOIN pool_balance_change pbc USING (chain_id, event_id)
-	JOIN pool_keys pk ON pbc.pool_key_id = pk.id
+	JOIN pool_keys pk ON pbc.pool_key_id = pk.pool_key_id
 	WHERE
 		liquidity_after != 0
 	GROUP BY
@@ -198,7 +198,7 @@ FROM
 	JOIN pool_balance_change pbc USING (chain_id, event_id)
 	JOIN event_keys ek USING (chain_id, event_id)
 	JOIN blocks b USING (chain_id, block_number)
-	JOIN pool_keys pk ON pbc.pool_key_id = pk.id
+	JOIN pool_keys pk USING (pool_key_id)
 	JOIN last_swap_time_per_pair lstpp ON pk.chain_id = lstpp.chain_id
 		AND pk.token0 = lstpp.token0
 		AND pk.token1 = lstpp.token1
@@ -209,7 +209,7 @@ FROM
 ),
 pool_states AS (
 	SELECT
-		pk.id AS pool_key_id,
+		pool_key_id,
 		pk.token0,
 		pk.token1,
 		dp.depth_percent,
@@ -230,7 +230,7 @@ pool_ticks AS (
 		tick AS tick_start,
 		lead(tick) OVER (PARTITION BY ppptliv.pool_key_id ORDER BY ppptliv.tick) AS tick_end
 FROM
-	per_pool_per_tick_liquidity_incremental_view ppptliv
+	per_pool_per_tick_liquidity ppptliv
 ),
 depth_liquidity_ranges AS (
 	SELECT

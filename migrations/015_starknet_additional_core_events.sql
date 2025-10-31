@@ -1,7 +1,7 @@
 CREATE TABLE protocol_fees_paid (
 	chain_id int8 NOT NULL,
 	event_id int8 NOT NULL,
-	pool_key_id int8 NOT NULL REFERENCES pool_keys (id),
+	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	owner NUMERIC NOT NULL,
 	salt numeric NOT NULL,
 	lower_bound int4 NOT NULL,

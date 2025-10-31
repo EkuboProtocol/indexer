@@ -1,7 +1,7 @@
 CREATE TABLE limit_order_placed (
 	chain_id int8 NOT NULL,
 	event_id int8 NOT NULL,
-	pool_key_id int8 NOT NULL REFERENCES pool_keys (id),
+	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	owner NUMERIC NOT NULL,
 	salt numeric NOT NULL,
 	token0 numeric NOT NULL,
@@ -20,7 +20,7 @@ CREATE INDEX idx_limit_order_placed_salt_event_id_desc ON limit_order_placed (ch
 CREATE TABLE limit_order_closed (
 	chain_id int8 NOT NULL,
 	event_id int8 NOT NULL,
-	pool_key_id int8 NOT NULL REFERENCES pool_keys (id),
+	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	owner NUMERIC NOT NULL,
 	salt numeric NOT NULL,
 	token0 numeric NOT NULL,
@@ -59,7 +59,7 @@ CREATE VIEW limit_order_pool_states_view AS (
 				GREATEST (GREATEST (llop.event_id, coalesce(lloc.event_id, 0)), psm.last_event_id) AS last_event_id
 			FROM
 				last_limit_order_placed llop
-				JOIN pool_states_incremental_view psm ON llop.pool_key_id = psm.pool_key_id
+				JOIN pool_states psm ON llop.pool_key_id = psm.pool_key_id
 				LEFT JOIN last_limit_order_closed lloc ON llop.pool_key_id = lloc.pool_key_id);
 
 CREATE MATERIALIZED VIEW limit_order_pool_states_materialized AS (

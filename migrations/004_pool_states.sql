@@ -1,5 +1,5 @@
-CREATE TABLE pool_states_incremental_view (
-	pool_key_id int8 PRIMARY KEY REFERENCES pool_keys (id) ON DELETE CASCADE,
+CREATE TABLE pool_states (
+	pool_key_id int8 PRIMARY KEY REFERENCES pool_keys (pool_key_id) ON DELETE CASCADE,
 	sqrt_ratio numeric,
 	tick int4,
 	liquidity numeric,
@@ -15,7 +15,7 @@ DECLARE
 BEGIN
 	WITH lss AS (
 		SELECT
-			pk.id AS pool_key_id,
+			pk.pool_key_id,
 			coalesce(last_swap.event_id, pi.event_id) AS last_swap_event_id,
 			coalesce(last_swap.sqrt_ratio_after, pi.sqrt_ratio) AS sqrt_ratio,
 			coalesce(last_swap.tick_after, pi.tick) AS tick,
@@ -33,7 +33,7 @@ BEGIN
 				swaps s
 				JOIN pool_balance_change pbc USING (chain_id, event_id)
 			WHERE
-				pk.id = pbc.pool_key_id
+				pk.pool_key_id = pbc.pool_key_id
 			ORDER BY
 				event_id DESC
 			LIMIT 1) AS last_swap ON TRUE
@@ -89,10 +89,10 @@ FROM
 	lss
 	JOIN pl ON lss.pool_key_id = pl.pool_key_id;
 			IF NOT FOUND THEN
-				DELETE FROM pool_states_incremental_view
+				DELETE FROM pool_states
 				WHERE pool_key_id = p_pool_key_id;
 			ELSE
-				INSERT INTO pool_states_incremental_view (pool_key_id, sqrt_ratio, tick, liquidity, last_event_id, last_liquidity_update_event_id)
+				INSERT INTO pool_states (pool_key_id, sqrt_ratio, tick, liquidity, last_event_id, last_liquidity_update_event_id)
 					VALUES (v_state.pool_key_id, v_state.sqrt_ratio, v_state.tick, v_state.liquidity, v_state.last_event_id, v_state.last_liquidity_update_event_id)
 				ON CONFLICT (pool_key_id)
 					DO UPDATE SET
@@ -211,7 +211,7 @@ CREATE TRIGGER maintain_pool_state_from_pool_balance_change
 	FOR EACH ROW
 	EXECUTE FUNCTION refresh_pool_state_from_pool_balance_change ();
 
-INSERT INTO pool_states_incremental_view (pool_key_id, sqrt_ratio, tick, liquidity, last_event_id, last_liquidity_update_event_id)
+INSERT INTO pool_states (pool_key_id, sqrt_ratio, tick, liquidity, last_event_id, last_liquidity_update_event_id)
 SELECT
 	pool_key_id,
 	sqrt_ratio,
@@ -221,13 +221,13 @@ SELECT
 	last_liquidity_update_event_id
 FROM ( WITH lss AS (
 		SELECT
-			id AS pool_key_id,
+			pk.pool_key_id,
 			coalesce(last_swap.event_id, pi.event_id) AS last_swap_event_id,
 			coalesce(last_swap.sqrt_ratio_after, pi.sqrt_ratio) AS sqrt_ratio,
 			coalesce(last_swap.tick_after, pi.tick) AS tick,
 			coalesce(last_swap.liquidity_after, 0::numeric) AS liquidity_last
 		FROM
-			pool_keys
+			pool_keys pk
 		LEFT JOIN LATERAL (
 			SELECT
 				event_id,
@@ -238,7 +238,7 @@ FROM ( WITH lss AS (
 				swaps s
 				JOIN pool_balance_change pbc USING (chain_id, event_id)
 			WHERE
-				pool_keys.id = pbc.pool_key_id
+				pk.pool_key_id = pbc.pool_key_id
 			ORDER BY
 				event_id DESC
 			LIMIT 1) AS last_swap ON TRUE
@@ -248,9 +248,9 @@ FROM ( WITH lss AS (
 				sqrt_ratio,
 				tick
 			FROM
-				pool_initializations
+				pool_initializations pi
 			WHERE
-				pool_initializations.pool_key_id = pool_keys.id
+				pi.pool_key_id = pk.pool_key_id
 			ORDER BY
 				event_id DESC
 			LIMIT 1) AS pi ON TRUE),

@@ -285,7 +285,7 @@ export function createEventProcessors({
         logger.debug("PoolInitialized", { parsed, key });
         await dao.insertPoolInitializedEvent(
           {
-            poolId: poolKeyToPoolId(parsed.pool_key),
+            feeDenominator: STARKNET_POOL_FEE_DENOMINATOR,
             poolKey: {
               token0: parsed.pool_key.token0,
               token1: parsed.pool_key.token1,
@@ -293,11 +293,11 @@ export function createEventProcessors({
               tickSpacing: Number(parsed.pool_key.tick_spacing),
               extension: parsed.pool_key.extension,
             },
+            poolId: poolKeyToPoolId(parsed.pool_key),
             sqrtRatio: parsed.sqrt_ratio,
             tick: Number(parsed.tick),
           },
-          key,
-          STARKNET_POOL_FEE_DENOMINATOR
+          key
         );
       },
     },

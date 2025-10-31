@@ -314,6 +314,7 @@ function resetNoBlocksTimer() {
 
           blockProcessingTimer.done({
             message: `Processed to block`,
+            chainId,
             blockNumber,
             isHead,
             refreshOperational,
