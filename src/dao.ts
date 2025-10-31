@@ -1318,11 +1318,7 @@ export class DAO {
         VALUES ($1, (SELECT event_id FROM inserted_event),
                 (SELECT id
                   FROM pool_keys
-                  WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
-                                        FROM extension_registrations er
-                                                JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.event_id
-                                        WHERE er.extension = $6)
-                    AND pool_id = $7),
+                  WHERE chain_id = $1 AND pool_id = $7),
                 $8, $9, $10, $11, $12, $13, $14);
       `,
       values: [
@@ -1360,11 +1356,7 @@ export class DAO {
         VALUES ($1, (SELECT event_id FROM inserted_event),
                 (SELECT id
                   FROM pool_keys
-                  WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
-                                        FROM extension_registrations er
-                                                JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.event_id
-                                        WHERE er.extension = $6)
-                    AND pool_id = $7),
+                  WHERE chain_id = $1 AND pool_id = $7),
                 $8, $9, $10, $11, $12, $13, $14);
       `,
       values: [
