@@ -1,5 +1,5 @@
-import { DAO, type PoolInitializedInsert } from "../dao.ts";
-import type { EventKey } from "../eventKey.ts";
+import { DAO, type PoolInitializedInsert } from "../_shared/dao.ts";
+import type { EventKey } from "../_shared/eventKey.ts";
 import {
   CORE_ABI,
   INCENTIVES_ABI,
@@ -20,7 +20,7 @@ import {
   decodeEventLog,
   encodeEventTopics,
 } from "viem";
-import { logger } from "../logger.ts";
+import { logger } from "../_shared/logger.ts";
 import { floatSqrtRatioToFixed, parseSwapEvent } from "./swapEvent.ts";
 import { parseOracleEvent } from "./oracleEvent.ts";
 import { parseTwammVirtualOrdersExecuted } from "./twammEvent.ts";

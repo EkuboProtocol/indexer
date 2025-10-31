@@ -1,14 +1,14 @@
 import "./config";
-import type { EventKey } from "./eventKey.ts";
-import { logger } from "./logger";
-import { DAO } from "./dao";
+import type { EventKey } from "./_shared/eventKey.ts";
+import { logger } from "./_shared/logger.ts";
+import { DAO } from "./_shared/dao.ts";
 import { Pool } from "pg";
 import { EvmStream } from "@apibara/evm";
 import { StarknetStream } from "@apibara/starknet";
 import { createLogProcessors } from "./evm/logProcessors.ts";
 import { createEventProcessors } from "./starknet/eventProcessors.ts";
 import { createClient, Metadata } from "@apibara/protocol";
-import { msToHumanShort } from "./msToHumanShort.ts";
+import { msToHumanShort } from "./_shared/msToHumanShort.ts";
 
 if (!["starknet", "evm"].includes(process.env.NETWORK_TYPE)) {
   throw new Error(`Invalid NETWORK_TYPE: "${process.env.NETWORK_TYPE}"`);

@@ -1,4 +1,4 @@
-import { logger } from "../logger";
+import { logger } from "../_shared/logger";
 import { parseTransferEvent } from "./nft";
 import type { TransferEvent } from "./nft";
 import {
@@ -72,9 +72,9 @@ import { parseOrderClosed, parseOrderPlaced } from "./limitOrders";
 import type { OrderClosedEvent, OrderPlacedEvent } from "./limitOrders";
 import { parseLiquidityUpdated } from "./spline";
 import type { LiquidityUpdatedEvent } from "./spline";
-import type { EventKey } from "../eventKey";
+import type { EventKey } from "../_shared/eventKey";
 import type { Parser } from "./parse";
-import { DAO } from "../dao";
+import { DAO } from "../_shared/dao";
 import { computeKeyHash } from "./poolKeyHash";
 
 export interface ParsedEventWithKey<T> {

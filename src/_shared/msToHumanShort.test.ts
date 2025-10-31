@@ -23,4 +23,3 @@ describe("msToHumanShort", () => {
     expect(msToHumanShort(input)).toBe("2d, 3h, 4min");
   });
 });
-

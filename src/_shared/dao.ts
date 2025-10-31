@@ -308,6 +308,8 @@ export class DAO {
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_pool_states_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_sale_rate_deltas_materialized;
       REFRESH MATERIALIZED VIEW CONCURRENTLY oracle_pool_states_materialized;
+      REFRESH MATERIALIZED VIEW CONCURRENTLY limit_order_pool_states_materialized;
+      REFRESH MATERIALIZED VIEW CONCURRENTLY spline_pools_materialized;
     `);
   }
 
