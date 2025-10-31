@@ -108,12 +108,12 @@ function resetNoBlocksTimer() {
           tokenRegistryV2Address: process.env.TOKEN_REGISTRY_V2_ADDRESS,
           tokenRegistryV3Address: process.env.TOKEN_REGISTRY_V3_ADDRESS,
           twammAddress: process.env.TWAMM_ADDRESS,
-          stakerAddress: process.env.STAKER_ADDRESS as `0x${string}`,
-          governorAddress: process.env.GOVERNOR_ADDRESS as `0x${string}`,
-          oracleAddress: process.env.ORACLE_ADDRESS as `0x${string}`,
+          stakerAddress: process.env.STAKER_ADDRESS,
+          governorAddress: process.env.GOVERNOR_ADDRESS,
+          oracleAddress: process.env.ORACLE_ADDRESS,
           limitOrdersAddress: process.env.LIMIT_ORDERS_ADDRESS,
-          splineLiquidityProviderAddress: process.env
-            .SPLINE_LIQUIDITY_PROVIDER_ADDRESS as `0x${string}`,
+          splineLiquidityProviderAddress:
+            process.env.SPLINE_LIQUIDITY_PROVIDER_ADDRESS,
         })
       : undefined;
 
@@ -238,8 +238,7 @@ function resetNoBlocksTimer() {
 
           const blockTime = block.header.timestamp;
 
-          const blockHashHex = (block.header.blockHash ??
-            "0x0") as `0x${string}`;
+          const blockHashHex = block.header.blockHash ?? "0x0";
 
           await dao.insertBlock({
             number: block.header.blockNumber,
