@@ -13,9 +13,9 @@ CREATE TABLE limit_order_placed (
 	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_limit_order_placed_owner_salt ON limit_order_placed USING btree (chain_id, OWNER, salt);
+CREATE INDEX ON limit_order_placed USING btree (chain_id, OWNER, salt);
 
-CREATE INDEX idx_limit_order_placed_salt_event_id_desc ON limit_order_placed (chain_id, salt, event_id DESC) INCLUDE (token0, token1, tick, liquidity, amount);
+CREATE INDEX ON limit_order_placed (chain_id, salt, event_id DESC) INCLUDE (token0, token1, tick, liquidity, amount);
 
 CREATE TABLE limit_order_closed (
 	chain_id int8 NOT NULL,
@@ -32,41 +32,116 @@ CREATE TABLE limit_order_closed (
 	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_limit_order_closed_owner_salt ON limit_order_closed USING btree (chain_id, OWNER, salt);
+CREATE INDEX ON limit_order_closed USING btree (chain_id, OWNER, salt);
 
-CREATE INDEX idx_limit_order_closed_salt_event_id_desc ON limit_order_closed (chain_id, salt, event_id DESC) INCLUDE (amount0, amount1);
+CREATE INDEX ON limit_order_closed (chain_id, salt, event_id DESC) INCLUDE (amount0, amount1);
 
-CREATE VIEW limit_order_pool_states_view AS (
-	WITH last_limit_order_placed AS (
-		SELECT
-			pool_key_id,
-			max(event_id) AS event_id
-		FROM
-			limit_order_placed
-		GROUP BY
-			pool_key_id),
-		last_limit_order_closed AS (
-			SELECT
-				pool_key_id,
-				max(event_id) AS event_id
-			FROM
-				limit_order_closed
-			GROUP BY
-				pool_key_id
-)
-			SELECT
-				coalesce(llop.pool_key_id, lloc.pool_key_id) AS pool_key_id,
-				GREATEST (GREATEST (llop.event_id, coalesce(lloc.event_id, 0)), psm.last_event_id) AS last_event_id
-			FROM
-				last_limit_order_placed llop
-				JOIN pool_states psm ON llop.pool_key_id = psm.pool_key_id
-				LEFT JOIN last_limit_order_closed lloc ON llop.pool_key_id = lloc.pool_key_id);
+-- computed via triggers
 
-CREATE MATERIALIZED VIEW limit_order_pool_states_materialized AS (
-	SELECT
-		pool_key_id,
-		last_event_id
-	FROM
-		limit_order_pool_states_view);
+CREATE TABLE limit_order_pool_states (
+  pool_key_id   int8  NOT NULL PRIMARY KEY REFERENCES pool_keys (pool_key_id),
+  last_event_id int8  NOT NULL
+);
 
-CREATE UNIQUE INDEX idx_limit_order_pool_states_materialized_pool_key_id ON limit_order_pool_states_materialized USING btree (pool_key_id);
+CREATE OR REPLACE FUNCTION recompute_limit_order_pool_state(p_pool_key_id int8)
+RETURNS void
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_llop int8;   -- last_limit_order_placed.event_id
+  v_lloc int8;   -- last_limit_order_closed.event_id (nullable)
+  v_psm  int8;   -- pool_states.last_event_id (required in original view)
+  v_last int8;
+BEGIN
+  -- last_limit_order_placed (driving set; if absent, row should not exist)
+  SELECT MAX(event_id) INTO v_llop
+  FROM limit_order_placed
+  WHERE pool_key_id = p_pool_key_id;
+
+  IF v_llop IS NULL THEN
+    -- No placements: ensure no row (matches JOIN on llop in original view)
+    DELETE FROM limit_order_pool_states WHERE pool_key_id = p_pool_key_id;
+    RETURN;
+  END IF;
+
+  -- last_limit_order_closed (optional)
+  SELECT MAX(event_id) INTO v_lloc
+  FROM limit_order_closed
+  WHERE pool_key_id = p_pool_key_id;
+
+  -- pool_states join (required by original view)
+  SELECT ps.last_event_id INTO v_psm
+  FROM pool_states ps
+  WHERE ps.pool_key_id = p_pool_key_id;
+
+  IF v_psm IS NULL THEN
+    -- Original view would drop the row due to JOIN pool_states
+    DELETE FROM limit_order_pool_states WHERE pool_key_id = p_pool_key_id;
+    RETURN;
+  END IF;
+
+  -- last_event_id = GREATEST(GREATEST(llop, COALESCE(lloc,0)), v_psm)
+  v_last := GREATEST(GREATEST(v_llop, COALESCE(v_lloc, 0)), v_psm);
+
+  INSERT INTO limit_order_pool_states AS s (pool_key_id, last_event_id)
+  VALUES (p_pool_key_id, v_last)
+  ON CONFLICT (pool_key_id) DO UPDATE
+    SET last_event_id = EXCLUDED.last_event_id;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION trg_lop_recompute_lops()
+RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP IN ('INSERT','UPDATE') THEN
+    PERFORM recompute_limit_order_pool_state(NEW.pool_key_id);
+  ELSE
+    PERFORM recompute_limit_order_pool_state(OLD.pool_key_id);
+  END IF;
+  RETURN NULL;
+END
+$$;
+
+-- b) limit_order_closed changes
+CREATE OR REPLACE FUNCTION trg_loc_recompute_lops()
+RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP IN ('INSERT','UPDATE') THEN
+    PERFORM recompute_limit_order_pool_state(NEW.pool_key_id);
+  ELSE
+    PERFORM recompute_limit_order_pool_state(OLD.pool_key_id);
+  END IF;
+  RETURN NULL;
+END
+$$;
+
+-- c) pool_states.last_event_id changes (affects GREATEST(...))
+CREATE OR REPLACE FUNCTION trg_ps_recompute_lops()
+RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    PERFORM recompute_limit_order_pool_state(NEW.pool_key_id);
+  ELSIF TG_OP = 'UPDATE' AND (NEW.last_event_id IS DISTINCT FROM OLD.last_event_id
+                              OR NEW.pool_key_id   IS DISTINCT FROM OLD.pool_key_id) THEN
+    PERFORM recompute_limit_order_pool_state(NEW.pool_key_id);
+  ELSIF TG_OP = 'DELETE' THEN
+    -- Original view would lose the row due to the JOIN; recompute will delete it.
+    PERFORM recompute_limit_order_pool_state(OLD.pool_key_id);
+  END IF;
+  RETURN NULL;
+END
+$$;
+
+CREATE TRIGGER trg_lop_recompute_lops
+AFTER INSERT OR UPDATE OR DELETE ON limit_order_placed
+FOR EACH ROW EXECUTE FUNCTION trg_lop_recompute_lops();
+
+CREATE TRIGGER trg_loc_recompute_lops
+AFTER INSERT OR UPDATE OR DELETE ON limit_order_closed
+FOR EACH ROW EXECUTE FUNCTION trg_loc_recompute_lops();
+
+CREATE TRIGGER trg_ps_recompute_lops
+AFTER INSERT OR UPDATE OF last_event_id OR DELETE ON pool_states
+FOR EACH ROW EXECUTE FUNCTION trg_ps_recompute_lops();

@@ -71,15 +71,12 @@ function resetNoBlocksTimer() {
 
     const initializeTimer = logger.startTimer();
     databaseStartingCursor = await dao.initializeState();
-    await dao.refreshOperationalMaterializedView();
     initializeTimer.done({
       message: "Prepared indexer state",
       startingCursor: databaseStartingCursor,
     });
     client.release();
   }
-
-  let lastIsHead = false;
 
   // Start the no-blocks timer when application starts
   resetNoBlocksTimer();
@@ -229,7 +226,6 @@ function resetNoBlocksTimer() {
         let deletedCount: number = 0;
 
         let eventsProcessed: number = 0;
-        const isHead = message.data.production === "live";
 
         for (const block of message.data.data) {
           if (!block) continue;
@@ -301,15 +297,6 @@ function resetNoBlocksTimer() {
           // endCursor is what we write so when we restart we delete any pending block information
           await dao.writeCursor(message.data.endCursor);
 
-          const refreshOperational =
-            (isHead && (eventsProcessed > 0 || !lastIsHead)) ||
-            deletedCount > 0;
-
-          // refresh operational views at the end of the batch
-          if (refreshOperational) {
-            await dao.refreshOperationalMaterializedView();
-          }
-
           await dao.commitTransaction();
 
           blockProcessingTimer.done({
@@ -317,8 +304,6 @@ function resetNoBlocksTimer() {
             message: `Block processed`,
             chainId,
             blockNumber,
-            isHead,
-            refreshOperational,
             eventsProcessed,
             blockTimestamp: blockTime,
             lag: msToHumanShort(
@@ -328,8 +313,6 @@ function resetNoBlocksTimer() {
         }
 
         client.release();
-
-        lastIsHead = isHead;
 
         break;
       }

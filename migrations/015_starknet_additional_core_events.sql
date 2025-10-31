@@ -12,9 +12,9 @@ CREATE TABLE protocol_fees_paid (
 	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_protocol_fees_paid_pool_key_id ON protocol_fees_paid USING btree (pool_key_id);
+CREATE INDEX ON protocol_fees_paid USING btree (pool_key_id);
 
-CREATE INDEX idx_protocol_fees_paid_salt ON protocol_fees_paid USING btree (salt);
+CREATE INDEX ON protocol_fees_paid USING btree (salt);
 
 CREATE TABLE position_minted_with_referrer (
 	chain_id int8 NOT NULL,

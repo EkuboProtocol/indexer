@@ -303,17 +303,6 @@ export class DAO {
     return cursor;
   }
 
-  // These are updated at every tip block because they must be consistent with all other tables
-  public async refreshOperationalMaterializedView() {
-    // todo: turn these into tables with triggers as well
-    await this.pg.query(`
-      REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_pool_states_materialized;
-      REFRESH MATERIALIZED VIEW CONCURRENTLY twamm_sale_rate_deltas_materialized;
-      REFRESH MATERIALIZED VIEW CONCURRENTLY limit_order_pool_states_materialized;
-      REFRESH MATERIALIZED VIEW CONCURRENTLY spline_pools_materialized;
-    `);
-  }
-
   private async loadCursor(): Promise<
     | {
         orderKey: bigint;

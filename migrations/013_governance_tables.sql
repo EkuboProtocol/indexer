@@ -7,8 +7,8 @@ CREATE TABLE staker_staked (
     PRIMARY KEY (chain_id, event_id),
     FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
-CREATE INDEX idx_staker_staked_delegate_from_address ON staker_staked USING btree (delegate, from_address);
-CREATE INDEX idx_staker_staked_from_address_delegate ON staker_staked USING btree (from_address, delegate);
+CREATE INDEX ON staker_staked USING btree (delegate, from_address);
+CREATE INDEX ON staker_staked USING btree (from_address, delegate);
 CREATE TABLE staker_withdrawn (
     chain_id int8 NOT NULL,
     event_id int8 NOT NULL,
@@ -19,8 +19,8 @@ CREATE TABLE staker_withdrawn (
     PRIMARY KEY (chain_id, event_id),
     FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
-CREATE INDEX idx_staker_withdrawn_delegate_from_address ON staker_withdrawn USING btree (delegate, from_address);
-CREATE INDEX idx_staker_withdrawn_from_address_delegate ON staker_withdrawn USING btree (from_address, delegate);
+CREATE INDEX ON staker_withdrawn USING btree (delegate, from_address);
+CREATE INDEX ON staker_withdrawn USING btree (from_address, delegate);
 CREATE TABLE governor_reconfigured (
     chain_id int8 NOT NULL,
     event_id int8 NOT NULL,

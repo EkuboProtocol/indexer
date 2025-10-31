@@ -12,15 +12,15 @@ CREATE TABLE twamm_order_updates (
 	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_twamm_order_updates_pool_key_id_event_id ON twamm_order_updates USING btree (pool_key_id, event_id);
+CREATE INDEX ON twamm_order_updates USING btree (pool_key_id, event_id);
 
-CREATE INDEX idx_twamm_order_updates_pool_key_id_time ON twamm_order_updates USING btree (pool_key_id, start_time, end_time);
+CREATE INDEX ON twamm_order_updates USING btree (pool_key_id, start_time, end_time);
 
-CREATE INDEX idx_twamm_order_updates_owner_salt ON twamm_order_updates USING btree (locker, salt);
+CREATE INDEX ON twamm_order_updates USING btree (locker, salt);
 
-CREATE INDEX idx_twamm_order_updates_salt ON twamm_order_updates USING btree (salt);
+CREATE INDEX ON twamm_order_updates USING btree (salt);
 
-CREATE INDEX idx_twamm_order_updates_salt_key_hash_start_end_owner_event_id ON twamm_order_updates (salt, pool_key_id, start_time, end_time, locker, event_id);
+CREATE INDEX ON twamm_order_updates (salt, pool_key_id, start_time, end_time, locker, event_id);
 
 CREATE TABLE twamm_proceeds_withdrawals (
 	chain_id int8 NOT NULL,
@@ -36,15 +36,15 @@ CREATE TABLE twamm_proceeds_withdrawals (
 	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_twamm_proceeds_withdrawals_pool_key_id_event_id ON twamm_proceeds_withdrawals USING btree (pool_key_id, event_id);
+CREATE INDEX ON twamm_proceeds_withdrawals USING btree (pool_key_id, event_id);
 
-CREATE INDEX idx_twamm_proceeds_withdrawals_pool_key_id_time ON twamm_proceeds_withdrawals USING btree (pool_key_id, start_time, end_time);
+CREATE INDEX ON twamm_proceeds_withdrawals USING btree (pool_key_id, start_time, end_time);
 
-CREATE INDEX idx_twamm_proceeds_withdrawals_owner_salt ON twamm_proceeds_withdrawals USING btree (locker, salt);
+CREATE INDEX ON twamm_proceeds_withdrawals USING btree (locker, salt);
 
-CREATE INDEX idx_twamm_proceeds_withdrawals_salt ON twamm_proceeds_withdrawals USING btree (salt);
+CREATE INDEX ON twamm_proceeds_withdrawals USING btree (salt);
 
-CREATE INDEX idx_twamm_proceeds_withdrawals_salt_event_id_desc ON twamm_proceeds_withdrawals (salt, event_id DESC);
+CREATE INDEX ON twamm_proceeds_withdrawals (salt, event_id DESC);
 
 CREATE TABLE twamm_virtual_order_executions (
 	chain_id int8 NOT NULL,
@@ -56,129 +56,251 @@ CREATE TABLE twamm_virtual_order_executions (
 	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_twamm_virtual_order_executions_pool_key_id_event_id ON twamm_virtual_order_executions USING btree (pool_key_id, event_id DESC);
+CREATE INDEX ON twamm_virtual_order_executions USING btree (pool_key_id, event_id DESC);
+-- 1) Replacement table (instead of the view + materialized view)
+DROP TABLE IF EXISTS twamm_pool_states CASCADE;
+CREATE TABLE twamm_pool_states (
+  pool_key_id                     int8        NOT NULL PRIMARY KEY REFERENCES pool_keys (pool_key_id),
+  token0_sale_rate                numeric     NOT NULL,
+  token1_sale_rate                numeric     NOT NULL,
+  last_virtual_execution_time     timestamptz NOT NULL,
+  last_virtual_order_execution_event_id int8  NOT NULL,
+  last_order_update_event_id      int8,
+  last_event_id                   int8        NOT NULL
+);
 
-CREATE VIEW twamm_pool_states_view AS (
-	WITH lvoe_id AS (
-		SELECT
-			pool_key_id,
-			max(event_id) AS event_id
-		FROM
-			twamm_virtual_order_executions
-		GROUP BY
-			pool_key_id),
-		last_virtual_order_execution AS (
-			SELECT
-				pk.pool_key_id,
-				last_voe.token0_sale_rate,
-				last_voe.token1_sale_rate,
-				last_voe.event_id AS last_virtual_order_execution_event_id,
-				b.time AS last_virtual_execution_time
-			FROM
-				pool_keys pk
-				JOIN lvoe_id ON lvoe_id.pool_key_id = pk.pool_key_id
-				JOIN twamm_virtual_order_executions last_voe ON last_voe.chain_id = pk.chain_id
-					AND last_voe.event_id = lvoe_id.event_id
-				JOIN event_keys ek ON last_voe.chain_id = ek.chain_id
-					AND last_voe.event_id = ek.event_id
-				JOIN blocks b ON ek.chain_id = b.chain_id
-					AND ek.block_number = b.block_number),
-				active_order_updates_after_lvoe AS (
-					SELECT
-						lvoe_1.pool_key_id,
-						sum(tou.sale_rate_delta0) AS sale_rate_delta0,
-					sum(tou.sale_rate_delta1) AS sale_rate_delta1,
-					max(tou.event_id) AS last_order_update_event_id
-				FROM
-					last_virtual_order_execution lvoe_1
-				JOIN twamm_order_updates tou ON tou.pool_key_id = lvoe_1.pool_key_id
-					AND tou.event_id > lvoe_1.last_virtual_order_execution_event_id
-					AND tou.start_time <= lvoe_1.last_virtual_execution_time
-					AND tou.end_time > lvoe_1.last_virtual_execution_time
-			GROUP BY
-				lvoe_1.pool_key_id
-)
-			SELECT
-				lvoe.pool_key_id,
-				lvoe.token0_sale_rate + coalesce(ou_lvoe.sale_rate_delta0, 0::numeric) AS token0_sale_rate,
-				lvoe.token1_sale_rate + coalesce(ou_lvoe.sale_rate_delta1, 0::numeric) AS token1_sale_rate,
-				lvoe.last_virtual_execution_time,
-				GREATEST (coalesce(ou_lvoe.last_order_update_event_id, lvoe.last_virtual_order_execution_event_id), psv.last_event_id) AS last_event_id
-			FROM
-				last_virtual_order_execution lvoe
-				JOIN pool_states psv ON lvoe.pool_key_id = psv.pool_key_id
-				LEFT JOIN active_order_updates_after_lvoe ou_lvoe ON lvoe.pool_key_id = ou_lvoe.pool_key_id);
+CREATE UNIQUE INDEX idx_twamm_pool_states_pool_key_id ON twamm_pool_states (pool_key_id);
 
-CREATE MATERIALIZED VIEW twamm_pool_states_materialized AS (
-	SELECT
-		pool_key_id,
-		token0_sale_rate,
-		token1_sale_rate,
-		last_virtual_execution_time,
-		last_event_id
-	FROM
-		twamm_pool_states_view);
+-- 2) Core recomputation function (idempotent, called by triggers)
+CREATE OR REPLACE FUNCTION recompute_twamm_pool_state(p_pool_key_id int8)
+RETURNS void
+LANGUAGE plpgsql AS $$
+DECLARE
+  v_last_voe_event_id int8;
+  v_base_token0 numeric;
+  v_base_token1 numeric;
+  v_last_voe_time timestamptz;
 
-CREATE UNIQUE INDEX idx_twamm_pool_states_materialized_key_hash ON twamm_pool_states_materialized USING btree (pool_key_id);
+  v_delta0 numeric;
+  v_delta1 numeric;
+  v_last_ou_event_id int8;
 
-CREATE VIEW twamm_sale_rate_deltas_view AS (
-	WITH all_order_deltas AS (
-		SELECT
-			pool_key_id,
-			start_time AS time,
-			sum(sale_rate_delta0) net_sale_rate_delta0,
-			sum(sale_rate_delta1) net_sale_rate_delta1
-		FROM
-			twamm_order_updates
-		GROUP BY
-			pool_key_id,
-			start_time
-		UNION ALL
-		SELECT
-			pool_key_id,
-			end_time AS time,
-			- sum(sale_rate_delta0) net_sale_rate_delta0,
-			- sum(sale_rate_delta1) net_sale_rate_delta1
-		FROM
-			twamm_order_updates
-		GROUP BY
-			pool_key_id,
-			end_time),
-		summed AS (
-			SELECT
-				pool_key_id,
-				time,
-				sum(net_sale_rate_delta0) AS net_sale_rate_delta0,
-				sum(net_sale_rate_delta1) AS net_sale_rate_delta1
-			FROM
-				all_order_deltas
-			GROUP BY
-				pool_key_id,
-				time
-)
-			SELECT
-				pool_key_id,
-				time,
-				net_sale_rate_delta0,
-				net_sale_rate_delta1
-			FROM
-				summed
-			WHERE
-				net_sale_rate_delta0 != 0
-				OR net_sale_rate_delta1 != 0
-			ORDER BY
-				pool_key_id,
-				time);
+  v_psv_last_event_id int8;
+  v_final_token0 numeric;
+  v_final_token1 numeric;
+  v_final_last_event_id int8;
+BEGIN
+  -- Find last VOE for the pool; if none, remove any existing state row.
+  SELECT voe.event_id, voe.token0_sale_rate, voe.token1_sale_rate, b.time
+  INTO   v_last_voe_event_id, v_base_token0, v_base_token1, v_last_voe_time
+  FROM   twamm_virtual_order_executions voe
+  JOIN   event_keys ek
+         ON ek.chain_id = voe.chain_id AND ek.event_id = voe.event_id
+  JOIN   blocks b
+         ON b.chain_id = ek.chain_id AND b.block_number = ek.block_number
+  WHERE  voe.pool_key_id = p_pool_key_id
+  ORDER  BY voe.event_id DESC
+  LIMIT  1;
 
-CREATE MATERIALIZED VIEW twamm_sale_rate_deltas_materialized AS (
-	SELECT
-		tsrdv.pool_key_id,
-		tsrdv.time,
-		tsrdv.net_sale_rate_delta0,
-		tsrdv.net_sale_rate_delta1
-	FROM
-		twamm_sale_rate_deltas_view AS tsrdv
-		JOIN twamm_pool_states_materialized tpsm ON tpsm.pool_key_id = tsrdv.pool_key_id
-			AND tpsm.last_virtual_execution_time < tsrdv.time);
+  IF v_last_voe_event_id IS NULL THEN
+    DELETE FROM twamm_pool_states WHERE pool_key_id = p_pool_key_id;
+    RETURN;
+  END IF;
 
-CREATE UNIQUE INDEX idx_twamm_sale_rate_deltas_materialized_pool_key_id_time ON twamm_sale_rate_deltas_materialized USING btree (pool_key_id, time);
+  -- Deltas from order updates strictly "active at" the last VOE time
+  SELECT
+    COALESCE(SUM(tou.sale_rate_delta0), 0),
+    COALESCE(SUM(tou.sale_rate_delta1), 0),
+    MAX(tou.event_id)
+  INTO v_delta0, v_delta1, v_last_ou_event_id
+  FROM twamm_order_updates tou
+  WHERE tou.pool_key_id = p_pool_key_id
+    AND tou.event_id > v_last_voe_event_id
+    AND tou.start_time <= v_last_voe_time
+    AND tou.end_time   >  v_last_voe_time;
+
+  v_final_token0 := v_base_token0 + v_delta0;
+  v_final_token1 := v_base_token1 + v_delta1;
+
+  -- Pull psv.last_event_id (from the existing pool_states table)
+  SELECT ps.last_event_id
+  INTO   v_psv_last_event_id
+  FROM   pool_states ps
+  WHERE  ps.pool_key_id = p_pool_key_id;
+
+  v_final_last_event_id :=
+    GREATEST(COALESCE(v_last_ou_event_id, v_last_voe_event_id),
+             COALESCE(v_psv_last_event_id, v_last_voe_event_id));
+
+  -- Upsert the state row
+  INSERT INTO twamm_pool_states AS s (
+    pool_key_id,
+    token0_sale_rate,
+    token1_sale_rate,
+    last_virtual_execution_time,
+    last_virtual_order_execution_event_id,
+    last_order_update_event_id,
+    last_event_id
+  )
+  VALUES (
+    p_pool_key_id,
+    v_final_token0,
+    v_final_token1,
+    v_last_voe_time,
+    v_last_voe_event_id,
+    v_last_ou_event_id,
+    v_final_last_event_id
+  )
+  ON CONFLICT (pool_key_id) DO UPDATE
+    SET token0_sale_rate                        = EXCLUDED.token0_sale_rate,
+        token1_sale_rate                        = EXCLUDED.token1_sale_rate,
+        last_virtual_execution_time             = EXCLUDED.last_virtual_execution_time,
+        last_virtual_order_execution_event_id   = EXCLUDED.last_virtual_order_execution_event_id,
+        last_order_update_event_id              = EXCLUDED.last_order_update_event_id,
+        last_event_id                           = EXCLUDED.last_event_id;
+END
+$$;
+
+-- 3) Trigger functions
+
+-- a) When VOEs change, the "last VOE" may shift; recompute for that pool.
+CREATE OR REPLACE FUNCTION trg_voe_recompute_pool_state()
+RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP IN ('INSERT','UPDATE') THEN
+    PERFORM recompute_twamm_pool_state(NEW.pool_key_id);
+  ELSE
+    PERFORM recompute_twamm_pool_state(OLD.pool_key_id);
+  END IF;
+  RETURN NULL;
+END
+$$;
+
+-- b) When order updates change, deltas after last VOE may change; recompute.
+CREATE OR REPLACE FUNCTION trg_order_updates_recompute_pool_state()
+RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP IN ('INSERT','UPDATE') THEN
+    PERFORM recompute_twamm_pool_state(NEW.pool_key_id);
+  ELSE
+    PERFORM recompute_twamm_pool_state(OLD.pool_key_id);
+  END IF;
+  RETURN NULL;
+END
+$$;
+
+-- c) When pool_states.last_event_id changes, it affects the GREATEST(...); recompute.
+CREATE OR REPLACE FUNCTION trg_pool_states_recompute_pool_state()
+RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  -- Only recompute when last_event_id or pool_key_id changed
+  IF (TG_OP = 'INSERT')
+     OR (TG_OP = 'UPDATE' AND (NEW.last_event_id IS DISTINCT FROM OLD.last_event_id
+                               OR NEW.pool_key_id IS DISTINCT FROM OLD.pool_key_id)) THEN
+    PERFORM recompute_twamm_pool_state(NEW.pool_key_id);
+  ELSIF TG_OP = 'DELETE' THEN
+    -- If a row is removed from pool_states, fall back to GREATEST(last_ou,last_voe).
+    PERFORM recompute_twamm_pool_state(OLD.pool_key_id);
+  END IF;
+  RETURN NULL;
+END
+$$;
+
+CREATE TRIGGER trg_voe_recompute_pool_state
+AFTER INSERT OR UPDATE OR DELETE ON twamm_virtual_order_executions
+FOR EACH ROW EXECUTE FUNCTION trg_voe_recompute_pool_state();
+
+CREATE TRIGGER trg_order_updates_recompute_pool_state
+AFTER INSERT OR UPDATE OR DELETE ON twamm_order_updates
+FOR EACH ROW EXECUTE FUNCTION trg_order_updates_recompute_pool_state();
+
+CREATE TRIGGER trg_pool_states_recompute_pool_state
+AFTER INSERT OR UPDATE OF last_event_id OR DELETE ON pool_states
+FOR EACH ROW EXECUTE FUNCTION trg_pool_states_recompute_pool_state();
+
+-- 1) Base table that replaces the materialized view
+CREATE TABLE twamm_sale_rate_deltas (
+  pool_key_id      int8    NOT NULL REFERENCES pool_keys (pool_key_id),
+  "time"           timestamptz NOT NULL,
+  net_sale_rate_delta0 numeric NOT NULL,
+  net_sale_rate_delta1 numeric NOT NULL,
+  PRIMARY KEY (pool_key_id, "time")
+);
+
+-- 2) Helper: apply a delta into the aggregate table (upsert + prune zeros)
+create FUNCTION _apply_twamm_sale_rate_delta(
+  p_pool_key_id int8,
+  p_time timestamptz,
+  p_delta0 numeric,
+  p_delta1 numeric
+) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  -- Upsert the change
+  INSERT INTO twamm_sale_rate_deltas AS t (pool_key_id, "time", net_sale_rate_delta0, net_sale_rate_delta1)
+  VALUES (p_pool_key_id, p_time, p_delta0, p_delta1)
+  ON CONFLICT (pool_key_id, "time") DO UPDATE
+    SET net_sale_rate_delta0 = t.net_sale_rate_delta0 + EXCLUDED.net_sale_rate_delta0,
+        net_sale_rate_delta1 = t.net_sale_rate_delta1 + EXCLUDED.net_sale_rate_delta1;
+
+  -- If both become 0, remove the row (keeps table sparse like the original WHERE clause)
+  DELETE FROM twamm_sale_rate_deltas
+  WHERE pool_key_id = p_pool_key_id
+    AND "time" = p_time
+    AND net_sale_rate_delta0 = 0
+    AND net_sale_rate_delta1 = 0;
+END
+$$;
+
+-- 3) Main trigger function on twamm_order_updates
+CREATE FUNCTION trg_twamm_order_updates_to_deltas()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  -- old values (only used for UPDATE/DELETE)
+  o_pool int8;  o_start timestamptz;  o_end timestamptz;
+  o_d0 numeric; o_d1 numeric;
+  -- new values (only used for INSERT/UPDATE)
+  n_pool int8;  n_start timestamptz;  n_end timestamptz;
+  n_d0 numeric; n_d1 numeric;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    n_pool  := NEW.pool_key_id;  n_start := NEW.start_time; n_end := NEW.end_time;
+    n_d0    := NEW.sale_rate_delta0;  n_d1 := NEW.sale_rate_delta1;
+
+    PERFORM _apply_twamm_sale_rate_delta(n_pool, n_start,  n_d0,  n_d1);
+    PERFORM _apply_twamm_sale_rate_delta(n_pool, n_end,   -n_d0, -n_d1);
+    RETURN NEW;
+
+  ELSIF TG_OP = 'DELETE' THEN
+    o_pool  := OLD.pool_key_id;  o_start := OLD.start_time; o_end := OLD.end_time;
+    o_d0    := OLD.sale_rate_delta0;  o_d1 := OLD.sale_rate_delta1;
+
+    -- reverse the INSERT effects
+    PERFORM _apply_twamm_sale_rate_delta(o_pool, o_start, -o_d0, -o_d1);
+    PERFORM _apply_twamm_sale_rate_delta(o_pool, o_end,    o_d0,  o_d1);
+    RETURN OLD;
+
+  ELSE /* TG_OP = 'UPDATE' */
+    -- remove the old contribution...
+    o_pool  := OLD.pool_key_id;  o_start := OLD.start_time; o_end := OLD.end_time;
+    o_d0    := OLD.sale_rate_delta0;     o_d1 := OLD.sale_rate_delta1;
+    PERFORM _apply_twamm_sale_rate_delta(o_pool, o_start, -o_d0, -o_d1);
+    PERFORM _apply_twamm_sale_rate_delta(o_pool, o_end,    o_d0,  o_d1);
+
+    -- ...add the new contribution
+    n_pool  := NEW.pool_key_id;  n_start := NEW.start_time; n_end := NEW.end_time;
+    n_d0    := NEW.sale_rate_delta0;     n_d1 := NEW.sale_rate_delta1;
+    PERFORM _apply_twamm_sale_rate_delta(n_pool, n_start,  n_d0,  n_d1);
+    PERFORM _apply_twamm_sale_rate_delta(n_pool, n_end,   -n_d0, -n_d1);
+    RETURN NEW;
+  END IF;
+END
+$$;
+
+-- 4) Attach the trigger to twamm_order_updates (AFTER so all values are stable)
+CREATE TRIGGER trg_twamm_order_updates_to_deltas
+AFTER INSERT OR UPDATE OR DELETE ON twamm_order_updates
+FOR EACH ROW
+EXECUTE FUNCTION trg_twamm_order_updates_to_deltas();
