@@ -232,7 +232,25 @@ export function createLogProcessors({
           event,
           rawData: data,
         });
-        await dao.insertOracleSnapshotEvent(event, key);
+        await dao.insertOracleSnapshotEvent(
+          {
+            secondsPerLiquidityCumulative: event.secondsPerLiquidityCumulative,
+            tickCumulative: event.tickCumulative,
+            token0: 0n,
+            token1: event.token,
+            timestamp: event.timestamp,
+            poolId: toPoolId({
+              token0: `0x0`,
+              token1: event.token,
+              config: toPoolConfig({
+                fee: 0n,
+                tickSpacing: 0,
+                extension: key.emitter,
+              }),
+            }),
+          },
+          key
+        );
       },
     },
     TWAMM: {
