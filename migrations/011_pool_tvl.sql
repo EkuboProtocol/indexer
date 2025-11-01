@@ -46,7 +46,26 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE CONSTRAINT TRIGGER maintain_pool_tvl
-	AFTER INSERT OR UPDATE OR DELETE ON pool_balance_change
+CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_position_updates
+	AFTER INSERT OR UPDATE OR DELETE ON position_updates
+	DEFERRABLE INITIALLY DEFERRED
+	FOR EACH ROW
+	EXECUTE FUNCTION maintain_pool_tvl ();
+
+CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_position_fees_collected
+	AFTER INSERT OR UPDATE OR DELETE ON position_fees_collected
+	DEFERRABLE INITIALLY DEFERRED
+	FOR EACH ROW
+	EXECUTE FUNCTION maintain_pool_tvl ();
+
+CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_fees_accumulated
+	AFTER INSERT OR UPDATE OR DELETE ON fees_accumulated
+	DEFERRABLE INITIALLY DEFERRED
+	FOR EACH ROW
+	EXECUTE FUNCTION maintain_pool_tvl ();
+
+CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_swaps
+	AFTER INSERT OR UPDATE OR DELETE ON swaps
+	DEFERRABLE INITIALLY DEFERRED
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_pool_tvl ();

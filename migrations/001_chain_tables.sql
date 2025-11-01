@@ -7,32 +7,50 @@ CREATE TABLE indexer_cursor (
 
 CREATE TABLE blocks (
 	chain_id int8 NOT NULL,
-	block_number int8 NOT NULL CHECK (block_number >= 0 AND block_number < pow(2, 32)::int8),
-	hash numeric NOT NULL,
-	time timestamptz NOT NULL,
-	inserted timestamptz NOT NULL DEFAULT now(),
-	PRIMARY KEY (chain_id, block_number)
+	block_number int8 NOT NULL,
+	block_hash numeric NOT NULL,
+	block_time timestamptz NOT NULL,
+	PRIMARY KEY (chain_id, block_number),
+	UNIQUE (chain_id, block_hash)
 );
 
-CREATE INDEX ON blocks USING btree (chain_id, time);
+CREATE INDEX ON blocks (chain_id, block_time);
 
-CREATE UNIQUE INDEX ON blocks USING btree (chain_id, hash);
+CREATE OR REPLACE FUNCTION compute_event_id(p_block_number bigint, p_transaction_index int4, p_event_index int4)
+RETURNS bigint
+LANGUAGE plpgsql
+IMMUTABLE
+STRICT
+AS $$
+DECLARE
+  block_limit int8 := pow(2, 32)::int8;
+  index_limit int8 := pow(2, 16)::int8;
+  block_big int8 := p_block_number;
+  tx_big int8 := p_transaction_index;
+  event_big int8 := p_event_index;
+BEGIN
+  IF block_big < 0 OR block_big >= block_limit THEN
+    RAISE EXCEPTION 'block_number % out of allowed range [0, %)', block_big, block_limit;
+  END IF;
+  IF tx_big < 0 OR tx_big >= index_limit THEN
+    RAISE EXCEPTION 'transaction_index % out of allowed range [0, %)', tx_big, index_limit;
+  END IF;
+  IF event_big < 0 OR event_big >= index_limit THEN
+    RAISE EXCEPTION 'event_index % out of allowed range [0, %)', event_big, index_limit;
+  END IF;
 
--- all events reference an chain_id, event_id which contains the metadata of the event
-CREATE TABLE event_keys (
-	chain_id int8 NOT NULL,
-	event_id int8 GENERATED ALWAYS AS (
-	-- this allows for 2**16 events per transaction, 2**16 transactions per block, and 2**32 = 4294967296 ~= 4.3B blocks
-	-- 4.3B blocks is 136 years of 1 second blocks
-	- 9223372036854775807::int8 + (block_number * pow(2, 32)::int8) + (transaction_index::int8 * pow(2, 16)::int8) + event_index::int8) STORED,
-	block_number int8 NOT NULL CHECK (block_number >= 0 AND block_number < pow(2, 32)::int8),
-	transaction_index int4 NOT NULL CHECK (transaction_index >= 0 AND transaction_index < pow(2, 16)),
-	event_index int4 NOT NULL CHECK (event_index >= 0 AND event_index < pow(2, 16)),
-	transaction_hash numeric NOT NULL,
-	emitter numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id),
-	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE,
-	UNIQUE (chain_id, block_number, transaction_index, event_index)
-);
+  RETURN -9223372036854775807::int8
+         + (block_big * block_limit)
+         + (tx_big * index_limit)
+         + event_big;
+END;
+$$;
 
-CREATE INDEX ON event_keys USING btree (transaction_hash);
+CREATE OR REPLACE FUNCTION block_updates()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RAISE EXCEPTION 'Updates are not allowed on %', TG_TABLE_NAME;
+END;
+$$;

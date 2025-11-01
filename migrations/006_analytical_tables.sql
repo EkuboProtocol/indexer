@@ -85,7 +85,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION apply_hourly_volume_from_swap (p_chain_id bigint, p_pool_balance_change_id bigint, p_multiplier numeric)
+CREATE OR REPLACE FUNCTION apply_hourly_volume_from_swap (p_chain_id bigint, p_event_id bigint, p_multiplier numeric)
 	RETURNS void
 	AS $$
 DECLARE
@@ -96,36 +96,36 @@ DECLARE
 	v_fees numeric;
 BEGIN
 	SELECT
-		pool_key_id,
+		s.pool_key_id,
 		date_trunc('hour', b.time) AS hour,
-		CASE WHEN pbc.delta0 >= 0 THEN
+		CASE WHEN s.delta0 >= 0 THEN
 			pk.token0
 		ELSE
 			pk.token1
 		END AS token,
-		CASE WHEN pbc.delta0 >= 0 THEN
-			pbc.delta0
+		CASE WHEN s.delta0 >= 0 THEN
+			s.delta0
 		ELSE
-			pbc.delta1
+			s.delta1
 		END AS volume,
 		floor((
-			CASE WHEN pbc.delta0 >= 0 THEN
-				pbc.delta0
+			CASE WHEN s.delta0 >= 0 THEN
+				s.delta0
 			ELSE
-				pbc.delta1
+				s.delta1
 			END * pk.fee) / pk.fee_denominator) AS fees INTO v_pool_key_id,
 		v_hour,
 		v_token,
 		v_volume,
 		v_fees
 	FROM
-		pool_balance_change pbc
-		JOIN event_keys ek USING (chain_id, event_id)
-		JOIN blocks b USING (chain_id, block_number)
+		swaps s
+		JOIN blocks b ON b.chain_id = s.chain_id
+			AND b.block_number = s.block_number
 		JOIN pool_keys pk USING (pool_key_id)
 	WHERE
-		pbc.chain_id = p_chain_id
-		AND pbc.event_id = p_pool_balance_change_id;
+		s.chain_id = p_chain_id
+		AND s.event_id = p_event_id;
 	IF NOT FOUND THEN
 		RETURN;
 	END IF;
@@ -137,7 +137,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION apply_hourly_volume_from_fees_accumulated (p_chain_id bigint, p_pool_balance_change_id bigint, p_multiplier numeric)
+CREATE OR REPLACE FUNCTION apply_hourly_volume_from_fees_accumulated (p_chain_id bigint, p_event_id bigint, p_multiplier numeric)
 	RETURNS void
 	AS $$
 DECLARE
@@ -149,25 +149,25 @@ DECLARE
 	v_fee1 numeric;
 BEGIN
 	SELECT
-		pool_key_id,
+		fa.pool_key_id,
 		date_trunc('hour', b.time) AS hour,
 		pk.token0,
 		pk.token1,
-		GREATEST (pbc.delta0, 0) AS fee0,
-		GREATEST (pbc.delta1, 0) AS fee1 INTO v_pool_key_id,
+		GREATEST (fa.delta0, 0) AS fee0,
+		GREATEST (fa.delta1, 0) AS fee1 INTO v_pool_key_id,
 		v_hour,
 		v_token0,
 		v_token1,
 		v_fee0,
 		v_fee1
 	FROM
-		pool_balance_change pbc
-		JOIN event_keys ek USING (chain_id, event_id)
-		JOIN blocks b USING (chain_id, block_number)
+		fees_accumulated fa
+		JOIN blocks b ON b.chain_id = fa.chain_id
+			AND b.block_number = fa.block_number
 		JOIN pool_keys pk USING (pool_key_id)
 	WHERE
-		pbc.chain_id = p_chain_id
-		AND pbc.event_id = p_pool_balance_change_id;
+		fa.chain_id = p_chain_id
+		AND fa.event_id = p_event_id;
 	IF NOT FOUND THEN
 		RETURN;
 	END IF;
@@ -223,7 +223,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION apply_hourly_price_from_swap (p_chain_id bigint, p_pool_balance_change_id bigint, p_multiplier numeric)
+CREATE OR REPLACE FUNCTION apply_hourly_price_from_swap (p_chain_id bigint, p_event_id bigint, p_multiplier numeric)
 	RETURNS void
 	AS $$
 DECLARE
@@ -252,23 +252,23 @@ BEGIN
 	SELECT
 		pk.token0,
 		pk.token1,
-		ek.block_number,
+		s.block_number,
 		date_trunc('hour', b.time) AS hour,
-		pbc.delta0,
-		pbc.delta1 INTO v_token0,
+		s.delta0,
+		s.delta1 INTO v_token0,
 		v_token1,
 		v_block_number,
 		v_hour,
 		v_delta0,
 		v_delta1
 	FROM
-		pool_balance_change pbc
-		JOIN event_keys ek USING (chain_id, event_id)
-		JOIN blocks b USING (chain_id, block_number)
+		swaps s
+		JOIN blocks b ON b.chain_id = s.chain_id
+			AND b.block_number = s.block_number
 		JOIN pool_keys pk USING (pool_key_id)
 	WHERE
-		pbc.chain_id = p_chain_id
-		AND pbc.event_id = p_pool_balance_change_id;
+		s.chain_id = p_chain_id
+		AND s.event_id = p_event_id;
 	IF NOT FOUND THEN
 		RETURN;
 	END IF;
@@ -405,8 +405,8 @@ BEGIN
 		v_fee_denominator
 	FROM
 		pool_balance_change pbc
-		JOIN event_keys ek USING (chain_id, event_id)
-		JOIN blocks b USING (chain_id, block_number)
+		JOIN blocks b ON b.chain_id = pbc.chain_id
+			AND b.block_number = pbc.block_number
 		LEFT JOIN position_updates pu USING (chain_id, event_id)
 		JOIN pool_keys pk USING (pool_key_id)
 	WHERE
@@ -463,7 +463,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION apply_hourly_revenue_from_position_update (p_chain_id bigint, p_pool_balance_change_id bigint, p_multiplier numeric)
+CREATE OR REPLACE FUNCTION apply_hourly_revenue_from_position_update (p_chain_id bigint, p_event_id bigint, p_multiplier numeric)
 	RETURNS void
 	AS $$
 DECLARE
@@ -475,19 +475,19 @@ DECLARE
 	v_revenue1 numeric;
 BEGIN
 	SELECT
-		pbc.pool_key_id,
+		pu.pool_key_id,
 		date_trunc('hour', b.time) AS hour,
 		pk.token0,
 		pk.token1,
-		CASE WHEN pbc.delta0 < 0
+		CASE WHEN pu.delta0 < 0
 			AND pk.fee <> 0 THEN
-			ceil((- pbc.delta0 * pk.fee_denominator) / (pk.fee_denominator - pk.fee)) + pbc.delta0
+			ceil((- pu.delta0 * pk.fee_denominator) / (pk.fee_denominator - pk.fee)) + pu.delta0
 		ELSE
 			0
 		END AS revenue0,
-		CASE WHEN pbc.delta1 < 0
+		CASE WHEN pu.delta1 < 0
 			AND pk.fee <> 0 THEN
-			ceil((- pbc.delta1 * pk.fee_denominator) / (pk.fee_denominator - pk.fee)) + pbc.delta1
+			ceil((- pu.delta1 * pk.fee_denominator) / (pk.fee_denominator - pk.fee)) + pu.delta1
 		ELSE
 			0
 		END AS revenue1 INTO v_pool_key_id,
@@ -498,13 +498,12 @@ BEGIN
 		v_revenue1
 	FROM
 		position_updates pu
-		JOIN pool_balance_change pbc USING (chain_id, event_id)
-		JOIN event_keys ek USING (chain_id, event_id)
-		JOIN blocks b USING (chain_id, block_number)
+		JOIN blocks b ON b.chain_id = pu.chain_id
+			AND b.block_number = pu.block_number
 		JOIN pool_keys pk USING (pool_key_id)
 	WHERE
 		pu.chain_id = p_chain_id
-		AND pu.event_id = p_pool_balance_change_id;
+		AND pu.event_id = p_event_id;
 	IF NOT FOUND THEN
 		RETURN;
 	END IF;
@@ -622,8 +621,23 @@ CREATE TRIGGER maintain_hourly_volume_from_fees_accumulated
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_hourly_volume_from_fees_accumulated ();
 
-CREATE CONSTRAINT TRIGGER maintain_hourly_tvl_delta_from_pool_balance_change
-	AFTER INSERT OR UPDATE OR DELETE ON pool_balance_change DEFERRABLE INITIALLY DEFERRED
+CREATE CONSTRAINT TRIGGER maintain_hourly_tvl_delta_from_position_updates
+	AFTER INSERT OR UPDATE OR DELETE ON position_updates DEFERRABLE INITIALLY DEFERRED
+	FOR EACH ROW
+	EXECUTE FUNCTION maintain_hourly_tvl_delta_from_pool_balance_change ();
+
+CREATE CONSTRAINT TRIGGER maintain_hourly_tvl_delta_from_position_fees_collected
+	AFTER INSERT OR UPDATE OR DELETE ON position_fees_collected DEFERRABLE INITIALLY DEFERRED
+	FOR EACH ROW
+	EXECUTE FUNCTION maintain_hourly_tvl_delta_from_pool_balance_change ();
+
+CREATE CONSTRAINT TRIGGER maintain_hourly_tvl_delta_from_fees_accumulated
+	AFTER INSERT OR UPDATE OR DELETE ON fees_accumulated DEFERRABLE INITIALLY DEFERRED
+	FOR EACH ROW
+	EXECUTE FUNCTION maintain_hourly_tvl_delta_from_pool_balance_change ();
+
+CREATE CONSTRAINT TRIGGER maintain_hourly_tvl_delta_from_swaps
+	AFTER INSERT OR UPDATE OR DELETE ON swaps DEFERRABLE INITIALLY DEFERRED
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_hourly_tvl_delta_from_pool_balance_change ();
 

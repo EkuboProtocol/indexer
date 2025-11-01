@@ -1,12 +1,21 @@
 CREATE TABLE nonfungible_token_transfers (
 	chain_id int8 NOT NULL,
-	event_id int8 NOT NULL,
+	block_number int8 NOT NULL,
+	transaction_index int4 NOT NULL,
+	event_index int4 NOT NULL,
+	transaction_hash numeric NOT NULL,
+	emitter numeric NOT NULL,
+	event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
 	token_id numeric NOT NULL,
 	from_address numeric NOT NULL,
 	to_address numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id),
-	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
+	PRIMARY KEY (chain_id, event_id)
 );
+
+CREATE TRIGGER no_updates_nonfungible_token_transfers
+	BEFORE UPDATE ON nonfungible_token_transfers
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
 
 CREATE TABLE nonfungible_token_owners (
 	chain_id int8 NOT NULL,
@@ -21,16 +30,8 @@ CREATE OR REPLACE FUNCTION nft_owner_apply_transfer ()
 	RETURNS TRIGGER
 	AS $$
 DECLARE
-	v_nft_address numeric;
+	v_nft_address numeric := NEW.emitter;
 BEGIN
-	-- Get NFT contract (emitter)
-	SELECT
-		emitter INTO v_nft_address
-	FROM
-		event_keys
-	WHERE
-		chain_id = NEW.chain_id
-		AND event_id = NEW.event_id;
 	-- Generic UPSERT (no mint/burn branches)
 	INSERT INTO nonfungible_token_owners (chain_id, nft_address, token_id, current_owner, previous_owner)
 		VALUES (NEW.chain_id, v_nft_address, NEW.token_id, NEW.to_address, NEW.from_address)
@@ -46,27 +47,19 @@ CREATE OR REPLACE FUNCTION nft_owner_rollback_transfer ()
 	RETURNS TRIGGER
 	AS $$
 DECLARE
-	v_nft_address numeric;
+	v_nft_address numeric := OLD.emitter;
 	v_last record;
 BEGIN
-	SELECT
-		emitter INTO v_nft_address
-	FROM
-		event_keys
-	WHERE
-		chain_id = OLD.chain_id
-		AND event_id = OLD.event_id;
 	-- get latest remaining transfer for this token
 	SELECT
 		t.to_address,
 		t.from_address INTO v_last
 	FROM
 		nonfungible_token_transfers t
-		JOIN event_keys ek USING (chain_id, event_id)
 	WHERE
 		t.chain_id = OLD.chain_id
 		AND t.token_id = OLD.token_id
-		AND ek.emitter = v_nft_address
+		AND t.emitter = v_nft_address
 	ORDER BY
 		t.event_id DESC
 	LIMIT 1;

@@ -1,6 +1,11 @@
 CREATE TABLE spline_liquidity_updated (
     chain_id int8 NOT NULL,
-    event_id int8 NOT NULL,
+    block_number int8 NOT NULL,
+    transaction_index int4 NOT NULL,
+    event_index int4 NOT NULL,
+    transaction_hash numeric NOT NULL,
+    emitter numeric NOT NULL,
+    event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
     pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
     sender numeric NOT NULL,
     liquidity_factor numeric NOT NULL,
@@ -9,9 +14,13 @@ CREATE TABLE spline_liquidity_updated (
     amount1 numeric NOT NULL,
     protocol_fees0 numeric NOT NULL,
     protocol_fees1 numeric NOT NULL,
-    PRIMARY KEY (chain_id, event_id),
-    FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
+    PRIMARY KEY (chain_id, event_id)
 );
+
+CREATE TRIGGER no_updates_spline_liquidity_updated
+	BEFORE UPDATE ON spline_liquidity_updated
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
 
 CREATE TABLE spline_pools (
   pool_key_id int8 NOT NULL PRIMARY KEY REFERENCES pool_keys (pool_key_id)

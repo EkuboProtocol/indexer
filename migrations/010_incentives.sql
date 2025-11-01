@@ -1,34 +1,61 @@
 CREATE TABLE incentives_funded (
 	chain_id int8 NOT NULL,
-	event_id int8 NOT NULL,
+	block_number int8 NOT NULL,
+	transaction_index int4 NOT NULL,
+	event_index int4 NOT NULL,
+	transaction_hash numeric NOT NULL,
+	emitter numeric NOT NULL,
+	event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
 	owner NUMERIC NOT NULL,
 	token numeric NOT NULL,
 	root numeric NOT NULL,
 	amount_next numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id),
-	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
+	PRIMARY KEY (chain_id, event_id)
 );
+
+CREATE TRIGGER no_updates_incentives_funded
+	BEFORE UPDATE ON incentives_funded
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
 
 CREATE TABLE incentives_refunded (
 	chain_id int8 NOT NULL,
-	event_id int8 NOT NULL,
+	block_number int8 NOT NULL,
+	transaction_index int4 NOT NULL,
+	event_index int4 NOT NULL,
+	transaction_hash numeric NOT NULL,
+	emitter numeric NOT NULL,
+	event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
 	owner NUMERIC NOT NULL,
 	token numeric NOT NULL,
 	root numeric NOT NULL,
 	refund_amount numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id),
-	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
+	PRIMARY KEY (chain_id, event_id)
 );
+
+CREATE TRIGGER no_updates_incentives_refunded
+	BEFORE UPDATE ON incentives_refunded
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
 
 CREATE TABLE token_wrapper_deployed (
 	chain_id int8 NOT NULL,
-	event_id int8 NOT NULL,
+	block_number int8 NOT NULL,
+	transaction_index int4 NOT NULL,
+	event_index int4 NOT NULL,
+	transaction_hash numeric NOT NULL,
+	emitter numeric NOT NULL,
+	event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
 	token_wrapper numeric NOT NULL,
 	underlying_token numeric NOT NULL,
 	unlock_time numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id),
-	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
+	PRIMARY KEY (chain_id, event_id)
 );
+
+CREATE TRIGGER no_updates_token_wrapper_deployed
+	BEFORE UPDATE ON token_wrapper_deployed
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
 
 CREATE SCHEMA incentives;
 

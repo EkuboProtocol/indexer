@@ -1,6 +1,11 @@
 CREATE TABLE limit_order_placed (
 	chain_id int8 NOT NULL,
-	event_id int8 NOT NULL,
+	block_number int8 NOT NULL,
+	transaction_index int4 NOT NULL,
+	event_index int4 NOT NULL,
+	transaction_hash numeric NOT NULL,
+	emitter numeric NOT NULL,
+	event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
 	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	owner NUMERIC NOT NULL,
 	salt numeric NOT NULL,
@@ -9,17 +14,21 @@ CREATE TABLE limit_order_placed (
 	tick int4 NOT NULL,
 	liquidity numeric NOT NULL,
 	amount numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id),
-	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
+	PRIMARY KEY (chain_id, event_id)
 );
 
-CREATE INDEX ON limit_order_placed USING btree (chain_id, OWNER, salt);
+CREATE INDEX ON limit_order_placed (chain_id, OWNER, salt);
 
 CREATE INDEX ON limit_order_placed (chain_id, salt, event_id DESC) INCLUDE (token0, token1, tick, liquidity, amount);
 
 CREATE TABLE limit_order_closed (
 	chain_id int8 NOT NULL,
-	event_id int8 NOT NULL,
+	block_number int8 NOT NULL,
+	transaction_index int4 NOT NULL,
+	event_index int4 NOT NULL,
+	transaction_hash numeric NOT NULL,
+	emitter numeric NOT NULL,
+	event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
 	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	owner NUMERIC NOT NULL,
 	salt numeric NOT NULL,
@@ -28,11 +37,10 @@ CREATE TABLE limit_order_closed (
 	tick int4 NOT NULL,
 	amount0 numeric NOT NULL,
 	amount1 numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id),
-	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
+	PRIMARY KEY (chain_id, event_id)
 );
 
-CREATE INDEX ON limit_order_closed USING btree (chain_id, OWNER, salt);
+CREATE INDEX ON limit_order_closed (chain_id, OWNER, salt);
 
 CREATE INDEX ON limit_order_closed (chain_id, salt, event_id DESC) INCLUDE (amount0, amount1);
 

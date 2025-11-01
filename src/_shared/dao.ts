@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import { Client } from "pg";
-import type { EventKey } from "./eventKey.ts";
+import { hexToNumericString, type EventKey } from "./eventKey.ts";
 
 export type NumericValue = bigint | number | `0x${string}`;
 export type AddressValue = bigint | `0x${string}`;
@@ -284,6 +284,16 @@ export class DAO {
     this.indexerName = indexerName;
   }
 
+  private getEventColumns(key: EventKey) {
+    return {
+      blockNumber: key.blockNumber,
+      transactionIndex: key.transactionIndex,
+      eventIndex: key.eventIndex,
+      transactionHash: hexToNumericString(key.transactionHash),
+      emitter: hexToNumericString(key.emitter),
+    };
+  }
+
   public async beginTransaction(): Promise<void> {
     await this.pg.query("BEGIN");
   }
@@ -372,28 +382,29 @@ export class DAO {
     transfer: NonfungibleTokenTransfer,
     key: EventKey
   ) {
+    const event = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
-        INSERT
-        INTO nonfungible_token_transfers
-        (chain_id,
-          event_id,
-          token_id,
-          from_address,
-          to_address)
-        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9)
+        INSERT INTO nonfungible_token_transfers
+            (chain_id,
+              block_number,
+              transaction_index,
+              event_index,
+              transaction_hash,
+              emitter,
+              token_id,
+              from_address,
+              to_address)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        event.blockNumber,
+        event.transactionIndex,
+        event.eventIndex,
+        event.transactionHash,
+        event.emitter,
         transfer.id,
         transfer.from,
         transfer.to,
@@ -405,23 +416,21 @@ export class DAO {
     event: PositionMintedWithReferrerInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT INTO position_minted_with_referrer
-            (chain_id, event_id, token_id, referrer)
-        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8);
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, token_id, referrer)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.tokenId,
         event.referrer,
       ],
@@ -432,31 +441,37 @@ export class DAO {
     event: PositionUpdatedInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id),
-        balance_change_insert AS (
-            INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
-            VALUES ($1, (SELECT event_id FROM inserted_event),
-                    (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
-                    $13, $14)
-            RETURNING event_id, pool_key_id
-        )
         INSERT INTO position_updates
-        (chain_id, event_id, locker, salt, lower_bound, upper_bound, liquidity_delta)
-        VALUES ($1, (SELECT event_id FROM balance_change_insert),
-                $7, $9, $10, $11, $12);
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, locker, salt, lower_bound, upper_bound, liquidity_delta, delta0, delta1)
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
+          $7,
+          $9,
+          $10,
+          $11,
+          $12,
+          $13,
+          $14
+        );
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
 
         event.locker,
 
@@ -477,31 +492,37 @@ export class DAO {
     event: PositionFeesCollectedInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id),
-        balance_change_insert AS (
-            INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
-            VALUES ($1, (SELECT event_id FROM inserted_event),
-                    (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
-                    -$12::numeric, -$13::numeric)
-            RETURNING event_id
-        )
         INSERT INTO position_fees_collected
-        (chain_id, event_id, locker, salt, lower_bound, upper_bound)
-        VALUES ($1, (SELECT event_id FROM balance_change_insert),
-                $8, $9, $10, $11);
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, locker, salt, lower_bound, upper_bound, delta0, delta1)
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
+          $7,
+          $9,
+          $10,
+          $11,
+          $12,
+          -$13::numeric,
+          -$14::numeric
+        );
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
 
         event.poolId,
 
@@ -520,6 +541,8 @@ export class DAO {
     newPool: PoolInitializedInsert,
     key: EventKey
   ): Promise<bigint> {
+    const evt = this.getEventColumns(key);
+
     const {
       rows: [{ pool_key_id }],
     } = await this.pg.query({
@@ -529,24 +552,10 @@ export class DAO {
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING
               pool_key_id
-        ), inserted_event AS (
-        INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-            VALUES ($1, $10, $11, $12, $13, $14)
-          RETURNING
-            event_id)
-          INSERT INTO pool_initializations (chain_id, event_id, pool_key_id, tick, sqrt_ratio)
-            VALUES ($1, (
-                SELECT
-                  event_id
-                FROM
-                  inserted_event),
-                (
-                  SELECT
-                    pool_key_id
-                  FROM
-                    inserted_pool_key),
-                  $15,
-                  $16)
+        )
+          INSERT INTO pool_initializations (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, pool_key_id, tick, sqrt_ratio)
+            SELECT $1, $10, $11, $12, $13, $14, inserted_pool_key.pool_key_id, $15, $16
+            FROM inserted_pool_key
             RETURNING pool_key_id;
       `,
       values: [
@@ -560,11 +569,11 @@ export class DAO {
         newPool.poolKey.extension,
         newPool.feeDenominator,
 
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
 
         newPool.tick,
         newPool.sqrtRatio,
@@ -585,28 +594,30 @@ export class DAO {
     event: ProtocolFeesWithdrawnInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING event_id)
                 INSERT
                 INTO protocol_fees_withdrawn
                 (chain_id,
-                 event_id,
+                 block_number,
+                 transaction_index,
+                 event_index,
+                 transaction_hash,
+                 emitter,
                  recipient,
                  token,
                  amount)
-                VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9);
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
             `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.recipient,
         event.token,
         event.amount,
@@ -618,33 +629,26 @@ export class DAO {
     event: ProtocolFeesPaidInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id),
-        balance_change_insert AS (
-            INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
-            VALUES ($1, (SELECT event_id FROM inserted_event),
-                    (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
-                    -$12::numeric, -$13::numeric)
-            RETURNING event_id, pool_key_id
-        )
         INSERT INTO protocol_fees_paid
-            (chain_id, event_id, pool_key_id, owner, salt, lower_bound, upper_bound, delta0, delta1)
-        VALUES ($1, (SELECT event_id FROM balance_change_insert),
-                (SELECT pool_key_id FROM balance_change_insert), $8, $9, $10, $11, $12, $13);
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+             pool_key_id, owner, salt, lower_bound, upper_bound, delta0, delta1)
+        VALUES ($1, $2, $3, $4, $5, $6,
+                (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
+                $7, $9, $10, $11, $12, $13);
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.poolId,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.owner,
+        event.poolId,
         event.salt,
         event.bounds.lower,
         event.bounds.upper,
@@ -658,24 +662,22 @@ export class DAO {
     event: ExtensionRegisteredInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING event_id)
                 INSERT
                 INTO extension_registrations
-                    (chain_id, event_id, pool_extension)
-                VALUES ($1, (SELECT event_id FROM inserted_event), $7);
+                    (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, pool_extension)
+                VALUES ($1, $2, $3, $4, $5, $6, $7);
             `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.extension,
       ],
     });
@@ -685,23 +687,21 @@ export class DAO {
     event: TokenRegistrationInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT INTO token_registrations
-            (chain_id, event_id, address, name, symbol, decimals, total_supply)
-        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10, $11);
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, address, name, symbol, decimals, total_supply)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.address,
         event.name,
         event.symbol,
@@ -715,23 +715,21 @@ export class DAO {
     event: TokenRegistrationV3Insert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT INTO token_registrations_v3
-            (chain_id, event_id, address, name, symbol, decimals, total_supply)
-        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10, $11);
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, address, name, symbol, decimals, total_supply)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.address,
         event.name,
         event.symbol,
@@ -745,23 +743,21 @@ export class DAO {
     event: StakerStakedInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT INTO staker_staked
-            (chain_id, event_id, from_address, amount, delegate)
-        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9);
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, from_address, amount, delegate)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.from,
         event.amount,
         event.delegate,
@@ -773,23 +769,21 @@ export class DAO {
     event: StakerWithdrawnInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT INTO staker_withdrawn
-            (chain_id, event_id, from_address, amount, recipient, delegate)
-        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10);
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, from_address, amount, recipient, delegate)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.from,
         event.amount,
         event.recipient,
@@ -802,24 +796,22 @@ export class DAO {
     event: GovernorReconfiguredInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT INTO governor_reconfigured
-            (chain_id, event_id, version, voting_start_delay, voting_period, voting_weight_smoothing_duration,
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, version, voting_start_delay, voting_period, voting_weight_smoothing_duration,
              quorum, proposal_creation_threshold, execution_delay, execution_window)
-        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10, $11, $12, $13, $14);
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.version,
         event.votingStartDelay,
         event.votingPeriod,
@@ -839,23 +831,21 @@ export class DAO {
     const configVersion =
       event.configVersion === null ? 0n : BigInt(event.configVersion);
 
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT INTO governor_proposed
-            (chain_id, event_id, proposal_id, proposer, config_version)
-        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9);
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id, proposer, config_version)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.proposal_id,
         event.proposer,
         configVersion,
@@ -886,24 +876,22 @@ export class DAO {
     event: GovernorCanceledInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT INTO governor_canceled
-            (chain_id, event_id, proposal_id)
-        VALUES ($1, (SELECT event_id FROM inserted_event), $7)
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (chain_id, proposal_id) DO NOTHING;
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.proposal_id,
       ],
     });
@@ -913,23 +901,21 @@ export class DAO {
     event: GovernorVotedInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT INTO governor_voted
-            (chain_id, event_id, proposal_id, voter, weight, yea)
-        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10);
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id, voter, weight, yea)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.proposal_id,
         event.voter,
         event.weight,
@@ -942,24 +928,22 @@ export class DAO {
     event: GovernorExecutedInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT INTO governor_executed
-            (chain_id, event_id, proposal_id)
-        VALUES ($1, (SELECT event_id FROM inserted_event), $7)
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (chain_id, proposal_id) DO NOTHING;
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.proposal_id,
       ],
     });
@@ -986,23 +970,21 @@ export class DAO {
     event: GovernorProposalDescribedInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT INTO governor_proposal_described
-            (chain_id, event_id, proposal_id, description)
-        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8);
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id, description)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.proposal_id,
         event.description,
       ],
@@ -1013,30 +995,23 @@ export class DAO {
     event: FeesAccumulatedInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id),
-        balance_change_insert AS (
-            INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
-            VALUES ($1, (SELECT event_id FROM inserted_event),
-                    (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
-                    $8, $9)
-            RETURNING event_id
-        )
         INSERT INTO fees_accumulated
-        (chain_id, event_id)
-        VALUES ($1, (SELECT event_id FROM balance_change_insert));
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, pool_key_id, delta0, delta1)
+        VALUES ($1, $2, $3, $4, $5, $6,
+                (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
+                $8, $9);
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
 
         event.poolId,
 
@@ -1047,31 +1022,24 @@ export class DAO {
   }
 
   public async insertSwappedEvent(event: SwapEventInsert, key: EventKey) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id),
-        balance_change_insert AS (
-            INSERT INTO pool_balance_change (chain_id, event_id, pool_key_id, delta0, delta1)
-            VALUES ($1, (SELECT event_id FROM inserted_event),
-                    (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
-                    $9, $10)
-            RETURNING event_id
-        )
         INSERT INTO swaps
-        (chain_id, event_id, locker, sqrt_ratio_after, tick_after, liquidity_after)
-        VALUES ($1, (SELECT event_id FROM inserted_event), $7,
-                $11, $12, $13);
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, locker, delta0, delta1, sqrt_ratio_after, tick_after, liquidity_after)
+        VALUES ($1, $2, $3, $4, $5, $6,
+                (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
+                $7, $9, $10, $11, $12, $13);
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
 
         event.locker,
 
@@ -1114,34 +1082,31 @@ export class DAO {
         ? [orderKey.buyToken, orderKey.sellToken, 0, event.saleRateDelta]
         : [orderKey.sellToken, orderKey.buyToken, event.saleRateDelta, 0];
 
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys
-                (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT
         INTO twamm_order_updates
-        (chain_id, event_id, pool_key_id, locker, salt, sale_rate_delta0, sale_rate_delta1, start_time, end_time)
-        VALUES ($1, (SELECT event_id FROM inserted_event),
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, locker, salt, sale_rate_delta0, sale_rate_delta1, start_time, end_time)
+        VALUES ($1, $2, $3, $4, $5, $6,
                 (SELECT pk.pool_key_id
                   FROM pool_keys pk
                     LEFT JOIN extension_registrations er 
                       ON er.chain_id = pk.chain_id AND er.pool_extension = pk.pool_extension
-                    LEFT JOIN event_keys ek on er.chain_id = ek.chain_id AND er.event_id = ek.event_id
                   WHERE pk.chain_id = $1 
-                    AND (ek.emitter IS NULL OR pk.core_address = ek.emitter)
-                    AND pool_id = $7),
+                    AND (er.emitter IS NULL OR pk.core_address = er.emitter)
+                    AND pk.pool_id = $7),
                 $8, $9, $10, $11, $12, $13);
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
 
         poolId,
 
@@ -1166,33 +1131,31 @@ export class DAO {
         ? [orderKey.buyToken, orderKey.sellToken, 0, event.amount]
         : [orderKey.sellToken, orderKey.buyToken, event.amount, 0];
 
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT
         INTO twamm_proceeds_withdrawals
-        (chain_id, event_id, pool_key_id, locker, salt, amount0, amount1, start_time, end_time)
-        VALUES ($1, (SELECT event_id FROM inserted_event),
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, locker, salt, amount0, amount1, start_time, end_time)
+        VALUES ($1, $2, $3, $4, $5, $6,
                 (SELECT pk.pool_key_id
                   FROM pool_keys pk
                     LEFT JOIN extension_registrations er 
                       ON er.chain_id = pk.chain_id AND er.pool_extension = pk.pool_extension
-                    LEFT JOIN event_keys ek on er.chain_id = ek.chain_id AND er.event_id = ek.event_id
                   WHERE pk.chain_id = $1 
-                    AND (ek.emitter IS NULL OR pk.core_address = ek.emitter)
-                    AND pool_id = $7), 
+                    AND (er.emitter IS NULL OR pk.core_address = er.emitter)
+                    AND pk.pool_id = $7), 
                 $8, $9, $10, $11, $12, $13);
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
 
         poolId,
 
@@ -1210,35 +1173,32 @@ export class DAO {
     event: TwammVirtualOrdersExecutedInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys
-                (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT
         INTO twamm_virtual_order_executions
-            (chain_id, event_id, pool_key_id, token0_sale_rate, token1_sale_rate)
-        VALUES ($1, (SELECT event_id FROM inserted_event),
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+             pool_key_id, token0_sale_rate, token1_sale_rate)
+        VALUES ($1, $2, $3, $4, $5, $6,
                 (SELECT pk.pool_key_id
                   FROM pool_keys pk
                     LEFT JOIN extension_registrations er 
                       ON er.chain_id = pk.chain_id AND er.pool_extension = pk.pool_extension
-                    LEFT JOIN event_keys ek on er.chain_id = ek.chain_id AND er.event_id = ek.event_id
                   WHERE pk.chain_id = $1 
-                    AND (ek.emitter IS NULL OR pk.core_address = ek.emitter)
-                    AND pool_id = $7),
+                    AND (er.emitter IS NULL OR pk.core_address = er.emitter)
+                    AND pk.pool_id = $7),
                 $8, $9);
       `,
       // note on starknet we do not have an extension registration event
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
 
         event.poolId,
         event.saleRateToken0,
@@ -1251,16 +1211,14 @@ export class DAO {
     event: LimitOrderPlacedInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys
-                (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT INTO limit_order_placed
-            (chain_id, event_id, pool_key_id, owner, salt, token0, token1, tick, liquidity, amount)
-        VALUES ($1, (SELECT event_id FROM inserted_event),
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+             pool_key_id, owner, salt, token0, token1, tick, liquidity, amount)
+        VALUES ($1, $2, $3, $4, $5, $6,
                 (SELECT pool_key_id
                   FROM pool_keys
                   WHERE chain_id = $1 AND pool_id = $7),
@@ -1268,11 +1226,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.poolId,
         event.owner,
         event.salt,
@@ -1289,16 +1247,14 @@ export class DAO {
     event: LimitOrderClosedInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys
-                (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT INTO limit_order_closed
-            (chain_id, event_id, pool_key_id, owner, salt, token0, token1, tick, amount0, amount1)
-        VALUES ($1, (SELECT event_id FROM inserted_event),
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+             pool_key_id, owner, salt, token0, token1, tick, amount0, amount1)
+        VALUES ($1, $2, $3, $4, $5, $6,
                 (SELECT pool_key_id
                   FROM pool_keys
                   WHERE chain_id = $1 AND pool_id = $7),
@@ -1306,11 +1262,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.poolId,
         event.owner,
         event.salt,
@@ -1327,32 +1283,32 @@ export class DAO {
     event: LiquidityUpdatedInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys
-                (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT INTO spline_liquidity_updated
-            (chain_id, event_id, pool_key_id, sender, liquidity_factor, shares, amount0, amount1, protocol_fees0, protocol_fees1)
-        VALUES ($1, (SELECT event_id FROM inserted_event),
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+             pool_key_id, sender, liquidity_factor, shares, amount0, amount1, protocol_fees0, protocol_fees1)
+        VALUES ($1, $2, $3, $4, $5, $6,
                 (SELECT pool_key_id
                   FROM pool_keys
-                  WHERE chain_id = $1 AND core_address = (SELECT ek.emitter
-                                        FROM extension_registrations er
-                                                JOIN event_keys ek ON er.chain_id = $1 AND er.event_id = ek.event_id
-                                        WHERE er.pool_extension = $6)
+                  WHERE chain_id = $1 AND core_address = (
+                        SELECT emitter
+                        FROM extension_registrations
+                        WHERE chain_id = $1 AND pool_extension = $6
+                        ORDER BY block_number DESC, transaction_index DESC, event_index DESC
+                        LIMIT 1)
                     AND pool_id = $7),
                 $8, $9, $10, $11, $12, $13, $14);
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         event.poolId,
         event.sender,
         event.liquidityFactor,
@@ -1369,26 +1325,24 @@ export class DAO {
     snapshot: OracleSnapshotInsert,
     key: EventKey
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT
         INTO oracle_snapshots
-        (chain_id, event_id,
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
           token0, token1, snapshot_block_timestamp, snapshot_tick_cumulative, snapshot_seconds_per_liquidity_cumulative)
-        VALUES ($1, (SELECT event_id FROM inserted_event), 
+        VALUES ($1, $2, $3, $4, $5, $6, 
                 $7, $8, $9, $10, $11)
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
 
         snapshot.token0,
         snapshot.token1,
@@ -1404,24 +1358,22 @@ export class DAO {
     key: EventKey,
     parsed: IncentivesRefundedInsert
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-                WITH inserted_event AS (
-                    INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                        VALUES ($1, $2, $3, $4, $5, $6)
-                        RETURNING event_id)
                 INSERT
                 INTO incentives_refunded
-                    (chain_id, event_id, owner, token, root, refund_amount)
-                VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10)
+                    (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, owner, token, root, refund_amount)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         parsed.key.owner,
         parsed.key.token,
         parsed.key.root,
@@ -1434,24 +1386,22 @@ export class DAO {
     key: EventKey,
     parsed: IncentivesFundedInsert
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT
         INTO incentives_funded
-            (chain_id, event_id, owner, token, root, amount_next)
-        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9, $10)
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, owner, token, root, amount_next)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         parsed.key.owner,
         parsed.key.token,
         parsed.key.root,
@@ -1464,24 +1414,22 @@ export class DAO {
     key: EventKey,
     parsed: TokenWrapperDeployedInsert
   ) {
+    const evt = this.getEventColumns(key);
+
     await this.pg.query({
       text: `
-        WITH inserted_event AS (
-            INSERT INTO event_keys (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING event_id)
         INSERT
         INTO token_wrapper_deployed
-            (chain_id, event_id, token_wrapper, underlying_token, unlock_time)
-        VALUES ($1, (SELECT event_id FROM inserted_event), $7, $8, $9)
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, token_wrapper, underlying_token, unlock_time)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       `,
       values: [
         this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
+        evt.blockNumber,
+        evt.transactionIndex,
+        evt.eventIndex,
+        evt.transactionHash,
+        evt.emitter,
         parsed.tokenWrapper,
         parsed.underlyingToken,
         parsed.unlockTime,

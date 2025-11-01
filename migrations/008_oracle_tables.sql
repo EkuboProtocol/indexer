@@ -1,15 +1,24 @@
 CREATE TABLE oracle_snapshots (
 	chain_id int8 NOT NULL,
-	event_id int8 NOT NULL,
+	block_number int8 NOT NULL,
+	transaction_index int4 NOT NULL,
+	event_index int4 NOT NULL,
+	transaction_hash numeric NOT NULL,
+	emitter numeric NOT NULL,
+	event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
 	token0 numeric NOT NULL,
 	token1 numeric NOT NULL,
 	snapshot_block_timestamp int8 NOT NULL,
 	snapshot_tick_cumulative numeric NOT NULL,
 	-- null in case of starknet
 	snapshot_seconds_per_liquidity_cumulative numeric,
-	PRIMARY KEY (chain_id, event_id),
-	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
+	PRIMARY KEY (chain_id, event_id)
 );
+
+CREATE TRIGGER no_updates_oracle_snapshots
+	BEFORE UPDATE ON oracle_snapshots
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
 
 CREATE TABLE oracle_pool_states (
 	pool_key_id int8 PRIMARY KEY NOT NULL REFERENCES pool_keys (pool_key_id),
@@ -30,14 +39,7 @@ BEGIN
 		pk.chain_id = NEW.chain_id
 		AND pk.token0 = NEW.token0
 		AND pk.token1 = NEW.token1
-		AND pk.pool_extension = (
-			SELECT
-				ek.emitter
-			FROM
-				event_keys ek
-			WHERE
-				ek.chain_id = NEW.chain_id
-				AND ek.event_id = NEW.event_id);
+		AND pk.pool_extension = NEW.emitter;
 	INSERT INTO oracle_pool_states (pool_key_id, last_snapshot_block_timestamp)
 		VALUES (v_pool_key_id, NEW.snapshot_block_timestamp)
 	ON CONFLICT (pool_key_id)
@@ -70,26 +72,17 @@ BEGIN
 		AND pk.token0 = OLD.token0
 		AND pk.token1 = OLD.token1
 		-- todo: this row is already deleted, which prevents the rollback
-		AND pk.pool_extension = (
-			SELECT
-				ek.emitter
-			FROM
-				event_keys ek
-			WHERE
-				ek.chain_id = OLD.chain_id
-				AND ek.event_id = OLD.event_id);
+		AND pk.pool_extension = OLD.emitter;
 	-- get the most recent remaining snapshot (by event_id, not timestamp)
 	SELECT
 		os.snapshot_block_timestamp INTO v_last_ts
 	FROM
 		oracle_snapshots os
-		JOIN event_keys ek ON ek.chain_id = os.chain_id
-			AND ek.event_id = os.event_id
 	WHERE
 		os.chain_id = OLD.chain_id
 		AND os.token0 = OLD.token0
 		AND os.token1 = OLD.token1
-		AND ek.emitter = (
+		AND os.emitter = (
 			SELECT
 				pool_extension
 			FROM

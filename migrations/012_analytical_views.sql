@@ -86,14 +86,14 @@ CREATE MATERIALIZED VIEW last_24h_pool_stats_materialized AS (
 	FROM
 		last_24h_pool_stats_view);
 
-CREATE UNIQUE INDEX idx_last_24h_pool_stats_materialized_pool_key_id ON last_24h_pool_stats_materialized USING btree (pool_key_id);
+CREATE UNIQUE INDEX idx_last_24h_pool_stats_materialized_pool_key_id ON last_24h_pool_stats_materialized (pool_key_id);
 
 CREATE VIEW token_pair_realized_volatility_view AS
 WITH times AS (
 	SELECT
 		chain_id,
-		max(blocks.time) - INTERVAL '7 days' AS start_time,
-		max(blocks.time) AS end_time
+		max(blocks.block_time) - INTERVAL '7 days' AS start_time,
+		max(blocks.block_time) AS end_time
 	FROM
 		blocks
 	GROUP BY
@@ -167,10 +167,10 @@ last_swap_per_pair AS (
 		token0,
 		token1,
 		max(event_id) AS event_id
-FROM
-	swaps s
-	JOIN pool_balance_change pbc USING (chain_id, event_id)
-	JOIN pool_keys pk ON pbc.pool_key_id = pk.pool_key_id
+	FROM
+		swaps s
+		JOIN pool_balance_change pbc USING (chain_id, event_id)
+		JOIN pool_keys pk ON pbc.pool_key_id = pk.pool_key_id
 	WHERE
 		liquidity_after != 0
 	GROUP BY
@@ -178,14 +178,14 @@ FROM
 ),
 last_swap_time_per_pair AS (
 	SELECT
-		chain_id,
-		token0,
-		token1,
-		b.time
+		ls.chain_id,
+		ls.token0,
+		ls.token1,
+		b.block_time
 	FROM
 		last_swap_per_pair ls
-		JOIN event_keys ek USING (chain_id, event_id)
-		JOIN blocks b USING (chain_id, block_number)
+		JOIN pool_balance_change pbc ON pbc.chain_id = ls.chain_id AND pbc.event_id = ls.event_id
+		JOIN blocks b ON b.chain_id = pbc.chain_id AND b.block_number = pbc.block_number
 ),
 median_ticks AS (
 	SELECT
@@ -193,23 +193,22 @@ median_ticks AS (
 		pk.token0,
 		pk.token1,
 		percentile_cont(0.5) WITHIN GROUP (ORDER BY tick_after) AS median_tick
-FROM
-	swaps s
-	JOIN pool_balance_change pbc USING (chain_id, event_id)
-	JOIN event_keys ek USING (chain_id, event_id)
-	JOIN blocks b USING (chain_id, block_number)
-	JOIN pool_keys pk USING (pool_key_id)
-	JOIN last_swap_time_per_pair lstpp ON pk.chain_id = lstpp.chain_id
-		AND pk.token0 = lstpp.token0
-		AND pk.token1 = lstpp.token1
+	FROM
+		swaps s
+		JOIN pool_keys pk USING (pool_key_id)
+		JOIN blocks b ON b.chain_id = s.chain_id AND b.block_number = s.block_number
+		JOIN last_swap_time_per_pair lstpp ON pk.chain_id = lstpp.chain_id
+			AND pk.token0 = lstpp.token0
+			AND pk.token1 = lstpp.token1
 	WHERE
-		b.time >= lstpp.time - interval '1 hour'
-		AND liquidity_after != 0 GROUP BY
-			pk.chain_id, pk.token0, pk.token1
+		b.block_time >= lstpp.block_time - interval '1 hour'
+		AND liquidity_after != 0
+	GROUP BY
+		pk.chain_id, pk.token0, pk.token1
 ),
 pool_states AS (
 	SELECT
-		pool_key_id,
+		pk.pool_key_id,
 		pk.token0,
 		pk.token1,
 		dp.depth_percent,
@@ -229,8 +228,8 @@ pool_ticks AS (
 		sum(net_liquidity_delta_diff) OVER (PARTITION BY ppptliv.pool_key_id ORDER BY ppptliv.tick ROWS UNBOUNDED PRECEDING) AS liquidity,
 		tick AS tick_start,
 		lead(tick) OVER (PARTITION BY ppptliv.pool_key_id ORDER BY ppptliv.tick) AS tick_end
-FROM
-	per_pool_per_tick_liquidity ppptliv
+	FROM
+		per_pool_per_tick_liquidity ppptliv
 ),
 depth_liquidity_ranges AS (
 	SELECT
@@ -238,13 +237,13 @@ depth_liquidity_ranges AS (
 		pt.liquidity,
 		ps.depth_percent,
 		int4range(ps.last_tick - ps.depth_in_ticks, ps.last_tick - ps.fee_in_ticks) * int4range(pt.tick_start, pt.tick_end) AS overlap_range_below,
-	int4range(ps.last_tick + ps.fee_in_ticks, ps.last_tick + ps.depth_in_ticks) * int4range(pt.tick_start, pt.tick_end) AS overlap_range_above
-FROM
-	pool_ticks pt
-JOIN pool_states ps ON pt.pool_key_id = ps.pool_key_id
-WHERE
-	liquidity != 0
-	AND ps.fee_in_ticks < ps.depth_in_ticks
+		int4range(ps.last_tick + ps.fee_in_ticks, ps.last_tick + ps.depth_in_ticks) * int4range(pt.tick_start, pt.tick_end) AS overlap_range_above
+	FROM
+		pool_ticks pt
+		JOIN pool_states ps ON pt.pool_key_id = ps.pool_key_id
+	WHERE
+		liquidity != 0
+		AND ps.fee_in_ticks < ps.depth_in_ticks
 ),
 token_amounts_by_pool AS (
 	SELECT
@@ -257,9 +256,9 @@ token_amounts_by_pool AS (
 	WHERE
 		NOT isempty(overlap_range_below)
 		OR NOT isempty(overlap_range_above)
-		GROUP BY
-			pool_key_id,
-			depth_percent
+	GROUP BY
+		pool_key_id,
+		depth_percent
 ),
 total_depth AS (
 	SELECT
@@ -268,17 +267,18 @@ total_depth AS (
 		coalesce(sum(amount0), 0) AS depth0,
 		coalesce(sum(amount1), 0) AS depth1
 	FROM
-		token_amounts_by_pool tabp GROUP BY
-			pool_key_id,
-			depth_percent
+		token_amounts_by_pool tabp
+	GROUP BY
+		pool_key_id,
+		depth_percent
 )
-	SELECT
-		td.pool_key_id,
-		td.depth_percent AS depth_percent,
-		td.depth0,
-		td.depth1
-	FROM
-		total_depth td;
+SELECT
+	td.pool_key_id,
+	td.depth_percent AS depth_percent,
+	td.depth0,
+	td.depth1
+FROM
+	total_depth td;
 
 CREATE MATERIALIZED VIEW pool_market_depth AS
 SELECT

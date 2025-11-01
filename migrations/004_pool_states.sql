@@ -106,24 +106,13 @@ CREATE OR REPLACE FUNCTION refresh_pool_state_from_position_updates ()
 	RETURNS TRIGGER
 	AS $$
 DECLARE
-	v_chain_id int8;
-	v_event_id int8;
 	v_pool_key_id int8;
 BEGIN
 	IF TG_OP = 'DELETE' THEN
-		v_chain_id := OLD.chain_id;
-		v_event_id := OLD.event_id;
+		v_pool_key_id := OLD.pool_key_id;
 	ELSE
-		v_chain_id := NEW.chain_id;
-		v_event_id := NEW.event_id;
+		v_pool_key_id := NEW.pool_key_id;
 	END IF;
-	SELECT
-		pool_key_id INTO v_pool_key_id
-	FROM
-		pool_balance_change
-	WHERE
-		chain_id = v_chain_id
-		AND event_id = v_event_id;
 	IF v_pool_key_id IS NOT NULL THEN
 		PERFORM
 			refresh_pool_state (v_pool_key_id);
@@ -137,24 +126,13 @@ CREATE OR REPLACE FUNCTION refresh_pool_state_from_swaps ()
 	RETURNS TRIGGER
 	AS $$
 DECLARE
-	v_chain_id int8;
-	v_event_id int8;
 	v_pool_key_id int8;
 BEGIN
 	IF TG_OP = 'DELETE' THEN
-		v_chain_id := OLD.chain_id;
-		v_event_id := OLD.event_id;
+		v_pool_key_id := OLD.pool_key_id;
 	ELSE
-		v_chain_id := NEW.chain_id;
-		v_event_id := NEW.event_id;
+		v_pool_key_id := NEW.pool_key_id;
 	END IF;
-	SELECT
-		pool_key_id INTO v_pool_key_id
-	FROM
-		pool_balance_change
-	WHERE
-		chain_id = v_chain_id
-		AND event_id = v_event_id;
 	IF v_pool_key_id IS NOT NULL THEN
 		PERFORM
 			refresh_pool_state (v_pool_key_id);
@@ -180,17 +158,6 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION refresh_pool_state_from_pool_balance_change ()
-	RETURNS TRIGGER
-	AS $$
-BEGIN
-	PERFORM
-		refresh_pool_state (OLD.pool_key_id);
-	RETURN NULL;
-END;
-$$
-LANGUAGE plpgsql;
-
 CREATE TRIGGER maintain_pool_state_from_position_updates
 	AFTER INSERT OR UPDATE OR DELETE ON position_updates
 	FOR EACH ROW
@@ -205,11 +172,6 @@ CREATE TRIGGER maintain_pool_state_from_pool_initializations
 	AFTER INSERT OR UPDATE OR DELETE ON pool_initializations
 	FOR EACH ROW
 	EXECUTE FUNCTION refresh_pool_state_from_pool_initializations ();
-
-CREATE TRIGGER maintain_pool_state_from_pool_balance_change
-	AFTER DELETE ON pool_balance_change
-	FOR EACH ROW
-	EXECUTE FUNCTION refresh_pool_state_from_pool_balance_change ();
 
 INSERT INTO pool_states (pool_key_id, sqrt_ratio, tick, liquidity, last_event_id, last_liquidity_update_event_id)
 SELECT

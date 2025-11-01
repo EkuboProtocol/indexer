@@ -1,6 +1,11 @@
 CREATE TABLE twamm_order_updates (
 	chain_id int8 NOT NULL,
-	event_id int8 NOT NULL,
+	block_number int8 NOT NULL,
+	transaction_index int4 NOT NULL,
+	event_index int4 NOT NULL,
+	transaction_hash numeric NOT NULL,
+	emitter numeric NOT NULL,
+	event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
 	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	locker numeric NOT NULL,
 	salt numeric NOT NULL,
@@ -8,23 +13,27 @@ CREATE TABLE twamm_order_updates (
 	sale_rate_delta1 numeric NOT NULL,
 	start_time timestamptz NOT NULL,
 	end_time timestamptz NOT NULL,
-	PRIMARY KEY (chain_id, event_id),
-	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
+	PRIMARY KEY (chain_id, event_id)
 );
 
-CREATE INDEX ON twamm_order_updates USING btree (pool_key_id, event_id);
+CREATE INDEX ON twamm_order_updates (pool_key_id, event_id);
 
-CREATE INDEX ON twamm_order_updates USING btree (pool_key_id, start_time, end_time);
+CREATE INDEX ON twamm_order_updates (pool_key_id, start_time, end_time);
 
-CREATE INDEX ON twamm_order_updates USING btree (locker, salt);
+CREATE INDEX ON twamm_order_updates (locker, salt);
 
-CREATE INDEX ON twamm_order_updates USING btree (salt);
+CREATE INDEX ON twamm_order_updates (salt);
 
 CREATE INDEX ON twamm_order_updates (salt, pool_key_id, start_time, end_time, locker, event_id);
 
 CREATE TABLE twamm_proceeds_withdrawals (
 	chain_id int8 NOT NULL,
-	event_id int8 NOT NULL,
+	block_number int8 NOT NULL,
+	transaction_index int4 NOT NULL,
+	event_index int4 NOT NULL,
+	transaction_hash numeric NOT NULL,
+	emitter numeric NOT NULL,
+	event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
 	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	locker numeric NOT NULL,
 	salt numeric NOT NULL,
@@ -32,31 +41,49 @@ CREATE TABLE twamm_proceeds_withdrawals (
 	end_time timestamptz NOT NULL,
 	amount0 numeric NOT NULL,
 	amount1 numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id),
-	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
+	PRIMARY KEY (chain_id, event_id)
 );
 
-CREATE INDEX ON twamm_proceeds_withdrawals USING btree (pool_key_id, event_id);
+CREATE INDEX ON twamm_proceeds_withdrawals (pool_key_id, event_id);
 
-CREATE INDEX ON twamm_proceeds_withdrawals USING btree (pool_key_id, start_time, end_time);
+CREATE INDEX ON twamm_proceeds_withdrawals (pool_key_id, start_time, end_time);
 
-CREATE INDEX ON twamm_proceeds_withdrawals USING btree (locker, salt);
+CREATE INDEX ON twamm_proceeds_withdrawals (locker, salt);
 
-CREATE INDEX ON twamm_proceeds_withdrawals USING btree (salt);
+CREATE INDEX ON twamm_proceeds_withdrawals (salt);
 
 CREATE INDEX ON twamm_proceeds_withdrawals (salt, event_id DESC);
 
 CREATE TABLE twamm_virtual_order_executions (
 	chain_id int8 NOT NULL,
-	event_id int8 NOT NULL,
+	block_number int8 NOT NULL,
+	transaction_index int4 NOT NULL,
+	event_index int4 NOT NULL,
+	transaction_hash numeric NOT NULL,
+	emitter numeric NOT NULL,
+	event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
 	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	token0_sale_rate numeric NOT NULL,
 	token1_sale_rate numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id),
-	FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
+	PRIMARY KEY (chain_id, event_id)
 );
 
-CREATE INDEX ON twamm_virtual_order_executions USING btree (pool_key_id, event_id DESC);
+CREATE INDEX ON twamm_virtual_order_executions (pool_key_id, event_id DESC);
+
+CREATE TRIGGER no_updates_twamm_order_updates
+	BEFORE UPDATE ON twamm_order_updates
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
+
+CREATE TRIGGER no_updates_twamm_proceeds_withdrawals
+	BEFORE UPDATE ON twamm_proceeds_withdrawals
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
+
+CREATE TRIGGER no_updates_twamm_virtual_order_executions
+	BEFORE UPDATE ON twamm_virtual_order_executions
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
 -- 1) Replacement table (instead of the view + materialized view)
 DROP TABLE IF EXISTS twamm_pool_states CASCADE;
 CREATE TABLE twamm_pool_states (
@@ -94,10 +121,8 @@ BEGIN
   SELECT voe.event_id, voe.token0_sale_rate, voe.token1_sale_rate, b.time
   INTO   v_last_voe_event_id, v_base_token0, v_base_token1, v_last_voe_time
   FROM   twamm_virtual_order_executions voe
-  JOIN   event_keys ek
-         ON ek.chain_id = voe.chain_id AND ek.event_id = voe.event_id
   JOIN   blocks b
-         ON b.chain_id = ek.chain_id AND b.block_number = ek.block_number
+         ON b.chain_id = voe.chain_id AND b.block_number = voe.block_number
   WHERE  voe.pool_key_id = p_pool_key_id
   ORDER  BY voe.event_id DESC
   LIMIT  1;

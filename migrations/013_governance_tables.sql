@@ -1,29 +1,52 @@
 CREATE TABLE staker_staked (
     chain_id int8 NOT NULL,
-    event_id int8 NOT NULL,
+    block_number int8 NOT NULL,
+    transaction_index int4 NOT NULL,
+    event_index int4 NOT NULL,
+    transaction_hash numeric NOT NULL,
+    emitter numeric NOT NULL,
+    event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
     from_address numeric NOT NULL,
     amount numeric NOT NULL,
     delegate numeric NOT NULL,
-    PRIMARY KEY (chain_id, event_id),
-    FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
+    PRIMARY KEY (chain_id, event_id)
 );
-CREATE INDEX ON staker_staked USING btree (delegate, from_address);
-CREATE INDEX ON staker_staked USING btree (from_address, delegate);
+CREATE INDEX ON staker_staked (delegate, from_address);
+CREATE INDEX ON staker_staked (from_address, delegate);
+
+CREATE TRIGGER no_updates_staker_staked
+	BEFORE UPDATE ON staker_staked
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
 CREATE TABLE staker_withdrawn (
     chain_id int8 NOT NULL,
-    event_id int8 NOT NULL,
+    block_number int8 NOT NULL,
+    transaction_index int4 NOT NULL,
+    event_index int4 NOT NULL,
+    transaction_hash numeric NOT NULL,
+    emitter numeric NOT NULL,
+    event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
     from_address numeric NOT NULL,
     amount numeric NOT NULL,
     recipient numeric NOT NULL,
     delegate numeric NOT NULL,
-    PRIMARY KEY (chain_id, event_id),
-    FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE
+    PRIMARY KEY (chain_id, event_id)
 );
-CREATE INDEX ON staker_withdrawn USING btree (delegate, from_address);
-CREATE INDEX ON staker_withdrawn USING btree (from_address, delegate);
+CREATE INDEX ON staker_withdrawn (delegate, from_address);
+CREATE INDEX ON staker_withdrawn (from_address, delegate);
+
+CREATE TRIGGER no_updates_staker_withdrawn
+	BEFORE UPDATE ON staker_withdrawn
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
 CREATE TABLE governor_reconfigured (
     chain_id int8 NOT NULL,
-    event_id int8 NOT NULL,
+    block_number int8 NOT NULL,
+    transaction_index int4 NOT NULL,
+    event_index int4 NOT NULL,
+    transaction_hash numeric NOT NULL,
+    emitter numeric NOT NULL,
+    event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
     version bigint NOT NULL,
     voting_start_delay bigint NOT NULL,
     voting_period bigint NOT NULL,
@@ -33,21 +56,34 @@ CREATE TABLE governor_reconfigured (
     execution_delay bigint NOT NULL,
     execution_window bigint NOT NULL,
     PRIMARY KEY (chain_id, event_id),
-    FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE,
     UNIQUE (chain_id, version)
 );
-CREATE UNIQUE INDEX idx_governor_reconfigured_chain_id_version ON governor_reconfigured USING btree (chain_id, version);
+CREATE UNIQUE INDEX idx_governor_reconfigured_chain_id_version ON governor_reconfigured (chain_id, version);
+
+CREATE TRIGGER no_updates_governor_reconfigured
+	BEFORE UPDATE ON governor_reconfigured
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
 CREATE TABLE governor_proposed (
     chain_id int8 NOT NULL,
-    event_id int8 NOT NULL,
+    block_number int8 NOT NULL,
+    transaction_index int4 NOT NULL,
+    event_index int4 NOT NULL,
+    transaction_hash numeric NOT NULL,
+    emitter numeric NOT NULL,
+    event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
     proposal_id numeric NOT NULL,
     proposer numeric NOT NULL,
     config_version bigint NOT NULL,
     PRIMARY KEY (chain_id, event_id),
-    FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE,
     UNIQUE (chain_id, proposal_id)
 );
-CREATE UNIQUE INDEX idx_governor_proposed_chain_id_id ON governor_proposed USING btree (chain_id, proposal_id);
+CREATE UNIQUE INDEX idx_governor_proposed_chain_id_id ON governor_proposed (chain_id, proposal_id);
+
+CREATE TRIGGER no_updates_governor_proposed
+	BEFORE UPDATE ON governor_proposed
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
 CREATE TABLE governor_proposed_calls (
     chain_id int8 NOT NULL,
     proposal_id numeric NOT NULL,
@@ -60,35 +96,62 @@ CREATE TABLE governor_proposed_calls (
 );
 CREATE TABLE governor_canceled (
     chain_id int8 NOT NULL,
-    event_id int8 NOT NULL,
+    block_number int8 NOT NULL,
+    transaction_index int4 NOT NULL,
+    event_index int4 NOT NULL,
+    transaction_hash numeric NOT NULL,
+    emitter numeric NOT NULL,
+    event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
     proposal_id numeric NOT NULL,
     PRIMARY KEY (chain_id, event_id),
-    FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE,
     FOREIGN KEY (chain_id, proposal_id) REFERENCES governor_proposed (chain_id, proposal_id),
     UNIQUE (chain_id, proposal_id)
 );
-CREATE UNIQUE INDEX idx_governor_canceled_chain_id_id ON governor_canceled USING btree (chain_id, proposal_id);
+CREATE UNIQUE INDEX idx_governor_canceled_chain_id_id ON governor_canceled (chain_id, proposal_id);
+
+CREATE TRIGGER no_updates_governor_canceled
+	BEFORE UPDATE ON governor_canceled
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
 CREATE TABLE governor_voted (
     chain_id int8 NOT NULL,
-    event_id int8 NOT NULL,
+    block_number int8 NOT NULL,
+    transaction_index int4 NOT NULL,
+    event_index int4 NOT NULL,
+    transaction_hash numeric NOT NULL,
+    emitter numeric NOT NULL,
+    event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
     proposal_id numeric NOT NULL,
     voter numeric NOT NULL,
     weight numeric NOT NULL,
     yea boolean NOT NULL,
     PRIMARY KEY (chain_id, event_id),
-    FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE,
     FOREIGN KEY (chain_id, proposal_id) REFERENCES governor_proposed (chain_id, proposal_id)
 );
+
+CREATE TRIGGER no_updates_governor_voted
+	BEFORE UPDATE ON governor_voted
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
 CREATE TABLE governor_executed (
     chain_id int8 NOT NULL,
-    event_id int8 NOT NULL,
+    block_number int8 NOT NULL,
+    transaction_index int4 NOT NULL,
+    event_index int4 NOT NULL,
+    transaction_hash numeric NOT NULL,
+    emitter numeric NOT NULL,
+    event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
     proposal_id numeric NOT NULL,
     PRIMARY KEY (chain_id, event_id),
-    FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE,
     FOREIGN KEY (chain_id, proposal_id) REFERENCES governor_proposed (chain_id, proposal_id),
     UNIQUE (chain_id, proposal_id)
 );
-CREATE UNIQUE INDEX idx_governor_executed_chain_id_id ON governor_executed USING btree (chain_id, proposal_id);
+CREATE UNIQUE INDEX idx_governor_executed_chain_id_id ON governor_executed (chain_id, proposal_id);
+
+CREATE TRIGGER no_updates_governor_executed
+	BEFORE UPDATE ON governor_executed
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
 CREATE TABLE governor_executed_results (
     chain_id int8 NOT NULL,
     proposal_id numeric NOT NULL,
@@ -99,22 +162,30 @@ CREATE TABLE governor_executed_results (
 );
 CREATE TABLE governor_proposal_described (
     chain_id int8 NOT NULL,
-    event_id int8 NOT NULL,
+    block_number int8 NOT NULL,
+    transaction_index int4 NOT NULL,
+    event_index int4 NOT NULL,
+    transaction_hash numeric NOT NULL,
+    emitter numeric NOT NULL,
+    event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
     proposal_id numeric NOT NULL,
     description text NOT NULL,
     PRIMARY KEY (chain_id, event_id),
-    FOREIGN KEY (chain_id, event_id) REFERENCES event_keys (chain_id, event_id) ON DELETE CASCADE,
     FOREIGN KEY (chain_id, proposal_id) REFERENCES governor_proposed (chain_id, proposal_id)
 );
+
+CREATE TRIGGER no_updates_governor_proposal_described
+	BEFORE UPDATE ON governor_proposal_described
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
 CREATE OR REPLACE VIEW proposal_delegate_voting_weights_view AS (
         WITH proposal_times AS (
             SELECT gp.proposal_id AS proposal_id,
-                b.time AS proposal_time,
-                b.time + gr.voting_start_delay * INTERVAL '1 second' AS vote_start,
+                b.block_time AS proposal_time,
+                b.block_time + gr.voting_start_delay * INTERVAL '1 second' AS vote_start,
                 gr.voting_start_delay AS window_secs
             FROM governor_proposed gp
-                JOIN event_keys ek USING (chain_id, event_id)
-                JOIN blocks b USING (block_number)
+                JOIN blocks b ON b.chain_id = gp.chain_id AND b.block_number = gp.block_number
                 JOIN governor_reconfigured gr ON gp.config_version = gr.version
         )
         SELECT pt.proposal_id,
@@ -126,43 +197,39 @@ CREATE OR REPLACE VIEW proposal_delegate_voting_weights_view AS (
                 WITH events AS (
                     -- all stake/unstake deltas inside window
                     SELECT s.delegate,
-                        bl.time,
+                        bl.block_time as "time",
                         s.amount AS delta
                     FROM staker_staked s
-                        JOIN event_keys esk USING (chain_id, event_id)
-                        JOIN blocks bl USING (block_number)
-                    WHERE bl.time BETWEEN pt.proposal_time AND pt.vote_start
+                        JOIN blocks bl ON bl.chain_id = s.chain_id AND bl.block_number = s.block_number
+                    WHERE bl.block_time BETWEEN pt.proposal_time AND pt.vote_start
                     UNION ALL
                     SELECT w.delegate,
-                        bl.time,
+                        bl.block_time as "time",
                         - w.amount AS delta
                     FROM staker_withdrawn w
-                        JOIN event_keys ew USING (chain_id, event_id)
-                        JOIN blocks bl USING (block_number)
-                    WHERE bl.time BETWEEN pt.proposal_time AND pt.vote_start
+                        JOIN blocks bl ON bl.chain_id = w.chain_id AND bl.block_number = w.block_number
+                    WHERE bl.block_time BETWEEN pt.proposal_time AND pt.vote_start
                     UNION ALL
                     -- “bootstrap” each delegate's stake at proposal_time
                     SELECT s2.delegate,
-                        pt.proposal_time AS time,
+                        pt.proposal_time AS "time",
                         sum(s2.amount) AS delta
                     FROM staker_staked s2
-                        JOIN event_keys ek2 USING (chain_id, event_id)
-                        JOIN blocks bl2 USING (block_number)
-                    WHERE bl2.time < pt.proposal_time
+                        JOIN blocks bl2 ON bl2.chain_id = s2.chain_id AND bl2.block_number = s2.block_number
+                    WHERE bl2.block_time < pt.proposal_time
                     GROUP BY s2.delegate
                     UNION ALL
                     SELECT w2.delegate,
-                        pt.proposal_time AS time,
+                        pt.proposal_time AS "time",
                         - sum(w2.amount) AS delta
                     FROM staker_withdrawn w2
-                        JOIN event_keys ek3 USING (chain_id, event_id)
-                        JOIN blocks bl3 USING (block_number)
-                    WHERE bl3.time < pt.proposal_time
+                        JOIN blocks bl3 ON bl3.chain_id = w2.chain_id AND bl3.block_number = w2.block_number
+                    WHERE bl3.block_time < pt.proposal_time
                     GROUP BY w2.delegate
                     UNION ALL
                     -- sentinel at vote_start to cap last interval
                     SELECT d.delegate,
-                        pt.vote_start AS time,
+                        pt.vote_start AS "time",
                         0::numeric AS delta
                     FROM (
                             SELECT delegate
@@ -175,20 +242,20 @@ CREATE OR REPLACE VIEW proposal_delegate_voting_weights_view AS (
                 -- running total = current stake for each delegate at each event‐time
                 stake_running AS (
                     SELECT delegate,
-                        time,
+                        "time",
                         sum(delta) OVER (
                             PARTITION BY delegate
-                            ORDER BY time ROWS UNBOUNDED PRECEDING
+                            ORDER BY "time" ROWS UNBOUNDED PRECEDING
                         ) AS stake_amount
                     FROM events
                 ),
                 -- break into intervals [time, next_time) with constant stake_amount
                 intervals AS (
                     SELECT delegate,
-                        time AS start_time,
-                        lead(time) OVER (
+                        "time" AS start_time,
+                        lead("time") OVER (
                             PARTITION BY delegate
-                            ORDER BY time
+                            ORDER BY "time"
                         ) AS end_time,
                         stake_amount
                     FROM stake_running
