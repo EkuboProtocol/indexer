@@ -169,8 +169,7 @@ last_swap_per_pair AS (
 		max(event_id) AS event_id
 	FROM
 		swaps s
-		JOIN pool_balance_change pbc USING (chain_id, event_id)
-		JOIN pool_keys pk ON pbc.pool_key_id = pk.pool_key_id
+		JOIN pool_keys pk ON s.pool_key_id = pk.pool_key_id
 	WHERE
 		liquidity_after != 0
 	GROUP BY

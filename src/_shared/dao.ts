@@ -372,7 +372,7 @@ export class DAO {
     time: Date;
   }) {
     await this.pg.query({
-      text: `INSERT INTO blocks (chain_id, block_number, hash, time)
+      text: `INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
                    VALUES ($1, $2, $3, $4);`,
       values: [this.chainId, number, hash, time],
     });

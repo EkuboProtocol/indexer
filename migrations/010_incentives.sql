@@ -10,7 +10,8 @@ CREATE TABLE incentives_funded (
 	token numeric NOT NULL,
 	root numeric NOT NULL,
 	amount_next numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE TRIGGER no_updates_incentives_funded
@@ -30,7 +31,8 @@ CREATE TABLE incentives_refunded (
 	token numeric NOT NULL,
 	root numeric NOT NULL,
 	refund_amount numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE TRIGGER no_updates_incentives_refunded
@@ -49,7 +51,8 @@ CREATE TABLE token_wrapper_deployed (
 	token_wrapper numeric NOT NULL,
 	underlying_token numeric NOT NULL,
 	unlock_time numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE TRIGGER no_updates_token_wrapper_deployed

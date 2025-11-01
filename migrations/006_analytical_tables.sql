@@ -97,7 +97,7 @@ DECLARE
 BEGIN
 	SELECT
 		s.pool_key_id,
-		date_trunc('hour', b.time) AS hour,
+		date_trunc('hour', b.block_time) AS hour,
 		CASE WHEN s.delta0 >= 0 THEN
 			pk.token0
 		ELSE
@@ -150,7 +150,7 @@ DECLARE
 BEGIN
 	SELECT
 		fa.pool_key_id,
-		date_trunc('hour', b.time) AS hour,
+		date_trunc('hour', b.block_time) AS hour,
 		pk.token0,
 		pk.token1,
 		GREATEST (fa.delta0, 0) AS fee0,
@@ -253,7 +253,7 @@ BEGIN
 		pk.token0,
 		pk.token1,
 		s.block_number,
-		date_trunc('hour', b.time) AS hour,
+		date_trunc('hour', b.block_time) AS hour,
 		s.delta0,
 		s.delta1 INTO v_token0,
 		v_token1,
@@ -387,7 +387,7 @@ DECLARE
 BEGIN
 	SELECT
 		pbc.pool_key_id,
-		date_trunc('hour', b.time) AS hour,
+		date_trunc('hour', b.block_time) AS hour,
 		pk.token0,
 		pk.token1,
 		pbc.delta0,
@@ -405,10 +405,9 @@ BEGIN
 		v_fee_denominator
 	FROM
 		pool_balance_change pbc
-		JOIN blocks b ON b.chain_id = pbc.chain_id
-			AND b.block_number = pbc.block_number
+		JOIN blocks b USING (chain_id, block_number)
 		LEFT JOIN position_updates pu USING (chain_id, event_id)
-		JOIN pool_keys pk USING (pool_key_id)
+		JOIN pool_keys pk ON pbc.pool_key_id = pk.pool_key_id
 	WHERE
 		pbc.chain_id = p_chain_id
 		AND pbc.event_id = p_event_id;
@@ -476,7 +475,7 @@ DECLARE
 BEGIN
 	SELECT
 		pu.pool_key_id,
-		date_trunc('hour', b.time) AS hour,
+		date_trunc('hour', b.block_time) AS hour,
 		pk.token0,
 		pk.token1,
 		CASE WHEN pu.delta0 < 0
@@ -528,15 +527,6 @@ BEGIN
 			apply_hourly_volume_from_swap (NEW.chain_id, NEW.event_id, 1);
 		PERFORM
 			apply_hourly_price_from_swap (NEW.chain_id, NEW.event_id, 1);
-	ELSIF TG_OP = 'UPDATE' THEN
-		PERFORM
-			apply_hourly_volume_from_swap (OLD.chain_id, OLD.event_id, -1);
-		PERFORM
-			apply_hourly_price_from_swap (OLD.chain_id, OLD.event_id, -1);
-		PERFORM
-			apply_hourly_volume_from_swap (NEW.chain_id, NEW.event_id, 1);
-		PERFORM
-			apply_hourly_price_from_swap (NEW.chain_id, NEW.event_id, 1);
 	ELSIF TG_OP = 'DELETE' THEN
 		PERFORM
 			apply_hourly_volume_from_swap (OLD.chain_id, OLD.event_id, -1);
@@ -555,11 +545,6 @@ BEGIN
 	IF TG_OP = 'INSERT' THEN
 		PERFORM
 			apply_hourly_volume_from_fees_accumulated (NEW.chain_id, NEW.event_id, 1);
-	ELSIF TG_OP = 'UPDATE' THEN
-		PERFORM
-			apply_hourly_volume_from_fees_accumulated (OLD.chain_id, OLD.event_id, -1);
-		PERFORM
-			apply_hourly_volume_from_fees_accumulated (NEW.chain_id, NEW.event_id, 1);
 	ELSIF TG_OP = 'DELETE' THEN
 		PERFORM
 			apply_hourly_volume_from_fees_accumulated (OLD.chain_id, OLD.event_id, -1);
@@ -574,11 +559,6 @@ CREATE OR REPLACE FUNCTION maintain_hourly_tvl_delta_from_pool_balance_change ()
 	AS $$
 BEGIN
 	IF TG_OP = 'INSERT' THEN
-		PERFORM
-			apply_hourly_tvl_from_pool_balance_change (NEW.chain_id, NEW.event_id, 1);
-	ELSIF TG_OP = 'UPDATE' THEN
-		PERFORM
-			apply_hourly_tvl_from_pool_balance_change (OLD.chain_id, OLD.event_id, -1);
 		PERFORM
 			apply_hourly_tvl_from_pool_balance_change (NEW.chain_id, NEW.event_id, 1);
 	ELSIF TG_OP = 'DELETE' THEN
@@ -597,11 +577,6 @@ BEGIN
 	IF TG_OP = 'INSERT' THEN
 		PERFORM
 			apply_hourly_revenue_from_position_update (NEW.chain_id, NEW.event_id, 1);
-	ELSIF TG_OP = 'UPDATE' THEN
-		PERFORM
-			apply_hourly_revenue_from_position_update (OLD.chain_id, OLD.event_id, -1);
-		PERFORM
-			apply_hourly_revenue_from_position_update (NEW.chain_id, NEW.event_id, 1);
 	ELSIF TG_OP = 'DELETE' THEN
 		PERFORM
 			apply_hourly_revenue_from_position_update (OLD.chain_id, OLD.event_id, -1);
@@ -612,36 +587,36 @@ $$
 LANGUAGE plpgsql;
 
 CREATE TRIGGER maintain_hourly_metrics_from_swaps
-	AFTER INSERT OR UPDATE OR DELETE ON swaps
+	AFTER INSERT OR DELETE ON swaps
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_hourly_metrics_from_swaps ();
 
 CREATE TRIGGER maintain_hourly_volume_from_fees_accumulated
-	AFTER INSERT OR UPDATE OR DELETE ON fees_accumulated
+	AFTER INSERT OR DELETE ON fees_accumulated
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_hourly_volume_from_fees_accumulated ();
 
 CREATE CONSTRAINT TRIGGER maintain_hourly_tvl_delta_from_position_updates
-	AFTER INSERT OR UPDATE OR DELETE ON position_updates DEFERRABLE INITIALLY DEFERRED
+	AFTER INSERT OR DELETE ON position_updates DEFERRABLE INITIALLY DEFERRED
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_hourly_tvl_delta_from_pool_balance_change ();
 
 CREATE CONSTRAINT TRIGGER maintain_hourly_tvl_delta_from_position_fees_collected
-	AFTER INSERT OR UPDATE OR DELETE ON position_fees_collected DEFERRABLE INITIALLY DEFERRED
+	AFTER INSERT OR DELETE ON position_fees_collected DEFERRABLE INITIALLY DEFERRED
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_hourly_tvl_delta_from_pool_balance_change ();
 
 CREATE CONSTRAINT TRIGGER maintain_hourly_tvl_delta_from_fees_accumulated
-	AFTER INSERT OR UPDATE OR DELETE ON fees_accumulated DEFERRABLE INITIALLY DEFERRED
+	AFTER INSERT OR DELETE ON fees_accumulated DEFERRABLE INITIALLY DEFERRED
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_hourly_tvl_delta_from_pool_balance_change ();
 
 CREATE CONSTRAINT TRIGGER maintain_hourly_tvl_delta_from_swaps
-	AFTER INSERT OR UPDATE OR DELETE ON swaps DEFERRABLE INITIALLY DEFERRED
+	AFTER INSERT OR DELETE ON swaps DEFERRABLE INITIALLY DEFERRED
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_hourly_tvl_delta_from_pool_balance_change ();
 
 CREATE TRIGGER maintain_hourly_revenue_from_position_updates
-	AFTER INSERT OR UPDATE OR DELETE ON position_updates
+	AFTER INSERT OR DELETE ON position_updates
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_hourly_revenue_from_position_updates ();

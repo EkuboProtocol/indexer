@@ -13,12 +13,11 @@ CREATE TABLE protocol_fees_paid (
 	upper_bound int4 NOT NULL,
 	delta0 numeric NOT NULL,
 	delta1 numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE INDEX ON protocol_fees_paid (pool_key_id);
-
-CREATE INDEX ON protocol_fees_paid (salt);
 
 CREATE TRIGGER no_updates_protocol_fees_paid
 	BEFORE UPDATE ON protocol_fees_paid
@@ -35,7 +34,8 @@ CREATE TABLE position_minted_with_referrer (
 	event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
 	token_id numeric NOT NULL,
 	referrer numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE UNIQUE INDEX idx_position_minted_with_referrer_token_id ON position_minted_with_referrer (token_id);

@@ -13,18 +13,14 @@ CREATE TABLE twamm_order_updates (
 	sale_rate_delta1 numeric NOT NULL,
 	start_time timestamptz NOT NULL,
 	end_time timestamptz NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE INDEX ON twamm_order_updates (pool_key_id, event_id);
-
 CREATE INDEX ON twamm_order_updates (pool_key_id, start_time, end_time);
-
-CREATE INDEX ON twamm_order_updates (locker, salt);
-
-CREATE INDEX ON twamm_order_updates (salt);
-
-CREATE INDEX ON twamm_order_updates (salt, pool_key_id, start_time, end_time, locker, event_id);
+CREATE INDEX ON twamm_order_updates (chain_id, locker, salt);
+CREATE INDEX ON twamm_order_updates (chain_id, salt, pool_key_id, start_time, end_time, locker, event_id);
 
 CREATE TABLE twamm_proceeds_withdrawals (
 	chain_id int8 NOT NULL,
@@ -41,18 +37,13 @@ CREATE TABLE twamm_proceeds_withdrawals (
 	end_time timestamptz NOT NULL,
 	amount0 numeric NOT NULL,
 	amount1 numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE INDEX ON twamm_proceeds_withdrawals (pool_key_id, event_id);
-
 CREATE INDEX ON twamm_proceeds_withdrawals (pool_key_id, start_time, end_time);
-
-CREATE INDEX ON twamm_proceeds_withdrawals (locker, salt);
-
-CREATE INDEX ON twamm_proceeds_withdrawals (salt);
-
-CREATE INDEX ON twamm_proceeds_withdrawals (salt, event_id DESC);
+CREATE INDEX ON twamm_proceeds_withdrawals (chain_id, locker, salt);
 
 CREATE TABLE twamm_virtual_order_executions (
 	chain_id int8 NOT NULL,
@@ -65,7 +56,8 @@ CREATE TABLE twamm_virtual_order_executions (
 	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	token0_sale_rate numeric NOT NULL,
 	token1_sale_rate numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE INDEX ON twamm_virtual_order_executions (pool_key_id, event_id DESC);
@@ -84,8 +76,7 @@ CREATE TRIGGER no_updates_twamm_virtual_order_executions
 	BEFORE UPDATE ON twamm_virtual_order_executions
 	FOR EACH ROW
 	EXECUTE FUNCTION block_updates();
--- 1) Replacement table (instead of the view + materialized view)
-DROP TABLE IF EXISTS twamm_pool_states CASCADE;
+
 CREATE TABLE twamm_pool_states (
   pool_key_id                     int8        NOT NULL PRIMARY KEY REFERENCES pool_keys (pool_key_id),
   token0_sale_rate                numeric     NOT NULL,
@@ -118,7 +109,7 @@ DECLARE
   v_final_last_event_id int8;
 BEGIN
   -- Find last VOE for the pool; if none, remove any existing state row.
-  SELECT voe.event_id, voe.token0_sale_rate, voe.token1_sale_rate, b.time
+  SELECT voe.event_id, voe.token0_sale_rate, voe.token1_sale_rate, b.block_time
   INTO   v_last_voe_event_id, v_base_token0, v_base_token1, v_last_voe_time
   FROM   twamm_virtual_order_executions voe
   JOIN   blocks b
@@ -193,7 +184,7 @@ CREATE OR REPLACE FUNCTION trg_voe_recompute_pool_state()
 RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-  IF TG_OP IN ('INSERT','UPDATE') THEN
+  IF (TG_OP = 'INSERT') THEN
     PERFORM recompute_twamm_pool_state(NEW.pool_key_id);
   ELSE
     PERFORM recompute_twamm_pool_state(OLD.pool_key_id);
@@ -207,7 +198,7 @@ CREATE OR REPLACE FUNCTION trg_order_updates_recompute_pool_state()
 RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-  IF TG_OP IN ('INSERT','UPDATE') THEN
+  IF (TG_OP = 'INSERT') THEN
     PERFORM recompute_twamm_pool_state(NEW.pool_key_id);
   ELSE
     PERFORM recompute_twamm_pool_state(OLD.pool_key_id);
@@ -222,9 +213,7 @@ RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
   -- Only recompute when last_event_id or pool_key_id changed
-  IF (TG_OP = 'INSERT')
-     OR (TG_OP = 'UPDATE' AND (NEW.last_event_id IS DISTINCT FROM OLD.last_event_id
-                               OR NEW.pool_key_id IS DISTINCT FROM OLD.pool_key_id)) THEN
+  IF (TG_OP = 'INSERT') THEN
     PERFORM recompute_twamm_pool_state(NEW.pool_key_id);
   ELSIF TG_OP = 'DELETE' THEN
     -- If a row is removed from pool_states, fall back to GREATEST(last_ou,last_voe).
@@ -235,15 +224,15 @@ END
 $$;
 
 CREATE TRIGGER trg_voe_recompute_pool_state
-AFTER INSERT OR UPDATE OR DELETE ON twamm_virtual_order_executions
+AFTER INSERT OR DELETE ON twamm_virtual_order_executions
 FOR EACH ROW EXECUTE FUNCTION trg_voe_recompute_pool_state();
 
 CREATE TRIGGER trg_order_updates_recompute_pool_state
-AFTER INSERT OR UPDATE OR DELETE ON twamm_order_updates
+AFTER INSERT OR DELETE ON twamm_order_updates
 FOR EACH ROW EXECUTE FUNCTION trg_order_updates_recompute_pool_state();
 
 CREATE TRIGGER trg_pool_states_recompute_pool_state
-AFTER INSERT OR UPDATE OF last_event_id OR DELETE ON pool_states
+AFTER INSERT OR DELETE ON pool_states
 FOR EACH ROW EXECUTE FUNCTION trg_pool_states_recompute_pool_state();
 
 -- 1) Base table that replaces the materialized view
@@ -298,7 +287,7 @@ BEGIN
     PERFORM _apply_twamm_sale_rate_delta(n_pool, n_end,   -n_d0, -n_d1);
     RETURN NEW;
 
-  ELSIF TG_OP = 'DELETE' THEN
+  ELSE /* TG_OP = 'DELETE' */
     o_pool  := OLD.pool_key_id;  o_start := OLD.start_time; o_end := OLD.end_time;
     o_d0    := OLD.sale_rate_delta0;  o_d1 := OLD.sale_rate_delta1;
 
@@ -306,26 +295,12 @@ BEGIN
     PERFORM _apply_twamm_sale_rate_delta(o_pool, o_start, -o_d0, -o_d1);
     PERFORM _apply_twamm_sale_rate_delta(o_pool, o_end,    o_d0,  o_d1);
     RETURN OLD;
-
-  ELSE /* TG_OP = 'UPDATE' */
-    -- remove the old contribution...
-    o_pool  := OLD.pool_key_id;  o_start := OLD.start_time; o_end := OLD.end_time;
-    o_d0    := OLD.sale_rate_delta0;     o_d1 := OLD.sale_rate_delta1;
-    PERFORM _apply_twamm_sale_rate_delta(o_pool, o_start, -o_d0, -o_d1);
-    PERFORM _apply_twamm_sale_rate_delta(o_pool, o_end,    o_d0,  o_d1);
-
-    -- ...add the new contribution
-    n_pool  := NEW.pool_key_id;  n_start := NEW.start_time; n_end := NEW.end_time;
-    n_d0    := NEW.sale_rate_delta0;     n_d1 := NEW.sale_rate_delta1;
-    PERFORM _apply_twamm_sale_rate_delta(n_pool, n_start,  n_d0,  n_d1);
-    PERFORM _apply_twamm_sale_rate_delta(n_pool, n_end,   -n_d0, -n_d1);
-    RETURN NEW;
   END IF;
 END
 $$;
 
 -- 4) Attach the trigger to twamm_order_updates (AFTER so all values are stable)
 CREATE TRIGGER trg_twamm_order_updates_to_deltas
-AFTER INSERT OR UPDATE OR DELETE ON twamm_order_updates
+AFTER INSERT OR DELETE ON twamm_order_updates
 FOR EACH ROW
 EXECUTE FUNCTION trg_twamm_order_updates_to_deltas();

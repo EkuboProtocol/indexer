@@ -11,7 +11,8 @@ CREATE TABLE token_registrations (
 	symbol numeric NOT NULL,
 	decimals int NOT NULL,
 	total_supply numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE TRIGGER no_updates_token_registrations
@@ -32,7 +33,8 @@ CREATE TABLE token_registrations_v3 (
 	symbol varchar NOT NULL,
 	decimals int NOT NULL,
 	total_supply numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE TRIGGER no_updates_token_registrations_v3

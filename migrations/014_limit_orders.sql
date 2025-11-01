@@ -14,11 +14,11 @@ CREATE TABLE limit_order_placed (
 	tick int4 NOT NULL,
 	liquidity numeric NOT NULL,
 	amount numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+  FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE INDEX ON limit_order_placed (chain_id, OWNER, salt);
-
 CREATE INDEX ON limit_order_placed (chain_id, salt, event_id DESC) INCLUDE (token0, token1, tick, liquidity, amount);
 
 CREATE TABLE limit_order_closed (
@@ -37,11 +37,11 @@ CREATE TABLE limit_order_closed (
 	tick int4 NOT NULL,
 	amount0 numeric NOT NULL,
 	amount1 numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+  FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE INDEX ON limit_order_closed (chain_id, OWNER, salt);
-
 CREATE INDEX ON limit_order_closed (chain_id, salt, event_id DESC) INCLUDE (amount0, amount1);
 
 -- computed via triggers

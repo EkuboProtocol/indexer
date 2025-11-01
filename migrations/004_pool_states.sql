@@ -24,16 +24,15 @@ BEGIN
 			pool_keys pk
 		LEFT JOIN LATERAL (
 			SELECT
-				pbc.pool_key_id,
+				s.pool_key_id,
 				s.event_id,
 				s.sqrt_ratio_after,
 				s.tick_after,
 				s.liquidity_after
 			FROM
 				swaps s
-				JOIN pool_balance_change pbc USING (chain_id, event_id)
 			WHERE
-				pk.pool_key_id = pbc.pool_key_id
+				pk.pool_key_id = s.pool_key_id
 			ORDER BY
 				event_id DESC
 			LIMIT 1) AS last_swap ON TRUE
@@ -60,9 +59,8 @@ pl AS (
 				event_id
 			FROM
 				position_updates pu
-				JOIN pool_balance_change pbc USING (chain_id, event_id)
 			WHERE
-				lss.pool_key_id = pbc.pool_key_id
+				lss.pool_key_id = pu.pool_key_id
 			ORDER BY
 				event_id DESC
 			LIMIT 1) AS last_update_event_id,
@@ -70,10 +68,9 @@ pl AS (
 			SELECT
 				sum(liquidity_delta)
 			FROM position_updates pu
-			JOIN pool_balance_change pbc USING (chain_id, event_id)
 			WHERE
 				lss.last_swap_event_id < pu.event_id
-				AND pbc.pool_key_id = lss.pool_key_id
+				AND pu.pool_key_id = lss.pool_key_id
 				AND lss.tick BETWEEN pu.lower_bound AND (pu.upper_bound - 1)), 0::numeric)) AS liquidity
 FROM
 	lss
@@ -198,9 +195,8 @@ FROM ( WITH lss AS (
 				liquidity_after
 			FROM
 				swaps s
-				JOIN pool_balance_change pbc USING (chain_id, event_id)
 			WHERE
-				pk.pool_key_id = pbc.pool_key_id
+				pk.pool_key_id = s.pool_key_id
 			ORDER BY
 				event_id DESC
 			LIMIT 1) AS last_swap ON TRUE
@@ -224,9 +220,8 @@ FROM ( WITH lss AS (
 					event_id
 				FROM
 					position_updates pu
-					JOIN pool_balance_change pbc USING (chain_id, event_id)
 				WHERE
-					lss.pool_key_id = pbc.pool_key_id
+					lss.pool_key_id = pu.pool_key_id
 				ORDER BY
 					event_id DESC
 				LIMIT 1) AS last_update_event_id,
@@ -234,10 +229,9 @@ FROM ( WITH lss AS (
 				SELECT
 					sum(liquidity_delta)
 				FROM position_updates AS pu
-				JOIN pool_balance_change pbc USING (chain_id, event_id)
 				WHERE
 					lss.last_swap_event_id < pu.event_id
-					AND pbc.pool_key_id = lss.pool_key_id
+					AND pu.pool_key_id = lss.pool_key_id
 					AND lss.tick BETWEEN pu.lower_bound AND (pu.upper_bound - 1)), 0::numeric)) AS liquidity
 	FROM
 		lss

@@ -27,16 +27,6 @@ BEGIN
 	IF TG_OP = 'INSERT' THEN
 		PERFORM
 			apply_pool_tvl_delta (NEW.pool_key_id, NEW.delta0, NEW.delta1);
-	ELSIF TG_OP = 'UPDATE' THEN
-		IF NEW.pool_key_id = OLD.pool_key_id THEN
-			PERFORM
-				apply_pool_tvl_delta (NEW.pool_key_id, NEW.delta0 - OLD.delta0, NEW.delta1 - OLD.delta1);
-		ELSE
-			PERFORM
-				apply_pool_tvl_delta (OLD.pool_key_id, - OLD.delta0, - OLD.delta1);
-			PERFORM
-				apply_pool_tvl_delta (NEW.pool_key_id, NEW.delta0, NEW.delta1);
-		END IF;
 	ELSIF TG_OP = 'DELETE' THEN
 		PERFORM
 			apply_pool_tvl_delta (OLD.pool_key_id, - OLD.delta0, - OLD.delta1);
@@ -47,25 +37,25 @@ $$
 LANGUAGE plpgsql;
 
 CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_position_updates
-	AFTER INSERT OR UPDATE OR DELETE ON position_updates
+	AFTER INSERT OR DELETE ON position_updates
 	DEFERRABLE INITIALLY DEFERRED
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_pool_tvl ();
 
 CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_position_fees_collected
-	AFTER INSERT OR UPDATE OR DELETE ON position_fees_collected
+	AFTER INSERT OR DELETE ON position_fees_collected
 	DEFERRABLE INITIALLY DEFERRED
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_pool_tvl ();
 
 CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_fees_accumulated
-	AFTER INSERT OR UPDATE OR DELETE ON fees_accumulated
+	AFTER INSERT OR DELETE ON fees_accumulated
 	DEFERRABLE INITIALLY DEFERRED
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_pool_tvl ();
 
 CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_swaps
-	AFTER INSERT OR UPDATE OR DELETE ON swaps
+	AFTER INSERT OR DELETE ON swaps
 	DEFERRABLE INITIALLY DEFERRED
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_pool_tvl ();

@@ -9,7 +9,8 @@ CREATE TABLE nonfungible_token_transfers (
 	token_id numeric NOT NULL,
 	from_address numeric NOT NULL,
 	to_address numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE TRIGGER no_updates_nonfungible_token_transfers

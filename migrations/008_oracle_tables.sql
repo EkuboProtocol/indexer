@@ -12,7 +12,8 @@ CREATE TABLE oracle_snapshots (
 	snapshot_tick_cumulative numeric NOT NULL,
 	-- null in case of starknet
 	snapshot_seconds_per_liquidity_cumulative numeric,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE TRIGGER no_updates_oracle_snapshots

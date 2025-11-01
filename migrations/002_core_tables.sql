@@ -28,7 +28,8 @@ CREATE TABLE pool_initializations (
 	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	tick int4 NOT NULL,
 	sqrt_ratio numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE TRIGGER no_updates_pool_initializations
@@ -52,7 +53,8 @@ CREATE TABLE position_updates (
 	liquidity_delta numeric NOT NULL,
 	delta0 numeric NOT NULL,
 	delta1 numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE INDEX ON position_updates (chain_id, locker, salt);
@@ -79,7 +81,8 @@ CREATE TABLE position_fees_collected (
 	upper_bound int4 NOT NULL,
 	delta0 numeric NOT NULL,
 	delta1 numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE INDEX ON position_fees_collected (chain_id, locker, salt);
@@ -101,7 +104,8 @@ CREATE TABLE fees_accumulated (
 	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	delta0 numeric NOT NULL,
 	delta1 numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE INDEX ON fees_accumulated (pool_key_id, event_id);
@@ -126,7 +130,8 @@ CREATE TABLE swaps (
 	sqrt_ratio_after numeric NOT NULL,
 	tick_after int4 NOT NULL,
 	liquidity_after numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE INDEX ON swaps (pool_key_id, event_id);
@@ -148,7 +153,8 @@ CREATE TABLE protocol_fees_withdrawn (
 	recipient numeric NOT NULL,
 	token numeric NOT NULL,
 	amount numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE TRIGGER no_updates_protocol_fees_withdrawn
@@ -165,7 +171,8 @@ CREATE TABLE extension_registrations (
 	emitter numeric NOT NULL,
 	event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
 	pool_extension numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id)
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE TRIGGER no_updates_extension_registrations

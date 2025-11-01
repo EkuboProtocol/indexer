@@ -14,7 +14,8 @@ CREATE TABLE spline_liquidity_updated (
     amount1 numeric NOT NULL,
     protocol_fees0 numeric NOT NULL,
     protocol_fees1 numeric NOT NULL,
-    PRIMARY KEY (chain_id, event_id)
+    PRIMARY KEY (chain_id, event_id),
+    FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
 CREATE TRIGGER no_updates_spline_liquidity_updated
@@ -54,14 +55,6 @@ LANGUAGE plpgsql AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
     PERFORM recompute_spline_pool(NEW.pool_key_id);
-  ELSIF TG_OP = 'UPDATE' THEN
-    -- Recompute for both old and new in case pool_key_id changed
-    IF NEW.pool_key_id IS DISTINCT FROM OLD.pool_key_id THEN
-      PERFORM recompute_spline_pool(OLD.pool_key_id);
-      PERFORM recompute_spline_pool(NEW.pool_key_id);
-    ELSE
-      PERFORM recompute_spline_pool(NEW.pool_key_id);
-    END IF;
   ELSE -- DELETE
     PERFORM recompute_spline_pool(OLD.pool_key_id);
   END IF;
@@ -70,5 +63,5 @@ END
 $$;
 
 CREATE TRIGGER trg_slu_maintain_spline_pools
-AFTER INSERT OR UPDATE OR DELETE ON spline_liquidity_updated
+AFTER INSERT OR DELETE ON spline_liquidity_updated
 FOR EACH ROW EXECUTE FUNCTION trg_slu_maintain_spline_pools();
