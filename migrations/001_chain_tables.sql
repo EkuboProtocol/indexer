@@ -54,3 +54,8 @@ BEGIN
   RAISE EXCEPTION 'Updates are not allowed on %', TG_TABLE_NAME;
 END;
 $$;
+
+CREATE TRIGGER no_updates_blocks
+	BEFORE UPDATE ON blocks
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();

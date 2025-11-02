@@ -7,7 +7,7 @@ CREATE TABLE pool_keys (
 	token1 numeric NOT NULL,
 	fee numeric NOT NULL,
 	fee_denominator numeric NOT NULL CHECK (fee_denominator > 0),
-	tick_spacing int NOT NULL,
+	tick_spacing int4 NOT NULL,
 	pool_extension numeric NOT NULL
 );
 
@@ -172,7 +172,8 @@ CREATE TABLE extension_registrations (
 	event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
 	pool_extension numeric NOT NULL,
 	PRIMARY KEY (chain_id, event_id),
-	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE,
+	UNIQUE (chain_id, emitter, pool_extension)
 );
 
 CREATE TRIGGER no_updates_extension_registrations
@@ -180,51 +181,71 @@ CREATE TRIGGER no_updates_extension_registrations
 	FOR EACH ROW
 	EXECUTE FUNCTION block_updates();
 
-CREATE VIEW pool_balance_change AS
-SELECT chain_id,
-       event_id,
-       block_number,
-       transaction_index,
-       event_index,
-       transaction_hash,
-       emitter,
-       pool_key_id,
-       delta0,
-       delta1
-FROM position_updates
-UNION ALL
-SELECT chain_id,
-       event_id,
-       block_number,
-       transaction_index,
-       event_index,
-       transaction_hash,
-       emitter,
-       pool_key_id,
-       delta0,
-       delta1
-FROM position_fees_collected
-UNION ALL
-SELECT chain_id,
-       event_id,
-       block_number,
-       transaction_index,
-       event_index,
-       transaction_hash,
-       emitter,
-       pool_key_id,
-       delta0,
-       delta1
-FROM fees_accumulated
-UNION ALL
-SELECT chain_id,
-       event_id,
-       block_number,
-       transaction_index,
-       event_index,
-       transaction_hash,
-       emitter,
-       pool_key_id,
-       delta0,
-       delta1
-FROM swaps;
+CREATE TABLE pool_balance_change (
+ 	chain_id int8 NOT NULL,
+	block_number int8 NOT NULL,
+	transaction_index int4 NOT NULL,
+	event_index int4 NOT NULL,
+	transaction_hash numeric NOT NULL,
+	emitter numeric NOT NULL,
+	event_id int8 NOT NULL,
+	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
+	delta0 numeric NOT NULL,
+	delta1 numeric NOT NULL,
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
+);
+
+CREATE TRIGGER no_updates_pool_balance_change
+	BEFORE UPDATE ON pool_balance_change
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
+
+CREATE OR REPLACE FUNCTION insert_pool_balance_change()
+RETURNS trigger AS $$
+BEGIN
+    INSERT INTO pool_balance_change (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        event_id,
+        pool_key_id,
+        delta0,
+        delta1
+    ) VALUES (
+        NEW.chain_id,
+        NEW.block_number,
+        NEW.transaction_index,
+        NEW.event_index,
+        NEW.transaction_hash,
+        NEW.emitter,
+        NEW.event_id,
+        NEW.pool_key_id,
+        NEW.delta0,
+        NEW.delta1
+    );
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER sync_pool_balance_on_swap
+AFTER INSERT ON swaps
+FOR EACH ROW
+EXECUTE FUNCTION insert_pool_balance_change();
+CREATE TRIGGER sync_pool_balance_on_position_update
+AFTER INSERT ON position_updates
+FOR EACH ROW
+EXECUTE FUNCTION insert_pool_balance_change();
+CREATE TRIGGER sync_pool_balance_on_position_fee_collect
+AFTER INSERT ON position_fees_collected
+FOR EACH ROW
+EXECUTE FUNCTION insert_pool_balance_change();
+CREATE TRIGGER sync_pool_balance_on_fees_accumulated
+AFTER INSERT ON fees_accumulated
+FOR EACH ROW
+EXECUTE FUNCTION insert_pool_balance_change();
+

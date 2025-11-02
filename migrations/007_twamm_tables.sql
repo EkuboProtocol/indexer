@@ -245,7 +245,7 @@ CREATE TABLE twamm_sale_rate_deltas (
 );
 
 -- 2) Helper: apply a delta into the aggregate table (upsert + prune zeros)
-create FUNCTION _apply_twamm_sale_rate_delta(
+CREATE FUNCTION _apply_twamm_sale_rate_delta(
   p_pool_key_id int8,
   p_time timestamptz,
   p_delta0 numeric,
