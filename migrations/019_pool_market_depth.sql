@@ -26,6 +26,7 @@ last_swap_time_per_pair AS (
 		b.block_time
 	FROM
 		last_swap_per_pair ls
+		JOIN swaps USING (chain_id, event_id)
 		JOIN blocks b USING (chain_id, block_number)
 ),
 median_ticks AS (
