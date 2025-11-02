@@ -104,27 +104,84 @@ CREATE FUNCTION refresh_pool_state ()
 	RETURNS TRIGGER
 	AS $$
 BEGIN
-	IF TG_OP = 'DELETE' THEN
-		PERFORM refresh_pool_state (OLD.pool_key_id);
-	ELSE
-		PERFORM refresh_pool_state (NEW.pool_key_id);
-	END IF;
+	PERFORM refresh_pool_state (OLD.pool_key_id);
 	RETURN NULL;
 END;
 $$
 LANGUAGE plpgsql;
 
 CREATE TRIGGER maintain_pool_state_from_position_updates
-	AFTER INSERT OR DELETE ON position_updates
+	AFTER DELETE ON position_updates
 	FOR EACH ROW
 	EXECUTE FUNCTION refresh_pool_state ();
 
 CREATE TRIGGER maintain_pool_state_from_swaps
-	AFTER INSERT OR DELETE ON swaps
+	AFTER DELETE ON swaps
 	FOR EACH ROW
 	EXECUTE FUNCTION refresh_pool_state ();
 
 CREATE TRIGGER maintain_pool_state_from_pool_initializations
-	AFTER INSERT OR DELETE ON pool_initializations
+	AFTER DELETE ON pool_initializations
 	FOR EACH ROW
 	EXECUTE FUNCTION refresh_pool_state ();
+
+CREATE FUNCTION on_insert_pool_initialization()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Insert state — pool must not already exist
+    INSERT INTO pool_states (pool_key_id, sqrt_ratio, tick, liquidity, last_event_id, last_position_update_event_id)
+    VALUES (NEW.pool_key_id, NEW.sqrt_ratio, NEW.tick, 0, NEW.event_id, NULL);
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER insert_pool_init_state
+	AFTER INSERT ON pool_initializations
+	FOR EACH ROW
+	EXECUTE FUNCTION on_insert_pool_initialization();
+
+CREATE FUNCTION on_insert_swap()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE pool_states ps
+    SET
+        sqrt_ratio = NEW.sqrt_ratio_after,
+        tick = NEW.tick_after,
+        liquidity = NEW.liquidity_after,
+        last_event_id = NEW.event_id
+    WHERE
+        ps.pool_key_id = NEW.pool_key_id;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER insert_swap_state
+	AFTER INSERT ON swaps
+	FOR EACH ROW
+	EXECUTE FUNCTION on_insert_swap();
+
+CREATE FUNCTION on_insert_position_update()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- update only if this is a newer event AND tick in position’s range
+    UPDATE pool_states ps
+    SET
+        liquidity = (CASE WHEN ps.tick BETWEEN NEW.lower_bound AND NEW.upper_bound - 1
+			THEN ps.liquidity + NEW.liquidity_delta
+			ELSE ps.liquidity
+			END),
+        last_event_id = NEW.event_id,
+        last_position_update_event_id = NEW.event_id
+    WHERE
+        ps.pool_key_id = NEW.pool_key_id;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER insert_position_update_state
+	AFTER INSERT ON position_updates
+	FOR EACH ROW
+	EXECUTE FUNCTION on_insert_position_update();

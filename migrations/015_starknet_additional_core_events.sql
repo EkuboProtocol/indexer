@@ -55,8 +55,14 @@ CREATE CONSTRAINT TRIGGER maintain_hourly_tvl_delta_from_protocol_fees_paid
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_hourly_tvl_delta_from_pool_balance_change ();
 
-CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_protocol_fees_paid
-	AFTER INSERT OR DELETE ON protocol_fees_paid
+CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_protocol_fees_paid_insert
+	AFTER INSERT ON protocol_fees_paid
 	DEFERRABLE INITIALLY DEFERRED
 	FOR EACH ROW
-	EXECUTE FUNCTION maintain_pool_tvl ();
+	EXECUTE FUNCTION update_pool_tvl_insert ();
+
+CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_protocol_fees_paid_delete
+	AFTER DELETE ON protocol_fees_paid
+	DEFERRABLE INITIALLY DEFERRED
+	FOR EACH ROW
+	EXECUTE FUNCTION update_pool_tvl_delete ();

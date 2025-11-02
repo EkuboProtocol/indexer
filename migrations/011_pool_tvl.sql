@@ -31,7 +31,7 @@ CREATE FUNCTION update_pool_tvl_delete ()
 	RETURNS TRIGGER
 	AS $$
 BEGIN
-	apply_pool_tvl_delta (OLD.pool_key_id, -OLD.delta0, -OLD.delta1);
+	PERFORM apply_pool_tvl_delta (OLD.pool_key_id, -OLD.delta0, -OLD.delta1);
 	RETURN NULL;
 END;
 $$
@@ -43,4 +43,4 @@ CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_balance_changes_insert
 
 CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_balance_changes_delete
 	AFTER DELETE ON pool_balance_change
-	FOR EACH ROW EXECUTE FUNCTION update_pool_tvl_insert ();
+	FOR EACH ROW EXECUTE FUNCTION update_pool_tvl_delete ();
