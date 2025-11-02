@@ -856,11 +856,12 @@ export class DAO {
       await this.pg.query({
         text: `
           INSERT INTO governor_proposed_calls
-              (chain_id, proposal_id, index, to_address, selector, calldata)
+              (chain_id, emitter, proposal_id, index, to_address, selector, calldata)
           VALUES ($1, $2, $3, $4, $5, $6);
         `,
         values: [
           this.chainId,
+          evt.emitter,
           event.proposal_id,
           i,
           call.to,
@@ -952,11 +953,12 @@ export class DAO {
       await this.pg.query({
         text: `
           INSERT INTO governor_executed_results
-              (chain_id, proposal_id, index, results)
+              (chain_id, emitter, proposal_id, index, results)
           VALUES ($1, $2, $3, $4);
         `,
         values: [
           this.chainId,
+          evt.emitter,
           event.proposal_id,
           i,
           result.map((value) => BigInt(value).toString()),
