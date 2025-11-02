@@ -506,14 +506,13 @@ export class DAO {
           $4,
           $5,
           $6,
-          (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
-          $7,
+          (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
+          $8,
           $9,
           $10,
           $11,
-          $12,
-          -$13::numeric,
-          -$14::numeric
+          -$12::numeric,
+          -$13::numeric
         );
       `,
       values: [
