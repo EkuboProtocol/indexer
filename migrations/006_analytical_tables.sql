@@ -47,7 +47,7 @@ CREATE TABLE hourly_revenue_by_token (
 	PRIMARY KEY (pool_key_id, hour, token)
 );
 
-CREATE OR REPLACE FUNCTION apply_hourly_volume_delta (p_pool_key_id bigint, p_hour timestamptz, p_token numeric, p_volume numeric, p_fees numeric, p_swap_count numeric, p_allow_insert boolean)
+CREATE FUNCTION apply_hourly_volume_delta (p_pool_key_id bigint, p_hour timestamptz, p_token numeric, p_volume numeric, p_fees numeric, p_swap_count numeric, p_allow_insert boolean)
 	RETURNS void
 	AS $$
 BEGIN
@@ -85,7 +85,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION apply_hourly_volume_from_swap (p_chain_id bigint, p_event_id bigint, p_multiplier numeric)
+CREATE FUNCTION apply_hourly_volume_from_swap (p_chain_id bigint, p_event_id bigint, p_multiplier numeric)
 	RETURNS void
 	AS $$
 DECLARE
@@ -137,7 +137,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION apply_hourly_volume_from_fees_accumulated (p_chain_id bigint, p_event_id bigint, p_multiplier numeric)
+CREATE FUNCTION apply_hourly_volume_from_fees_accumulated (p_chain_id bigint, p_event_id bigint, p_multiplier numeric)
 	RETURNS void
 	AS $$
 DECLARE
@@ -183,7 +183,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION apply_hourly_price_delta (p_chain_id bigint, p_token0 numeric, p_token1 numeric, p_hour timestamptz, p_k_volume numeric, p_total numeric, p_swap_count numeric, p_allow_insert boolean)
+CREATE FUNCTION apply_hourly_price_delta (p_chain_id bigint, p_token0 numeric, p_token1 numeric, p_hour timestamptz, p_k_volume numeric, p_total numeric, p_swap_count numeric, p_allow_insert boolean)
 	RETURNS void
 	AS $$
 BEGIN
@@ -223,7 +223,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION apply_hourly_price_from_swap (p_chain_id bigint, p_event_id bigint, p_multiplier numeric)
+CREATE FUNCTION apply_hourly_price_from_swap (p_chain_id bigint, p_event_id bigint, p_multiplier numeric)
 	RETURNS void
 	AS $$
 DECLARE
@@ -337,7 +337,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION apply_hourly_tvl_delta (p_pool_key_id bigint, p_hour timestamptz, p_token numeric, p_delta numeric, p_allow_insert boolean)
+CREATE FUNCTION apply_hourly_tvl_delta (p_pool_key_id bigint, p_hour timestamptz, p_token numeric, p_delta numeric, p_allow_insert boolean)
 	RETURNS void
 	AS $$
 BEGIN
@@ -371,7 +371,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION apply_hourly_tvl_from_pool_balance_change (p_chain_id bigint, p_event_id bigint, p_multiplier numeric)
+CREATE FUNCTION apply_hourly_tvl_from_pool_balance_change (p_chain_id bigint, p_event_id bigint, p_multiplier numeric)
 	RETURNS void
 	AS $$
 DECLARE
@@ -428,7 +428,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION apply_hourly_revenue_delta (p_pool_key_id bigint, p_hour timestamptz, p_token numeric, p_revenue numeric, p_allow_insert boolean)
+CREATE FUNCTION apply_hourly_revenue_delta (p_pool_key_id bigint, p_hour timestamptz, p_token numeric, p_revenue numeric, p_allow_insert boolean)
 	RETURNS void
 	AS $$
 BEGIN
@@ -462,7 +462,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION apply_hourly_revenue_from_position_update (p_chain_id bigint, p_event_id bigint, p_multiplier numeric)
+CREATE FUNCTION apply_hourly_revenue_from_position_update (p_chain_id bigint, p_event_id bigint, p_multiplier numeric)
 	RETURNS void
 	AS $$
 DECLARE
@@ -518,7 +518,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION maintain_hourly_metrics_from_swaps ()
+CREATE FUNCTION maintain_hourly_metrics_from_swaps ()
 	RETURNS TRIGGER
 	AS $$
 BEGIN
@@ -538,7 +538,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION maintain_hourly_volume_from_fees_accumulated ()
+CREATE FUNCTION maintain_hourly_volume_from_fees_accumulated ()
 	RETURNS TRIGGER
 	AS $$
 BEGIN
@@ -554,7 +554,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION maintain_hourly_tvl_delta_from_pool_balance_change ()
+CREATE FUNCTION maintain_hourly_tvl_delta_from_pool_balance_change ()
 	RETURNS TRIGGER
 	AS $$
 BEGIN
@@ -570,7 +570,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION maintain_hourly_revenue_from_position_updates ()
+CREATE FUNCTION maintain_hourly_revenue_from_position_updates ()
 	RETURNS TRIGGER
 	AS $$
 BEGIN

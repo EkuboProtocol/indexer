@@ -42,7 +42,7 @@ CREATE TRIGGER no_updates_token_registrations_v3
 	FOR EACH ROW
 	EXECUTE FUNCTION block_updates();
 
-CREATE OR REPLACE FUNCTION parse_starknet_short_string (numeric_value numeric)
+CREATE FUNCTION parse_starknet_short_string (numeric_value numeric)
 	RETURNS varchar
 	AS $$
 DECLARE

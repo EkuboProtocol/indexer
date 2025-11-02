@@ -2,7 +2,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 
 -- create a function for refreshing any arbitrary view, using the hash of the name as the advisory lock
-CREATE OR REPLACE FUNCTION safe_refresh_mv (viewname text)
+CREATE FUNCTION safe_refresh_mv (viewname text)
 	RETURNS void
 	LANGUAGE plpgsql
 	AS $$

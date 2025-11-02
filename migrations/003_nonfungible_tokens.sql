@@ -30,7 +30,7 @@ CREATE TABLE nonfungible_token_owners (
 	PRIMARY KEY (chain_id, nft_address, token_id)
 );
 
-CREATE OR REPLACE FUNCTION nft_owner_apply_transfer()
+CREATE FUNCTION nft_owner_apply_transfer()
 RETURNS TRIGGER AS $$
 BEGIN
     INSERT INTO nonfungible_token_owners (
@@ -54,7 +54,7 @@ $$ LANGUAGE plpgsql;
 
 
 -- Undo transfer (only if deleted event was the head)
-CREATE OR REPLACE FUNCTION nft_owner_rollback_transfer()
+CREATE FUNCTION nft_owner_rollback_transfer()
 RETURNS TRIGGER AS $$
 DECLARE
     v_last record;

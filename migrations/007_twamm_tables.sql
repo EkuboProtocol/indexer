@@ -90,7 +90,7 @@ CREATE TABLE twamm_pool_states (
 CREATE UNIQUE INDEX idx_twamm_pool_states_pool_key_id ON twamm_pool_states (pool_key_id);
 
 -- 2) Core recomputation function (idempotent, called by triggers)
-CREATE OR REPLACE FUNCTION recompute_twamm_pool_state(p_pool_key_id int8)
+CREATE FUNCTION recompute_twamm_pool_state(p_pool_key_id int8)
 RETURNS void
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -180,7 +180,7 @@ $$;
 -- 3) Trigger functions
 
 -- a) When VOEs change, the "last VOE" may shift; recompute for that pool.
-CREATE OR REPLACE FUNCTION trg_voe_recompute_pool_state()
+CREATE FUNCTION trg_voe_recompute_pool_state()
 RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -194,7 +194,7 @@ END
 $$;
 
 -- b) When order updates change, deltas after last VOE may change; recompute.
-CREATE OR REPLACE FUNCTION trg_order_updates_recompute_pool_state()
+CREATE FUNCTION trg_order_updates_recompute_pool_state()
 RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -208,7 +208,7 @@ END
 $$;
 
 -- c) When pool_states.last_event_id changes, it affects the GREATEST(...); recompute.
-CREATE OR REPLACE FUNCTION trg_pool_states_recompute_pool_state()
+CREATE FUNCTION trg_pool_states_recompute_pool_state()
 RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN

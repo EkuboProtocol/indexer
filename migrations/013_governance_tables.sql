@@ -191,7 +191,7 @@ CREATE TRIGGER no_updates_governor_proposal_described
 	FOR EACH ROW
 	EXECUTE FUNCTION block_updates();
 
-CREATE OR REPLACE VIEW proposal_delegate_voting_weights_view AS (
+CREATE VIEW proposal_delegate_voting_weights_view AS (
         WITH proposal_times AS (
             SELECT gp.proposal_id AS proposal_id,
                 b.block_time AS proposal_time,

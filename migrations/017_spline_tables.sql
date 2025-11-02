@@ -27,7 +27,7 @@ CREATE TABLE spline_pools (
   pool_key_id int8 NOT NULL PRIMARY KEY REFERENCES pool_keys (pool_key_id)
 );
 
-CREATE OR REPLACE FUNCTION recompute_spline_pool(p_pool_key_id int8)
+CREATE FUNCTION recompute_spline_pool(p_pool_key_id int8)
 RETURNS void
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -49,7 +49,7 @@ BEGIN
 END
 $$;
 
-CREATE OR REPLACE FUNCTION trg_slu_maintain_spline_pools()
+CREATE FUNCTION trg_slu_maintain_spline_pools()
 RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN

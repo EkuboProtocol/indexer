@@ -26,7 +26,7 @@ CREATE TABLE oracle_pool_states (
 	last_snapshot_block_timestamp int8 NOT NULL
 );
 
-CREATE OR REPLACE FUNCTION oracle_apply_snapshot_deferred ()
+CREATE FUNCTION oracle_apply_snapshot_deferred ()
 	RETURNS TRIGGER
 	AS $$
 DECLARE
@@ -56,7 +56,7 @@ CREATE CONSTRAINT TRIGGER trg_oracle_apply_snapshot
 	FOR EACH ROW
 	EXECUTE FUNCTION oracle_apply_snapshot_deferred ();
 	
-CREATE OR REPLACE FUNCTION oracle_rollback_snapshot ()
+CREATE FUNCTION oracle_rollback_snapshot ()
 	RETURNS TRIGGER
 	AS $$
 DECLARE

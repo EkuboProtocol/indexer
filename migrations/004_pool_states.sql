@@ -7,7 +7,7 @@ CREATE TABLE pool_states (
 	last_liquidity_update_event_id int8
 );
 
-CREATE OR REPLACE FUNCTION refresh_pool_state (p_pool_key_id int8)
+CREATE FUNCTION refresh_pool_state (p_pool_key_id int8)
 	RETURNS VOID
 	AS $$
 DECLARE
@@ -99,7 +99,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION refresh_pool_state ()
+CREATE FUNCTION refresh_pool_state ()
 	RETURNS TRIGGER
 	AS $$
 BEGIN

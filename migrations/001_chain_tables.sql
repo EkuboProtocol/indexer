@@ -16,7 +16,7 @@ CREATE TABLE blocks (
 
 CREATE INDEX ON blocks (chain_id, block_time);
 
-CREATE OR REPLACE FUNCTION compute_event_id(p_block_number bigint, p_transaction_index int4, p_event_index int4)
+CREATE FUNCTION compute_event_id(p_block_number bigint, p_transaction_index int4, p_event_index int4)
 RETURNS bigint
 LANGUAGE plpgsql
 IMMUTABLE
@@ -46,7 +46,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION block_updates()
+CREATE FUNCTION block_updates()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$

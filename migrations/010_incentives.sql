@@ -62,7 +62,7 @@ CREATE TRIGGER no_updates_token_wrapper_deployed
 
 CREATE SCHEMA incentives;
 
-CREATE OR REPLACE FUNCTION incentives.percent_within_std (z double precision)
+CREATE FUNCTION incentives.percent_within_std (z double precision)
 	RETURNS double precision
 	LANGUAGE sql
 	IMMUTABLE STRICT
@@ -73,7 +73,7 @@ CREATE OR REPLACE FUNCTION incentives.percent_within_std (z double precision)
 $$;
 
 -- Approximate inverse error function via Winitzki’s approximation + Newton-Raphson
-CREATE OR REPLACE FUNCTION incentives.erfinv (y double precision)
+CREATE FUNCTION incentives.erfinv (y double precision)
 	RETURNS double precision
 	LANGUAGE plpgsql
 	IMMUTABLE STRICT
@@ -101,7 +101,7 @@ $$;
 -- Requires erfinv(y) to be defined (e.g. as in the previous example).
 -- Returns an array of z‐multiples [z₁, z₂, …] such that
 -- P(|X| ≤ zₖ) = k * percent_step (capped at max_coverage).
-CREATE OR REPLACE FUNCTION incentives.linear_percent_std_multiples (percent_step double precision,
+CREATE FUNCTION incentives.linear_percent_std_multiples (percent_step double precision,
 -- e.g. 0.03 for 3% increments
 max_coverage double precision -- e.g. 0.99 for 99% max
 )
@@ -257,7 +257,7 @@ CREATE TYPE incentives.token_pair_budget AS (
 );
 
 -- 2. Function creates campaign + allowed extensions + reward periods
-CREATE OR REPLACE FUNCTION incentives.create_campaign (p_chain_id int8, p_name text, p_slug varchar(20), p_start_time timestamptz, p_end_time timestamptz, p_interval interval, p_reward_token numeric, p_pairs incentives.token_pair_budget[], p_default_fee_denominator numeric, p_allowed_extensions numeric[] DEFAULT '{0}', p_excluded_locker_salts incentives.locker_salt_pair[] DEFAULT '{}', p_percent_step double precision DEFAULT NULL, p_max_coverage double precision DEFAULT NULL)
+CREATE FUNCTION incentives.create_campaign (p_chain_id int8, p_name text, p_slug varchar(20), p_start_time timestamptz, p_end_time timestamptz, p_interval interval, p_reward_token numeric, p_pairs incentives.token_pair_budget[], p_default_fee_denominator numeric, p_allowed_extensions numeric[] DEFAULT '{0}', p_excluded_locker_salts incentives.locker_salt_pair[] DEFAULT '{}', p_percent_step double precision DEFAULT NULL, p_max_coverage double precision DEFAULT NULL)
 	RETURNS bigint
 	LANGUAGE plpgsql
 	AS $$

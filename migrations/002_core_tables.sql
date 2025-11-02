@@ -201,7 +201,7 @@ CREATE TRIGGER no_updates_pool_balance_change
 	FOR EACH ROW
 	EXECUTE FUNCTION block_updates();
 
-CREATE OR REPLACE FUNCTION insert_pool_balance_change()
+CREATE FUNCTION insert_pool_balance_change()
 RETURNS trigger AS $$
 BEGIN
     INSERT INTO pool_balance_change (

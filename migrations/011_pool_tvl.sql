@@ -4,7 +4,7 @@ CREATE TABLE pool_tvl (
 	balance1 numeric NOT NULL
 );
 
-CREATE OR REPLACE FUNCTION apply_pool_tvl_delta (p_pool_key_id bigint, p_delta0 numeric, p_delta1 numeric)
+CREATE FUNCTION apply_pool_tvl_delta (p_pool_key_id bigint, p_delta0 numeric, p_delta1 numeric)
 	RETURNS void
 	AS $$
 BEGIN
@@ -20,7 +20,7 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION maintain_pool_tvl ()
+CREATE FUNCTION maintain_pool_tvl ()
 	RETURNS TRIGGER
 	AS $$
 BEGIN

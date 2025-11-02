@@ -51,7 +51,7 @@ CREATE TABLE limit_order_pool_states (
   last_event_id int8  NOT NULL
 );
 
-CREATE OR REPLACE FUNCTION recompute_limit_order_pool_state(p_pool_key_id int8)
+CREATE FUNCTION recompute_limit_order_pool_state(p_pool_key_id int8)
 RETURNS void
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -97,7 +97,7 @@ BEGIN
 END
 $$;
 
-CREATE OR REPLACE FUNCTION trg_lop_recompute_lops()
+CREATE FUNCTION trg_lop_recompute_lops()
 RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -111,7 +111,7 @@ END
 $$;
 
 -- b) limit_order_closed changes
-CREATE OR REPLACE FUNCTION trg_loc_recompute_lops()
+CREATE FUNCTION trg_loc_recompute_lops()
 RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -125,7 +125,7 @@ END
 $$;
 
 -- c) pool_states.last_event_id changes (affects GREATEST(...))
-CREATE OR REPLACE FUNCTION trg_ps_recompute_lops()
+CREATE FUNCTION trg_ps_recompute_lops()
 RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
