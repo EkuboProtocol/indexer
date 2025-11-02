@@ -934,8 +934,7 @@ export class DAO {
       text: `
         INSERT INTO governor_executed
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (chain_id, proposal_id) DO NOTHING;
+        VALUES ($1, $2, $3, $4, $5, $6, $7);
       `,
       values: [
         this.chainId,
