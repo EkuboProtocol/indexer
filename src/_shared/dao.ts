@@ -495,8 +495,8 @@ export class DAO {
                 SELECT $1, $2, $3, $4, $5, $6,
                     pool_key_id,
                     $7, $9, $10, $11, 
-                    $13 - CEIL($13::numeric / (fee_denominator - fee)),
-                    $14 - CEIL($14::numeric / (fee_denominator - fee))
+                    $13 - CEIL(($13::numeric * fee_denominator) / (fee_denominator - fee)),
+                    $14 - CEIL(($14::numeric * fee_denominator) / (fee_denominator - fee))
                 FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8 AND $12 < 0::NUMERIC;
       `,
       values: [
