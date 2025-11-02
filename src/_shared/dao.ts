@@ -857,7 +857,7 @@ export class DAO {
         text: `
           INSERT INTO governor_proposed_calls
               (chain_id, emitter, proposal_id, index, to_address, selector, calldata)
-          VALUES ($1, $2, $3, $4, $5, $6);
+          VALUES ($1, $2, $3, $4, $5, $6, $7);
         `,
         values: [
           this.chainId,
@@ -954,7 +954,7 @@ export class DAO {
         text: `
           INSERT INTO governor_executed_results
               (chain_id, emitter, proposal_id, index, results)
-          VALUES ($1, $2, $3, $4);
+          VALUES ($1, $2, $3, $4, $5);
         `,
         values: [
           this.chainId,
