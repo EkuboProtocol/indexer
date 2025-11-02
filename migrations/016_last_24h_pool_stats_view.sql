@@ -1,0 +1,96 @@
+-- CREATE VIEW last_24h_pool_stats_view AS (
+-- 	WITH volume AS (
+-- 		SELECT
+-- 			pool_key_id,
+-- 			sum(
+-- 				CASE WHEN vbt.token = token0 THEN
+-- 					vbt.volume
+-- 				ELSE
+-- 					0
+-- 				END) AS volume0,
+-- 			sum(
+-- 				CASE WHEN vbt.token = token1 THEN
+-- 					vbt.volume
+-- 				ELSE
+-- 					0
+-- 				END) AS volume1,
+-- 			sum(
+-- 				CASE WHEN vbt.token = token0 THEN
+-- 					vbt.fees
+-- 				ELSE
+-- 					0
+-- 				END) AS fees0,
+-- 			sum(
+-- 				CASE WHEN vbt.token = token1 THEN
+-- 					vbt.fees
+-- 				ELSE
+-- 					0
+-- 				END) AS fees1
+-- 		FROM
+-- 			hourly_volume_by_token vbt
+-- 			JOIN pool_keys USING (pool_key_id)
+-- 		WHERE
+-- 			hour >= now() - INTERVAL '24 hours'
+-- 		GROUP BY
+-- 			vbt.pool_key_id),
+-- 		tvl_delta_24h AS (
+-- 			SELECT
+-- 				tbt.pool_key_id,
+-- 				sum(
+-- 					CASE WHEN token = token0 THEN
+-- 						delta
+-- 					ELSE
+-- 						0
+-- 					END) AS tvl0,
+-- 				sum(
+-- 					CASE WHEN token = token1 THEN
+-- 						delta
+-- 					ELSE
+-- 						0
+-- 					END) AS tvl1
+-- 			FROM
+-- 				hourly_tvl_delta_by_token tbt
+-- 				JOIN pool_keys pk ON tbt.pool_key_id = pk.pool_key_id
+-- 			WHERE
+-- 				hour >= now() - INTERVAL '24 hours'
+-- 			GROUP BY
+-- 				tbt.pool_key_id
+-- )
+-- 			SELECT
+-- 				pool_keys.pool_key_id,
+-- 				coalesce(volume.volume0, 0) AS volume0_24h,
+-- 				coalesce(volume.volume1, 0) AS volume1_24h,
+-- 				coalesce(volume.fees0, 0) AS fees0_24h,
+-- 				coalesce(volume.fees1, 0) AS fees1_24h,
+-- 				coalesce(ptvl.balance0, 0) AS tvl0_total,
+-- 				coalesce(ptvl.balance1, 0) AS tvl1_total,
+-- 				coalesce(tvl_delta_24h.tvl0, 0) AS tvl0_delta_24h,
+-- 				coalesce(tvl_delta_24h.tvl1, 0) AS tvl1_delta_24h
+-- 			FROM
+-- 				pool_keys
+-- 				JOIN pool_tvl ptvl ON pool_keys.pool_key_id = ptvl.pool_key_id
+-- 				LEFT JOIN volume ON volume.pool_key_id = pool_keys.pool_key_id
+-- 				LEFT JOIN tvl_delta_24h ON tvl_delta_24h.pool_key_id = pool_keys.pool_key_id);
+
+-- CREATE MATERIALIZED VIEW last_24h_pool_stats_materialized AS (
+-- 	SELECT
+-- 		pool_key_id,
+-- 		volume0_24h,
+-- 		volume1_24h,
+-- 		fees0_24h,
+-- 		fees1_24h,
+-- 		tvl0_total,
+-- 		tvl1_total,
+-- 		tvl0_delta_24h,
+-- 		tvl1_delta_24h
+-- 	FROM
+-- 		last_24h_pool_stats_view);
+
+-- CREATE UNIQUE INDEX idx_last_24h_pool_stats_materialized_pool_key_id ON last_24h_pool_stats_materialized (pool_key_id);
+
+-- SELECT
+-- 	cron.schedule ('refresh_last_24h_pool_stats', '0 * * * *', $$
+-- 		SELECT
+-- 			safe_refresh_mv ('last_24h_pool_stats_materialized');
+
+-- $$);

@@ -78,7 +78,7 @@ export interface ProtocolFeesWithdrawnInsert {
 
 export interface ProtocolFeesPaidInsert {
   poolId: `0x${string}`;
-  owner: AddressValue;
+  locker: AddressValue;
   salt: NumericValue;
   bounds: BoundsDescriptor;
   delta0: bigint;
@@ -284,16 +284,6 @@ export class DAO {
     this.indexerName = indexerName;
   }
 
-  private getEventColumns(key: EventKey) {
-    return {
-      blockNumber: key.blockNumber,
-      transactionIndex: key.transactionIndex,
-      eventIndex: key.eventIndex,
-      transactionHash: hexToNumericString(key.transactionHash),
-      emitter: hexToNumericString(key.emitter),
-    };
-  }
-
   public async beginTransaction(): Promise<void> {
     await this.pg.query("BEGIN");
   }
@@ -382,8 +372,6 @@ export class DAO {
     transfer: NonfungibleTokenTransfer,
     key: EventKey
   ) {
-    const event = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO nonfungible_token_transfers
@@ -400,11 +388,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        event.blockNumber,
-        event.transactionIndex,
-        event.eventIndex,
-        event.transactionHash,
-        event.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         transfer.id,
         transfer.from,
         transfer.to,
@@ -416,8 +404,6 @@ export class DAO {
     event: PositionMintedWithReferrerInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO position_minted_with_referrer
@@ -426,11 +412,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         event.tokenId,
         event.referrer,
       ],
@@ -441,8 +427,6 @@ export class DAO {
     event: PositionUpdatedInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO position_updates
@@ -467,11 +451,61 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+
+        event.locker,
+
+        event.poolId,
+
+        event.params.salt,
+        event.params.bounds.lower,
+        event.params.bounds.upper,
+
+        event.params.liquidityDelta,
+        event.delta0,
+        event.delta1,
+      ],
+    });
+  }
+
+  public async insertPositionUpdatedEventWithSyntheticProtocolFeesPaidEvent(
+    event: PositionUpdatedInsert,
+    key: EventKey
+  ) {
+    await this.pg.query({
+      text: `
+        WITH 
+          inserted_position_update AS (
+            INSERT INTO position_updates
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+            pool_key_id, locker, salt, lower_bound, upper_bound, liquidity_delta, delta0, delta1)
+              VALUES (
+                $1, $2, $3, $4, $5, $6,
+                (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
+                $7, $9, $10, $11, $12, $13, $14
+              )
+          )
+          INSERT INTO protocol_fees_paid
+            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+             pool_key_id, locker, salt, lower_bound, upper_bound, delta0, delta1)
+                SELECT $1, $2, $3, $4, $5, $6,
+                    pool_key_id,
+                    $7, $9, $10, $11, 
+                    $13 - CEIL($13::numeric / (fee_denominator - fee)),
+                    $14 - CEIL($14::numeric / (fee_denominator - fee))
+                FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8 AND $12 < 0::NUMERIC;
+      `,
+      values: [
+        this.chainId,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
 
         event.locker,
 
@@ -492,8 +526,6 @@ export class DAO {
     event: PositionFeesCollectedInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO position_fees_collected
@@ -517,11 +549,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
 
         event.poolId,
 
@@ -540,8 +572,6 @@ export class DAO {
     newPool: PoolInitializedInsert,
     key: EventKey
   ): Promise<bigint> {
-    const evt = this.getEventColumns(key);
-
     const {
       rows: [{ pool_key_id }],
     } = await this.pg.query({
@@ -568,11 +598,11 @@ export class DAO {
         newPool.poolKey.extension,
         newPool.feeDenominator,
 
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
 
         newPool.tick,
         newPool.sqrtRatio,
@@ -593,8 +623,6 @@ export class DAO {
     event: ProtocolFeesWithdrawnInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
                 INSERT
@@ -612,11 +640,11 @@ export class DAO {
             `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         event.recipient,
         event.token,
         event.amount,
@@ -628,25 +656,23 @@ export class DAO {
     event: ProtocolFeesPaidInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO protocol_fees_paid
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-             pool_key_id, owner, salt, lower_bound, upper_bound, delta0, delta1)
+             pool_key_id, locker, salt, lower_bound, upper_bound, delta0, delta1)
         VALUES ($1, $2, $3, $4, $5, $6,
                 (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
                 $7, $9, $10, $11, $12, $13);
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
-        event.owner,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
+        event.locker,
         event.poolId,
         event.salt,
         event.bounds.lower,
@@ -661,8 +687,6 @@ export class DAO {
     event: ExtensionRegisteredInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
                 INSERT
@@ -672,11 +696,11 @@ export class DAO {
             `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         event.extension,
       ],
     });
@@ -686,8 +710,6 @@ export class DAO {
     event: TokenRegistrationInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO token_registrations
@@ -696,11 +718,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         event.address,
         event.name,
         event.symbol,
@@ -714,8 +736,6 @@ export class DAO {
     event: TokenRegistrationV3Insert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO token_registrations_v3
@@ -724,11 +744,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         event.address,
         event.name,
         event.symbol,
@@ -742,8 +762,6 @@ export class DAO {
     event: StakerStakedInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO staker_staked
@@ -752,11 +770,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         event.from,
         event.amount,
         event.delegate,
@@ -768,8 +786,6 @@ export class DAO {
     event: StakerWithdrawnInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO staker_withdrawn
@@ -778,11 +794,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         event.from,
         event.amount,
         event.recipient,
@@ -795,8 +811,6 @@ export class DAO {
     event: GovernorReconfiguredInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO governor_reconfigured
@@ -806,11 +820,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         event.version,
         event.votingStartDelay,
         event.votingPeriod,
@@ -830,8 +844,6 @@ export class DAO {
     const configVersion =
       event.configVersion === null ? 0n : BigInt(event.configVersion);
 
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO governor_proposed
@@ -840,11 +852,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         event.proposal_id,
         event.proposer,
         configVersion,
@@ -861,7 +873,7 @@ export class DAO {
         `,
         values: [
           this.chainId,
-          evt.emitter,
+          key.emitter,
           event.proposal_id,
           i,
           call.to,
@@ -876,8 +888,6 @@ export class DAO {
     event: GovernorCanceledInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO governor_canceled
@@ -887,11 +897,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         event.proposal_id,
       ],
     });
@@ -901,8 +911,6 @@ export class DAO {
     event: GovernorVotedInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO governor_voted
@@ -911,11 +919,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         event.proposal_id,
         event.voter,
         event.weight,
@@ -928,8 +936,6 @@ export class DAO {
     event: GovernorExecutedInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO governor_executed
@@ -938,11 +944,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         event.proposal_id,
       ],
     });
@@ -957,7 +963,7 @@ export class DAO {
         `,
         values: [
           this.chainId,
-          evt.emitter,
+          key.emitter,
           event.proposal_id,
           i,
           result.map((value) => BigInt(value).toString()),
@@ -970,8 +976,6 @@ export class DAO {
     event: GovernorProposalDescribedInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO governor_proposal_described
@@ -980,11 +984,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         event.proposal_id,
         event.description,
       ],
@@ -995,8 +999,6 @@ export class DAO {
     event: FeesAccumulatedInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO fees_accumulated
@@ -1007,11 +1009,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
 
         event.poolId,
 
@@ -1022,8 +1024,6 @@ export class DAO {
   }
 
   public async insertSwappedEvent(event: SwapEventInsert, key: EventKey) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO swaps
@@ -1035,11 +1035,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
 
         event.locker,
 
@@ -1082,8 +1082,6 @@ export class DAO {
         ? [orderKey.buyToken, orderKey.sellToken, 0, event.saleRateDelta]
         : [orderKey.sellToken, orderKey.buyToken, event.saleRateDelta, 0];
 
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT
@@ -1102,11 +1100,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
 
         poolId,
 
@@ -1131,8 +1129,6 @@ export class DAO {
         ? [orderKey.buyToken, orderKey.sellToken, 0, event.amount]
         : [orderKey.sellToken, orderKey.buyToken, event.amount, 0];
 
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT
@@ -1151,11 +1147,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
 
         poolId,
 
@@ -1173,8 +1169,6 @@ export class DAO {
     event: TwammVirtualOrdersExecutedInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT
@@ -1194,11 +1188,11 @@ export class DAO {
       // note on starknet we do not have an extension registration event
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
 
         event.poolId,
         event.saleRateToken0,
@@ -1211,8 +1205,6 @@ export class DAO {
     event: LimitOrderPlacedInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO limit_order_placed
@@ -1226,11 +1218,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         event.poolId,
         event.owner,
         event.salt,
@@ -1247,8 +1239,6 @@ export class DAO {
     event: LimitOrderClosedInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO limit_order_closed
@@ -1262,11 +1252,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         event.poolId,
         event.owner,
         event.salt,
@@ -1283,8 +1273,6 @@ export class DAO {
     event: LiquidityUpdatedInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT INTO spline_liquidity_updated
@@ -1304,11 +1292,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         event.poolId,
         event.sender,
         event.liquidityFactor,
@@ -1325,8 +1313,6 @@ export class DAO {
     snapshot: OracleSnapshotInsert,
     key: EventKey
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT
@@ -1338,11 +1324,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
 
         snapshot.token0,
         snapshot.token1,
@@ -1358,8 +1344,6 @@ export class DAO {
     key: EventKey,
     parsed: IncentivesRefundedInsert
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
                 INSERT
@@ -1369,11 +1353,11 @@ export class DAO {
             `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         parsed.key.owner,
         parsed.key.token,
         parsed.key.root,
@@ -1386,8 +1370,6 @@ export class DAO {
     key: EventKey,
     parsed: IncentivesFundedInsert
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT
@@ -1397,11 +1379,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         parsed.key.owner,
         parsed.key.token,
         parsed.key.root,
@@ -1414,8 +1396,6 @@ export class DAO {
     key: EventKey,
     parsed: TokenWrapperDeployedInsert
   ) {
-    const evt = this.getEventColumns(key);
-
     await this.pg.query({
       text: `
         INSERT
@@ -1425,11 +1405,11 @@ export class DAO {
       `,
       values: [
         this.chainId,
-        evt.blockNumber,
-        evt.transactionIndex,
-        evt.eventIndex,
-        evt.transactionHash,
-        evt.emitter,
+        key.blockNumber,
+        key.transactionIndex,
+        key.eventIndex,
+        key.transactionHash,
+        key.emitter,
         parsed.tokenWrapper,
         parsed.underlyingToken,
         parsed.unlockTime,

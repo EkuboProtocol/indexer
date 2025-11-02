@@ -21,14 +21,6 @@ import type {
   SwappedEvent,
 } from "./core";
 import {
-  parseLegacyPositionMintedEvent,
-  parsePositionMintedWithReferrerEvent,
-} from "./positions";
-import type {
-  LegacyPositionMintedEvent,
-  PositionMintedWithReferrer,
-} from "./positions";
-import {
   parseOrderProceedsWithdrawn,
   parseOrderUpdated,
   parseVirtualOrdersExecuted,
@@ -131,48 +123,6 @@ export function createEventProcessors({
   splineLiquidityProviderAddress,
 }: StarknetEventProcessorConfig): readonly StarknetEventProcessor<any>[] {
   return [
-    <StarknetEventProcessor<LegacyPositionMintedEvent>>{
-      filter: {
-        fromAddress: positionsAddress,
-        keys: [
-          // PositionMinted
-          "0x2a9157ea1542bfe11220258bf15d8aa02d791e7f94426446ec85b94159929f",
-        ],
-      },
-      parser: parseLegacyPositionMintedEvent,
-      handle: async (dao, { key, parsed }) => {
-        logger.debug("PositionMinted", { parsed, key });
-        if (parsed.referrer !== null && parsed.referrer !== 0n) {
-          await dao.insertPositionMintedWithReferrerEvent(
-            {
-              tokenId: parsed.id,
-              referrer: parsed.referrer,
-            },
-            key
-          );
-        }
-      },
-    },
-    <StarknetEventProcessor<PositionMintedWithReferrer>>{
-      filter: {
-        fromAddress: positionsAddress,
-        keys: [
-          // PositionMintedWithReferrer
-          "0x0289e57bf153052470392b578fad8d64393d2b5307e0cf1bf59f7967db3480fd",
-        ],
-      },
-      parser: parsePositionMintedWithReferrerEvent,
-      async handle(dao, { parsed, key }): Promise<void> {
-        logger.debug("Referral", { parsed, key });
-        await dao.insertPositionMintedWithReferrerEvent(
-          {
-            tokenId: parsed.id,
-            referrer: parsed.referrer,
-          },
-          key
-        );
-      },
-    },
     <StarknetEventProcessor<TransferEvent>>{
       filter: {
         fromAddress: nftAddress,
@@ -336,7 +286,7 @@ export function createEventProcessors({
         await dao.insertProtocolFeesPaid(
           {
             poolId: poolKeyToPoolId(parsed.pool_key),
-            owner: parsed.position_key.owner,
+            locker: parsed.position_key.owner,
             salt: parsed.position_key.salt,
             bounds: parsed.position_key.bounds,
             delta0: parsed.delta.amount0,

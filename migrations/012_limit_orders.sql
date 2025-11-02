@@ -7,7 +7,7 @@ CREATE TABLE limit_order_placed (
 	emitter numeric NOT NULL,
 	event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
 	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
-	owner NUMERIC NOT NULL,
+	locker NUMERIC NOT NULL,
 	salt numeric NOT NULL,
 	token0 numeric NOT NULL,
 	token1 numeric NOT NULL,
@@ -18,8 +18,7 @@ CREATE TABLE limit_order_placed (
   FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
-CREATE INDEX ON limit_order_placed (chain_id, OWNER, salt);
-CREATE INDEX ON limit_order_placed (chain_id, salt, event_id DESC) INCLUDE (token0, token1, tick, liquidity, amount);
+CREATE INDEX ON limit_order_placed (chain_id, emitter, locker, salt);
 
 CREATE TABLE limit_order_closed (
 	chain_id int8 NOT NULL,
@@ -30,7 +29,7 @@ CREATE TABLE limit_order_closed (
 	emitter numeric NOT NULL,
 	event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
 	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
-	owner NUMERIC NOT NULL,
+	locker NUMERIC NOT NULL,
 	salt numeric NOT NULL,
 	token0 numeric NOT NULL,
 	token1 numeric NOT NULL,
@@ -41,8 +40,7 @@ CREATE TABLE limit_order_closed (
   FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
-CREATE INDEX ON limit_order_closed (chain_id, OWNER, salt);
-CREATE INDEX ON limit_order_closed (chain_id, salt, event_id DESC) INCLUDE (amount0, amount1);
+CREATE INDEX ON limit_order_closed (chain_id, emitter, locker, salt);
 
 -- computed via triggers
 
@@ -101,7 +99,7 @@ CREATE FUNCTION trg_lop_recompute_lops()
 RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-  IF TG_OP IN ('INSERT','UPDATE') THEN
+  IF TG_OP = 'INSERT' THEN
     PERFORM recompute_limit_order_pool_state(NEW.pool_key_id);
   ELSE
     PERFORM recompute_limit_order_pool_state(OLD.pool_key_id);
@@ -115,7 +113,7 @@ CREATE FUNCTION trg_loc_recompute_lops()
 RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-  IF TG_OP IN ('INSERT','UPDATE') THEN
+  IF TG_OP = 'INSERT' THEN
     PERFORM recompute_limit_order_pool_state(NEW.pool_key_id);
   ELSE
     PERFORM recompute_limit_order_pool_state(OLD.pool_key_id);
@@ -131,10 +129,7 @@ LANGUAGE plpgsql AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
     PERFORM recompute_limit_order_pool_state(NEW.pool_key_id);
-  ELSIF TG_OP = 'UPDATE' AND (NEW.last_event_id IS DISTINCT FROM OLD.last_event_id
-                              OR NEW.pool_key_id   IS DISTINCT FROM OLD.pool_key_id) THEN
-    PERFORM recompute_limit_order_pool_state(NEW.pool_key_id);
-  ELSIF TG_OP = 'DELETE' THEN
+  ELSE
     -- Original view would lose the row due to the JOIN; recompute will delete it.
     PERFORM recompute_limit_order_pool_state(OLD.pool_key_id);
   END IF;
@@ -143,13 +138,13 @@ END
 $$;
 
 CREATE TRIGGER trg_lop_recompute_lops
-AFTER INSERT OR UPDATE OR DELETE ON limit_order_placed
+AFTER INSERT OR DELETE ON limit_order_placed
 FOR EACH ROW EXECUTE FUNCTION trg_lop_recompute_lops();
 
 CREATE TRIGGER trg_loc_recompute_lops
-AFTER INSERT OR UPDATE OR DELETE ON limit_order_closed
+AFTER INSERT OR DELETE ON limit_order_closed
 FOR EACH ROW EXECUTE FUNCTION trg_loc_recompute_lops();
 
 CREATE TRIGGER trg_ps_recompute_lops
-AFTER INSERT OR UPDATE OF last_event_id OR DELETE ON pool_states
+AFTER INSERT OR DELETE ON pool_states
 FOR EACH ROW EXECUTE FUNCTION trg_ps_recompute_lops();

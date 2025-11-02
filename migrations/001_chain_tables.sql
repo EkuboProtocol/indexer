@@ -55,6 +55,7 @@ BEGIN
 END;
 $$;
 
+-- blocks are only to be inserted or deleted
 CREATE TRIGGER no_updates_blocks
 	BEFORE UPDATE ON blocks
 	FOR EACH ROW

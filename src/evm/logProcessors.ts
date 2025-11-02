@@ -197,7 +197,10 @@ export function createLogProcessors({
           }
         },
         async PositionUpdated(dao, key, parsed) {
-          await dao.insertPositionUpdatedEvent(parsed, key);
+          await dao.insertPositionUpdatedEventWithSyntheticProtocolFeesPaidEvent(
+            parsed,
+            key
+          );
         },
         async PositionFeesCollected(dao, key, parsed) {
           await dao.insertPositionFeesCollectedEvent(parsed, key);

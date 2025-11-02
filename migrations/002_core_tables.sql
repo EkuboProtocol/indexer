@@ -12,10 +12,6 @@ CREATE TABLE pool_keys (
 );
 
 CREATE UNIQUE INDEX ON pool_keys (chain_id, core_address, pool_id) INCLUDE (pool_key_id);
-CREATE INDEX ON pool_keys (chain_id, token0);
-CREATE INDEX ON pool_keys (chain_id, token1);
-CREATE INDEX ON pool_keys (chain_id, token0, token1, pool_extension);
-CREATE INDEX ON pool_keys (chain_id, pool_extension);
 
 CREATE TABLE pool_initializations (
 	chain_id int8 NOT NULL,
@@ -58,11 +54,35 @@ CREATE TABLE position_updates (
 );
 
 CREATE INDEX ON position_updates (chain_id, locker, salt);
-CREATE INDEX ON position_updates (chain_id, salt);
-CREATE INDEX ON position_updates (pool_key_id, event_id);
 
 CREATE TRIGGER no_updates_position_updates
 	BEFORE UPDATE ON position_updates
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
+
+CREATE TABLE protocol_fees_paid (
+	chain_id int8 NOT NULL,
+	block_number int8 NOT NULL,
+	transaction_index int4 NOT NULL,
+	event_index int4 NOT NULL,
+	transaction_hash numeric NOT NULL,
+	emitter numeric NOT NULL,
+	event_id int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
+	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
+	locker NUMERIC NOT NULL,
+	salt numeric NOT NULL,
+	lower_bound int4 NOT NULL,
+	upper_bound int4 NOT NULL,
+	delta0 numeric NOT NULL,
+	delta1 numeric NOT NULL,
+	PRIMARY KEY (chain_id, event_id),
+	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
+);
+
+CREATE INDEX ON protocol_fees_paid (chain_id, locker, salt);
+
+CREATE TRIGGER no_updates_protocol_fees_paid
+	BEFORE UPDATE ON protocol_fees_paid
 	FOR EACH ROW
 	EXECUTE FUNCTION block_updates();
 
@@ -86,7 +106,6 @@ CREATE TABLE position_fees_collected (
 );
 
 CREATE INDEX ON position_fees_collected (chain_id, locker, salt);
-CREATE INDEX ON position_fees_collected (pool_key_id, event_id);
 
 CREATE TRIGGER no_updates_position_fees_collected
 	BEFORE UPDATE ON position_fees_collected
@@ -107,8 +126,6 @@ CREATE TABLE fees_accumulated (
 	PRIMARY KEY (chain_id, event_id),
 	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
-
-CREATE INDEX ON fees_accumulated (pool_key_id, event_id);
 
 CREATE TRIGGER no_updates_fees_accumulated
 	BEFORE UPDATE ON fees_accumulated
@@ -134,14 +151,13 @@ CREATE TABLE swaps (
 	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
-CREATE INDEX ON swaps (pool_key_id, event_id);
+CREATE INDEX ON swaps (pool_key_id, event_id DESC);
 
 CREATE TRIGGER no_updates_swaps
 	BEFORE UPDATE ON swaps
 	FOR EACH ROW
 	EXECUTE FUNCTION block_updates();
 
--- these are not common across all networks
 CREATE TABLE protocol_fees_withdrawn (
 	chain_id int8 NOT NULL,
 	block_number int8 NOT NULL,
@@ -192,7 +208,7 @@ CREATE TABLE pool_balance_change (
 	pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
 	delta0 numeric NOT NULL,
 	delta1 numeric NOT NULL,
-	PRIMARY KEY (chain_id, event_id),
+	-- chain_id, event_id is not a primary key because a single insert can affect multiple changes
 	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
@@ -246,6 +262,10 @@ CREATE TRIGGER sync_pool_balance_on_position_fee_collect
 	EXECUTE FUNCTION insert_pool_balance_change();
 CREATE TRIGGER sync_pool_balance_on_fees_accumulated
 	AFTER INSERT ON fees_accumulated
+	FOR EACH ROW
+	EXECUTE FUNCTION insert_pool_balance_change();
+CREATE TRIGGER sync_pool_balance_on_protocol_fees_paid
+	AFTER INSERT ON protocol_fees_paid
 	FOR EACH ROW
 	EXECUTE FUNCTION insert_pool_balance_change();
 
