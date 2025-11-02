@@ -72,7 +72,6 @@ BEGIN
 		pk.chain_id = OLD.chain_id
 		AND pk.token0 = OLD.token0
 		AND pk.token1 = OLD.token1
-		-- todo: this row is already deleted, which prevents the rollback
 		AND pk.pool_extension = OLD.emitter;
 	-- get the most recent remaining snapshot (by event_id, not timestamp)
 	SELECT
@@ -83,13 +82,7 @@ BEGIN
 		os.chain_id = OLD.chain_id
 		AND os.token0 = OLD.token0
 		AND os.token1 = OLD.token1
-		AND os.emitter = (
-			SELECT
-				pool_extension
-			FROM
-				pool_keys
-			WHERE
-				pool_key_id = v_pool_key_id)
+		AND os.emitter = OLD.emitter
 	ORDER BY
 		os.event_id DESC
 	LIMIT 1;
@@ -110,7 +103,6 @@ BEGIN
 END;
 $$
 LANGUAGE plpgsql;
-
 
 CREATE TRIGGER trg_oracle_rollback_snapshot
 	AFTER DELETE ON oracle_snapshots

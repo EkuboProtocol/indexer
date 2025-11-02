@@ -20,7 +20,11 @@ CREATE TABLE twamm_order_updates (
 CREATE INDEX ON twamm_order_updates (pool_key_id, event_id);
 CREATE INDEX ON twamm_order_updates (pool_key_id, start_time, end_time);
 CREATE INDEX ON twamm_order_updates (chain_id, locker, salt);
-CREATE INDEX ON twamm_order_updates (chain_id, salt, pool_key_id, start_time, end_time, locker, event_id);
+
+CREATE TRIGGER no_updates_twamm_order_updates
+	BEFORE UPDATE ON twamm_order_updates
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
 
 CREATE TABLE twamm_proceeds_withdrawals (
 	chain_id int8 NOT NULL,
@@ -45,6 +49,11 @@ CREATE INDEX ON twamm_proceeds_withdrawals (pool_key_id, event_id);
 CREATE INDEX ON twamm_proceeds_withdrawals (pool_key_id, start_time, end_time);
 CREATE INDEX ON twamm_proceeds_withdrawals (chain_id, locker, salt);
 
+CREATE TRIGGER no_updates_twamm_proceeds_withdrawals
+	BEFORE UPDATE ON twamm_proceeds_withdrawals
+	FOR EACH ROW
+	EXECUTE FUNCTION block_updates();
+
 CREATE TABLE twamm_virtual_order_executions (
 	chain_id int8 NOT NULL,
 	block_number int8 NOT NULL,
@@ -62,16 +71,6 @@ CREATE TABLE twamm_virtual_order_executions (
 
 CREATE INDEX ON twamm_virtual_order_executions (pool_key_id, event_id DESC);
 
-CREATE TRIGGER no_updates_twamm_order_updates
-	BEFORE UPDATE ON twamm_order_updates
-	FOR EACH ROW
-	EXECUTE FUNCTION block_updates();
-
-CREATE TRIGGER no_updates_twamm_proceeds_withdrawals
-	BEFORE UPDATE ON twamm_proceeds_withdrawals
-	FOR EACH ROW
-	EXECUTE FUNCTION block_updates();
-
 CREATE TRIGGER no_updates_twamm_virtual_order_executions
 	BEFORE UPDATE ON twamm_virtual_order_executions
 	FOR EACH ROW
@@ -83,6 +82,7 @@ CREATE TABLE twamm_pool_states (
   token1_sale_rate                numeric     NOT NULL,
   last_virtual_execution_time     timestamptz NOT NULL,
   last_virtual_order_execution_event_id int8  NOT NULL,
+  -- this is useful because it tells us if we need to re-fetch the twamm order sale rates
   last_order_update_event_id      int8,
   last_event_id                   int8        NOT NULL
 );
@@ -224,16 +224,16 @@ END
 $$;
 
 CREATE TRIGGER trg_voe_recompute_pool_state
-AFTER INSERT OR DELETE ON twamm_virtual_order_executions
-FOR EACH ROW EXECUTE FUNCTION trg_voe_recompute_pool_state();
+  AFTER INSERT OR DELETE ON twamm_virtual_order_executions
+  FOR EACH ROW EXECUTE FUNCTION trg_voe_recompute_pool_state();
 
 CREATE TRIGGER trg_order_updates_recompute_pool_state
-AFTER INSERT OR DELETE ON twamm_order_updates
-FOR EACH ROW EXECUTE FUNCTION trg_order_updates_recompute_pool_state();
+  AFTER INSERT OR DELETE ON twamm_order_updates
+  FOR EACH ROW EXECUTE FUNCTION trg_order_updates_recompute_pool_state();
 
 CREATE TRIGGER trg_pool_states_recompute_pool_state
-AFTER INSERT OR DELETE ON pool_states
-FOR EACH ROW EXECUTE FUNCTION trg_pool_states_recompute_pool_state();
+  AFTER INSERT OR DELETE ON pool_states
+  FOR EACH ROW EXECUTE FUNCTION trg_pool_states_recompute_pool_state();
 
 -- 1) Base table that replaces the materialized view
 CREATE TABLE twamm_sale_rate_deltas (
@@ -245,7 +245,7 @@ CREATE TABLE twamm_sale_rate_deltas (
 );
 
 -- 2) Helper: apply a delta into the aggregate table (upsert + prune zeros)
-CREATE FUNCTION _apply_twamm_sale_rate_delta(
+CREATE FUNCTION apply_twamm_sale_rate_delta(
   p_pool_key_id int8,
   p_time timestamptz,
   p_delta0 numeric,
@@ -283,8 +283,8 @@ BEGIN
     n_pool  := NEW.pool_key_id;  n_start := NEW.start_time; n_end := NEW.end_time;
     n_d0    := NEW.sale_rate_delta0;  n_d1 := NEW.sale_rate_delta1;
 
-    PERFORM _apply_twamm_sale_rate_delta(n_pool, n_start,  n_d0,  n_d1);
-    PERFORM _apply_twamm_sale_rate_delta(n_pool, n_end,   -n_d0, -n_d1);
+    PERFORM apply_twamm_sale_rate_delta(n_pool, n_start,  n_d0,  n_d1);
+    PERFORM apply_twamm_sale_rate_delta(n_pool, n_end,   -n_d0, -n_d1);
     RETURN NEW;
 
   ELSE /* TG_OP = 'DELETE' */
@@ -292,8 +292,8 @@ BEGIN
     o_d0    := OLD.sale_rate_delta0;  o_d1 := OLD.sale_rate_delta1;
 
     -- reverse the INSERT effects
-    PERFORM _apply_twamm_sale_rate_delta(o_pool, o_start, -o_d0, -o_d1);
-    PERFORM _apply_twamm_sale_rate_delta(o_pool, o_end,    o_d0,  o_d1);
+    PERFORM apply_twamm_sale_rate_delta(o_pool, o_start, -o_d0, -o_d1);
+    PERFORM apply_twamm_sale_rate_delta(o_pool, o_end,    o_d0,  o_d1);
     RETURN OLD;
   END IF;
 END
@@ -301,6 +301,6 @@ $$;
 
 -- 4) Attach the trigger to twamm_order_updates (AFTER so all values are stable)
 CREATE TRIGGER trg_twamm_order_updates_to_deltas
-AFTER INSERT OR DELETE ON twamm_order_updates
-FOR EACH ROW
-EXECUTE FUNCTION trg_twamm_order_updates_to_deltas();
+  AFTER INSERT OR DELETE ON twamm_order_updates
+  FOR EACH ROW
+  EXECUTE FUNCTION trg_twamm_order_updates_to_deltas();

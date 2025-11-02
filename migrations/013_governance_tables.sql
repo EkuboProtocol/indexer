@@ -12,8 +12,8 @@ CREATE TABLE staker_staked (
     PRIMARY KEY (chain_id, event_id),
 	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
-CREATE INDEX ON staker_staked (delegate, from_address);
-CREATE INDEX ON staker_staked (from_address, delegate);
+CREATE INDEX ON staker_staked (chain_id, emitter, delegate, from_address);
+CREATE INDEX ON staker_staked (chain_id, emitter, from_address, delegate);
 
 CREATE TRIGGER no_updates_staker_staked
 	BEFORE UPDATE ON staker_staked
@@ -117,6 +117,7 @@ CREATE TRIGGER no_updates_governor_canceled
 	BEFORE UPDATE ON governor_canceled
 	FOR EACH ROW
 	EXECUTE FUNCTION block_updates();
+
 CREATE TABLE governor_voted (
     chain_id int8 NOT NULL,
     block_number int8 NOT NULL,
@@ -213,14 +214,14 @@ CREATE VIEW proposal_delegate_voting_weights_view AS (
                         bl.block_time as "time",
                         s.amount AS delta
                     FROM staker_staked s
-                        JOIN blocks bl ON bl.chain_id = s.chain_id AND bl.block_number = s.block_number
+                        JOIN blocks bl USING (chain_id, block_number)
                     WHERE bl.block_time BETWEEN pt.proposal_time AND pt.vote_start
                     UNION ALL
                     SELECT w.delegate,
                         bl.block_time as "time",
                         - w.amount AS delta
                     FROM staker_withdrawn w
-                        JOIN blocks bl ON bl.chain_id = w.chain_id AND bl.block_number = w.block_number
+                        JOIN blocks bl USING (chain_id, block_number)
                     WHERE bl.block_time BETWEEN pt.proposal_time AND pt.vote_start
                     UNION ALL
                     -- “bootstrap” each delegate's stake at proposal_time
@@ -228,7 +229,7 @@ CREATE VIEW proposal_delegate_voting_weights_view AS (
                         pt.proposal_time AS "time",
                         sum(s2.amount) AS delta
                     FROM staker_staked s2
-                        JOIN blocks bl2 ON bl2.chain_id = s2.chain_id AND bl2.block_number = s2.block_number
+                        JOIN blocks bl2 USING (chain_id, block_number)
                     WHERE bl2.block_time < pt.proposal_time
                     GROUP BY s2.delegate
                     UNION ALL
@@ -236,7 +237,7 @@ CREATE VIEW proposal_delegate_voting_weights_view AS (
                         pt.proposal_time AS "time",
                         - sum(w2.amount) AS delta
                     FROM staker_withdrawn w2
-                        JOIN blocks bl3 ON bl3.chain_id = w2.chain_id AND bl3.block_number = w2.block_number
+                        JOIN blocks bl3 USING (chain_id, block_number)
                     WHERE bl3.block_time < pt.proposal_time
                     GROUP BY w2.delegate
                     UNION ALL

@@ -4,7 +4,8 @@ CREATE TABLE pool_states (
 	tick int4 NOT NULL,
 	liquidity numeric NOT NULL,
 	last_event_id int8 NOT NULL,
-	last_liquidity_update_event_id int8
+	-- this is potentially useful because it tells us the next time we need to fetch ticks again
+	last_position_update_event_id int8
 );
 
 CREATE FUNCTION refresh_pool_state (p_pool_key_id int8)
@@ -81,7 +82,7 @@ SELECT
 	lss.tick,
 	pl.liquidity,
 	GREATEST (lss.last_swap_event_id, pl.last_update_event_id) AS last_event_id,
-	pl.last_update_event_id AS last_liquidity_update_event_id INTO v_state
+	pl.last_update_event_id AS last_position_update_event_id INTO v_state
 FROM
 	lss
 	JOIN pl ON lss.pool_key_id = pl.pool_key_id;
@@ -89,11 +90,11 @@ FROM
 				DELETE FROM pool_states
 				WHERE pool_key_id = p_pool_key_id;
 			ELSE
-				INSERT INTO pool_states (pool_key_id, sqrt_ratio, tick, liquidity, last_event_id, last_liquidity_update_event_id)
-					VALUES (v_state.pool_key_id, v_state.sqrt_ratio, v_state.tick, v_state.liquidity, v_state.last_event_id, v_state.last_liquidity_update_event_id)
+				INSERT INTO pool_states (pool_key_id, sqrt_ratio, tick, liquidity, last_event_id, last_position_update_event_id)
+					VALUES (v_state.pool_key_id, v_state.sqrt_ratio, v_state.tick, v_state.liquidity, v_state.last_event_id, v_state.last_position_update_event_id)
 				ON CONFLICT (pool_key_id)
 					DO UPDATE SET
-						sqrt_ratio = EXCLUDED.sqrt_ratio, tick = EXCLUDED.tick, liquidity = EXCLUDED.liquidity, last_event_id = EXCLUDED.last_event_id, last_liquidity_update_event_id = EXCLUDED.last_liquidity_update_event_id;
+						sqrt_ratio = EXCLUDED.sqrt_ratio, tick = EXCLUDED.tick, liquidity = EXCLUDED.liquidity, last_event_id = EXCLUDED.last_event_id, last_position_update_event_id = EXCLUDED.last_position_update_event_id;
 			END IF;
 END;
 $$
