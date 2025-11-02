@@ -86,7 +86,6 @@ export interface StarknetEventProcessor<T> {
 }
 
 export interface StarknetEventProcessorConfig {
-  positionsAddress: `0x${string}`;
   nftAddress: `0x${string}`;
   coreAddress: `0x${string}`;
   tokenRegistryAddress: `0x${string}`;
@@ -109,7 +108,6 @@ function poolKeyToPoolId(pool_key: PoolKey): `0x${string}` {
 }
 
 export function createEventProcessors({
-  positionsAddress,
   nftAddress,
   coreAddress,
   tokenRegistryAddress,
@@ -739,7 +737,7 @@ export function createEventProcessors({
         await dao.insertOrderPlacedEvent(
           {
             poolId,
-            owner: parsed.owner,
+            locker: parsed.owner,
             salt: parsed.salt,
             token0: parsed.order_key.token0,
             token1: parsed.order_key.token1,
@@ -772,7 +770,7 @@ export function createEventProcessors({
         await dao.insertOrderClosedEvent(
           {
             poolId,
-            owner: parsed.owner,
+            locker: parsed.owner,
             salt: parsed.salt,
             token0: parsed.order_key.token0,
             token1: parsed.order_key.token1,

@@ -241,7 +241,7 @@ export interface GovernorReconfiguredInsert {
 
 export interface LimitOrderPlacedInsert {
   poolId: `0x${string}`;
-  owner: AddressValue;
+  locker: AddressValue;
   salt: NumericValue;
   token0: AddressValue;
   token1: AddressValue;
@@ -252,7 +252,7 @@ export interface LimitOrderPlacedInsert {
 
 export interface LimitOrderClosedInsert {
   poolId: `0x${string}`;
-  owner: AddressValue;
+  locker: AddressValue;
   salt: NumericValue;
   token0: AddressValue;
   token1: AddressValue;
@@ -1209,7 +1209,7 @@ export class DAO {
       text: `
         INSERT INTO limit_order_placed
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-             pool_key_id, owner, salt, token0, token1, tick, liquidity, amount)
+             pool_key_id, locker, salt, token0, token1, tick, liquidity, amount)
         VALUES ($1, $2, $3, $4, $5, $6,
                 (SELECT pool_key_id
                   FROM pool_keys
@@ -1224,7 +1224,7 @@ export class DAO {
         key.transactionHash,
         key.emitter,
         event.poolId,
-        event.owner,
+        event.locker,
         event.salt,
         event.token0,
         event.token1,
@@ -1243,7 +1243,7 @@ export class DAO {
       text: `
         INSERT INTO limit_order_closed
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-             pool_key_id, owner, salt, token0, token1, tick, amount0, amount1)
+             pool_key_id, locker, salt, token0, token1, tick, amount0, amount1)
         VALUES ($1, $2, $3, $4, $5, $6,
                 (SELECT pool_key_id
                   FROM pool_keys
@@ -1258,7 +1258,7 @@ export class DAO {
         key.transactionHash,
         key.emitter,
         event.poolId,
-        event.owner,
+        event.locker,
         event.salt,
         event.token0,
         event.token1,

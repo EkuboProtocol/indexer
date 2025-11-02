@@ -98,7 +98,6 @@ function resetNoBlocksTimer() {
   const starknetProcessors =
     process.env.NETWORK_TYPE === "starknet"
       ? createEventProcessors({
-          positionsAddress: process.env.POSITIONS_ADDRESS,
           nftAddress: process.env.NFT_ADDRESS,
           coreAddress: process.env.CORE_ADDRESS,
           tokenRegistryAddress: process.env.TOKEN_REGISTRY_ADDRESS,

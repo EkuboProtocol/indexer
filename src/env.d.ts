@@ -31,7 +31,6 @@ interface StarknetConfig extends CommonConfiguration {
   NETWORK_TYPE: "starknet";
 
   CORE_ADDRESS: `0x${string}`;
-  POSITIONS_ADDRESS: `0x${string}`;
   NFT_ADDRESS: `0x${string}`;
   TWAMM_ADDRESS: `0x${string}`;
   STAKER_ADDRESS: `0x${string}`;
