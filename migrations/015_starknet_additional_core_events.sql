@@ -17,7 +17,7 @@ CREATE TABLE protocol_fees_paid (
 	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
-CREATE INDEX ON protocol_fees_paid (pool_key_id);
+CREATE INDEX ON protocol_fees_paid (pool_key_id, event_id DESC);
 
 CREATE TRIGGER no_updates_protocol_fees_paid
 	BEFORE UPDATE ON protocol_fees_paid
@@ -45,74 +45,18 @@ CREATE TRIGGER no_updates_position_minted_with_referrer
 	FOR EACH ROW
 	EXECUTE FUNCTION block_updates();
 
-CREATE OR REPLACE VIEW pool_balance_change AS
-SELECT chain_id,
-       event_id,
-       block_number,
-       transaction_index,
-       event_index,
-       transaction_hash,
-       emitter,
-       pool_key_id,
-       delta0,
-       delta1
-FROM position_updates
-UNION ALL
-SELECT chain_id,
-       event_id,
-       block_number,
-       transaction_index,
-       event_index,
-       transaction_hash,
-       emitter,
-       pool_key_id,
-       delta0,
-       delta1
-FROM position_fees_collected
-UNION ALL
-SELECT chain_id,
-       event_id,
-       block_number,
-       transaction_index,
-       event_index,
-       transaction_hash,
-       emitter,
-       pool_key_id,
-       delta0,
-       delta1
-FROM fees_accumulated
-UNION ALL
-SELECT chain_id,
-       event_id,
-       block_number,
-       transaction_index,
-       event_index,
-       transaction_hash,
-       emitter,
-       pool_key_id,
-       delta0,
-       delta1
-FROM swaps
-UNION ALL
-SELECT chain_id,
-       event_id,
-       block_number,
-       transaction_index,
-       event_index,
-       transaction_hash,
-       emitter,
-       pool_key_id,
-       -delta0,
-       -delta1
-FROM protocol_fees_paid;
+CREATE TRIGGER sync_pool_balance_on_protocol_fees_paid
+	AFTER INSERT ON protocol_fees_paid
+	FOR EACH ROW
+	EXECUTE FUNCTION insert_pool_balance_change();
 
 CREATE CONSTRAINT TRIGGER maintain_hourly_tvl_delta_from_protocol_fees_paid
-	AFTER INSERT OR UPDATE OR DELETE ON protocol_fees_paid DEFERRABLE INITIALLY DEFERRED
+	AFTER INSERT OR DELETE ON protocol_fees_paid DEFERRABLE INITIALLY DEFERRED
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_hourly_tvl_delta_from_pool_balance_change ();
 
 CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_protocol_fees_paid
-	AFTER INSERT OR UPDATE OR DELETE ON protocol_fees_paid
+	AFTER INSERT OR DELETE ON protocol_fees_paid
 	DEFERRABLE INITIALLY DEFERRED
 	FOR EACH ROW
 	EXECUTE FUNCTION maintain_pool_tvl ();

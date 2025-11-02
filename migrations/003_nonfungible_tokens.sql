@@ -24,6 +24,7 @@ CREATE TABLE nonfungible_token_owners (
 	chain_id int8 NOT NULL,
 	nft_address numeric NOT NULL,
 	token_id numeric NOT NULL,
+	last_transfer_event_id int8 NOT NULL,
 	current_owner numeric NOT NULL,
 	previous_owner numeric NOT NULL,
 	PRIMARY KEY (chain_id, nft_address, token_id)
@@ -106,12 +107,12 @@ $$ LANGUAGE plpgsql;
 
 -- Ownership forward index trigger
 CREATE TRIGGER trg_nft_owner_apply
-AFTER INSERT ON nonfungible_token_transfers
-FOR EACH ROW
-EXECUTE FUNCTION nft_owner_apply_transfer();
+	AFTER INSERT ON nonfungible_token_transfers
+	FOR EACH ROW
+	EXECUTE FUNCTION nft_owner_apply_transfer();
 
 -- Ownership rewind trigger
 CREATE TRIGGER trg_nft_owner_revert
-AFTER DELETE ON nonfungible_token_transfers
-FOR EACH ROW
-EXECUTE FUNCTION nft_owner_rollback_transfer();
+	AFTER DELETE ON nonfungible_token_transfers
+	FOR EACH ROW
+	EXECUTE FUNCTION nft_owner_rollback_transfer();

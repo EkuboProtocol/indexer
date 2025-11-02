@@ -233,19 +233,19 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER sync_pool_balance_on_swap
-AFTER INSERT ON swaps
-FOR EACH ROW
-EXECUTE FUNCTION insert_pool_balance_change();
+	AFTER INSERT ON swaps
+	FOR EACH ROW
+	EXECUTE FUNCTION insert_pool_balance_change();
 CREATE TRIGGER sync_pool_balance_on_position_update
-AFTER INSERT ON position_updates
-FOR EACH ROW
-EXECUTE FUNCTION insert_pool_balance_change();
+	AFTER INSERT ON position_updates
+	FOR EACH ROW
+	EXECUTE FUNCTION insert_pool_balance_change();
 CREATE TRIGGER sync_pool_balance_on_position_fee_collect
-AFTER INSERT ON position_fees_collected
-FOR EACH ROW
-EXECUTE FUNCTION insert_pool_balance_change();
+	AFTER INSERT ON position_fees_collected
+	FOR EACH ROW
+	EXECUTE FUNCTION insert_pool_balance_change();
 CREATE TRIGGER sync_pool_balance_on_fees_accumulated
-AFTER INSERT ON fees_accumulated
-FOR EACH ROW
-EXECUTE FUNCTION insert_pool_balance_change();
+	AFTER INSERT ON fees_accumulated
+	FOR EACH ROW
+	EXECUTE FUNCTION insert_pool_balance_change();
 
