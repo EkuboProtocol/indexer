@@ -8,9 +8,6 @@ CREATE FUNCTION apply_pool_tvl_delta (p_pool_key_id bigint, p_delta0 numeric, p_
 	RETURNS void
 	AS $$
 BEGIN
-	IF p_delta0 = 0 AND p_delta1 = 0 THEN
-		RETURN;
-	END IF;
 	INSERT INTO pool_tvl (pool_key_id, balance0, balance1)
 		VALUES (p_pool_key_id, p_delta0, p_delta1)
 	ON CONFLICT (pool_key_id)
@@ -20,42 +17,30 @@ END;
 $$
 LANGUAGE plpgsql;
 
-CREATE FUNCTION maintain_pool_tvl ()
+CREATE FUNCTION update_pool_tvl_insert ()
 	RETURNS TRIGGER
 	AS $$
 BEGIN
-	IF TG_OP = 'INSERT' THEN
-		PERFORM
-			apply_pool_tvl_delta (NEW.pool_key_id, NEW.delta0, NEW.delta1);
-	ELSIF TG_OP = 'DELETE' THEN
-		PERFORM
-			apply_pool_tvl_delta (OLD.pool_key_id, - OLD.delta0, - OLD.delta1);
-	END IF;
+	PERFORM apply_pool_tvl_delta (NEW.pool_key_id, NEW.delta0, NEW.delta1);
 	RETURN NULL;
 END;
 $$
 LANGUAGE plpgsql;
 
-CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_position_updates
-	AFTER INSERT OR DELETE ON position_updates
-	DEFERRABLE INITIALLY DEFERRED
-	FOR EACH ROW
-	EXECUTE FUNCTION maintain_pool_tvl ();
+CREATE FUNCTION update_pool_tvl_delete ()
+	RETURNS TRIGGER
+	AS $$
+BEGIN
+	apply_pool_tvl_delta (OLD.pool_key_id, -OLD.delta0, -OLD.delta1);
+	RETURN NULL;
+END;
+$$
+LANGUAGE plpgsql;
 
-CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_position_fees_collected
-	AFTER INSERT OR DELETE ON position_fees_collected
-	DEFERRABLE INITIALLY DEFERRED
-	FOR EACH ROW
-	EXECUTE FUNCTION maintain_pool_tvl ();
+CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_balance_changes_insert
+	AFTER INSERT ON pool_balance_change
+	FOR EACH ROW EXECUTE FUNCTION update_pool_tvl_insert ();
 
-CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_fees_accumulated
-	AFTER INSERT OR DELETE ON fees_accumulated
-	DEFERRABLE INITIALLY DEFERRED
-	FOR EACH ROW
-	EXECUTE FUNCTION maintain_pool_tvl ();
-
-CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_swaps
-	AFTER INSERT OR DELETE ON swaps
-	DEFERRABLE INITIALLY DEFERRED
-	FOR EACH ROW
-	EXECUTE FUNCTION maintain_pool_tvl ();
+CREATE CONSTRAINT TRIGGER maintain_pool_tvl_from_balance_changes_delete
+	AFTER DELETE ON pool_balance_change
+	FOR EACH ROW EXECUTE FUNCTION update_pool_tvl_insert ();
