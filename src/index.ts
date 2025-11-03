@@ -155,7 +155,8 @@ function resetNoBlocksTimer() {
           },
         });
 
-  let numberMessagesProcessed: number = 0;
+  let numberMessagesQueued: number = 0;
+  let numberEventsQueued: number = 0;
 
   for await (const message of streamClient.streamData({
     filter: filterConfig,
@@ -201,7 +202,8 @@ function resetNoBlocksTimer() {
           );
           await dao.writeCursor(invalidatedCursor);
           await dao.flush();
-          numberMessagesProcessed = 0;
+          numberMessagesQueued = 0;
+          numberEventsQueued = 0;
         }
 
         break;
@@ -306,20 +308,23 @@ function resetNoBlocksTimer() {
           // endCursor is what we write so when we restart we delete any pending block information
           await dao.writeCursor(message.data.endCursor);
 
-          numberMessagesProcessed++;
+          numberMessagesQueued++;
+          numberEventsQueued += eventsProcessed;
 
           if (
             message.data.production === "live" ||
-            numberMessagesProcessed % FLUSH_EVERY === 0
+            numberMessagesQueued % FLUSH_EVERY === 0
           ) {
             await dao.flush();
-            numberMessagesProcessed = 0;
+            numberMessagesQueued = 0;
+            numberEventsQueued = 0;
           }
 
           blockProcessingTimer.done({
             indexerName,
             message: `Block processed`,
-            numberQueued: numberMessagesProcessed,
+            numberMessagesQueued,
+            numberEventsQueued,
             chainId,
             blockNumber,
             eventsProcessed,
