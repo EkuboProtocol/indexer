@@ -428,6 +428,7 @@ export class DAO {
     key: EventKey
   ) {
     await this.pg.query({
+      name: "insert-position-updates",
       text: `
         INSERT INTO position_updates
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
@@ -1025,6 +1026,7 @@ export class DAO {
 
   public async insertSwappedEvent(event: SwapEventInsert, key: EventKey) {
     await this.pg.query({
+      name: "insert-swap",
       text: `
         INSERT INTO swaps
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
