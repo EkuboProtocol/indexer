@@ -37,6 +37,8 @@ const client = new Client({
   connectionString: process.env.PG_CONNECTION_STRING,
   connectionTimeoutMillis: 1000,
 });
+await client.connect();
+const dao = new DAO(client, chainId, indexerName);
 
 // Timer for exiting if no blocks are received within the configured time
 const NO_BLOCKS_TIMEOUT_MS = parseInt(process.env.NO_BLOCKS_TIMEOUT_MS || "0");
@@ -63,13 +65,9 @@ function resetNoBlocksTimer() {
 }
 
 (async function () {
-  await client.connect();
-
   // first set up the schema
   let databaseStartingCursor;
   {
-    const dao = new DAO(client, chainId, indexerName);
-
     const initializeTimer = logger.startTimer();
     databaseStartingCursor = await dao.initializeState();
     initializeTimer.done({
@@ -195,8 +193,6 @@ function resetNoBlocksTimer() {
             cursor: invalidatedCursor,
           });
 
-          const dao = new DAO(client, chainId, process.env.INDEXER_NAME);
-
           await dao.beginTransaction();
           await dao.deleteOldBlockNumbers(
             Number(invalidatedCursor.orderKey) + 1
@@ -213,8 +209,6 @@ function resetNoBlocksTimer() {
         resetNoBlocksTimer();
 
         const blockProcessingTimer = logger.startTimer();
-
-        const dao = new DAO(client, chainId, process.env.INDEXER_NAME);
 
         await dao.beginTransaction();
 
