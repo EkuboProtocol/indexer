@@ -192,12 +192,11 @@ function resetNoBlocksTimer() {
             cursor: invalidatedCursor,
           });
 
-          await dao.beginTransaction();
           await dao.deleteOldBlockNumbers(
             Number(invalidatedCursor.orderKey) + 1
           );
           await dao.writeCursor(invalidatedCursor);
-          await dao.commitTransaction();
+          await dao.flush();
         }
 
         break;
@@ -209,16 +208,12 @@ function resetNoBlocksTimer() {
 
         const blockProcessingTimer = logger.startTimer();
 
-        await dao.beginTransaction();
-
-        let deletedCount: number = 0;
-
         let eventsProcessed: number = 0;
 
         for (const block of message.data.data) {
           if (!block) continue;
           const blockNumber = Number(block.header.blockNumber);
-          deletedCount += await dao.deleteOldBlockNumbers(blockNumber);
+          await dao.deleteOldBlockNumbers(blockNumber);
 
           const blockTime = block.header.timestamp;
 
@@ -306,7 +301,7 @@ function resetNoBlocksTimer() {
           // endCursor is what we write so when we restart we delete any pending block information
           await dao.writeCursor(message.data.endCursor);
 
-          await dao.commitTransaction();
+          await dao.flush();
 
           blockProcessingTimer.done({
             indexerName,
@@ -339,8 +334,4 @@ function resetNoBlocksTimer() {
     logger.error(error);
     process.exit(1);
   })
-  .finally(async () => {
-    await sql.end({ timeout: 5 }).catch(() => {
-      // ignore shutdown errors to avoid masking original failure path
-    });
-  });
+  .finally(() => sql.end({ timeout: 5 }));
