@@ -335,7 +335,7 @@ export class DAO {
     this.insertQueue = [];
 
     const pending = queries.map(({ text, values }) =>
-      this.transactionSql!.unsafe(text, values as any[]),
+      this.transactionSql!.unsafe(text, values as any[])
     );
 
     await Promise.all(pending);
@@ -351,19 +351,20 @@ export class DAO {
     await this.sql.unsafe(normalized.text, normalized.values as any[]);
   }
 
-  private async execute<T extends Record<string, unknown> = Record<string, unknown>>(
-    query: QueryConfig,
-  ): Promise<{ rows: T[]; count: number }> {
+  private async execute<
+    T extends Record<string, unknown> = Record<string, unknown>
+  >(query: QueryConfig): Promise<{ rows: T[]; count: number }> {
     await this.flushQueuedInserts();
     const activeSql = this.getActiveSql();
     const normalized = this.normalizeQuery(query);
     const result = (await activeSql.unsafe(
       normalized.text,
-      normalized.values as any[],
+      normalized.values as any[]
     )) as T[] & { count?: number };
     return {
       rows: result,
-      count: typeof result.count === "number" ? result.count : result.length ?? 0,
+      count:
+        typeof result.count === "number" ? result.count : result.length ?? 0,
     };
   }
 
@@ -711,7 +712,7 @@ export class DAO {
     poolId: `0x${string}`
   ) {
     await this.queueInsert({
-      text: `INSERT INTO mev_capture_pool_keys (pool_key_id) VALUES 
+      text: `INSERT INTO mev_capture_pool_keys (pool_key_id)
       (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $2 AND pool_id = $3) ON CONFLICT DO NOTHING;`,
       values: [this.chainId, coreAddress, poolId],
     });
