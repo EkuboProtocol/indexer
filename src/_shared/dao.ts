@@ -1,5 +1,10 @@
-import { Client } from "pg";
+import type { ReservedSql, Sql } from "postgres";
 import { type EventKey } from "./eventKey.ts";
+
+interface QueryConfig {
+  text: string;
+  values: unknown[];
+}
 
 export type NumericValue = bigint | number | `0x${string}`;
 export type AddressValue = bigint | `0x${string}`;
@@ -273,22 +278,114 @@ export interface LiquidityUpdatedInsert {
 
 // Data access object that manages inserts/deletes
 export class DAO {
-  private pg: Client;
-  private chainId: bigint;
-  private indexerName: string;
+  private readonly sql: Sql;
+  private transactionSql: ReservedSql | null = null;
+  private readonly chainId: bigint;
+  private readonly indexerName: string;
+  private insertQueue: QueryConfig[] = [];
 
-  constructor(pg: Client, chainId: bigint, indexerName: string) {
-    this.pg = pg;
+  constructor(sql: Sql, chainId: bigint, indexerName: string) {
+    this.sql = sql;
     this.chainId = chainId;
     this.indexerName = indexerName;
   }
 
   public async beginTransaction(): Promise<void> {
-    await this.pg.query("BEGIN");
+    if (this.transactionSql) {
+      throw new Error("Transaction already started");
+    }
+
+    this.transactionSql = await this.sql.reserve();
+    this.insertQueue = [];
+    await this.transactionSql`BEGIN`;
   }
 
   public async commitTransaction(): Promise<void> {
-    await this.pg.query("COMMIT");
+    if (!this.transactionSql) {
+      throw new Error("No active transaction");
+    }
+
+    try {
+      await this.flushQueuedInserts();
+      await this.transactionSql`COMMIT`;
+    } catch (error) {
+      try {
+        await this.transactionSql`ROLLBACK`;
+      } catch {
+        // swallow rollback error to avoid masking original failure
+      }
+      throw error;
+    } finally {
+      this.transactionSql.release();
+      this.transactionSql = null;
+      this.insertQueue = [];
+    }
+  }
+
+  private getActiveSql(): Sql {
+    return (this.transactionSql ?? this.sql) as Sql;
+  }
+
+  private async flushQueuedInserts(): Promise<void> {
+    if (!this.transactionSql || this.insertQueue.length === 0) {
+      return;
+    }
+
+    const queries = this.insertQueue;
+    this.insertQueue = [];
+
+    const pending = queries.map(({ text, values }) =>
+      this.transactionSql!.unsafe(text, values as any[]),
+    );
+
+    await Promise.all(pending);
+  }
+
+  private async queueInsert(query: QueryConfig): Promise<void> {
+    const normalized = this.normalizeQuery(query);
+    if (this.transactionSql) {
+      this.insertQueue.push(normalized);
+      return;
+    }
+
+    await this.sql.unsafe(normalized.text, normalized.values as any[]);
+  }
+
+  private async execute<T extends Record<string, unknown> = Record<string, unknown>>(
+    query: QueryConfig,
+  ): Promise<{ rows: T[]; count: number }> {
+    await this.flushQueuedInserts();
+    const activeSql = this.getActiveSql();
+    const normalized = this.normalizeQuery(query);
+    const result = (await activeSql.unsafe(
+      normalized.text,
+      normalized.values as any[],
+    )) as T[] & { count?: number };
+    return {
+      rows: result,
+      count: typeof result.count === "number" ? result.count : result.length ?? 0,
+    };
+  }
+
+  private normalizeQuery(query: QueryConfig): QueryConfig {
+    return {
+      text: query.text,
+      values: this.normalizeValues(query.values),
+    };
+  }
+
+  private normalizeValues(values: unknown[]): unknown[] {
+    return values.map((value) => this.normalizeValue(value));
+  }
+
+  private normalizeValue(value: unknown): unknown {
+    if (typeof value === "bigint") {
+      return value.toString();
+    }
+    if (Array.isArray(value)) {
+      return this.normalizeValues(value);
+    }
+    return value;
   }
 
   public async initializeState() {
@@ -310,7 +407,10 @@ export class DAO {
     | { orderKey: bigint }
     | null
   > {
-    const { rows } = await this.pg.query({
+    const { rows } = await this.execute<{
+      order_key: string;
+      unique_key: string | null;
+    }>({
       text: `SELECT order_key, unique_key FROM indexer_cursor WHERE indexer_name = $1`,
       values: [this.indexerName],
     });
@@ -333,7 +433,7 @@ export class DAO {
   }
 
   public async writeCursor(cursor: { orderKey: bigint; uniqueKey?: string }) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO indexer_cursor (indexer_name, order_key, unique_key, last_updated)
         VALUES ($1, $2, $3, NOW())
@@ -360,7 +460,7 @@ export class DAO {
     hash: bigint;
     time: Date;
   }) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
                    VALUES ($1, $2, $3, $4);`,
       values: [this.chainId, number, hash, time],
@@ -371,7 +471,7 @@ export class DAO {
     transfer: NonfungibleTokenTransfer,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO nonfungible_token_transfers
             (chain_id,
@@ -403,7 +503,7 @@ export class DAO {
     event: PositionMintedWithReferrerInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO position_minted_with_referrer
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, token_id, referrer)
@@ -426,7 +526,7 @@ export class DAO {
     event: PositionUpdatedInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO position_updates
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
@@ -475,7 +575,7 @@ export class DAO {
     event: PositionUpdatedInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         WITH 
           inserted_position_update AS (
@@ -525,7 +625,7 @@ export class DAO {
     event: PositionFeesCollectedInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO position_fees_collected
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
@@ -571,7 +671,7 @@ export class DAO {
     newPool: PoolInitializedInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         WITH inserted_pool_key AS (
         INSERT INTO pool_keys (chain_id, core_address, pool_id, token0, token1, fee, tick_spacing, pool_extension, fee_denominator)
@@ -610,7 +710,7 @@ export class DAO {
     coreAddress: `0x${string}`,
     poolId: `0x${string}`
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `INSERT INTO mev_capture_pool_keys (pool_key_id) VALUES 
       (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $2 AND pool_id = $3) ON CONFLICT DO NOTHING;`,
       values: [this.chainId, coreAddress, poolId],
@@ -621,7 +721,7 @@ export class DAO {
     event: ProtocolFeesWithdrawnInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
                 INSERT
                 INTO protocol_fees_withdrawn
@@ -654,7 +754,7 @@ export class DAO {
     event: ProtocolFeesPaidInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO protocol_fees_paid
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
@@ -685,7 +785,7 @@ export class DAO {
     event: ExtensionRegisteredInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
                 INSERT
                 INTO extension_registrations
@@ -708,7 +808,7 @@ export class DAO {
     event: TokenRegistrationInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO token_registrations
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, address, name, symbol, decimals, total_supply)
@@ -734,7 +834,7 @@ export class DAO {
     event: TokenRegistrationV3Insert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO token_registrations_v3
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, address, name, symbol, decimals, total_supply)
@@ -760,7 +860,7 @@ export class DAO {
     event: StakerStakedInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO staker_staked
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, from_address, amount, delegate)
@@ -784,7 +884,7 @@ export class DAO {
     event: StakerWithdrawnInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO staker_withdrawn
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, from_address, amount, recipient, delegate)
@@ -809,7 +909,7 @@ export class DAO {
     event: GovernorReconfiguredInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO governor_reconfigured
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, version, voting_start_delay, voting_period, voting_weight_smoothing_duration,
@@ -842,7 +942,7 @@ export class DAO {
     const configVersion =
       event.configVersion === null ? 0n : BigInt(event.configVersion);
 
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO governor_proposed
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id, proposer, config_version)
@@ -863,7 +963,7 @@ export class DAO {
 
     for (let i = 0; i < event.calls.length; i++) {
       const call = event.calls[i];
-      await this.pg.query({
+      await this.queueInsert({
         text: `
           INSERT INTO governor_proposed_calls
               (chain_id, emitter, proposal_id, index, to_address, selector, calldata)
@@ -886,7 +986,7 @@ export class DAO {
     event: GovernorCanceledInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO governor_canceled
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id)
@@ -909,7 +1009,7 @@ export class DAO {
     event: GovernorVotedInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO governor_voted
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id, voter, weight, yea)
@@ -934,7 +1034,7 @@ export class DAO {
     event: GovernorExecutedInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO governor_executed
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id)
@@ -953,7 +1053,7 @@ export class DAO {
 
     for (let i = 0; i < event.results.length; i++) {
       const result = event.results[i];
-      await this.pg.query({
+      await this.queueInsert({
         text: `
           INSERT INTO governor_executed_results
               (chain_id, emitter, proposal_id, index, results)
@@ -974,7 +1074,7 @@ export class DAO {
     event: GovernorProposalDescribedInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO governor_proposal_described
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id, description)
@@ -997,7 +1097,7 @@ export class DAO {
     event: FeesAccumulatedInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO fees_accumulated
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, pool_key_id, delta0, delta1)
@@ -1022,7 +1122,7 @@ export class DAO {
   }
 
   public async insertSwappedEvent(event: SwapEventInsert, key: EventKey) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO swaps
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
@@ -1057,7 +1157,7 @@ export class DAO {
    * @param invalidatedBlockNumber the block number for which data in the database should be removed
    */
   public async deleteOldBlockNumbers(invalidatedBlockNumber: number) {
-    const { rowCount } = await this.pg.query({
+    const { count } = await this.execute({
       text: `
                 DELETE
                 FROM blocks
@@ -1065,8 +1165,7 @@ export class DAO {
             `,
       values: [this.chainId, invalidatedBlockNumber],
     });
-    if (rowCount === null) throw new Error("Null row count after delete");
-    return rowCount;
+    return count;
   }
 
   public async insertTWAMMOrderUpdatedEvent(
@@ -1080,7 +1179,7 @@ export class DAO {
         ? [orderKey.buyToken, orderKey.sellToken, 0, event.saleRateDelta]
         : [orderKey.sellToken, orderKey.buyToken, event.saleRateDelta, 0];
 
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT
         INTO twamm_order_updates
@@ -1127,7 +1226,7 @@ export class DAO {
         ? [orderKey.buyToken, orderKey.sellToken, 0, event.amount]
         : [orderKey.sellToken, orderKey.buyToken, event.amount, 0];
 
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT
         INTO twamm_proceeds_withdrawals
@@ -1167,7 +1266,7 @@ export class DAO {
     event: TwammVirtualOrdersExecutedInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT
         INTO twamm_virtual_order_executions
@@ -1203,7 +1302,7 @@ export class DAO {
     event: LimitOrderPlacedInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO limit_order_placed
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
@@ -1237,7 +1336,7 @@ export class DAO {
     event: LimitOrderClosedInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO limit_order_closed
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
@@ -1271,7 +1370,7 @@ export class DAO {
     event: LiquidityUpdatedInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT INTO spline_liquidity_updated
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
@@ -1311,7 +1410,7 @@ export class DAO {
     snapshot: OracleSnapshotInsert,
     key: EventKey
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT
         INTO oracle_snapshots
@@ -1342,7 +1441,7 @@ export class DAO {
     key: EventKey,
     parsed: IncentivesRefundedInsert
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
                 INSERT
                 INTO incentives_refunded
@@ -1368,7 +1467,7 @@ export class DAO {
     key: EventKey,
     parsed: IncentivesFundedInsert
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT
         INTO incentives_funded
@@ -1394,7 +1493,7 @@ export class DAO {
     key: EventKey,
     parsed: TokenWrapperDeployedInsert
   ) {
-    await this.pg.query({
+    await this.queueInsert({
       text: `
         INSERT
         INTO token_wrapper_deployed

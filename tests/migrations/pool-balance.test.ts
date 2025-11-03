@@ -1,7 +1,6 @@
 import { beforeAll, test, expect, afterAll } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import { createClient } from "../helpers/db.js";
-import { afterEach } from "node:test";
 
 const MIGRATION_FILES = [
   "001_chain_tables.sql",

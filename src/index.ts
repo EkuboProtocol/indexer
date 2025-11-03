@@ -2,7 +2,7 @@ import "./config";
 import type { EventKey } from "./_shared/eventKey.ts";
 import { logger } from "./_shared/logger.ts";
 import { DAO } from "./_shared/dao.ts";
-import { Client } from "pg";
+import postgres from "postgres";
 import { EvmStream } from "@apibara/evm";
 import { StarknetStream } from "@apibara/starknet";
 import { createLogProcessors } from "./evm/logProcessors.ts";
@@ -33,12 +33,11 @@ if (!indexerName) {
   throw new Error("Missing INDEXER_NAME");
 }
 
-const client = new Client({
-  connectionString: process.env.PG_CONNECTION_STRING,
-  connectionTimeoutMillis: 1000,
+const sql = postgres(process.env.PG_CONNECTION_STRING, {
+  connect_timeout: 1,
 });
-await client.connect();
-const dao = new DAO(client, chainId, indexerName);
+
+const dao = new DAO(sql, chainId, indexerName);
 
 // Timer for exiting if no blocks are received within the configured time
 const NO_BLOCKS_TIMEOUT_MS = parseInt(process.env.NO_BLOCKS_TIMEOUT_MS || "0");
@@ -91,7 +90,7 @@ function resetNoBlocksTimer() {
           incentivesAddress: process.env.INCENTIVES_ADDRESS,
           tokenWrapperFactoryAddress: process.env.TOKEN_WRAPPER_FACTORY_ADDRESS,
         })
-      : undefined;
+      : ([] as ReturnType<typeof createLogProcessors>);
 
   const starknetProcessors =
     process.env.NETWORK_TYPE === "starknet"
@@ -109,7 +108,7 @@ function resetNoBlocksTimer() {
           splineLiquidityProviderAddress:
             process.env.SPLINE_LIQUIDITY_PROVIDER_ADDRESS,
         })
-      : undefined;
+      : ([] as ReturnType<typeof createEventProcessors>);
 
   const filterConfig =
     process.env.NETWORK_TYPE === "evm"
@@ -232,7 +231,17 @@ function resetNoBlocksTimer() {
           });
 
           if (process.env.NETWORK_TYPE === "evm") {
-            for (const log of block.logs) {
+            const logs = ((block as any).logs ?? []) as Array<{
+              filterIds?: readonly number[];
+              topics: readonly `0x${string}`[];
+              data: `0x${string}` | undefined;
+              address: `0x${string}`;
+              transactionIndex: number;
+              logIndexInTransaction?: number;
+              logIndex: number;
+              transactionHash: `0x${string}`;
+            }>;
+            for (const log of logs) {
               const eventKey: EventKey = {
                 blockNumber,
                 transactionIndex: log.transactionIndex,
@@ -245,10 +254,10 @@ function resetNoBlocksTimer() {
               };
 
               await Promise.all(
-                (log.filterIds ?? []).map(async (matchingFilterId) => {
+                (log.filterIds ?? []).map(async (matchingFilterId: number) => {
                   eventsProcessed++;
 
-                  await evmProcessors[matchingFilterId - 1].handler(
+                  await evmProcessors[matchingFilterId - 1]!.handler(
                     dao,
                     eventKey,
                     {
@@ -260,7 +269,16 @@ function resetNoBlocksTimer() {
               );
             }
           } else {
-            for (const event of block.events) {
+            const events = ((block as any).events ?? []) as Array<{
+              filterIds?: readonly number[];
+              transactionIndex: number;
+              eventIndexInTransaction?: number;
+              eventIndex: number;
+              address: `0x${string}`;
+              transactionHash: `0x${string}`;
+              data?: readonly `0x${string}`[];
+            }>;
+            for (const event of events) {
               const eventKey: EventKey = {
                 blockNumber,
                 transactionIndex: event.transactionIndex,
@@ -270,15 +288,17 @@ function resetNoBlocksTimer() {
               };
 
               await Promise.all(
-                (event.filterIds ?? []).map(async (matchingFilterId) => {
-                  eventsProcessed++;
-                  const processor = starknetProcessors[matchingFilterId - 1];
-                  const { value: parsed } = processor.parser(
-                    event.data ?? [],
-                    0
-                  );
-                  await processor.handle(dao, { key: eventKey, parsed });
-                })
+                (event.filterIds ?? []).map(
+                  async (matchingFilterId: number) => {
+                    eventsProcessed++;
+                    const processor = starknetProcessors[matchingFilterId - 1]!;
+                    const { value: parsed } = processor.parser(
+                      event.data ?? [],
+                      0
+                    );
+                    await processor.handle(dao, { key: eventKey, parsed });
+                  }
+                )
               );
             }
           }
@@ -320,5 +340,7 @@ function resetNoBlocksTimer() {
     process.exit(1);
   })
   .finally(async () => {
-    await client.end();
+    await sql.end({ timeout: 5 }).catch(() => {
+      // ignore shutdown errors to avoid masking original failure path
+    });
   });
