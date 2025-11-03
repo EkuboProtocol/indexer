@@ -43,6 +43,8 @@ const dao = new DAO(sql, chainId, indexerName);
 const NO_BLOCKS_TIMEOUT_MS = parseInt(process.env.NO_BLOCKS_TIMEOUT_MS || "0");
 let noBlocksTimer: NodeJS.Timeout | null = null;
 
+const FLUSH_EVERY = parseInt(process.env.FLUSH_EVERY_NUMBER || "100");
+
 // Function to set or reset the no-blocks timer
 function resetNoBlocksTimer() {
   // Clear existing timer if it exists
@@ -153,6 +155,8 @@ function resetNoBlocksTimer() {
           },
         });
 
+  let numberMessagesProcessed: number = 0;
+
   for await (const message of streamClient.streamData({
     filter: filterConfig,
     finality: "accepted",
@@ -197,6 +201,7 @@ function resetNoBlocksTimer() {
           );
           await dao.writeCursor(invalidatedCursor);
           await dao.flush();
+          numberMessagesProcessed = 0;
         }
 
         break;
@@ -301,11 +306,20 @@ function resetNoBlocksTimer() {
           // endCursor is what we write so when we restart we delete any pending block information
           await dao.writeCursor(message.data.endCursor);
 
-          await dao.flush();
+          numberMessagesProcessed++;
+
+          if (
+            message.data.production === "live" ||
+            numberMessagesProcessed % FLUSH_EVERY === 0
+          ) {
+            await dao.flush();
+            numberMessagesProcessed = 0;
+          }
 
           blockProcessingTimer.done({
             indexerName,
             message: `Block processed`,
+            numberQueued: numberMessagesProcessed,
             chainId,
             blockNumber,
             eventsProcessed,
