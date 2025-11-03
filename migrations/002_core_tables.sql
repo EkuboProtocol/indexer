@@ -212,60 +212,68 @@ CREATE TABLE pool_balance_change (
 	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
 
+-- faster deletes
+CREATE INDEX ON pool_balance_change (chain_id, event_id);
+
 CREATE TRIGGER no_updates_pool_balance_change
 	BEFORE UPDATE ON pool_balance_change
 	FOR EACH ROW
 	EXECUTE FUNCTION block_updates();
 
-CREATE FUNCTION insert_pool_balance_change()
+CREATE FUNCTION sync_pool_balance_change_row()
 RETURNS trigger AS $$
 BEGIN
-    INSERT INTO pool_balance_change (
-        chain_id,
-        block_number,
-        transaction_index,
-        event_index,
-        transaction_hash,
-        emitter,
-        event_id,
-        pool_key_id,
-        delta0,
-        delta1
-    ) VALUES (
-        NEW.chain_id,
-        NEW.block_number,
-        NEW.transaction_index,
-        NEW.event_index,
-        NEW.transaction_hash,
-        NEW.emitter,
-        NEW.event_id,
-        NEW.pool_key_id,
-        NEW.delta0,
-        NEW.delta1
-    );
+	IF TG_OP = 'INSERT' THEN
+		INSERT INTO pool_balance_change (
+			chain_id,
+			block_number,
+			transaction_index,
+			event_index,
+			transaction_hash,
+			emitter,
+			event_id,
+			pool_key_id,
+			delta0,
+			delta1
+		) VALUES (
+			NEW.chain_id,
+			NEW.block_number,
+			NEW.transaction_index,
+			NEW.event_index,
+			NEW.transaction_hash,
+			NEW.emitter,
+			NEW.event_id,
+			NEW.pool_key_id,
+			NEW.delta0,
+			NEW.delta1
+		);
 
-    RETURN NEW;
+		RETURN NEW;
+	ELSE -- delete
+		DELETE FROM pool_balance_change WHERE chain_id = OLD.chain_id AND event_id = OLD.event_id;
+		RETURN OLD;
+	END IF;
 END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER sync_pool_balance_on_swap
-	AFTER INSERT ON swaps
+	AFTER INSERT OR DELETE ON swaps
 	FOR EACH ROW
-	EXECUTE FUNCTION insert_pool_balance_change();
+	EXECUTE FUNCTION sync_pool_balance_change_row();
 CREATE TRIGGER sync_pool_balance_on_position_update
-	AFTER INSERT ON position_updates
+	AFTER INSERT OR DELETE ON position_updates
 	FOR EACH ROW
-	EXECUTE FUNCTION insert_pool_balance_change();
+	EXECUTE FUNCTION sync_pool_balance_change_row();
 CREATE TRIGGER sync_pool_balance_on_position_fee_collect
-	AFTER INSERT ON position_fees_collected
+	AFTER INSERT OR DELETE ON position_fees_collected
 	FOR EACH ROW
-	EXECUTE FUNCTION insert_pool_balance_change();
+	EXECUTE FUNCTION sync_pool_balance_change_row();
 CREATE TRIGGER sync_pool_balance_on_fees_accumulated
-	AFTER INSERT ON fees_accumulated
+	AFTER INSERT OR DELETE ON fees_accumulated
 	FOR EACH ROW
-	EXECUTE FUNCTION insert_pool_balance_change();
+	EXECUTE FUNCTION sync_pool_balance_change_row();
 CREATE TRIGGER sync_pool_balance_on_protocol_fees_paid
-	AFTER INSERT ON protocol_fees_paid
+	AFTER INSERT OR DELETE ON protocol_fees_paid
 	FOR EACH ROW
-	EXECUTE FUNCTION insert_pool_balance_change();
+	EXECUTE FUNCTION sync_pool_balance_change_row();
 

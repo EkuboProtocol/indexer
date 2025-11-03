@@ -108,7 +108,9 @@ test("swap insert creates matching pool_balance_change row", async () => {
 test("position_updates insert mirrors liquidity delta in pool_balance_change", async () => {
   const { chainId, blockNumber, poolKeyId } = await seedPool(client, 2);
 
-  await client.query(
+  const {
+    rows: [{ event_id: eventId }],
+  } = await client.query<{ event_id: bigint }>(
     `INSERT INTO position_updates (
         chain_id,
         block_number,
@@ -124,7 +126,7 @@ test("position_updates insert mirrors liquidity delta in pool_balance_change", a
         liquidity_delta,
         delta0,
         delta1
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING event_id`,
     [
       chainId,
       blockNumber,
@@ -143,13 +145,6 @@ test("position_updates insert mirrors liquidity delta in pool_balance_change", a
     ]
   );
 
-  const {
-    rows: [{ event_id: eventId }],
-  } = await client.query<{ event_id: bigint }>(
-    `SELECT event_id FROM position_updates WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, blockNumber]
-  );
-
   const { rows } = await client.query(
     `SELECT delta0, delta1 FROM pool_balance_change WHERE chain_id = $1 AND event_id = $2`,
     [chainId, eventId]
@@ -160,4 +155,152 @@ test("position_updates insert mirrors liquidity delta in pool_balance_change", a
     delta0: "321.00",
     delta1: "-654.00",
   });
+});
+
+test("inserts into multiple tables create separate pool_balance_change rows", async () => {
+  const { chainId, blockNumber, poolKeyId } = await seedPool(client, 3);
+
+  const {
+    rows: [{ event_id: swapEventId }],
+  } = await client.query<{ event_id: bigint }>(
+    `INSERT INTO swaps (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        delta0,
+        delta1,
+        sqrt_ratio_after,
+        tick_after,
+        liquidity_after
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING event_id`,
+    [
+      chainId,
+      blockNumber,
+      1,
+      1,
+      "6200",
+      "7200",
+      poolKeyId,
+      "8200",
+      "-10",
+      "5",
+      "111111",
+      20,
+      "200000",
+    ]
+  );
+
+  const {
+    rows: [{ event_id: positionEventId }],
+  } = await client.query<{ event_id: bigint }>(
+    `INSERT INTO position_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        lower_bound,
+        upper_bound,
+        liquidity_delta,
+        delta0,
+        delta1
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING event_id`,
+    [
+      chainId,
+      blockNumber,
+      1,
+      2,
+      "6300",
+      "7300",
+      poolKeyId,
+      "8300",
+      "9300",
+      -200,
+      200,
+      "6000",
+      "20",
+      "-7",
+    ]
+  );
+
+  const { rows } = await client.query(
+    `SELECT event_id, delta0, delta1 FROM pool_balance_change WHERE chain_id = $1 ORDER BY event_id`,
+    [chainId]
+  );
+
+  expect(rows.length).toBe(2);
+  expect(rows).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        event_id: swapEventId,
+        delta0: "-10",
+        delta1: "5",
+      }),
+      expect.objectContaining({
+        event_id: positionEventId,
+        delta0: "20",
+        delta1: "-7",
+      }),
+    ])
+  );
+});
+
+test("deleting a source row removes its pool_balance_change entry", async () => {
+  const { chainId, blockNumber, poolKeyId } = await seedPool(client, 4);
+
+  const {
+    rows: [{ event_id: eventId }],
+  } = await client.query<{ event_id: bigint }>(
+    `INSERT INTO swaps (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        delta0,
+        delta1,
+        sqrt_ratio_after,
+        tick_after,
+        liquidity_after
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING event_id`,
+    [
+      chainId,
+      blockNumber,
+      2,
+      3,
+      "6400",
+      "7400",
+      poolKeyId,
+      "8400",
+      "-15",
+      "9",
+      "121212",
+      25,
+      "300000",
+    ]
+  );
+
+  await client.query(
+    `DELETE FROM swaps WHERE chain_id = $1 AND event_id = $2`,
+    [chainId, eventId]
+  );
+
+  const { rows } = await client.query(
+    `SELECT 1 FROM pool_balance_change WHERE chain_id = $1 AND event_id = $2`,
+    [chainId, eventId]
+  );
+
+  expect(rows.length).toBe(0);
 });

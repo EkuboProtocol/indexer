@@ -35,13 +35,14 @@ CREATE TABLE staker_withdrawn (
     PRIMARY KEY (chain_id, event_id),
 	FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
-CREATE INDEX ON staker_withdrawn (delegate, from_address);
-CREATE INDEX ON staker_withdrawn (from_address, delegate);
+CREATE INDEX ON staker_withdrawn (chain_id, emitter, delegate, from_address);
+CREATE INDEX ON staker_withdrawn (chain_id, emitter, from_address, delegate);
 
 CREATE TRIGGER no_updates_staker_withdrawn
 	BEFORE UPDATE ON staker_withdrawn
 	FOR EACH ROW
 	EXECUTE FUNCTION block_updates();
+
 CREATE TABLE governor_reconfigured (
     chain_id int8 NOT NULL,
     block_number int8 NOT NULL,
