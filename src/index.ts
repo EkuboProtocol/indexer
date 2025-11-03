@@ -2,7 +2,7 @@ import "./config";
 import type { EventKey } from "./_shared/eventKey.ts";
 import { logger } from "./_shared/logger.ts";
 import { DAO } from "./_shared/dao.ts";
-import { Pool } from "pg";
+import { Client } from "pg";
 import { EvmStream } from "@apibara/evm";
 import { StarknetStream } from "@apibara/starknet";
 import { createLogProcessors } from "./evm/logProcessors.ts";
@@ -33,7 +33,7 @@ if (!indexerName) {
   throw new Error("Missing INDEXER_NAME");
 }
 
-const pool = new Pool({
+const client = new Client({
   connectionString: process.env.PG_CONNECTION_STRING,
   connectionTimeoutMillis: 1000,
 });
@@ -63,10 +63,11 @@ function resetNoBlocksTimer() {
 }
 
 (async function () {
+  await client.connect();
+
   // first set up the schema
   let databaseStartingCursor;
   {
-    const client = await pool.connect();
     const dao = new DAO(client, chainId, indexerName);
 
     const initializeTimer = logger.startTimer();
@@ -75,7 +76,6 @@ function resetNoBlocksTimer() {
       message: "Prepared indexer state",
       startingCursor: databaseStartingCursor,
     });
-    client.release();
   }
 
   // Start the no-blocks timer when application starts
@@ -195,7 +195,6 @@ function resetNoBlocksTimer() {
             cursor: invalidatedCursor,
           });
 
-          const client = await pool.connect();
           const dao = new DAO(client, chainId, process.env.INDEXER_NAME);
 
           await dao.beginTransaction();
@@ -204,8 +203,6 @@ function resetNoBlocksTimer() {
           );
           await dao.writeCursor(invalidatedCursor);
           await dao.commitTransaction();
-
-          client.release();
         }
 
         break;
@@ -217,7 +214,6 @@ function resetNoBlocksTimer() {
 
         const blockProcessingTimer = logger.startTimer();
 
-        const client = await pool.connect();
         const dao = new DAO(client, chainId, process.env.INDEXER_NAME);
 
         await dao.beginTransaction();
@@ -311,8 +307,6 @@ function resetNoBlocksTimer() {
           });
         }
 
-        client.release();
-
         break;
       }
 
@@ -330,4 +324,7 @@ function resetNoBlocksTimer() {
   .catch((error) => {
     logger.error(error);
     process.exit(1);
+  })
+  .finally(async () => {
+    await client.end();
   });

@@ -1,6 +1,5 @@
-import type { PoolClient } from "pg";
 import { Client } from "pg";
-import { hexToNumericString, type EventKey } from "./eventKey.ts";
+import { type EventKey } from "./eventKey.ts";
 
 export type NumericValue = bigint | number | `0x${string}`;
 export type AddressValue = bigint | `0x${string}`;
@@ -274,11 +273,11 @@ export interface LiquidityUpdatedInsert {
 
 // Data access object that manages inserts/deletes
 export class DAO {
-  private pg: Client | PoolClient;
+  private pg: Client;
   private chainId: bigint;
   private indexerName: string;
 
-  constructor(pg: Client | PoolClient, chainId: bigint, indexerName: string) {
+  constructor(pg: Client, chainId: bigint, indexerName: string) {
     this.pg = pg;
     this.chainId = chainId;
     this.indexerName = indexerName;
