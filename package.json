@@ -9,6 +9,7 @@
     "eth:sepolia": "NETWORK_TYPE=evm NETWORK=sepolia jiti src/index.ts",
     "starknet:mainnet": "NETWORK_TYPE=starknet NETWORK=mainnet jiti src/index.ts",
     "starknet:sepolia": "NETWORK_TYPE=starknet NETWORK=sepolia jiti src/index.ts",
+    "systemd:generate": "jiti scripts/create-systemd-services.ts",
     "migrate": "jiti src/migrate.ts",
     "test": "vitest",
     "check-ts": "tsc --noEmit"
