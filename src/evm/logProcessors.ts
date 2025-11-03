@@ -187,13 +187,10 @@ export function createLogProcessors({
                 : parsed.tick,
             sqrtRatio: floatSqrtRatioToFixed(parsed.sqrtRatio),
           };
-          const poolKeyId = await dao.insertPoolInitializedEvent(
-            poolInitialized,
-            key
-          );
+          await dao.insertPoolInitializedEvent(poolInitialized, key);
 
           if (BigInt(extension) === mevCaptureAddressBigInt) {
-            await dao.insertMEVCapturePoolKey(poolKeyId);
+            await dao.insertMEVCapturePoolKey(key.emitter, parsed.poolId);
           }
         },
         async PositionUpdated(dao, key, parsed) {

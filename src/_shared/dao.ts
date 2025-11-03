@@ -427,7 +427,6 @@ export class DAO {
     key: EventKey
   ) {
     await this.pg.query({
-      name: "insert-position-updates",
       text: `
         INSERT INTO position_updates
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
@@ -571,10 +570,8 @@ export class DAO {
   public async insertPoolInitializedEvent(
     newPool: PoolInitializedInsert,
     key: EventKey
-  ): Promise<bigint> {
-    const {
-      rows: [{ pool_key_id }],
-    } = await this.pg.query({
+  ) {
+    await this.pg.query({
       text: `
         WITH inserted_pool_key AS (
         INSERT INTO pool_keys (chain_id, core_address, pool_id, token0, token1, fee, tick_spacing, pool_extension, fee_denominator)
@@ -582,10 +579,9 @@ export class DAO {
             RETURNING
               pool_key_id
         )
-          INSERT INTO pool_initializations (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, pool_key_id, tick, sqrt_ratio)
-            SELECT $1, $10, $11, $12, $13, $14, inserted_pool_key.pool_key_id, $15, $16
-            FROM inserted_pool_key
-            RETURNING pool_key_id;
+        INSERT INTO pool_initializations (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, pool_key_id, tick, sqrt_ratio)
+          SELECT $1, $10, $11, $12, $13, $14, inserted_pool_key.pool_key_id, $15, $16
+          FROM inserted_pool_key;
       `,
       values: [
         this.chainId,
@@ -608,14 +604,16 @@ export class DAO {
         newPool.sqrtRatio,
       ],
     });
-
-    return BigInt(pool_key_id);
   }
 
-  public async insertMEVCapturePoolKey(poolKeyId: bigint) {
+  public async insertMEVCapturePoolKey(
+    coreAddress: `0x${string}`,
+    poolId: `0x${string}`
+  ) {
     await this.pg.query({
-      text: `INSERT INTO mev_capture_pool_keys (pool_key_id) VALUES ($1) ON CONFLICT DO NOTHING;`,
-      values: [poolKeyId],
+      text: `INSERT INTO mev_capture_pool_keys (pool_key_id) VALUES 
+      (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $2 AND pool_id = $3) ON CONFLICT DO NOTHING;`,
+      values: [this.chainId, coreAddress, poolId],
     });
   }
 
@@ -1025,7 +1023,6 @@ export class DAO {
 
   public async insertSwappedEvent(event: SwapEventInsert, key: EventKey) {
     await this.pg.query({
-      name: "insert-swap",
       text: `
         INSERT INTO swaps
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
