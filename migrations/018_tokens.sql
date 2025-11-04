@@ -2,11 +2,11 @@
 CREATE TABLE erc20_tokens (
 	chain_id INT8 NOT NULL,
     token_address NUMERIC NOT NULL,
-    token_symbol TEXT NOT NULL,
-    token_name TEXT NOT NULL,
+    token_symbol VARCHAR NOT NULL,
+    token_name VARCHAR NOT NULL,
     logo_url TEXT NOT NULL,
     sort_order int2 NOT NULL,
-    total_supply NUMERIC NOT NULL,
+    total_supply NUMERIC,
     PRIMARY KEY (chain_id, token_address)
 );
 
