@@ -65,9 +65,3 @@
 -- 	token_pair_realized_volatility_view;
 
 -- CREATE UNIQUE INDEX idx_token_pair_realized_volatility_pair ON token_pair_realized_volatility_materialized (chain_id, token0, token1);
-
--- SELECT
--- 	cron.schedule ('refresh_token_pair_realized_volatility', '*/5 * * * *', $$
--- 		SELECT
--- 			safe_refresh_mv ('token_pair_realized_volatility_materialized');
--- $$);

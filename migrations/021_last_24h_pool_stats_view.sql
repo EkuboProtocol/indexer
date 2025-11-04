@@ -87,10 +87,3 @@
 -- 		last_24h_pool_stats_view);
 
 -- CREATE UNIQUE INDEX idx_last_24h_pool_stats_materialized_pool_key_id ON last_24h_pool_stats_materialized (pool_key_id);
-
--- SELECT
--- 	cron.schedule ('refresh_last_24h_pool_stats', '0 * * * *', $$
--- 		SELECT
--- 			safe_refresh_mv ('last_24h_pool_stats_materialized');
-
--- $$);

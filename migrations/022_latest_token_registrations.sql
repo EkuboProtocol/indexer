@@ -112,10 +112,3 @@ CREATE MATERIALIZED VIEW latest_token_registrations_materialized AS (
 		latest_token_registrations_view);
 
 CREATE UNIQUE INDEX idx_latest_token_registrations_by_address ON latest_token_registrations_materialized (chain_id, address);
-
-SELECT
-	cron.schedule ('refresh_latest_token_registrations', '*/5 * * * *', $$
-		SELECT
-			safe_refresh_mv ('latest_token_registrations_materialized');
-
-$$);

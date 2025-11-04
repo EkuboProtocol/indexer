@@ -104,10 +104,3 @@ CREATE MATERIALIZED VIEW proposal_delegate_voting_weights_materialized AS (
 );
 
 CREATE UNIQUE INDEX idx_proposal_delegate_voting_weights_unique ON proposal_delegate_voting_weights_materialized (proposal_id, delegate);
-
-SELECT
-	cron.schedule ('refresh_proposal_delegate_voting_weights', '0 * * * *', $$
-		SELECT
-			safe_refresh_mv ('proposal_delegate_voting_weights_materialized');
-
-$$);

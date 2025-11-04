@@ -129,10 +129,3 @@ FROM
 	pool_market_depth_view;
 
 CREATE UNIQUE INDEX idx_pool_market_depth ON pool_market_depth_materialized (pool_key_id, depth_percent);
-
-SELECT
-	cron.schedule ('refresh_pool_market_depth', '*/15 * * * *', $$
-		SELECT
-			safe_refresh_mv ('pool_market_depth_materialized');
-
-$$);
