@@ -63,5 +63,5 @@ END
 $$;
 
 CREATE TRIGGER trg_slu_maintain_spline_pools
-AFTER INSERT OR DELETE ON spline_liquidity_updated
-FOR EACH ROW EXECUTE FUNCTION trg_slu_maintain_spline_pools();
+  AFTER INSERT OR DELETE ON spline_liquidity_updated
+  FOR EACH ROW EXECUTE FUNCTION trg_slu_maintain_spline_pools();
