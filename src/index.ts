@@ -28,16 +28,11 @@ if (!chainId) {
   throw new Error("Missing CHAIN_ID");
 }
 
-const indexerName = process.env.INDEXER_NAME;
-if (!indexerName) {
-  throw new Error("Missing INDEXER_NAME");
-}
-
 const sql = postgres(process.env.PG_CONNECTION_STRING, {
   connect_timeout: 1,
 });
 
-const dao = new DAO(sql, chainId, indexerName);
+const dao = new DAO(sql, chainId);
 
 // Timer for exiting if no blocks are received within the configured time
 const NO_BLOCKS_TIMEOUT_MS = parseInt(process.env.NO_BLOCKS_TIMEOUT_MS || "0");
@@ -321,12 +316,10 @@ function resetNoBlocksTimer() {
           }
 
           blockProcessingTimer.done({
-            indexerName,
-            message: `Block processed`,
-            numberMessagesQueued,
-            numberEventsQueued,
             chainId,
             blockNumber,
+            numberMessagesQueued,
+            numberEventsQueued,
             eventsProcessed,
             blockTimestamp: blockTime,
             lag: msToHumanShort(

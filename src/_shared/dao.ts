@@ -280,13 +280,11 @@ export interface LiquidityUpdatedInsert {
 export class DAO {
   private readonly sql: Sql;
   private readonly chainId: bigint;
-  private readonly indexerName: string;
   private insertQueue: QueryConfig[] = [];
 
-  constructor(sql: Sql, chainId: bigint, indexerName: string) {
+  constructor(sql: Sql, chainId: bigint) {
     this.sql = sql;
     this.chainId = chainId;
-    this.indexerName = indexerName;
   }
 
   public async flush(): Promise<void> {
@@ -340,7 +338,7 @@ export class DAO {
   > {
     const [cursor] = await this.sql<
       { order_key: string; unique_key: string | null }[]
-    >`SELECT order_key, unique_key FROM indexer_cursor WHERE indexer_name = ${this.indexerName}`;
+    >`SELECT order_key, unique_key FROM indexer_cursor WHERE chain_id = ${this.chainId.toString()};`;
 
     if (cursor) {
       const { order_key, unique_key } = cursor;
@@ -363,14 +361,12 @@ export class DAO {
   public async writeCursor(cursor: { orderKey: bigint; uniqueKey?: string }) {
     await this.enqueue({
       text: `
-        INSERT INTO indexer_cursor (indexer_name, order_key, unique_key, last_updated)
+        INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated)
         VALUES ($1, $2, $3, NOW())
-        ON CONFLICT (indexer_name) DO UPDATE SET order_key    = excluded.order_key,
-                                                  unique_key   = excluded.unique_key,
-                                                  last_updated = NOW();
+        ON CONFLICT (chain_id) DO UPDATE SET order_key = excluded.order_key, unique_key   = excluded.unique_key, last_updated = NOW();
       `,
       values: [
-        this.indexerName,
+        this.chainId,
         cursor.orderKey,
         typeof cursor.uniqueKey !== "undefined"
           ? BigInt(cursor.uniqueKey)

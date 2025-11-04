@@ -128,13 +128,10 @@ BEGIN
 END;
 $$;
 
-DO $$
-BEGIN
-	CREATE TYPE incentives.locker_salt_pair AS (
-		locker numeric,
-		salt numeric
+CREATE TYPE incentives.locker_salt_pair AS (
+	locker numeric,
+	salt numeric
 );
-$$;
 
 CREATE TABLE incentives.campaigns (
 	id SERIAL8 NOT NULL,

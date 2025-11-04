@@ -1,6 +1,7 @@
 CREATE TABLE indexer_cursor (
-	indexer_name text NOT NULL PRIMARY KEY,
-	order_key bigint NOT NULL,
+  -- we only support one indexer per chain
+	chain_id int8 NOT NULL PRIMARY KEY,
+	order_key int8 NOT NULL,
 	unique_key bytea,
 	last_updated timestamptz NOT NULL
 );
@@ -16,8 +17,8 @@ CREATE TABLE blocks (
 
 CREATE INDEX ON blocks (chain_id, block_time);
 
-CREATE FUNCTION compute_event_id(p_block_number bigint, p_transaction_index int4, p_event_index int4)
-RETURNS bigint
+CREATE FUNCTION compute_event_id(p_block_number int8, p_transaction_index int4, p_event_index int4)
+RETURNS int8
 LANGUAGE plpgsql
 IMMUTABLE
 STRICT
@@ -60,3 +61,21 @@ CREATE TRIGGER no_updates_blocks
 	BEFORE UPDATE ON blocks
 	FOR EACH ROW
 	EXECUTE FUNCTION block_updates();
+
+-- helper function for resetting the cursor
+CREATE FUNCTION reset_indexer_cursor(p_chain_id int8, p_block_number int8)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  UPDATE indexer_cursor
+  SET order_key = p_block_number,
+      unique_key = NULL,
+      last_updated = NOW()
+  WHERE chain_id = p_chain_id;
+
+  DELETE FROM blocks
+  WHERE chain_id = p_chain_id
+    AND block_number >= p_block_number;
+END;
+$$;

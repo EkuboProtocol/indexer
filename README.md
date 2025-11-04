@@ -19,13 +19,13 @@ Join the [Discord](https://discord.ekubo.org) and ask in the `#devs` channel to 
 Generate unit files for running the four supported networks as always-on services:
 
 ```bash
-npm run systemd:generate
+npm run generate-systemd
 ```
 
 By default the files are written to `./systemd`. Pass `--output-dir`, `--working-dir`, `--runner` (for example, `pnpm run`), or `--force` to override defaults:
 
 ```bash
-npm run systemd:generate -- --output-dir /etc/systemd/system --working-dir /opt/ekubo/indexer --runner "pnpm run" --force
+npm run generate-systemd -- --output-dir /etc/systemd/system --working-dir /opt/ekubo/indexer --runner "pnpm run" --force
 ```
 
 After generating, copy the files into place and enable them with `systemctl enable --now <service name>`.
