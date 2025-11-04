@@ -134,10 +134,6 @@ BEGIN
 		locker numeric,
 		salt numeric
 );
-EXCEPTION
-	WHEN duplicate_object THEN
-		NULL;
-END
 $$;
 
 CREATE TABLE incentives.campaigns (
@@ -245,9 +241,6 @@ CREATE TABLE incentives.deployed_airdrop_contracts (
 
 -- this prevents us from deploying the same drop multiple times
 CREATE UNIQUE INDEX idx_deployed_airdrop_contracts_drop_id ON incentives.deployed_airdrop_contracts (drop_id);
-
--- 1. Redefine token_pair to include per-pair budget & realized_volatility
-DROP TYPE IF EXISTS incentives.token_pair_budget CASCADE;
 
 CREATE TYPE incentives.token_pair_budget AS (
 	token0 numeric,

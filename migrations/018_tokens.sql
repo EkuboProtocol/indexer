@@ -5,7 +5,8 @@ CREATE TABLE erc20_tokens (
     token_symbol VARCHAR NOT NULL,
     token_name VARCHAR NOT NULL,
     logo_url TEXT NOT NULL,
-    sort_order int2 NOT NULL,
+    visibility_priority int2 NOT NULL, -- the higher the value, the more priority this token has for being seen
+    sort_order int2 NOT NULL, -- the higher the value, the more numerator-like the token is
     total_supply NUMERIC,
     PRIMARY KEY (chain_id, token_address)
 );
