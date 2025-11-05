@@ -67,12 +67,12 @@ BEGIN
 
     IF NEW.delta0 > 0 THEN
         v_volume0 := NEW.delta0;
-        v_fees0 := (NEW.delta0 * v_fee) / v_fee_denominator;
+        v_fees0 := CEIL((NEW.delta0 * v_fee) / v_fee_denominator);
     END IF;
 
     IF NEW.delta1 > 0 THEN
         v_volume1 := NEW.delta1;
-        v_fees1 := (NEW.delta1 * v_fee) / v_fee_denominator;
+        v_fees1 := CEIL((NEW.delta1 * v_fee) / v_fee_denominator);
     END IF;
 
     IF v_volume0 = 0 AND v_volume1 = 0 THEN
@@ -132,16 +132,16 @@ BEGIN
 
     IF NEW.delta0 <> 0 THEN
         INSERT INTO hourly_revenue_by_token (pool_key_id, hour, token, revenue)
-        VALUES (NEW.pool_key_id, v_hour, v_token0, NEW.delta0)
+        VALUES (NEW.pool_key_id, v_hour, v_token0, -NEW.delta0)
         ON CONFLICT (pool_key_id, hour, token) DO UPDATE
-        SET revenue = hourly_revenue_by_token.revenue + EXCLUDED.revenue;
+        SET revenue = hourly_revenue_by_token.revenue - EXCLUDED.revenue;
     END IF;
 
     IF NEW.delta1 <> 0 THEN
         INSERT INTO hourly_revenue_by_token (pool_key_id, hour, token, revenue)
-        VALUES (NEW.pool_key_id, v_hour, v_token1, NEW.delta1)
+        VALUES (NEW.pool_key_id, v_hour, v_token1, -NEW.delta1)
         ON CONFLICT (pool_key_id, hour, token) DO UPDATE
-        SET revenue = hourly_revenue_by_token.revenue + EXCLUDED.revenue;
+        SET revenue = hourly_revenue_by_token.revenue - EXCLUDED.revenue;
     END IF;
 
     RETURN NULL;
