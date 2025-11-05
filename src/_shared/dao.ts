@@ -1,10 +1,6 @@
-import type { JSONValue, Sql } from "postgres";
+import type { Sql } from "postgres";
 import { type EventKey } from "./eventKey.ts";
-
-interface QueryConfig {
-  text: string;
-  values: JSONValue[];
-}
+import postgres from "postgres";
 
 export type NumericValue = bigint | number | `0x${string}`;
 export type AddressValue = bigint | `0x${string}`;
@@ -27,8 +23,8 @@ export interface PositionMintedWithReferrerInsert {
 }
 
 export interface BoundsDescriptor {
-  lower: NumericValue;
-  upper: NumericValue;
+  lower: number;
+  upper: number;
 }
 
 export interface PositionUpdateParams {
@@ -276,59 +272,73 @@ export interface LiquidityUpdatedInsert {
   protocolFees1: NumericValue;
 }
 
+const NumericIntegerType: postgres.PostgresType<bigint> = {
+  from: [1700],
+  to: 1700,
+  parse(v: string) {
+    try {
+      return BigInt(v);
+    } catch (e) {
+      throw new Error(`Failed to parse numeric integer type: "${v}"`);
+    }
+  },
+  serialize(v: any) {
+    if (typeof v === "string") {
+      return v;
+    }
+    if (typeof v !== "bigint")
+      throw new Error(`Unexpected numeric integer type: "${v}"`);
+    return v.toString();
+  },
+};
+
+type UnwrapPromiseArray<T> = T extends any[]
+  ? {
+      [k in keyof T]: T[k] extends Promise<infer R> ? R : T[k];
+    }
+  : T;
+
 // Data access object that manages inserts/deletes
 export class DAO {
-  private readonly sql: Sql;
   private readonly chainId: bigint;
-  private insertQueue: QueryConfig[] = [];
+  private readonly sql: Sql<{ numeric: bigint; bigint: bigint }>;
 
-  constructor(sql: Sql, chainId: bigint) {
-    this.sql = sql;
+  private constructor(
+    sql: Sql<{ numeric: bigint; bigint: bigint }>,
+    chainId: bigint
+  ) {
     this.chainId = chainId;
+    this.sql = sql;
   }
 
-  public async flush(): Promise<void> {
-    if (this.insertQueue.length === 0) {
-      return;
-    }
-
-    const queries = this.insertQueue;
-    this.insertQueue = [];
-
-    await this.sql.begin((sql) =>
-      queries.map(({ text, values }) => sql.unsafe(text, values))
+  public static create(pgConnectionString: string, chainId: bigint): DAO {
+    return new DAO(
+      postgres(pgConnectionString, {
+        connect_timeout: 5,
+        debug: true,
+        types: {
+          bigint: postgres.BigInt,
+          numeric: NumericIntegerType,
+        },
+      }),
+      chainId
     );
   }
 
-  private async enqueue(query: {
-    text: string;
-    values: (JSONValue | bigint)[];
-  }): Promise<void> {
-    this.insertQueue.push({
-      text: query.text,
-      values: query.values.map((value) => this.normalizeValue(value)),
+  public async begin<T>(
+    cb: (dao: DAO) => T | Promise<T>
+  ): Promise<UnwrapPromiseArray<T>> {
+    return this.sql.begin((sql) => {
+      const dao = new DAO(sql, this.chainId);
+      return cb(dao);
     });
   }
 
-  private normalizeValue(value: JSONValue | bigint): JSONValue {
-    if (typeof value === "bigint") {
-      return value.toString();
-    }
-    if (Array.isArray(value)) return value.map(this.normalizeValue);
-    return value;
+  public async end() {
+    await this.sql.end({ timeout: 5 });
   }
 
-  public async initializeState() {
-    const cursor = await this.loadCursor();
-    // we need to clear anything that was potentially inserted as pending before starting
-    if (cursor) {
-      await this.deleteOldBlockNumbers(Number(cursor.orderKey) + 1);
-    }
-    await this.flush();
-    return cursor;
-  }
-
-  private async loadCursor(): Promise<
+  public async loadCursor(): Promise<
     | {
         orderKey: bigint;
         uniqueKey: `0x${string}`;
@@ -338,7 +348,7 @@ export class DAO {
   > {
     const [cursor] = await this.sql<
       { order_key: string; unique_key: string | null }[]
-    >`SELECT order_key, unique_key FROM indexer_cursor WHERE chain_id = ${this.chainId.toString()};`;
+    >`SELECT order_key, unique_key FROM indexer_cursor WHERE chain_id = ${this.chainId};`;
 
     if (cursor) {
       const { order_key, unique_key } = cursor;
@@ -359,20 +369,22 @@ export class DAO {
   }
 
   public async writeCursor(cursor: { orderKey: bigint; uniqueKey?: string }) {
-    await this.enqueue({
-      text: `
-        INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated)
-        VALUES ($1, $2, $3, NOW())
-        ON CONFLICT (chain_id) DO UPDATE SET order_key = excluded.order_key, unique_key   = excluded.unique_key, last_updated = NOW();
-      `,
-      values: [
-        this.chainId,
-        cursor.orderKey,
-        typeof cursor.uniqueKey !== "undefined"
-          ? BigInt(cursor.uniqueKey)
-          : null,
-      ],
-    });
+    const uniqueKey =
+      typeof cursor.uniqueKey !== "undefined" ? BigInt(cursor.uniqueKey) : null;
+    const typedOrderKey = this.numeric(cursor.orderKey);
+    const typedUniqueKey = uniqueKey === null ? null : this.numeric(uniqueKey);
+
+    await this.sql`
+      INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated)
+      VALUES (${this.chainId}, ${typedOrderKey}, ${typedUniqueKey}, NOW())
+      ON CONFLICT (chain_id) DO UPDATE
+        SET order_key = excluded.order_key,
+            unique_key = excluded.unique_key,
+            last_updated = NOW();
+    `;
+  }
+  private numeric(value: NumericValue | null) {
+    return this.sql.typed(value, 1700);
   }
 
   public async insertBlock({
@@ -384,479 +396,478 @@ export class DAO {
     hash: bigint;
     time: Date;
   }) {
-    await this.enqueue({
-      text: `INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
-                   VALUES ($1, $2, $3, $4);`,
-      values: [this.chainId, number, hash, time],
-    });
+    await this.sql`
+      INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
+      VALUES (${this.chainId}, ${this.numeric(number)}, ${this.numeric(
+      hash
+    )}, ${time});
+    `;
   }
 
   public async insertNonfungibleTokenTransferEvent(
     transfer: NonfungibleTokenTransfer,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO nonfungible_token_transfers
-            (chain_id,
-              block_number,
-              transaction_index,
-              event_index,
-              transaction_hash,
-              emitter,
-              token_id,
-              from_address,
-              to_address)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        transfer.id,
-        transfer.from,
-        transfer.to,
-      ],
-    });
+    await this.sql`
+      INSERT INTO nonfungible_token_transfers
+          (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, token_id, from_address, to_address)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(transfer.id)},
+        ${this.numeric(transfer.from)},
+        ${this.numeric(transfer.to)}
+      );
+    `;
   }
 
   public async insertPositionMintedWithReferrerEvent(
     event: PositionMintedWithReferrerInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO position_minted_with_referrer
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, token_id, referrer)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.tokenId,
-        event.referrer,
-      ],
-    });
+    await this.sql`
+      INSERT INTO position_minted_with_referrer
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, token_id, referrer)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.tokenId)},
+        ${this.numeric(event.referrer)}
+      );
+    `;
   }
 
   public async insertPositionUpdatedEvent(
     event: PositionUpdatedInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO position_updates
+    const {
+      params: { salt, bounds, liquidityDelta },
+      locker,
+      poolId,
+      delta0,
+      delta1,
+    } = event;
+    const { lower, upper } = bounds;
+
+    await this.sql`
+      INSERT INTO position_updates
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
          pool_key_id, locker, salt, lower_bound, upper_bound, liquidity_delta, delta0, delta1)
-        VALUES (
-          $1,
-          $2,
-          $3,
-          $4,
-          $5,
-          $6,
-          (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
-          $7,
-          $9,
-          $10,
-          $11,
-          $12,
-          $13,
-          $14
-        );
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-
-        event.locker,
-
-        event.poolId,
-
-        event.params.salt,
-        event.params.bounds.lower,
-        event.params.bounds.upper,
-
-        event.params.liquidityDelta,
-        event.delta0,
-        event.delta1,
-      ],
-    });
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pool_key_id
+          FROM pool_keys
+          WHERE chain_id = ${this.chainId}
+            AND core_address = ${this.numeric(key.emitter)}
+            AND pool_id = ${this.numeric(poolId)}
+        ),
+        ${this.numeric(locker)},
+        ${this.numeric(salt)},
+        ${lower},
+        ${upper},
+        ${this.numeric(liquidityDelta)},
+        ${this.numeric(delta0)},
+        ${this.numeric(delta1)}
+      );
+    `;
   }
 
   public async insertPositionUpdatedEventWithSyntheticProtocolFeesPaidEvent(
     event: PositionUpdatedInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        WITH 
-          inserted_position_update AS (
-            INSERT INTO position_updates
+    const {
+      params: { salt, bounds, liquidityDelta },
+      locker,
+      poolId,
+      delta0,
+      delta1,
+    } = event;
+    const { lower, upper } = bounds;
+
+    await this.sql`
+      WITH
+        inserted_position_update AS (
+          INSERT INTO position_updates
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-            pool_key_id, locker, salt, lower_bound, upper_bound, liquidity_delta, delta0, delta1)
-              VALUES (
-                $1, $2, $3, $4, $5, $6,
-                (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
-                $7, $9, $10, $11, $12, $13, $14
-              )
+             pool_key_id, locker, salt, lower_bound, upper_bound, liquidity_delta, delta0, delta1)
+          VALUES (
+            ${this.chainId},
+            ${key.blockNumber},
+            ${key.transactionIndex},
+            ${key.eventIndex},
+            ${this.numeric(key.transactionHash)},
+            ${this.numeric(key.emitter)},
+            (
+              SELECT pool_key_id
+              FROM pool_keys
+              WHERE chain_id = ${this.chainId}
+                AND core_address = ${this.numeric(key.emitter)}
+                AND pool_id = ${this.numeric(poolId)}
+            ),
+            ${this.numeric(locker)},
+            ${this.numeric(salt)},
+            ${lower},
+            ${upper},
+            ${this.numeric(liquidityDelta)},
+            ${this.numeric(delta0)},
+            ${this.numeric(delta1)}
           )
-          INSERT INTO protocol_fees_paid
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-             pool_key_id, locker, salt, lower_bound, upper_bound, delta0, delta1)
-                SELECT $1, $2, $3, $4, $5, $6,
-                    pool_key_id,
-                    $7, $9, $10, $11, 
-                    FLOOR(($13::numeric * fee_denominator) / (fee_denominator - fee)) - $13,
-                    FLOOR(($14::numeric * fee_denominator) / (fee_denominator - fee)) - $14
-                FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8 AND fee != 0 AND $12 < 0::NUMERIC;
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-
-        event.locker,
-
-        event.poolId,
-
-        event.params.salt,
-        event.params.bounds.lower,
-        event.params.bounds.upper,
-
-        event.params.liquidityDelta,
-        event.delta0,
-        event.delta1,
-      ],
-    });
+        )
+      INSERT INTO protocol_fees_paid
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, locker, salt, lower_bound, upper_bound, delta0, delta1)
+      SELECT
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        pool_key_id,
+        ${this.numeric(locker)},
+        ${this.numeric(salt)},
+        ${lower},
+        ${upper},
+        FLOOR((${this.numeric(
+          delta0
+        )} * fee_denominator) / (fee_denominator - fee)) - ${this.numeric(
+      delta0
+    )},
+        FLOOR((${this.numeric(
+          delta1
+        )} * fee_denominator) / (fee_denominator - fee)) - ${this.numeric(
+      delta1
+    )}
+      FROM pool_keys
+      WHERE chain_id = ${this.chainId}
+        AND core_address = ${this.numeric(key.emitter)}
+        AND pool_id = ${this.numeric(poolId)}
+        AND fee != 0
+        AND ${this.numeric(liquidityDelta)} < 0::NUMERIC;
+    `;
   }
 
   public async insertPositionFeesCollectedEvent(
     event: PositionFeesCollectedInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO position_fees_collected
+    const {
+      poolId,
+      positionKey: { owner, salt, bounds },
+      amount0,
+      amount1,
+    } = event;
+    const { lower, upper } = bounds;
+
+    await this.sql`
+      INSERT INTO position_fees_collected
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
          pool_key_id, locker, salt, lower_bound, upper_bound, delta0, delta1)
-        VALUES (
-          $1,
-          $2,
-          $3,
-          $4,
-          $5,
-          $6,
-          (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
-          $8,
-          $9,
-          $10,
-          $11,
-          -$12::numeric,
-          -$13::numeric
-        );
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-
-        event.poolId,
-
-        event.positionKey.owner,
-        event.positionKey.salt,
-        event.positionKey.bounds.lower,
-        event.positionKey.bounds.upper,
-
-        event.amount0,
-        event.amount1,
-      ],
-    });
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pool_key_id
+          FROM pool_keys
+          WHERE chain_id = ${this.chainId}
+            AND core_address = ${this.numeric(key.emitter)}
+            AND pool_id = ${this.numeric(poolId)}
+        ),
+        ${this.numeric(owner)},
+        ${this.numeric(salt)},
+        ${lower},
+        ${upper},
+        -${this.numeric(amount0)},
+        -${this.numeric(amount1)}
+      );
+    `;
   }
 
   public async insertPoolInitializedEvent(
     newPool: PoolInitializedInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        WITH inserted_pool_key AS (
-        INSERT INTO pool_keys (chain_id, core_address, pool_id, token0, token1, fee, tick_spacing, pool_extension, fee_denominator)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING
-              pool_key_id
+    const {
+      poolKey: { token0, token1, fee, tickSpacing, extension },
+      poolId,
+      tick,
+      sqrtRatio,
+      feeDenominator,
+    } = newPool;
+
+    await this.sql`
+      WITH inserted_pool_key AS (
+        INSERT INTO pool_keys
+          (chain_id, core_address, pool_id, token0, token1, fee, tick_spacing, pool_extension, fee_denominator)
+        VALUES (
+          ${this.chainId},
+          ${this.numeric(key.emitter)},
+          ${this.numeric(poolId)},
+          ${this.numeric(token0)},
+          ${this.numeric(token1)},
+          ${this.numeric(fee)},
+          ${tickSpacing},
+          ${this.numeric(extension)},
+          ${this.numeric(feeDenominator)}
         )
-        INSERT INTO pool_initializations (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, pool_key_id, tick, sqrt_ratio)
-          SELECT $1, $10, $11, $12, $13, $14, inserted_pool_key.pool_key_id, $15, $16
-          FROM inserted_pool_key;
-      `,
-      values: [
-        this.chainId,
-        key.emitter,
-        newPool.poolId,
-        newPool.poolKey.token0,
-        newPool.poolKey.token1,
-        newPool.poolKey.fee,
-        newPool.poolKey.tickSpacing,
-        newPool.poolKey.extension,
-        newPool.feeDenominator,
-
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-
-        newPool.tick,
-        newPool.sqrtRatio,
-      ],
-    });
+        RETURNING pool_key_id
+      )
+      INSERT INTO pool_initializations
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, pool_key_id, tick, sqrt_ratio)
+      SELECT
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        inserted_pool_key.pool_key_id,
+        ${tick},
+        ${this.numeric(sqrtRatio)}
+      FROM inserted_pool_key;
+    `;
   }
 
   public async insertMEVCapturePoolKey(
     coreAddress: `0x${string}`,
     poolId: `0x${string}`
   ) {
-    await this.enqueue({
-      text: `INSERT INTO mev_capture_pool_keys (pool_key_id)
-      (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $2 AND pool_id = $3) ON CONFLICT DO NOTHING;`,
-      values: [this.chainId, coreAddress, poolId],
-    });
+    await this.sql`
+      INSERT INTO mev_capture_pool_keys (pool_key_id)
+      (
+        SELECT pool_key_id
+        FROM pool_keys
+        WHERE chain_id = ${this.chainId}
+          AND core_address = ${this.numeric(coreAddress)}
+          AND pool_id = ${this.numeric(poolId)}
+      )
+      ON CONFLICT DO NOTHING;
+    `;
   }
 
   public async insertProtocolFeesWithdrawn(
     event: ProtocolFeesWithdrawnInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-                INSERT
-                INTO protocol_fees_withdrawn
-                (chain_id,
-                 block_number,
-                 transaction_index,
-                 event_index,
-                 transaction_hash,
-                 emitter,
-                 recipient,
-                 token,
-                 amount)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
-            `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.recipient,
-        event.token,
-        event.amount,
-      ],
-    });
+    await this.sql`
+      INSERT INTO protocol_fees_withdrawn
+        (chain_id,
+         block_number,
+         transaction_index,
+         event_index,
+         transaction_hash,
+         emitter,
+         recipient,
+         token,
+         amount)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.recipient)},
+        ${this.numeric(event.token)},
+        ${this.numeric(event.amount)}
+      );
+    `;
   }
 
   public async insertProtocolFeesPaid(
     event: ProtocolFeesPaidInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO protocol_fees_paid
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-             pool_key_id, locker, salt, lower_bound, upper_bound, delta0, delta1)
-        VALUES ($1, $2, $3, $4, $5, $6,
-                (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
-                $7, $9, $10, $11, $12, $13);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.locker,
-        event.poolId,
-        event.salt,
-        event.bounds.lower,
-        event.bounds.upper,
-        event.delta0,
-        event.delta1,
-      ],
-    });
+    const {
+      locker,
+      poolId,
+      salt,
+      bounds: { lower, upper },
+      delta0,
+      delta1,
+    } = event;
+
+    await this.sql`
+      INSERT INTO protocol_fees_paid
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, locker, salt, lower_bound, upper_bound, delta0, delta1)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pool_key_id
+          FROM pool_keys
+          WHERE chain_id = ${this.chainId}
+            AND core_address = ${this.numeric(key.emitter)}
+            AND pool_id = ${this.numeric(poolId)}
+        ),
+        ${this.numeric(locker)},
+        ${this.numeric(salt)},
+        ${lower},
+        ${upper},
+        ${this.numeric(delta0)},
+        ${this.numeric(delta1)}
+      );
+    `;
   }
 
   public async insertExtensionRegistered(
     event: ExtensionRegisteredInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-                INSERT
-                INTO extension_registrations
-                    (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, pool_extension)
-                VALUES ($1, $2, $3, $4, $5, $6, $7);
-            `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.extension,
-      ],
-    });
+    await this.sql`
+      INSERT INTO extension_registrations
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, pool_extension)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.extension)}
+      );
+    `;
   }
 
   public async insertRegistration(
     event: TokenRegistrationInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO token_registrations
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, address, name, symbol, decimals, total_supply)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.address,
-        event.name,
-        event.symbol,
-        event.decimals,
-        event.totalSupply,
-      ],
-    });
+    await this.sql`
+      INSERT INTO token_registrations
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, address, name, symbol, decimals, total_supply)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.address)},
+        ${this.numeric(event.name)},
+        ${this.numeric(event.symbol)},
+        ${event.decimals},
+        ${this.numeric(event.totalSupply)}
+      );
+    `;
   }
 
   public async insertRegistrationV3(
     event: TokenRegistrationV3Insert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO token_registrations_v3
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, address, name, symbol, decimals, total_supply)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.address,
-        event.name,
-        event.symbol,
-        event.decimals,
-        event.totalSupply,
-      ],
-    });
+    await this.sql`
+      INSERT INTO token_registrations_v3
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, address, name, symbol, decimals, total_supply)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.address)},
+        ${event.name},
+        ${event.symbol},
+        ${event.decimals},
+        ${this.numeric(event.totalSupply)}
+      );
+    `;
   }
 
   public async insertStakerStakedEvent(
     event: StakerStakedInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO staker_staked
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, from_address, amount, delegate)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.from,
-        event.amount,
-        event.delegate,
-      ],
-    });
+    await this.sql`
+      INSERT INTO staker_staked
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, from_address, amount, delegate)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.from)},
+        ${this.numeric(event.amount)},
+        ${this.numeric(event.delegate)}
+      );
+    `;
   }
 
   public async insertStakerWithdrawnEvent(
     event: StakerWithdrawnInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO staker_withdrawn
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, from_address, amount, recipient, delegate)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.from,
-        event.amount,
-        event.recipient,
-        event.delegate,
-      ],
-    });
+    await this.sql`
+      INSERT INTO staker_withdrawn
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, from_address, amount, recipient, delegate)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.from)},
+        ${this.numeric(event.amount)},
+        ${this.numeric(event.recipient)},
+        ${this.numeric(event.delegate)}
+      );
+    `;
   }
 
   public async insertGovernorReconfiguredEvent(
     event: GovernorReconfiguredInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO governor_reconfigured
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, version, voting_start_delay, voting_period, voting_weight_smoothing_duration,
-             quorum, proposal_creation_threshold, execution_delay, execution_window)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.version,
-        event.votingStartDelay,
-        event.votingPeriod,
-        event.votingWeightSmoothingDuration,
-        event.quorum,
-        event.proposalCreationThreshold,
-        event.executionDelay,
-        event.executionWindow,
-      ],
-    });
+    await this.sql`
+      INSERT INTO governor_reconfigured
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, version, voting_start_delay, voting_period, voting_weight_smoothing_duration,
+         quorum, proposal_creation_threshold, execution_delay, execution_window)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.version)},
+        ${this.numeric(event.votingStartDelay)},
+        ${this.numeric(event.votingPeriod)},
+        ${this.numeric(event.votingWeightSmoothingDuration)},
+        ${this.numeric(event.quorum)},
+        ${this.numeric(event.proposalCreationThreshold)},
+        ${this.numeric(event.executionDelay)},
+        ${this.numeric(event.executionWindow)}
+      );
+    `;
   }
 
   public async insertGovernorProposedEvent(
@@ -865,44 +876,41 @@ export class DAO {
   ) {
     const configVersion =
       event.configVersion === null ? 0n : BigInt(event.configVersion);
+    const typedConfigVersion = this.numeric(configVersion);
 
-    await this.enqueue({
-      text: `
-        INSERT INTO governor_proposed
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id, proposer, config_version)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.proposal_id,
-        event.proposer,
-        configVersion,
-      ],
-    });
+    await this.sql`
+      INSERT INTO governor_proposed
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id, proposer, config_version)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.proposal_id)},
+        ${this.numeric(event.proposer)},
+        ${typedConfigVersion}
+      );
+    `;
 
     for (let i = 0; i < event.calls.length; i++) {
       const call = event.calls[i];
-      await this.enqueue({
-        text: `
-          INSERT INTO governor_proposed_calls
-              (chain_id, emitter, proposal_id, index, to_address, selector, calldata)
-          VALUES ($1, $2, $3, $4, $5, $6, $7);
-        `,
-        values: [
-          this.chainId,
-          key.emitter,
-          event.proposal_id,
-          i,
-          call.to,
-          call.selector,
-          call.calldata.map((value) => BigInt(value).toString()),
-        ],
-      });
+      const calldata = call.calldata.map((value) => BigInt(value).toString());
+
+      await this.sql`
+        INSERT INTO governor_proposed_calls
+          (chain_id, emitter, proposal_id, index, to_address, selector, calldata)
+        VALUES (
+          ${this.chainId},
+          ${this.numeric(key.emitter)},
+          ${this.numeric(event.proposal_id)},
+          ${i},
+          ${this.numeric(call.to)},
+          ${this.numeric(call.selector)},
+          ${calldata}
+        );
+      `;
     }
   }
 
@@ -910,87 +918,76 @@ export class DAO {
     event: GovernorCanceledInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO governor_canceled
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (chain_id, proposal_id) DO NOTHING;
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.proposal_id,
-      ],
-    });
+    await this.sql`
+      INSERT INTO governor_canceled
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.proposal_id)}
+      )
+      ON CONFLICT (chain_id, proposal_id) DO NOTHING;
+    `;
   }
 
   public async insertGovernorVotedEvent(
     event: GovernorVotedInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO governor_voted
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id, voter, weight, yea)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.proposal_id,
-        event.voter,
-        event.weight,
-        event.yea,
-      ],
-    });
+    await this.sql`
+      INSERT INTO governor_voted
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id, voter, weight, yea)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.proposal_id)},
+        ${this.numeric(event.voter)},
+        ${this.numeric(event.weight)},
+        ${event.yea}
+      );
+    `;
   }
 
   public async insertGovernorExecutedEvent(
     event: GovernorExecutedInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO governor_executed
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.proposal_id,
-      ],
-    });
+    await this.sql`
+      INSERT INTO governor_executed
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.proposal_id)}
+      );
+    `;
 
     for (let i = 0; i < event.results.length; i++) {
-      const result = event.results[i];
-      await this.enqueue({
-        text: `
-          INSERT INTO governor_executed_results
-              (chain_id, emitter, proposal_id, index, results)
-          VALUES ($1, $2, $3, $4, $5);
-        `,
-        values: [
-          this.chainId,
-          key.emitter,
-          event.proposal_id,
-          i,
-          result.map((value) => BigInt(value).toString()),
-        ],
-      });
+      const result = event.results[i].map((value) => BigInt(value).toString());
+
+      await this.sql`
+        INSERT INTO governor_executed_results
+          (chain_id, emitter, proposal_id, index, results)
+        VALUES (
+          ${this.chainId},
+          ${this.numeric(key.emitter)},
+          ${this.numeric(event.proposal_id)},
+          ${i},
+          ${result}
+        );
+      `;
     }
   }
 
@@ -998,82 +995,76 @@ export class DAO {
     event: GovernorProposalDescribedInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO governor_proposal_described
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id, description)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.proposal_id,
-        event.description,
-      ],
-    });
+    await this.sql`
+      INSERT INTO governor_proposal_described
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, proposal_id, description)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.proposal_id)},
+        ${event.description}
+      );
+    `;
   }
 
   public async insertFeesAccumulatedEvent(
     event: FeesAccumulatedInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO fees_accumulated
+    await this.sql`
+      INSERT INTO fees_accumulated
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, pool_key_id, delta0, delta1)
-        VALUES ($1, $2, $3, $4, $5, $6,
-                (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $7),
-                $8, $9);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-
-        event.poolId,
-
-        event.amount0,
-        event.amount1,
-      ],
-    });
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pool_key_id
+          FROM pool_keys
+          WHERE chain_id = ${this.chainId}
+            AND core_address = ${this.numeric(key.emitter)}
+            AND pool_id = ${this.numeric(event.poolId)}
+        ),
+        ${this.numeric(event.amount0)},
+        ${this.numeric(event.amount1)}
+      );
+    `;
   }
 
   public async insertSwappedEvent(event: SwapEventInsert, key: EventKey) {
-    await this.enqueue({
-      text: `
-        INSERT INTO swaps
+    await this.sql`
+      INSERT INTO swaps
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
          pool_key_id, locker, delta0, delta1, sqrt_ratio_after, tick_after, liquidity_after)
-        VALUES ($1, $2, $3, $4, $5, $6,
-                (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND core_address = $6 AND pool_id = $8),
-                $7, $9, $10, $11, $12, $13);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-
-        event.locker,
-
-        event.poolId,
-
-        event.delta0,
-        event.delta1,
-        event.sqrtRatioAfter,
-        event.tickAfter,
-        event.liquidityAfter,
-      ],
-    });
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pool_key_id
+          FROM pool_keys
+          WHERE chain_id = ${this.chainId}
+            AND core_address = ${this.numeric(key.emitter)}
+            AND pool_id = ${this.numeric(event.poolId)}
+        ),
+        ${this.numeric(event.locker)},
+        ${this.numeric(event.delta0)},
+        ${this.numeric(event.delta1)},
+        ${this.numeric(event.sqrtRatioAfter)},
+        ${event.tickAfter},
+        ${this.numeric(event.liquidityAfter)}
+      );
+    `;
   }
 
   /**
@@ -1081,14 +1072,11 @@ export class DAO {
    * @param invalidatedBlockNumber the block number for which data in the database should be removed
    */
   public async deleteOldBlockNumbers(invalidatedBlockNumber: number) {
-    this.enqueue({
-      text: `
-        DELETE
-        FROM blocks
-        WHERE chain_id = $1 AND block_number >= $2;
-      `,
-      values: [this.chainId, invalidatedBlockNumber],
-    });
+    await this.sql`
+      DELETE
+      FROM blocks
+      WHERE chain_id = ${this.chainId} AND block_number >= ${invalidatedBlockNumber};
+    `;
   }
 
   public async insertTWAMMOrderUpdatedEvent(
@@ -1102,40 +1090,34 @@ export class DAO {
         ? [orderKey.buyToken, orderKey.sellToken, 0, event.saleRateDelta]
         : [orderKey.sellToken, orderKey.buyToken, event.saleRateDelta, 0];
 
-    await this.enqueue({
-      text: `
-        INSERT
-        INTO twamm_order_updates
+    await this.sql`
+      INSERT INTO twamm_order_updates
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
          pool_key_id, locker, salt, sale_rate_delta0, sale_rate_delta1, start_time, end_time)
-        VALUES ($1, $2, $3, $4, $5, $6,
-                (SELECT pk.pool_key_id
-                  FROM pool_keys pk
-                    LEFT JOIN extension_registrations er 
-                      ON er.chain_id = pk.chain_id AND er.pool_extension = pk.pool_extension
-                  WHERE pk.chain_id = $1 
-                    AND (er.emitter IS NULL OR pk.core_address = er.emitter)
-                    AND pk.pool_id = $7),
-                $8, $9, $10, $11, $12, $13);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-
-        poolId,
-
-        BigInt(event.owner),
-        BigInt(event.salt),
-        sale_rate_delta0,
-        sale_rate_delta1,
-        new Date(Number(orderKey.startTime * 1000n)),
-        new Date(Number(orderKey.endTime * 1000n)),
-      ],
-    });
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pk.pool_key_id
+          FROM pool_keys pk
+            LEFT JOIN extension_registrations er
+              ON er.chain_id = pk.chain_id AND er.pool_extension = pk.pool_extension
+          WHERE pk.chain_id = ${this.chainId}
+            AND (er.emitter IS NULL OR pk.core_address = er.emitter)
+            AND pk.pool_id = ${this.numeric(poolId)}
+        ),
+        ${this.numeric(BigInt(event.owner))},
+        ${this.numeric(BigInt(event.salt))},
+        ${this.numeric(sale_rate_delta0)},
+        ${this.numeric(sale_rate_delta1)},
+        ${new Date(Number(orderKey.startTime * 1000n))},
+        ${new Date(Number(orderKey.endTime * 1000n))}
+      );
+    `;
   }
 
   public async insertTWAMMOrderProceedsWithdrawnEvent(
@@ -1149,283 +1131,248 @@ export class DAO {
         ? [orderKey.buyToken, orderKey.sellToken, 0, event.amount]
         : [orderKey.sellToken, orderKey.buyToken, event.amount, 0];
 
-    await this.enqueue({
-      text: `
-        INSERT
-        INTO twamm_proceeds_withdrawals
+    await this.sql`
+      INSERT INTO twamm_proceeds_withdrawals
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
          pool_key_id, locker, salt, amount0, amount1, start_time, end_time)
-        VALUES ($1, $2, $3, $4, $5, $6,
-                (SELECT pk.pool_key_id
-                  FROM pool_keys pk
-                    LEFT JOIN extension_registrations er 
-                      ON er.chain_id = pk.chain_id AND er.pool_extension = pk.pool_extension
-                  WHERE pk.chain_id = $1 
-                    AND (er.emitter IS NULL OR pk.core_address = er.emitter)
-                    AND pk.pool_id = $7), 
-                $8, $9, $10, $11, $12, $13);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-
-        poolId,
-
-        BigInt(event.owner),
-        BigInt(event.salt),
-        amount0,
-        amount1,
-        new Date(Number(orderKey.startTime * 1000n)),
-        new Date(Number(orderKey.endTime * 1000n)),
-      ],
-    });
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pk.pool_key_id
+          FROM pool_keys pk
+            LEFT JOIN extension_registrations er
+              ON er.chain_id = pk.chain_id AND er.pool_extension = pk.pool_extension
+          WHERE pk.chain_id = ${this.chainId}
+            AND (er.emitter IS NULL OR pk.core_address = er.emitter)
+            AND pk.pool_id = ${this.numeric(poolId)}
+        ),
+        ${this.numeric(BigInt(event.owner))},
+        ${this.numeric(BigInt(event.salt))},
+        ${this.numeric(amount0)},
+        ${this.numeric(amount1)},
+        ${new Date(Number(orderKey.startTime * 1000n))},
+        ${new Date(Number(orderKey.endTime * 1000n))}
+      );
+    `;
   }
 
   public async insertTWAMMVirtualOrdersExecutedEvent(
     event: TwammVirtualOrdersExecutedInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT
-        INTO twamm_virtual_order_executions
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-             pool_key_id, token0_sale_rate, token1_sale_rate)
-        VALUES ($1, $2, $3, $4, $5, $6,
-                (SELECT pk.pool_key_id
-                  FROM pool_keys pk
-                    LEFT JOIN extension_registrations er 
-                      ON er.chain_id = pk.chain_id AND er.pool_extension = pk.pool_extension
-                  WHERE pk.chain_id = $1 
-                    AND (er.emitter IS NULL OR pk.core_address = er.emitter)
-                    AND pk.pool_id = $7),
-                $8, $9);
-      `,
-      // note on starknet we do not have an extension registration event
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-
-        event.poolId,
-        event.saleRateToken0,
-        event.saleRateToken1,
-      ],
-    });
+    await this.sql`
+      INSERT INTO twamm_virtual_order_executions
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, token0_sale_rate, token1_sale_rate)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pk.pool_key_id
+          FROM pool_keys pk
+            LEFT JOIN extension_registrations er
+              ON er.chain_id = pk.chain_id AND er.pool_extension = pk.pool_extension
+          WHERE pk.chain_id = ${this.chainId}
+            AND (er.emitter IS NULL OR pk.core_address = er.emitter)
+            AND pk.pool_id = ${this.numeric(event.poolId)}
+        ),
+        ${this.numeric(event.saleRateToken0)},
+        ${this.numeric(event.saleRateToken1)}
+      );
+    `;
   }
 
   public async insertOrderPlacedEvent(
     event: LimitOrderPlacedInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO limit_order_placed
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-             pool_key_id, locker, salt, token0, token1, tick, liquidity, amount)
-        VALUES ($1, $2, $3, $4, $5, $6,
-                (SELECT pool_key_id
-                  FROM pool_keys
-                  WHERE chain_id = $1 AND pool_id = $7),
-                $8, $9, $10, $11, $12, $13, $14);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.poolId,
-        event.locker,
-        event.salt,
-        event.token0,
-        event.token1,
-        event.tick,
-        event.liquidity,
-        event.amount,
-      ],
-    });
+    await this.sql`
+      INSERT INTO limit_order_placed
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, locker, salt, token0, token1, tick, liquidity, amount)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pool_key_id
+          FROM pool_keys
+          WHERE chain_id = ${this.chainId}
+            AND pool_id = ${this.numeric(event.poolId)}
+        ),
+        ${this.numeric(event.locker)},
+        ${this.numeric(event.salt)},
+        ${this.numeric(event.token0)},
+        ${this.numeric(event.token1)},
+        ${event.tick},
+        ${this.numeric(event.liquidity)},
+        ${this.numeric(event.amount)}
+      );
+    `;
   }
 
   public async insertOrderClosedEvent(
     event: LimitOrderClosedInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO limit_order_closed
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-             pool_key_id, locker, salt, token0, token1, tick, amount0, amount1)
-        VALUES ($1, $2, $3, $4, $5, $6,
-                (SELECT pool_key_id
-                  FROM pool_keys
-                  WHERE chain_id = $1 AND pool_id = $7),
-                $8, $9, $10, $11, $12, $13, $14);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.poolId,
-        event.locker,
-        event.salt,
-        event.token0,
-        event.token1,
-        event.tick,
-        event.amount0,
-        event.amount1,
-      ],
-    });
+    await this.sql`
+      INSERT INTO limit_order_closed
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, locker, salt, token0, token1, tick, amount0, amount1)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pool_key_id
+          FROM pool_keys
+          WHERE chain_id = ${this.chainId}
+            AND pool_id = ${this.numeric(event.poolId)}
+        ),
+        ${this.numeric(event.locker)},
+        ${this.numeric(event.salt)},
+        ${this.numeric(event.token0)},
+        ${this.numeric(event.token1)},
+        ${event.tick},
+        ${this.numeric(event.amount0)},
+        ${this.numeric(event.amount1)}
+      );
+    `;
   }
 
   public async insertSplineLiquidityUpdatedEvent(
     event: LiquidityUpdatedInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT INTO spline_liquidity_updated
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-             pool_key_id, sender, liquidity_factor, shares, amount0, amount1, protocol_fees0, protocol_fees1)
-        VALUES ($1, $2, $3, $4, $5, $6,
-                (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND pool_id = $7),
-                $8, $9, $10, $11, $12, $13, $14);
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        event.poolId,
-        event.sender,
-        event.liquidityFactor,
-        event.shares,
-        event.amount0,
-        event.amount1,
-        event.protocolFees0,
-        event.protocolFees1,
-      ],
-    });
+    await this.sql`
+      INSERT INTO spline_liquidity_updated
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, sender, liquidity_factor, shares, amount0, amount1, protocol_fees0, protocol_fees1)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pool_key_id
+          FROM pool_keys
+          WHERE chain_id = ${this.chainId}
+            AND pool_id = ${this.numeric(event.poolId)}
+        ),
+        ${this.numeric(event.sender)},
+        ${this.numeric(event.liquidityFactor)},
+        ${this.numeric(event.shares)},
+        ${this.numeric(event.amount0)},
+        ${this.numeric(event.amount1)},
+        ${this.numeric(event.protocolFees0)},
+        ${this.numeric(event.protocolFees1)}
+      );
+    `;
   }
 
   async insertOracleSnapshotEvent(
     snapshot: OracleSnapshotInsert,
     key: EventKey
   ) {
-    await this.enqueue({
-      text: `
-        INSERT
-        INTO oracle_snapshots
+    await this.sql`
+      INSERT INTO oracle_snapshots
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-          token0, token1, snapshot_block_timestamp, snapshot_tick_cumulative, snapshot_seconds_per_liquidity_cumulative)
-        VALUES ($1, $2, $3, $4, $5, $6, 
-                $7, $8, $9, $10, $11)
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-
-        snapshot.token0,
-        snapshot.token1,
-
-        snapshot.timestamp,
-        snapshot.tickCumulative,
-        snapshot.secondsPerLiquidityCumulative,
-      ],
-    });
+         token0, token1, snapshot_block_timestamp, snapshot_tick_cumulative, snapshot_seconds_per_liquidity_cumulative)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(snapshot.token0)},
+        ${this.numeric(snapshot.token1)},
+        ${this.numeric(snapshot.timestamp)},
+        ${this.numeric(snapshot.tickCumulative)},
+        ${this.numeric(snapshot.secondsPerLiquidityCumulative)}
+      );
+    `;
   }
 
   async insertIncentivesRefundedEvent(
     key: EventKey,
     parsed: IncentivesRefundedInsert
   ) {
-    await this.enqueue({
-      text: `
-                INSERT
-                INTO incentives_refunded
-                    (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, owner, token, root, refund_amount)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        parsed.key.owner,
-        parsed.key.token,
-        parsed.key.root,
-        parsed.refundAmount,
-      ],
-    });
+    await this.sql`
+      INSERT INTO incentives_refunded
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, owner, token, root, refund_amount)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(parsed.key.owner)},
+        ${this.numeric(parsed.key.token)},
+        ${this.numeric(parsed.key.root)},
+        ${this.numeric(parsed.refundAmount)}
+      );
+    `;
   }
 
   async insertIncentivesFundedEvent(
     key: EventKey,
     parsed: IncentivesFundedInsert
   ) {
-    await this.enqueue({
-      text: `
-        INSERT
-        INTO incentives_funded
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, owner, token, root, amount_next)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        parsed.key.owner,
-        parsed.key.token,
-        parsed.key.root,
-        parsed.amountNext,
-      ],
-    });
+    await this.sql`
+      INSERT INTO incentives_funded
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, owner, token, root, amount_next)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(parsed.key.owner)},
+        ${this.numeric(parsed.key.token)},
+        ${this.numeric(parsed.key.root)},
+        ${this.numeric(parsed.amountNext)}
+      );
+    `;
   }
 
   async insertTokenWrapperDeployed(
     key: EventKey,
     parsed: TokenWrapperDeployedInsert
   ) {
-    await this.enqueue({
-      text: `
-        INSERT
-        INTO token_wrapper_deployed
-            (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, token_wrapper, underlying_token, unlock_time)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      `,
-      values: [
-        this.chainId,
-        key.blockNumber,
-        key.transactionIndex,
-        key.eventIndex,
-        key.transactionHash,
-        key.emitter,
-        parsed.tokenWrapper,
-        parsed.underlyingToken,
-        parsed.unlockTime,
-      ],
-    });
+    await this.sql`
+      INSERT INTO token_wrapper_deployed
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, token_wrapper, underlying_token, unlock_time)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(parsed.tokenWrapper)},
+        ${this.numeric(parsed.underlyingToken)},
+        ${this.numeric(parsed.unlockTime)}
+      );
+    `;
   }
 }

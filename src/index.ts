@@ -2,7 +2,6 @@ import "./config";
 import type { EventKey } from "./_shared/eventKey.ts";
 import { logger } from "./_shared/logger.ts";
 import { DAO } from "./_shared/dao.ts";
-import postgres from "postgres";
 import { EvmStream } from "@apibara/evm";
 import { StarknetStream } from "@apibara/starknet";
 import { createLogProcessors } from "./evm/logProcessors.ts";
@@ -28,17 +27,11 @@ if (!chainId) {
   throw new Error("Missing CHAIN_ID");
 }
 
-const sql = postgres(process.env.PG_CONNECTION_STRING, {
-  connect_timeout: 1,
-});
-
-const dao = new DAO(sql, chainId);
+const dao = DAO.create(process.env.PG_CONNECTION_STRING, chainId);
 
 // Timer for exiting if no blocks are received within the configured time
 const NO_BLOCKS_TIMEOUT_MS = parseInt(process.env.NO_BLOCKS_TIMEOUT_MS || "0");
 let noBlocksTimer: NodeJS.Timeout | null = null;
-
-const FLUSH_EVERY = parseInt(process.env.FLUSH_EVERY_NUMBER || "100");
 
 // Function to set or reset the no-blocks timer
 function resetNoBlocksTimer() {
@@ -65,7 +58,16 @@ function resetNoBlocksTimer() {
   let databaseStartingCursor;
   {
     const initializeTimer = logger.startTimer();
-    databaseStartingCursor = await dao.initializeState();
+    await dao.begin(async (dao) => {
+      databaseStartingCursor = await dao.loadCursor();
+
+      // we need to clear anything that was potentially inserted as pending before starting
+      if (databaseStartingCursor) {
+        await dao.deleteOldBlockNumbers(
+          Number(databaseStartingCursor.orderKey) + 1
+        );
+      }
+    });
     initializeTimer.done({
       message: "Prepared indexer state",
       startingCursor: databaseStartingCursor,
@@ -150,9 +152,6 @@ function resetNoBlocksTimer() {
           },
         });
 
-  let numberMessagesQueued: number = 0;
-  let numberEventsQueued: number = 0;
-
   for await (const message of streamClient.streamData({
     filter: filterConfig,
     finality: "accepted",
@@ -192,13 +191,12 @@ function resetNoBlocksTimer() {
             cursor: invalidatedCursor,
           });
 
-          await dao.deleteOldBlockNumbers(
-            Number(invalidatedCursor.orderKey) + 1
-          );
-          await dao.writeCursor(invalidatedCursor);
-          await dao.flush();
-          numberMessagesQueued = 0;
-          numberEventsQueued = 0;
+          await dao.begin(async (dao) => {
+            await dao.deleteOldBlockNumbers(
+              Number(invalidatedCursor.orderKey) + 1
+            );
+            await dao.writeCursor(invalidatedCursor);
+          });
         }
 
         break;
@@ -214,112 +212,102 @@ function resetNoBlocksTimer() {
 
         for (const block of message.data.data) {
           if (!block) continue;
+
           const blockNumber = Number(block.header.blockNumber);
-          await dao.deleteOldBlockNumbers(blockNumber);
-
           const blockTime = block.header.timestamp;
-
           const blockHashHex = block.header.blockHash ?? "0x0";
 
-          await dao.insertBlock({
-            number: block.header.blockNumber,
-            hash: BigInt(blockHashHex),
-            time: blockTime,
-          });
+          await dao.begin(async (dao) => {
+            await dao.deleteOldBlockNumbers(blockNumber);
+            await dao.insertBlock({
+              number: block.header.blockNumber,
+              hash: BigInt(blockHashHex),
+              time: blockTime,
+            });
 
-          if (process.env.NETWORK_TYPE === "evm") {
-            const logs = ((block as any).logs ?? []) as Array<{
-              filterIds?: readonly number[];
-              topics: readonly `0x${string}`[];
-              data: `0x${string}` | undefined;
-              address: `0x${string}`;
-              transactionIndex: number;
-              logIndexInTransaction?: number;
-              logIndex: number;
-              transactionHash: `0x${string}`;
-            }>;
-            for (const log of logs) {
-              const eventKey: EventKey = {
-                blockNumber,
-                transactionIndex: log.transactionIndex,
-                eventIndex:
-                  log.logIndexInTransaction ??
-                  // fallback to block-level index if transaction-scoped index missing
-                  log.logIndex,
-                emitter: log.address,
-                transactionHash: log.transactionHash,
-              };
+            if (process.env.NETWORK_TYPE === "evm") {
+              const logs = ((block as any).logs ?? []) as Array<{
+                filterIds?: readonly number[];
+                topics: readonly `0x${string}`[];
+                data: `0x${string}` | undefined;
+                address: `0x${string}`;
+                transactionIndex: number;
+                logIndexInTransaction?: number;
+                logIndex: number;
+                transactionHash: `0x${string}`;
+              }>;
+              for (const log of logs) {
+                const eventKey: EventKey = {
+                  blockNumber,
+                  transactionIndex: log.transactionIndex,
+                  eventIndex:
+                    log.logIndexInTransaction ??
+                    // fallback to block-level index if transaction-scoped index missing
+                    log.logIndex,
+                  emitter: log.address,
+                  transactionHash: log.transactionHash,
+                };
 
-              await Promise.all(
-                (log.filterIds ?? []).map(async (matchingFilterId: number) => {
-                  eventsProcessed++;
+                await Promise.all(
+                  (log.filterIds ?? []).map(
+                    async (matchingFilterId: number) => {
+                      eventsProcessed++;
 
-                  await evmProcessors[matchingFilterId - 1]!.handler(
-                    dao,
-                    eventKey,
-                    {
-                      topics: log.topics,
-                      data: log.data,
+                      await evmProcessors[matchingFilterId - 1]!.handler(
+                        dao,
+                        eventKey,
+                        {
+                          topics: log.topics,
+                          data: log.data,
+                        }
+                      );
                     }
-                  );
-                })
-              );
+                  )
+                );
+              }
+            } else {
+              const events = ((block as any).events ?? []) as Array<{
+                filterIds?: readonly number[];
+                transactionIndex: number;
+                eventIndexInTransaction?: number;
+                eventIndex: number;
+                address: `0x${string}`;
+                transactionHash: `0x${string}`;
+                data?: readonly `0x${string}`[];
+              }>;
+              for (const event of events) {
+                const eventKey: EventKey = {
+                  blockNumber,
+                  transactionIndex: event.transactionIndex,
+                  eventIndex: event.eventIndexInTransaction ?? event.eventIndex,
+                  emitter: event.address,
+                  transactionHash: event.transactionHash,
+                };
+
+                await Promise.all(
+                  (event.filterIds ?? []).map(
+                    async (matchingFilterId: number) => {
+                      eventsProcessed++;
+                      const processor =
+                        starknetProcessors[matchingFilterId - 1]!;
+                      const { value: parsed } = processor.parser(
+                        event.data ?? [],
+                        0
+                      );
+                      await processor.handle(dao, { key: eventKey, parsed });
+                    }
+                  )
+                );
+              }
             }
-          } else {
-            const events = ((block as any).events ?? []) as Array<{
-              filterIds?: readonly number[];
-              transactionIndex: number;
-              eventIndexInTransaction?: number;
-              eventIndex: number;
-              address: `0x${string}`;
-              transactionHash: `0x${string}`;
-              data?: readonly `0x${string}`[];
-            }>;
-            for (const event of events) {
-              const eventKey: EventKey = {
-                blockNumber,
-                transactionIndex: event.transactionIndex,
-                eventIndex: event.eventIndexInTransaction ?? event.eventIndex,
-                emitter: event.address,
-                transactionHash: event.transactionHash,
-              };
 
-              await Promise.all(
-                (event.filterIds ?? []).map(
-                  async (matchingFilterId: number) => {
-                    eventsProcessed++;
-                    const processor = starknetProcessors[matchingFilterId - 1]!;
-                    const { value: parsed } = processor.parser(
-                      event.data ?? [],
-                      0
-                    );
-                    await processor.handle(dao, { key: eventKey, parsed });
-                  }
-                )
-              );
-            }
-          }
-
-          // endCursor is what we write so when we restart we delete any pending block information
-          await dao.writeCursor(message.data.endCursor);
-
-          numberMessagesQueued++;
-          numberEventsQueued += eventsProcessed;
-
-          if (
-            message.data.production === "live" ||
-            numberMessagesQueued % FLUSH_EVERY === 0
-          ) {
-            await dao.flush();
-            numberMessagesQueued = 0;
-            numberEventsQueued = 0;
-          }
+            // endCursor is what we write so when we restart we delete any pending block information
+            await dao.writeCursor(message.data.endCursor);
+          });
 
           blockProcessingTimer.done({
             chainId,
             blockNumber,
-            numberMessagesQueued,
-            numberEventsQueued,
             eventsProcessed,
             blockTimestamp: blockTime,
             lag: msToHumanShort(
@@ -346,4 +334,4 @@ function resetNoBlocksTimer() {
     logger.error(error);
     process.exit(1);
   })
-  .finally(() => sql.end({ timeout: 5 }));
+  .finally(() => dao.end());

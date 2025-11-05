@@ -1,8 +1,6 @@
 interface CommonConfiguration {
   LOG_LEVEL: string;
 
-  FLUSH_EVERY_NUMBER: string;
-
   NETWORK: string;
   CHAIN_ID: string;
   INDEXER_NAME: string;
