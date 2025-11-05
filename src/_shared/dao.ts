@@ -371,15 +371,16 @@ export class DAO {
     }
   }
 
-  public async writeCursor(cursor: { orderKey: bigint; uniqueKey?: string }) {
+  public async writeCursor(cursor: {
+    orderKey: bigint;
+    uniqueKey?: `0x${string}`;
+  }) {
     const uniqueKey =
-      typeof cursor.uniqueKey !== "undefined" ? BigInt(cursor.uniqueKey) : null;
-    const typedOrderKey = this.numeric(cursor.orderKey);
-    const typedUniqueKey = uniqueKey === null ? null : this.numeric(uniqueKey);
+      typeof cursor.uniqueKey !== "undefined" ? cursor.uniqueKey : null;
 
     await this.sql`
       INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated)
-      VALUES (${this.chainId}, ${typedOrderKey}, ${typedUniqueKey}, NOW())
+      VALUES (${this.chainId}, ${cursor.orderKey}, ${uniqueKey}, NOW())
       ON CONFLICT (chain_id) DO UPDATE
         SET order_key = excluded.order_key,
             unique_key = excluded.unique_key,
