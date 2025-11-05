@@ -795,7 +795,7 @@ export function createEventProcessors({
         logger.debug("LiquidityUpdated", { parsed, key });
         if (parsed.liquidity_factor !== 0n) {
           const poolId = poolKeyToPoolId(parsed.pool_key);
-          await dao.insertLiquidityUpdatedEvent(
+          await dao.insertSplineLiquidityUpdatedEvent(
             {
               poolId,
               sender: parsed.sender,

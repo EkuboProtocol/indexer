@@ -1289,7 +1289,7 @@ export class DAO {
     });
   }
 
-  public async insertLiquidityUpdatedEvent(
+  public async insertSplineLiquidityUpdatedEvent(
     event: LiquidityUpdatedInsert,
     key: EventKey
   ) {
@@ -1299,15 +1299,7 @@ export class DAO {
             (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
              pool_key_id, sender, liquidity_factor, shares, amount0, amount1, protocol_fees0, protocol_fees1)
         VALUES ($1, $2, $3, $4, $5, $6,
-                (SELECT pool_key_id
-                  FROM pool_keys
-                  WHERE chain_id = $1 AND core_address = (
-                        SELECT emitter
-                        FROM extension_registrations
-                        WHERE chain_id = $1 AND pool_extension = $6
-                        ORDER BY block_number DESC, transaction_index DESC, event_index DESC
-                        LIMIT 1)
-                    AND pool_id = $7),
+                (SELECT pool_key_id FROM pool_keys WHERE chain_id = $1 AND pool_id = $7),
                 $8, $9, $10, $11, $12, $13, $14);
       `,
       values: [
