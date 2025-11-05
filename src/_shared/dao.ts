@@ -401,9 +401,7 @@ export class DAO {
   }) {
     await this.sql`
       INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
-      VALUES (${this.chainId}, ${this.numeric(number)}, ${this.numeric(
-      hash
-    )}, ${time});
+      VALUES (${this.chainId}, ${number}, ${this.numeric(hash)}, ${time});
     `;
   }
 

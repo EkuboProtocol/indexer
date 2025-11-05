@@ -2,8 +2,8 @@ import "./config";
 import type { EventKey } from "./_shared/eventKey.ts";
 import { logger } from "./_shared/logger.ts";
 import { DAO } from "./_shared/dao.ts";
-import { EvmStream } from "@apibara/evm";
-import { StarknetStream } from "@apibara/starknet";
+import { Block as EvmBlock, EvmStream } from "@apibara/evm";
+import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
 import { createLogProcessors } from "./evm/logProcessors.ts";
 import { createEventProcessors } from "./starknet/eventProcessors.ts";
 import { createClient, Metadata } from "@apibara/protocol";
@@ -226,55 +226,33 @@ function resetNoBlocksTimer() {
             });
 
             if (process.env.NETWORK_TYPE === "evm") {
-              const logs = ((block as any).logs ?? []) as Array<{
-                filterIds?: readonly number[];
-                topics: readonly `0x${string}`[];
-                data: `0x${string}` | undefined;
-                address: `0x${string}`;
-                transactionIndex: number;
-                logIndexInTransaction?: number;
-                logIndex: number;
-                transactionHash: `0x${string}`;
-              }>;
+              const logs = (block as EvmBlock).logs;
               for (const log of logs) {
                 const eventKey: EventKey = {
                   blockNumber,
                   transactionIndex: log.transactionIndex,
-                  eventIndex:
-                    log.logIndexInTransaction ??
-                    // fallback to block-level index if transaction-scoped index missing
-                    log.logIndex,
+                  eventIndex: log.logIndexInTransaction,
                   emitter: log.address,
                   transactionHash: log.transactionHash,
                 };
 
                 await Promise.all(
-                  (log.filterIds ?? []).map(
-                    async (matchingFilterId: number) => {
-                      eventsProcessed++;
+                  log.filterIds.map(async (matchingFilterId: number) => {
+                    eventsProcessed++;
 
-                      await evmProcessors[matchingFilterId - 1]!.handler(
-                        dao,
-                        eventKey,
-                        {
-                          topics: log.topics,
-                          data: log.data,
-                        }
-                      );
-                    }
-                  )
+                    await evmProcessors[matchingFilterId - 1]!.handler(
+                      dao,
+                      eventKey,
+                      {
+                        topics: log.topics,
+                        data: log.data,
+                      }
+                    );
+                  })
                 );
               }
             } else {
-              const events = ((block as any).events ?? []) as Array<{
-                filterIds?: readonly number[];
-                transactionIndex: number;
-                eventIndexInTransaction?: number;
-                eventIndex: number;
-                address: `0x${string}`;
-                transactionHash: `0x${string}`;
-                data?: readonly `0x${string}`[];
-              }>;
+              const events = (block as StarknetBlock).events;
               for (const event of events) {
                 const eventKey: EventKey = {
                   blockNumber,
@@ -285,18 +263,12 @@ function resetNoBlocksTimer() {
                 };
 
                 await Promise.all(
-                  (event.filterIds ?? []).map(
-                    async (matchingFilterId: number) => {
-                      eventsProcessed++;
-                      const processor =
-                        starknetProcessors[matchingFilterId - 1]!;
-                      const { value: parsed } = processor.parser(
-                        event.data ?? [],
-                        0
-                      );
-                      await processor.handle(dao, { key: eventKey, parsed });
-                    }
-                  )
+                  event.filterIds.map(async (matchingFilterId: number) => {
+                    eventsProcessed++;
+                    const processor = starknetProcessors[matchingFilterId - 1]!;
+                    const { value: parsed } = processor.parser(event.data, 0);
+                    await processor.handle(dao, { key: eventKey, parsed });
+                  })
                 );
               }
             }

@@ -81,17 +81,7 @@ async function insertPoolKey(chainId: number) {
         pool_extension
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING pool_key_id`,
-    [
-      chainId,
-      "1000",
-      "2000",
-      "4000",
-      "5000",
-      "10",
-      "1000",
-      60,
-      "6000",
-    ]
+    [chainId, "1000", "2000", "4000", "5000", "10", "1000", 60, "6000"]
   );
 
   return Number(poolKeyId);
@@ -123,17 +113,7 @@ async function insertPoolInitialization({
         sqrt_ratio
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING event_id`,
-    [
-      chainId,
-      blockNumber,
-      0,
-      eventIndex,
-      "6000",
-      "7000",
-      poolKeyId,
-      10,
-      "1200",
-    ]
+    [chainId, blockNumber, 0, eventIndex, "6000", "7000", poolKeyId, 10, "1200"]
   );
 
   return eventId;
@@ -281,7 +261,7 @@ test("limit order pool state tracks placements, closures, and cleans up when eve
 
   const poolKeyId = await insertPoolKey(chainId);
 
-  const initEventId = await insertPoolInitialization({
+  await insertPoolInitialization({
     chainId,
     blockNumber: blockNumbers.init,
     poolKeyId,
@@ -372,10 +352,9 @@ test("limit order pool state drops when underlying pool state is removed", async
 
   expect(await getLimitOrderPoolState(poolKeyId)).not.toBeNull();
 
-  await client.query(
-    `DELETE FROM pool_states WHERE pool_key_id = $1`,
-    [poolKeyId]
-  );
+  await client.query(`DELETE FROM pool_states WHERE pool_key_id = $1`, [
+    poolKeyId,
+  ]);
 
   // limit_order_placed row should still exist (different block)
   const { rows: placements } = await client.query(
