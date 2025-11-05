@@ -18,8 +18,8 @@ BEGIN
 END;
 $$;
 
--- SELECT cron.schedule ('refresh_token_pair_realized_volatility', '*/5 * * * *',
--- 	$$SELECT safe_refresh_mv ('token_pair_realized_volatility_materialized');$$);
+SELECT cron.schedule ('refresh_token_pair_realized_volatility', '*/5 * * * *',
+	$$SELECT safe_refresh_mv ('token_pair_realized_volatility_materialized');$$);
 
 SELECT cron.schedule ('refresh_pool_market_depth', '*/15 * * * *',
 	$$SELECT safe_refresh_mv ('pool_market_depth_materialized');$$);
@@ -27,8 +27,8 @@ SELECT cron.schedule ('refresh_pool_market_depth', '*/15 * * * *',
 SELECT cron.schedule ('refresh_proposal_delegate_voting_weights', '0 * * * *',
 	$$SELECT safe_refresh_mv ('proposal_delegate_voting_weights_materialized');$$);
 
--- SELECT cron.schedule ('refresh_last_24h_pool_stats', '*/5 * * * *',
--- 	$$SELECT safe_refresh_mv ('last_24h_pool_stats_materialized');$$);
+SELECT cron.schedule ('refresh_last_24h_pool_stats', '*/5 * * * *',
+	$$SELECT safe_refresh_mv ('last_24h_pool_stats_materialized');$$);
 
 SELECT cron.schedule ('refresh_latest_token_registrations', '*/5 * * * *',
 	$$SELECT safe_refresh_mv ('latest_token_registrations_materialized');$$);
