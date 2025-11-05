@@ -376,11 +376,13 @@ export class DAO {
     uniqueKey?: `0x${string}`;
   }) {
     const uniqueKey =
-      typeof cursor.uniqueKey !== "undefined" ? cursor.uniqueKey : null;
+      typeof cursor.uniqueKey !== "undefined" ? BigInt(cursor.uniqueKey) : null;
 
     await this.sql`
       INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated)
-      VALUES (${this.chainId}, ${cursor.orderKey}, ${uniqueKey}, NOW())
+      VALUES (${this.chainId}, ${cursor.orderKey}, ${this.numeric(
+      uniqueKey
+    )}, NOW())
       ON CONFLICT (chain_id) DO UPDATE
         SET order_key = excluded.order_key,
             unique_key = excluded.unique_key,

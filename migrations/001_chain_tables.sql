@@ -2,7 +2,7 @@ CREATE TABLE indexer_cursor (
   -- we only support one indexer per chain
 	chain_id int8 NOT NULL PRIMARY KEY,
 	order_key int8 NOT NULL,
-	unique_key bytea,
+	unique_key NUMERIC,
 	last_updated timestamptz NOT NULL
 );
 
