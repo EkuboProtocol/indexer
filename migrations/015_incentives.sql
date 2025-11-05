@@ -200,10 +200,6 @@ CREATE TABLE incentives.computed_rewards (
 	PRIMARY KEY (campaign_reward_period_id, locker, salt)
 );
 
-CREATE INDEX ON incentives.computed_rewards (salt);
-
-CREATE INDEX ON incentives.computed_rewards (locker, salt);
-
 CREATE TABLE incentives.generated_drop (
 	id SERIAL8 PRIMARY KEY,
 	root numeric NOT NULL,
