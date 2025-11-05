@@ -114,6 +114,7 @@ export interface TwammOrderKeyInsert {
 }
 
 export interface TwammOrderUpdatedInsert {
+  coreAddress: `0x${string}`;
   poolId: `0x${string}`;
   orderKey: TwammOrderKeyInsert;
   saleRateDelta: bigint;
@@ -122,6 +123,7 @@ export interface TwammOrderUpdatedInsert {
 }
 
 export interface TwammOrderProceedsWithdrawnInsert {
+  coreAddress: `0x${string}`;
   poolId: `0x${string}`;
   orderKey: TwammOrderKeyInsert;
   amount: NumericValue;
@@ -130,6 +132,7 @@ export interface TwammOrderProceedsWithdrawnInsert {
 }
 
 export interface TwammVirtualOrdersExecutedInsert {
+  coreAddress: `0x${string}`;
   poolId: `0x${string}`;
   saleRateToken0: bigint;
   saleRateToken1: bigint;
@@ -1104,10 +1107,8 @@ export class DAO {
         (
           SELECT pk.pool_key_id
           FROM pool_keys pk
-            LEFT JOIN extension_registrations er
-              ON er.chain_id = pk.chain_id AND er.pool_extension = pk.pool_extension
           WHERE pk.chain_id = ${this.chainId}
-            AND (er.emitter IS NULL OR pk.core_address = er.emitter)
+            AND pk.core_address = ${this.numeric(event.coreAddress)}
             AND pk.pool_id = ${this.numeric(poolId)}
         ),
         ${this.numeric(BigInt(event.owner))},
@@ -1145,10 +1146,8 @@ export class DAO {
         (
           SELECT pk.pool_key_id
           FROM pool_keys pk
-            LEFT JOIN extension_registrations er
-              ON er.chain_id = pk.chain_id AND er.pool_extension = pk.pool_extension
           WHERE pk.chain_id = ${this.chainId}
-            AND (er.emitter IS NULL OR pk.core_address = er.emitter)
+            AND pk.core_address = ${this.numeric(event.coreAddress)}
             AND pk.pool_id = ${this.numeric(poolId)}
         ),
         ${this.numeric(BigInt(event.owner))},
@@ -1179,10 +1178,8 @@ export class DAO {
         (
           SELECT pk.pool_key_id
           FROM pool_keys pk
-            LEFT JOIN extension_registrations er
-              ON er.chain_id = pk.chain_id AND er.pool_extension = pk.pool_extension
           WHERE pk.chain_id = ${this.chainId}
-            AND (er.emitter IS NULL OR pk.core_address = er.emitter)
+            AND pk.core_address = ${this.numeric(event.coreAddress)}
             AND pk.pool_id = ${this.numeric(event.poolId)}
         ),
         ${this.numeric(event.saleRateToken0)},

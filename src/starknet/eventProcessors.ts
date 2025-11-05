@@ -159,7 +159,10 @@ export function createEventProcessors({
             delta1: parsed.delta.amount1,
             locker: parsed.locker,
             params: {
-              bounds: parsed.params.bounds,
+              bounds: {
+                lower: Number(parsed.params.bounds.lower),
+                upper: Number(parsed.params.bounds.upper),
+              },
               liquidityDelta: parsed.params.liquidity_delta,
               salt: parsed.params.salt,
             },
@@ -186,7 +189,10 @@ export function createEventProcessors({
             positionKey: {
               owner: parsed.position_key.owner,
               salt: parsed.position_key.salt,
-              bounds: parsed.position_key.bounds,
+              bounds: {
+                lower: Number(parsed.position_key.bounds.lower),
+                upper: Number(parsed.position_key.bounds.upper),
+              },
             },
             amount0: parsed.delta.amount0,
             amount1: parsed.delta.amount1,
@@ -286,7 +292,10 @@ export function createEventProcessors({
             poolId: poolKeyToPoolId(parsed.pool_key),
             locker: parsed.position_key.owner,
             salt: parsed.position_key.salt,
-            bounds: parsed.position_key.bounds,
+            bounds: {
+              lower: Number(parsed.position_key.bounds.lower),
+              upper: Number(parsed.position_key.bounds.upper),
+            },
             delta0: parsed.delta.amount0,
             delta1: parsed.delta.amount1,
           },
@@ -406,6 +415,7 @@ export function createEventProcessors({
 
         await dao.insertTWAMMOrderUpdatedEvent(
           {
+            coreAddress,
             poolId: poolKeyToPoolId({
               token0,
               token1,
@@ -445,6 +455,7 @@ export function createEventProcessors({
             : [parsed.order_key.buy_token, parsed.order_key.sell_token];
         await dao.insertTWAMMOrderProceedsWithdrawnEvent(
           {
+            coreAddress,
             poolId: poolKeyToPoolId({
               token0,
               token1,
@@ -487,6 +498,7 @@ export function createEventProcessors({
         });
         await dao.insertTWAMMVirtualOrdersExecutedEvent(
           {
+            coreAddress,
             poolId,
             saleRateToken0: parsed.token0_sale_rate,
             saleRateToken1: parsed.token1_sale_rate,

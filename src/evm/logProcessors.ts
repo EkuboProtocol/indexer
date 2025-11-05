@@ -255,7 +255,10 @@ export function createLogProcessors({
           event,
           rawData: data,
         });
-        await dao.insertTWAMMVirtualOrdersExecutedEvent(event, key);
+        await dao.insertTWAMMVirtualOrdersExecutedEvent(
+          { ...event, coreAddress },
+          key
+        );
       },
       handlers: {
         async OrderUpdated(dao, key, parsed) {
@@ -267,6 +270,7 @@ export function createLogProcessors({
           await dao.insertTWAMMOrderUpdatedEvent(
             {
               ...parsed,
+              coreAddress,
               poolId: toPoolId({
                 token0,
                 token1,
@@ -289,6 +293,7 @@ export function createLogProcessors({
           await dao.insertTWAMMOrderProceedsWithdrawnEvent(
             {
               ...parsed,
+              coreAddress,
               poolId: toPoolId({
                 token0,
                 token1,
