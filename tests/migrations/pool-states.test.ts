@@ -406,3 +406,197 @@ test("deleting a swap restores the previous pool state snapshot", async () => {
   expect(valueToBigInt(state.last_event_id)).toBe(swapOneEventId);
   expect(valueToBigInt(state.last_event_id)).not.toBe(initEventId);
 });
+
+test("deleting blocks cascades swap and position data to refresh pool state", async () => {
+  const { chainId, blockNumber: baseBlock, poolKeyId } = await seedPool(
+    client,
+    12
+  );
+  const reorgBlock = baseBlock + 1;
+
+  await client.query(
+    `INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
+     VALUES ($1, $2, $3, $4)`,
+    [chainId, reorgBlock, `${reorgBlock}${chainId}`, new Date("2024-01-02T00:00:00Z")]
+  );
+
+  const {
+    rows: [{ event_id: initEventId }],
+  } = await client.query<{ event_id: bigint }>(
+    `INSERT INTO pool_initializations (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        tick,
+        sqrt_ratio
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     RETURNING event_id`,
+    [
+      chainId,
+      baseBlock,
+      0,
+      0,
+      "7100",
+      "8100",
+      poolKeyId,
+      18,
+      "1600",
+    ]
+  );
+
+  const {
+    rows: [{ event_id: baseSwapEventId }],
+  } = await client.query<{ event_id: bigint }>(
+    `INSERT INTO swaps (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        delta0,
+        delta1,
+        sqrt_ratio_after,
+        tick_after,
+        liquidity_after
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+     RETURNING event_id`,
+    [
+      chainId,
+      baseBlock,
+      0,
+      1,
+      "7101",
+      "8101",
+      poolKeyId,
+      "9101",
+      "-40",
+      "20",
+      "2000",
+      24,
+      "900",
+    ]
+  );
+
+  const {
+    rows: [{ event_id: reorgSwapEventId }],
+  } = await client.query<{ event_id: bigint }>(
+    `INSERT INTO swaps (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        delta0,
+        delta1,
+        sqrt_ratio_after,
+        tick_after,
+        liquidity_after
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+     RETURNING event_id`,
+    [
+      chainId,
+      reorgBlock,
+      0,
+      0,
+      "7200",
+      "8200",
+      poolKeyId,
+      "9200",
+      "-30",
+      "15",
+      "2400",
+      30,
+      "1200",
+    ]
+  );
+
+  const {
+    rows: [{ event_id: positionEventId }],
+  } = await client.query<{ event_id: bigint }>(
+    `INSERT INTO position_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        lower_bound,
+        upper_bound,
+        liquidity_delta,
+        delta0,
+        delta1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+     RETURNING event_id`,
+    [
+      chainId,
+      reorgBlock,
+      0,
+      1,
+      "7201",
+      "8201",
+      poolKeyId,
+      "9201",
+      "10201",
+      10,
+      40,
+      "300",
+      "0",
+      "0",
+    ]
+  );
+
+  let state = await getPoolState(client, poolKeyId);
+  expect(state).toMatchObject({
+    sqrt_ratio: "2400",
+    tick: 30,
+    liquidity: "1500",
+  });
+  expect(valueToBigInt(state.last_event_id)).toBe(positionEventId);
+  expect(valueToBigInt(state.last_position_update_event_id)).toBe(
+    positionEventId
+  );
+
+  await client.query(
+    `DELETE FROM blocks WHERE chain_id = $1 AND block_number = $2`,
+    [chainId, reorgBlock]
+  );
+
+  state = await getPoolState(client, poolKeyId);
+  expect(state).toMatchObject({
+    sqrt_ratio: "2000",
+    tick: 24,
+    liquidity: "900",
+  });
+  expect(valueToBigInt(state.last_event_id)).toBe(baseSwapEventId);
+  expect(state.last_position_update_event_id).toBeNull();
+
+  const { rows: remainingSwaps } = await client.query(
+    `SELECT 1 FROM swaps WHERE chain_id = $1 AND block_number = $2`,
+    [chainId, reorgBlock]
+  );
+  expect(remainingSwaps.length).toBe(0);
+
+  const { rows: remainingPositionUpdates } = await client.query(
+    `SELECT 1 FROM position_updates WHERE chain_id = $1 AND block_number = $2`,
+    [chainId, reorgBlock]
+  );
+  expect(remainingPositionUpdates.length).toBe(0);
+
+  expect(valueToBigInt(initEventId)).toBeLessThan(valueToBigInt(baseSwapEventId));
+  expect(valueToBigInt(baseSwapEventId)).toBeLessThan(
+    valueToBigInt(reorgSwapEventId)
+  );
+});

@@ -277,6 +277,107 @@ test("position deletes adjust per_pool_per_tick_liquidity aggregates", async () 
   expect(afterSecondDelete.rows).toHaveLength(0);
 });
 
+test("deleting blocks cascades position updates and rewinds tick liquidity state", async () => {
+  const chainId = 204;
+  const firstBlock = 6100;
+  const secondBlock = 6101;
+  const lowerBound = -40;
+  const upperBound = 80;
+
+  await seedBlock(chainId, firstBlock);
+  await seedBlock(chainId, secondBlock);
+  const poolKeyId = await insertPoolKey(chainId);
+
+  const firstDelta = "500";
+  await insertPositionUpdate({
+    chainId,
+    blockNumber: firstBlock,
+    transactionIndex: 0,
+    eventIndex: 0,
+    poolKeyId,
+    lowerBound,
+    upperBound,
+    liquidityDelta: firstDelta,
+  });
+
+  const secondDelta = "175";
+  await insertPositionUpdate({
+    chainId,
+    blockNumber: secondBlock,
+    transactionIndex: 0,
+    eventIndex: 0,
+    poolKeyId,
+    lowerBound,
+    upperBound,
+    liquidityDelta: secondDelta,
+  });
+
+  const combinedDelta = (BigInt(firstDelta) + BigInt(secondDelta)).toString();
+
+  const beforeDelete = await client.query<{
+    tick: number;
+    net_liquidity_delta_diff: string;
+    total_liquidity_on_tick: string;
+  }>(
+    `SELECT tick, net_liquidity_delta_diff, total_liquidity_on_tick
+     FROM per_pool_per_tick_liquidity
+     WHERE pool_key_id = $1
+     ORDER BY tick ASC`,
+    [poolKeyId.toString()]
+  );
+
+  expect(beforeDelete.rows).toEqual([
+    {
+      tick: lowerBound,
+      net_liquidity_delta_diff: combinedDelta,
+      total_liquidity_on_tick: combinedDelta,
+    },
+    {
+      tick: upperBound,
+      net_liquidity_delta_diff: `-${combinedDelta}`,
+      total_liquidity_on_tick: combinedDelta,
+    },
+  ]);
+
+  await client.query(
+    `DELETE FROM blocks WHERE chain_id = $1 AND block_number = $2`,
+    [chainId, secondBlock]
+  );
+
+  const afterDelete = await client.query<{
+    tick: number;
+    net_liquidity_delta_diff: string;
+    total_liquidity_on_tick: string;
+  }>(
+    `SELECT tick, net_liquidity_delta_diff, total_liquidity_on_tick
+     FROM per_pool_per_tick_liquidity
+     WHERE pool_key_id = $1
+     ORDER BY tick ASC`,
+    [poolKeyId.toString()]
+  );
+
+  expect(afterDelete.rows).toEqual([
+    {
+      tick: lowerBound,
+      net_liquidity_delta_diff: firstDelta,
+      total_liquidity_on_tick: firstDelta,
+    },
+    {
+      tick: upperBound,
+      net_liquidity_delta_diff: `-${firstDelta}`,
+      total_liquidity_on_tick: firstDelta,
+    },
+  ]);
+
+  const { rows: remainingPositionUpdates } = await client.query(
+    `SELECT 1
+     FROM position_updates
+     WHERE chain_id = $1 AND block_number = $2`,
+    [chainId, secondBlock]
+  );
+  expect(remainingPositionUpdates.length).toBe(0);
+});
+
 test("position_updates rows cannot be updated", async () => {
   const chainId = 203;
   const blockNumber = 5003;

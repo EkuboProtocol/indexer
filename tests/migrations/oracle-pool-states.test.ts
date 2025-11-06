@@ -91,17 +91,7 @@ async function insertPoolKey({
         pool_extension
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING pool_key_id`,
-    [
-      chainId,
-      "1000",
-      "2000",
-      token0,
-      token1,
-      "10",
-      "1000",
-      60,
-      emitter,
-    ]
+    [chainId, "1000", "2000", token0, token1, "10", "1000", 60, emitter]
   );
 
   return Number(poolKeyId);
@@ -200,8 +190,115 @@ test("oracle snapshots generate event ids, forbid updates, and cascade cleanup k
   expect(remainingStates.length).toBe(0);
 });
 
-test("oracle pool states track latest snapshot and roll back when snapshots are removed", async () => {
+test("deleting blocks rewinds oracle pool state to the previous snapshot", async () => {
   const chainId = 3200;
+  const baseBlock = 600;
+  const reorgBlock = 601;
+  const token0 = "111";
+  const token1 = "222";
+  const emitter = "333";
+  const firstTimestamp = 1700000000n;
+  const secondTimestamp = 1700001000n;
+
+  await seedBlock({
+    chainId,
+    blockNumber: baseBlock,
+    blockTime: new Date("2024-04-01T00:00:00Z"),
+  });
+  await seedBlock({
+    chainId,
+    blockNumber: reorgBlock,
+    blockTime: new Date("2024-04-02T00:00:00Z"),
+  });
+
+  const poolKeyId = await insertPoolKey({ chainId, token0, token1, emitter });
+
+  await client.query(
+    `INSERT INTO oracle_snapshots (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        token0,
+        token1,
+        snapshot_block_timestamp,
+        snapshot_tick_cumulative,
+        snapshot_seconds_per_liquidity_cumulative
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [
+      chainId,
+      baseBlock,
+      0,
+      0,
+      "4100",
+      emitter,
+      token0,
+      token1,
+      firstTimestamp.toString(),
+      "5000",
+      "6000",
+    ]
+  );
+
+  await client.query(
+    `INSERT INTO oracle_snapshots (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        token0,
+        token1,
+        snapshot_block_timestamp,
+        snapshot_tick_cumulative,
+        snapshot_seconds_per_liquidity_cumulative
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [
+      chainId,
+      reorgBlock,
+      0,
+      0,
+      "4101",
+      emitter,
+      token0,
+      token1,
+      secondTimestamp.toString(),
+      "5001",
+      "6001",
+    ]
+  );
+
+  let state = await getOraclePoolState(poolKeyId);
+  expect(state).toBeDefined();
+  expect(valueToBigInt(state.last_snapshot_block_timestamp)).toBe(
+    secondTimestamp
+  );
+
+  await client.query(
+    `DELETE FROM blocks WHERE chain_id = $1 AND block_number = $2`,
+    [chainId, reorgBlock]
+  );
+
+  state = await getOraclePoolState(poolKeyId);
+  expect(state).toBeDefined();
+  expect(valueToBigInt(state.last_snapshot_block_timestamp)).toBe(
+    firstTimestamp
+  );
+
+  const { rows: remainingSnapshots } = await client.query(
+    `SELECT 1
+     FROM oracle_snapshots
+     WHERE chain_id = $1 AND block_number = $2`,
+    [chainId, reorgBlock]
+  );
+  expect(remainingSnapshots.length).toBe(0);
+});
+
+test("oracle pool states track latest snapshot and roll back when snapshots are removed", async () => {
+  const chainId = 3201;
   const token0 = "8100";
   const token1 = "8200";
   const emitter = "8300";

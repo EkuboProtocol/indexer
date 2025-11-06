@@ -196,3 +196,76 @@ test("deleting transfers rewinds and removes owner records", async () => {
 
   expect(emptyRows.length).toBe(0);
 });
+
+test("deleting blocks cascades NFT transfer history and rewinds ownership", async () => {
+  const { chainId, blockNumber: firstBlock } = await seedBlock(client, 13);
+  const secondBlock = firstBlock + 1;
+  const emitter = "11111";
+  const tokenId = "22222";
+
+  await client.query(
+    `INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
+     VALUES ($1, $2, $3, $4)`,
+    [chainId, secondBlock, `${chainId}${secondBlock}`, new Date("2024-02-02T00:00:00Z")]
+  );
+
+  const firstEventId = await insertTransfer({
+    chainId,
+    blockNumber: firstBlock,
+    transactionIndex: 0,
+    eventIndex: 0,
+    emitter,
+    tokenId,
+    fromAddress: "1",
+    toAddress: "2",
+  });
+
+  const secondEventId = await insertTransfer({
+    chainId,
+    blockNumber: secondBlock,
+    transactionIndex: 0,
+    eventIndex: 0,
+    emitter,
+    tokenId,
+    fromAddress: "2",
+    toAddress: "3",
+  });
+
+  const { rows: beforeDelete } = await client.query(
+    `SELECT last_transfer_event_id, current_owner, previous_owner
+     FROM nonfungible_token_owners
+     WHERE chain_id = $1 AND nft_address = $2 AND token_id = $3`,
+    [chainId, emitter, tokenId]
+  );
+  expect(beforeDelete.length).toBe(1);
+  expect(beforeDelete[0]).toMatchObject({
+    last_transfer_event_id: secondEventId,
+    current_owner: "3",
+    previous_owner: "2",
+  });
+
+  await client.query(
+    `DELETE FROM blocks WHERE chain_id = $1 AND block_number = $2`,
+    [chainId, secondBlock]
+  );
+
+  const { rows: afterDelete } = await client.query(
+    `SELECT last_transfer_event_id, current_owner, previous_owner
+     FROM nonfungible_token_owners
+     WHERE chain_id = $1 AND nft_address = $2 AND token_id = $3`,
+    [chainId, emitter, tokenId]
+  );
+
+  expect(afterDelete.length).toBe(1);
+  expect(afterDelete[0]).toMatchObject({
+    last_transfer_event_id: firstEventId,
+    current_owner: "2",
+    previous_owner: "1",
+  });
+
+  const { rows: remainingTransfers } = await client.query(
+    `SELECT 1 FROM nonfungible_token_transfers WHERE chain_id = $1 AND block_number = $2`,
+    [chainId, secondBlock]
+  );
+  expect(remainingTransfers.length).toBe(0);
+});
