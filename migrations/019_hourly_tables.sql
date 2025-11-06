@@ -5,7 +5,6 @@ CREATE TABLE hourly_volume_by_token
     token      NUMERIC NOT NULL,
     volume     NUMERIC NOT NULL,
     fees       NUMERIC NOT NULL,
-    swap_count NUMERIC NOT NULL,
     PRIMARY KEY (pool_key_id, hour, token)
 );
 
@@ -17,7 +16,6 @@ CREATE TABLE hourly_price_data
     hour       timestamptz NOT NULL,
     k_volume   NUMERIC NOT NULL,
     total      NUMERIC NOT NULL,
-    swap_count NUMERIC NOT NULL,
     PRIMARY KEY (chain_id, token0, token1, hour)
 );
 
@@ -80,30 +78,27 @@ BEGIN
     END IF;
 
     IF v_volume0 <> 0 THEN
-        INSERT INTO hourly_volume_by_token (pool_key_id, hour, token, volume, fees, swap_count)
-        VALUES (NEW.pool_key_id, v_hour, v_token0, v_volume0, v_fees0, 1)
+        INSERT INTO hourly_volume_by_token (pool_key_id, hour, token, volume, fees)
+        VALUES (NEW.pool_key_id, v_hour, v_token0, v_volume0, v_fees0)
         ON CONFLICT (pool_key_id, hour, token) DO UPDATE
         SET volume = hourly_volume_by_token.volume + EXCLUDED.volume,
-            fees = hourly_volume_by_token.fees + EXCLUDED.fees,
-            swap_count = hourly_volume_by_token.swap_count + EXCLUDED.swap_count;
+            fees = hourly_volume_by_token.fees + EXCLUDED.fees;
     END IF;
 
     IF v_volume1 <> 0 THEN
-        INSERT INTO hourly_volume_by_token (pool_key_id, hour, token, volume, fees, swap_count)
-        VALUES (NEW.pool_key_id, v_hour, v_token1, v_volume1, v_fees1, 1)
+        INSERT INTO hourly_volume_by_token (pool_key_id, hour, token, volume, fees)
+        VALUES (NEW.pool_key_id, v_hour, v_token1, v_volume1, v_fees1)
         ON CONFLICT (pool_key_id, hour, token) DO UPDATE
         SET volume = hourly_volume_by_token.volume + EXCLUDED.volume,
-            fees = hourly_volume_by_token.fees + EXCLUDED.fees,
-            swap_count = hourly_volume_by_token.swap_count + EXCLUDED.swap_count;
+            fees = hourly_volume_by_token.fees + EXCLUDED.fees;
     END IF;
 
     IF v_k_volume <> 0 OR v_total <> 0 THEN
-        INSERT INTO hourly_price_data (chain_id, token0, token1, hour, k_volume, total, swap_count)
-        VALUES (NEW.chain_id, v_token0, v_token1, v_hour, v_k_volume, v_total, 1)
+        INSERT INTO hourly_price_data (chain_id, token0, token1, hour, k_volume, total)
+        VALUES (NEW.chain_id, v_token0, v_token1, v_hour, v_k_volume, v_total)
         ON CONFLICT (chain_id, token0, token1, hour) DO UPDATE
         SET k_volume = hourly_price_data.k_volume + EXCLUDED.k_volume,
-            total = hourly_price_data.total + EXCLUDED.total,
-            swap_count = hourly_price_data.swap_count + EXCLUDED.swap_count;
+            total = hourly_price_data.total + EXCLUDED.total;
     END IF;
 
     RETURN NULL;
