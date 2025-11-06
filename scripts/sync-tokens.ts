@@ -138,6 +138,17 @@ async function main() {
       `Inserted/updated ${starknetSepoliaTokensInserted} rows from hard coded list for starknet mainnet`
     );
 
+    const { count: registrationTokensCount } = await sql`
+      INSERT INTO erc20_tokens (chain_id,token_address,token_name,token_symbol,token_decimals,total_supply,visibility_priority,sort_order)
+        (SELECT chain_id, address, name, symbol, decimals, total_supply, -1 as visibility_priority, 0 as sort_order 
+        FROM latest_token_registrations_view)
+        ON CONFLICT (chain_id, token_address) DO NOTHING;
+    `;
+
+    console.log(
+      `Inserted ${registrationTokensCount} from manual token registration events`
+    );
+
     const { count: uniswapTokensInserted } = await sql`
         INSERT INTO erc20_tokens ${sql(
           UNISWAP_DEFAULT_TOKENS.filter((t) =>
