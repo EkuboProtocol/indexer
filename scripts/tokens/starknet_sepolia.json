@@ -1,0 +1,107 @@
+[
+  {
+    "name": "Ether",
+    "symbol": "ETH",
+    "decimals": 18,
+    "l2_token_address": "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
+    "sort_order": 2,
+    "total_supply": null
+  },
+  {
+    "name": "Starknet Token",
+    "symbol": "STRK",
+    "decimals": 18,
+    "l2_token_address": "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d",
+    "sort_order": 1,
+    "total_supply": null
+  },
+  {
+    "name": "Ekubo Protocol",
+    "symbol": "EKUBO",
+    "decimals": 18,
+    "l2_token_address": "0x01fad7c03b2ea7fbef306764e20977f8d4eae6191b3a54e4514cc5fc9d19e569",
+    "sort_order": 1,
+    "total_supply": 10000000
+  },
+  {
+    "name": "Fake USD Coin",
+    "symbol": "fUSDC",
+    "decimals": 6,
+    "l2_token_address": "0x07ab0b8855a61f480b4423c46c32fa7c553f0aac3531bbddaa282d86244f7a23",
+    "sort_order": 3,
+    "total_supply": null
+  },
+  {
+    "name": "USD Coin",
+    "symbol": "USDC",
+    "decimals": 6,
+    "l2_token_address": "0x053b40a647cedfca6ca84f542a0fe36736031905a9639a7f19a3c1e66bfd5080",
+    "sort_order": 4,
+    "total_supply": null
+  },
+  {
+    "name": "DAI Stablecoin (Fake)",
+    "symbol": "DAI",
+    "decimals": 18,
+    "l2_token_address": "0x06f2a0dfeff180133de890ad69c6ba294574c5f34a67890fd22464f348c4d03c",
+    "sort_order": 2,
+    "total_supply": null
+  },
+  {
+    "name": "Wrapped Bitcoin (Fake)",
+    "symbol": "WBTC",
+    "decimals": 8,
+    "l2_token_address": "0x020d208b9e57a7f92bfa9f61135446e0961afc340378be97dbd317453c0950ae",
+    "sort_order": 1,
+    "total_supply": null
+  },
+  {
+    "name": "AXE",
+    "symbol": "AXE",
+    "decimals": 18,
+    "l2_token_address": "0x4d204547803c53c80c3ce46d5f6542166d7d947c3fdd185ed8fb3cdfb4ad3f",
+    "sort_order": 1,
+    "total_supply": null
+  },
+  {
+    "name": "MINERAL",
+    "symbol": "MINERAL",
+    "decimals": 18,
+    "l2_token_address": "0x2ebbfafc2e40f66fc4e729a21270c36d7277dbeba5e5dda61884a998ecdadc8",
+    "sort_order": 1,
+    "total_supply": null
+  },
+  {
+    "name": "wstETH OpenMint (OLD)",
+    "symbol": "wstETH-OLD",
+    "decimals": 18,
+    "l2_token_address": "0x703911a6196ef674fc635de02763dcd4ccc16d7cf736f68a9483cc44eccaa94",
+    "sort_order": 1,
+    "total_supply": 100,
+    "hidden": true
+  },
+  {
+    "name": "Wrapped liquid staked Ether 2.0",
+    "symbol": "wstETH",
+    "decimals": 18,
+    "l2_token_address": "0x02BB2FB3837DcD4229404B422908da95109D94191c4b075b2D0F192f1a18f2AC",
+    "sort_order": 1,
+    "total_supply": null
+  },
+  {
+    "name": "Wrapped Bitcoin (Vesu)",
+    "symbol": "WBTCv",
+    "decimals": 8,
+    "l2_token_address": "0xabbd6f1e590eb83addd87ba5ac27960d859b1f17d11a3c1cd6a0006704b141",
+    "sort_order": 0,
+    "total_supply": null
+  },
+  {
+    "name": "USDC (Vesu)",
+    "symbol": "USDCv",
+    "decimals": 6,
+    "l2_token_address": "0x715649d4c493ca350743e43915b88d2e6838b1c78ddc23d6d9385446b9d6844",
+    "sort_order": 4,
+    "total_supply": null
+  }
+]
