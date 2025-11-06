@@ -3,30 +3,38 @@
   "private": true,
   "version": "0.0.1",
   "main": "index.js",
-  "description": "Indexes Ekubo data",
+  "description": "Indexes Ekubo data into a Postgres database",
   "scripts": {
-    "start": "NETWORK=mainnet jiti src/index.ts",
-    "start:sepolia": "NETWORK=sepolia jiti src/index.ts",
-    "test": "vitest"
+    "eth:mainnet": "NETWORK_TYPE=evm NETWORK=mainnet jiti src/index.ts",
+    "eth:sepolia": "NETWORK_TYPE=evm NETWORK=sepolia jiti src/index.ts",
+    "starknet:mainnet": "NETWORK_TYPE=starknet NETWORK=mainnet jiti src/index.ts",
+    "starknet:sepolia": "NETWORK_TYPE=starknet NETWORK=sepolia jiti src/index.ts",
+    "generate-systemd": "jiti scripts/create-systemd-services.ts",
+    "migrate": "jiti scripts/migrate.ts",
+    "test": "vitest",
+    "check-ts": "tsc --noEmit"
   },
   "author": "Moody Salem",
   "type": "module",
   "engines": {
-    "node": "^22.10.0"
+    "node": ">=22"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.3.11",
     "@types/node": "^22.10.7",
     "@types/pg": "^8.11.10",
+    "pg": "^8.13.1",
+    "postgres-migrations": "^5.3.0",
     "typescript": "^5.7.3",
     "vitest": "^3.1.1"
   },
   "dependencies": {
-    "@apibara/evm": "^2.1.0-beta.34",
-    "@apibara/protocol": "^2.1.0-beta.34",
+    "@apibara/evm": "^2.1.0-beta.40",
+    "@apibara/protocol": "^2.1.0-beta.40",
+    "@apibara/starknet": "^2.1.0-beta.40",
     "dotenv": "^16.4.7",
     "jiti": "^2.4.2",
-    "pg": "^8.13.1",
-    "tadaaa": "^1.0.1",
+    "postgres": "^3.4.7",
     "viem": "^2.22.9",
     "winston": "^3.17.0"
   }

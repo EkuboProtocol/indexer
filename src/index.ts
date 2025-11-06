@@ -1,27 +1,33 @@
 import "./config";
-import type { EventKey } from "./processor";
-import { logger } from "./logger";
-import { DAO } from "./dao";
-import { Pool } from "pg";
-import { throttle } from "tadaaa";
-import { EvmStream } from "@apibara/evm";
-import { LOG_PROCESSORS } from "./logProcessors.ts";
+import type { EventKey } from "./_shared/eventKey.ts";
+import { logger } from "./_shared/logger.ts";
+import { DAO } from "./_shared/dao.ts";
+import { Block as EvmBlock, EvmStream } from "@apibara/evm";
+import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
+import { createLogProcessors } from "./evm/logProcessors.ts";
+import { createEventProcessors } from "./starknet/eventProcessors.ts";
 import { createClient, Metadata } from "@apibara/protocol";
+import { msToHumanShort } from "./_shared/msToHumanShort.ts";
 
-const pool = new Pool({
-  connectionString: process.env.PG_CONNECTION_STRING,
-  connectionTimeoutMillis: 1000,
-});
+if (!["starknet", "evm"].includes(process.env.NETWORK_TYPE)) {
+  throw new Error(`Invalid NETWORK_TYPE: "${process.env.NETWORK_TYPE}"`);
+}
 
-const streamClient = createClient(EvmStream, process.env.APIBARA_URL, {
-  defaultCallOptions: {
-    "*": {
-      metadata: Metadata({
-        Authorization: `Bearer ${process.env.DNA_TOKEN}`,
-      }),
-    },
-  },
-});
+if (!process.env.NETWORK) {
+  throw new Error(`Missing NETWORK`);
+}
+
+if (!process.env.INDEXER_NAME) {
+  throw new Error("Missing INDEXER_NAME");
+}
+
+const chainId = BigInt(process.env.CHAIN_ID);
+
+if (!chainId) {
+  throw new Error("Missing CHAIN_ID");
+}
+
+const dao = DAO.create(process.env.PG_CONNECTION_STRING, chainId);
 
 // Timer for exiting if no blocks are received within the configured time
 const NO_BLOCKS_TIMEOUT_MS = parseInt(process.env.NO_BLOCKS_TIMEOUT_MS || "0");
@@ -38,102 +44,116 @@ function resetNoBlocksTimer() {
   if (NO_BLOCKS_TIMEOUT_MS > 0) {
     noBlocksTimer = setTimeout(() => {
       logger.error(
-        `No blocks received in the last ${msToHumanShort(NO_BLOCKS_TIMEOUT_MS)}. Exiting process.`,
+        `No blocks received in the last ${msToHumanShort(
+          NO_BLOCKS_TIMEOUT_MS
+        )}. Exiting process.`
       );
       process.exit(1);
     }, NO_BLOCKS_TIMEOUT_MS);
   }
 }
 
-function msToHumanShort(ms: number): string {
-  const units = [
-    { label: "d", ms: 86400000 },
-    { label: "h", ms: 3600000 },
-    { label: "min", ms: 60000 },
-    { label: "s", ms: 1000 },
-    { label: "ms", ms: 1 },
-  ];
-
-  const parts: string[] = [];
-
-  for (const { label, ms: unitMs } of units) {
-    if (ms >= unitMs) {
-      const count = Math.floor(ms / unitMs);
-      ms %= unitMs;
-      parts.push(`${count}${label}`);
-      if (parts.length === 3) break; // Limit to 2 components
-    }
-  }
-
-  return parts.join(", ") || "0ms";
-}
-
-const asyncThrottledRefreshAnalyticalTables = throttle(
-  async function (
-    since: Date = new Date(
-      Date.now() - parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS) * 2,
-    ),
-  ) {
-    const timer = logger.startTimer();
-    logger.info("Started refreshing analytical tables", {
-      start: timer.start,
-      since: since.toISOString(),
-    });
-    const client = await pool.connect();
-    const dao = new DAO(client);
-    await dao.beginTransaction();
-    await dao.refreshAnalyticalTables({
-      since,
-    });
-    await dao.commitTransaction();
-    client.release();
-    timer.done({
-      message: "Refreshed analytical tables",
-      since: since.toISOString(),
-    });
-  },
-  {
-    delay: parseInt(process.env.REFRESH_RATE_ANALYTICAL_VIEWS),
-    leading: true,
-    async onError(err) {
-      logger.error("Failed to refresh analytical tables", err);
-    },
-  },
-);
-
 (async function () {
   // first set up the schema
   let databaseStartingCursor;
   {
-    const client = await pool.connect();
-    const dao = new DAO(client);
-
     const initializeTimer = logger.startTimer();
-    databaseStartingCursor = await dao.initializeSchema();
-    await dao.refreshOperationalMaterializedView();
+    await dao.begin(async (dao) => {
+      databaseStartingCursor = await dao.loadCursor();
+
+      // we need to clear anything that was potentially inserted as pending before starting
+      if (databaseStartingCursor) {
+        await dao.deleteOldBlockNumbers(
+          Number(databaseStartingCursor.orderKey) + 1
+        );
+      }
+    });
     initializeTimer.done({
-      message: "Initialized schema",
+      message: "Prepared indexer state",
       startingCursor: databaseStartingCursor,
     });
-    client.release();
   }
-
-  let lastIsHead = false;
 
   // Start the no-blocks timer when application starts
   resetNoBlocksTimer();
 
+  const evmProcessors =
+    process.env.NETWORK_TYPE === "evm"
+      ? createLogProcessors({
+          mevCaptureAddress: process.env.MEV_CAPTURE_ADDRESS,
+          coreAddress: process.env.CORE_ADDRESS,
+          positionsAddress: process.env.POSITIONS_ADDRESS,
+          oracleAddress: process.env.ORACLE_ADDRESS,
+          twammAddress: process.env.TWAMM_ADDRESS,
+          ordersAddress: process.env.ORDERS_ADDRESS,
+          incentivesAddress: process.env.INCENTIVES_ADDRESS,
+          tokenWrapperFactoryAddress: process.env.TOKEN_WRAPPER_FACTORY_ADDRESS,
+        })
+      : ([] as ReturnType<typeof createLogProcessors>);
+
+  const starknetProcessors =
+    process.env.NETWORK_TYPE === "starknet"
+      ? createEventProcessors({
+          nftAddress: process.env.NFT_ADDRESS,
+          coreAddress: process.env.CORE_ADDRESS,
+          tokenRegistryAddress: process.env.TOKEN_REGISTRY_ADDRESS,
+          tokenRegistryV2Address: process.env.TOKEN_REGISTRY_V2_ADDRESS,
+          tokenRegistryV3Address: process.env.TOKEN_REGISTRY_V3_ADDRESS,
+          twammAddress: process.env.TWAMM_ADDRESS,
+          stakerAddress: process.env.STAKER_ADDRESS,
+          governorAddress: process.env.GOVERNOR_ADDRESS,
+          oracleAddress: process.env.ORACLE_ADDRESS,
+          limitOrdersAddress: process.env.LIMIT_ORDERS_ADDRESS,
+          splineLiquidityProviderAddress:
+            process.env.SPLINE_LIQUIDITY_PROVIDER_ADDRESS,
+        })
+      : ([] as ReturnType<typeof createEventProcessors>);
+
+  const filterConfig =
+    process.env.NETWORK_TYPE === "evm"
+      ? [
+          {
+            logs: evmProcessors.map((lp, ix) => ({
+              id: ix + 1,
+              address: lp.address,
+              topics: lp.filter.topics,
+              strict: lp.filter.strict,
+            })),
+          },
+        ]
+      : [
+          {
+            events: starknetProcessors.map((processor, ix) => ({
+              id: ix + 1,
+              address: processor.filter.fromAddress,
+              keys: processor.filter.keys,
+            })),
+          },
+        ];
+
+  const streamClient =
+    process.env.NETWORK_TYPE === "evm"
+      ? createClient(EvmStream, process.env.APIBARA_URL, {
+          defaultCallOptions: {
+            "*": {
+              metadata: Metadata({
+                Authorization: `Bearer ${process.env.DNA_TOKEN}`,
+              }),
+            },
+          },
+        })
+      : createClient(StarknetStream, process.env.APIBARA_URL, {
+          defaultCallOptions: {
+            "*": {
+              metadata: Metadata({
+                Authorization: `Bearer ${process.env.DNA_TOKEN}`,
+              }),
+            },
+          },
+        });
+
   for await (const message of streamClient.streamData({
-    filter: [
-      {
-        logs: LOG_PROCESSORS.map((lp, ix) => ({
-          id: ix + 1,
-          address: lp.address,
-          topics: lp.filter.topics,
-          strict: lp.filter.strict,
-        })),
-      },
-    ],
+    filter: filterConfig,
     finality: "accepted",
     startingCursor: databaseStartingCursor
       ? databaseStartingCursor
@@ -171,17 +191,12 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
             cursor: invalidatedCursor,
           });
 
-          const client = await pool.connect();
-          const dao = new DAO(client);
-
-          await dao.beginTransaction();
-          await dao.deleteOldBlockNumbers(
-            Number(invalidatedCursor.orderKey) + 1,
-          );
-          await dao.writeCursor(invalidatedCursor);
-          await dao.commitTransaction();
-
-          client.release();
+          await dao.begin(async (dao) => {
+            await dao.deleteOldBlockNumbers(
+              Number(invalidatedCursor.orderKey) + 1
+            );
+            await dao.writeCursor(invalidatedCursor);
+          });
         }
 
         break;
@@ -193,93 +208,85 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
 
         const blockProcessingTimer = logger.startTimer();
 
-        const client = await pool.connect();
-        const dao = new DAO(client);
-
-        await dao.beginTransaction();
-
-        let deletedCount: number = 0;
-
         let eventsProcessed: number = 0;
-        const isHead = message.data.production === "live";
 
         for (const block of message.data.data) {
           if (!block) continue;
+
           const blockNumber = Number(block.header.blockNumber);
-          deletedCount += await dao.deleteOldBlockNumbers(blockNumber);
-
           const blockTime = block.header.timestamp;
+          const blockHashHex = block.header.blockHash ?? "0x0";
 
-          await dao.insertBlock({
-            hash: BigInt(block.header.blockHash ?? 0),
-            number: block.header.blockNumber,
-            time: blockTime,
+          await dao.begin(async (dao) => {
+            await dao.deleteOldBlockNumbers(blockNumber);
+            await dao.insertBlock({
+              number: block.header.blockNumber,
+              hash: BigInt(blockHashHex),
+              time: blockTime,
+            });
+
+            if (process.env.NETWORK_TYPE === "evm") {
+              const logs = (block as EvmBlock).logs;
+              for (const log of logs) {
+                const eventKey: EventKey = {
+                  blockNumber,
+                  transactionIndex: log.transactionIndex,
+                  eventIndex: log.logIndexInTransaction,
+                  emitter: log.address,
+                  transactionHash: log.transactionHash,
+                };
+
+                await Promise.all(
+                  log.filterIds.map(async (matchingFilterId: number) => {
+                    eventsProcessed++;
+
+                    await evmProcessors[matchingFilterId - 1]!.handler(
+                      dao,
+                      eventKey,
+                      {
+                        topics: log.topics,
+                        data: log.data,
+                      }
+                    );
+                  })
+                );
+              }
+            } else {
+              const events = (block as StarknetBlock).events;
+              for (const event of events) {
+                const eventKey: EventKey = {
+                  blockNumber,
+                  transactionIndex: event.transactionIndex,
+                  eventIndex: event.eventIndexInTransaction ?? event.eventIndex,
+                  emitter: event.address,
+                  transactionHash: event.transactionHash,
+                };
+
+                await Promise.all(
+                  event.filterIds.map(async (matchingFilterId: number) => {
+                    eventsProcessed++;
+                    const processor = starknetProcessors[matchingFilterId - 1]!;
+                    const { value: parsed } = processor.parser(event.data, 0);
+                    await processor.handle(dao, { key: eventKey, parsed });
+                  })
+                );
+              }
+            }
+
+            // endCursor is what we write so when we restart we delete any pending block information
+            await dao.writeCursor(message.data.endCursor);
           });
 
-          for (const event of block.logs) {
-            const eventKey: EventKey = {
-              blockNumber,
-              transactionIndex: event.transactionIndex,
-              eventIndex: event.logIndexInTransaction,
-              emitter: event.address,
-              transactionHash: event.transactionHash,
-            };
-
-            // process each event sequentially through all the event processors in parallel
-            // assumption is that none of the event processors operate on the same events, i.e. have the same filters
-            // this assumption could be validated at runtime
-            await Promise.all(
-              event.filterIds.map(async (matchingFilterId) => {
-                eventsProcessed++;
-
-                await LOG_PROCESSORS[matchingFilterId - 1].handler(
-                  dao,
-                  eventKey,
-                  {
-                    topics: event.topics,
-                    data: event.data,
-                  },
-                );
-              }),
-            );
-          }
-
-          // endCursor is what we write so when we restart we delete any pending block information
-          await dao.writeCursor(message.data.endCursor);
-
-          const refreshOperational =
-            (isHead && (eventsProcessed > 0 || !lastIsHead)) ||
-            deletedCount > 0;
-
-          // refresh operational views at the end of the batch
-          if (refreshOperational) {
-            await dao.refreshOperationalMaterializedView();
-          }
-
-          await dao.commitTransaction();
-
           blockProcessingTimer.done({
-            message: `Processed to block`,
+            chainId,
             blockNumber,
-            isHead,
-            refreshOperational,
             eventsProcessed,
             blockTimestamp: blockTime,
             lag: msToHumanShort(
-              Math.floor(Date.now() - Number(blockTime.getTime())),
+              Math.floor(Date.now() - Number(blockTime.getTime()))
             ),
           });
         }
-
-        client.release();
-
-        if (isHead) {
-          asyncThrottledRefreshAnalyticalTables(
-            !lastIsHead ? new Date(0) : undefined,
-          );
-        }
-
-        lastIsHead = isHead;
 
         break;
       }
@@ -298,4 +305,5 @@ const asyncThrottledRefreshAnalyticalTables = throttle(
   .catch((error) => {
     logger.error(error);
     process.exit(1);
-  });
+  })
+  .finally(() => dao.end());

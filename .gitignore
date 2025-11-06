@@ -1,6 +1,4 @@
-.env.sepolia.local
-.env.mainnet.local
-.env.local
+*.local
 *.cursor.json
 dist/
 node_modules

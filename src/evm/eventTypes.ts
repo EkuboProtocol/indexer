@@ -5,7 +5,7 @@ import {
   POSITIONS_ABI,
   TOKEN_WRAPPER_FACTORY_ABI,
   TWAMM_ABI,
-} from "./abis";
+} from "./abis.ts";
 import type { ContractEvent } from "./logProcessors.ts";
 
 export type PoolKey = ContractEvent<

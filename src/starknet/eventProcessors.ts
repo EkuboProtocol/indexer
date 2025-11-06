@@ -1,0 +1,827 @@
+import { logger } from "../_shared/logger";
+import { parseTransferEvent } from "./nft";
+import type { TransferEvent } from "./nft";
+import {
+  parseFeesAccumulatedEvent,
+  parsePoolInitializedEvent,
+  parsePositionFeesCollectedEvent,
+  parsePositionUpdatedEvent,
+  parseProtocolFeesPaidEvent,
+  parseProtocolFeesWithdrawnEvent,
+  parseSwappedEvent,
+} from "./core";
+import type {
+  FeesAccumulatedEvent,
+  PoolInitializationEvent,
+  PoolKey,
+  PositionFeesCollectedEvent,
+  PositionUpdatedEvent,
+  ProtocolFeesPaidEvent,
+  ProtocolFeesWithdrawnEvent,
+  SwappedEvent,
+} from "./core";
+import {
+  parseOrderProceedsWithdrawn,
+  parseOrderUpdated,
+  parseVirtualOrdersExecuted,
+} from "./twamm";
+import type {
+  OrderProceedsWithdrawnEvent,
+  OrderUpdatedEvent,
+  VirtualOrdersExecutedEvent,
+} from "./twamm";
+import { parseStakedEvent, parseWithdrawnEvent } from "./staker";
+import type { StakedEvent, WithdrawnEvent } from "./staker";
+import {
+  parseDescribedEvent,
+  parseGovernorCanceledEvent,
+  parseGovernorCreationThresholdBreached,
+  parseGovernorExecutedEvent,
+  parseGovernorProposedEvent,
+  parseGovernorReconfigured,
+  parseGovernorVotedEvent,
+} from "./governor";
+import type {
+  DescribedEvent,
+  GovernorCanceledEvent,
+  GovernorCreationThresholdBreached,
+  GovernorExecutedEvent,
+  GovernorProposedEvent,
+  GovernorReconfiguredEvent,
+  GovernorVotedEvent,
+} from "./governor";
+import {
+  parseRegistrationEvent,
+  parseRegistrationEventV3,
+} from "./tokenRegistry";
+import type {
+  TokenRegistrationEvent,
+  TokenRegistrationEventV3,
+} from "./tokenRegistry";
+import { parseSnapshotEvent } from "./oracle";
+import type { SnapshotEvent } from "./oracle";
+import { parseOrderClosed, parseOrderPlaced } from "./limitOrders";
+import type { OrderClosedEvent, OrderPlacedEvent } from "./limitOrders";
+import { parseLiquidityUpdated } from "./spline";
+import type { LiquidityUpdatedEvent } from "./spline";
+import type { EventKey } from "../_shared/eventKey";
+import type { Parser } from "./parse";
+import { DAO } from "../_shared/dao";
+import { computeKeyHash } from "./poolKeyHash";
+
+export interface ParsedEventWithKey<T> {
+  key: EventKey;
+  parsed: T;
+}
+
+export interface StarknetEventProcessor<T> {
+  filter: {
+    keys: `0x${string}`[];
+    fromAddress: `0x${string}`;
+  };
+
+  parser: Parser<T>;
+
+  handle(dao: DAO, result: ParsedEventWithKey<T>): Promise<void>;
+}
+
+export interface StarknetEventProcessorConfig {
+  nftAddress: `0x${string}`;
+  coreAddress: `0x${string}`;
+  tokenRegistryAddress: `0x${string}`;
+  tokenRegistryV2Address: `0x${string}`;
+  tokenRegistryV3Address: `0x${string}`;
+  twammAddress: `0x${string}`;
+  stakerAddress: `0x${string}`;
+  governorAddress: `0x${string}`;
+  oracleAddress: `0x${string}`;
+  limitOrdersAddress: `0x${string}`;
+  splineLiquidityProviderAddress: `0x${string}`;
+}
+
+const STARKNET_POOL_FEE_DENOMINATOR = 1n << 128n;
+const LIMIT_ORDER_TICK_SPACING = 128n;
+const MAX_TICK_SPACING = 354892n;
+
+function poolKeyToPoolId(pool_key: PoolKey): `0x${string}` {
+  return `0x${computeKeyHash(pool_key).toString(16)}`;
+}
+
+export function createEventProcessors({
+  nftAddress,
+  coreAddress,
+  tokenRegistryAddress,
+  tokenRegistryV2Address,
+  tokenRegistryV3Address,
+  twammAddress,
+  stakerAddress,
+  governorAddress,
+  oracleAddress,
+  limitOrdersAddress,
+  splineLiquidityProviderAddress,
+}: StarknetEventProcessorConfig): readonly StarknetEventProcessor<any>[] {
+  return [
+    <StarknetEventProcessor<TransferEvent>>{
+      filter: {
+        fromAddress: nftAddress,
+        keys: [
+          // Transfer
+          "0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9",
+        ],
+      },
+      parser: parseTransferEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("NFT transferred", { parsed, key });
+        await dao.insertNonfungibleTokenTransferEvent(
+          {
+            id: parsed.id,
+            from: parsed.from,
+            to: parsed.to,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<PositionUpdatedEvent>>{
+      filter: {
+        fromAddress: coreAddress,
+        keys: [
+          // PositionUpdated
+          "0x03a7adca3546c213ce791fabf3b04090c163e419c808c9830fb343a4a395946e",
+        ],
+      },
+      parser: parsePositionUpdatedEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("PositionUpdated", { parsed, key });
+        await dao.insertPositionUpdatedEvent(
+          {
+            delta0: parsed.delta.amount0,
+            delta1: parsed.delta.amount1,
+            locker: parsed.locker,
+            params: {
+              bounds: {
+                lower: Number(parsed.params.bounds.lower),
+                upper: Number(parsed.params.bounds.upper),
+              },
+              liquidityDelta: parsed.params.liquidity_delta,
+              salt: parsed.params.salt,
+            },
+            poolId: poolKeyToPoolId(parsed.pool_key),
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<PositionFeesCollectedEvent>>{
+      filter: {
+        fromAddress: coreAddress,
+        keys: [
+          // PositionFeesCollected
+          "0x96982abd597114bdaa4a60612f87fabfcc7206aa12d61c50e7ba1e6c291100",
+        ],
+      },
+      parser: parsePositionFeesCollectedEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("PositionFeesCollected", { parsed, key });
+        await dao.insertPositionFeesCollectedEvent(
+          {
+            poolId: poolKeyToPoolId(parsed.pool_key),
+            positionKey: {
+              owner: parsed.position_key.owner,
+              salt: parsed.position_key.salt,
+              bounds: {
+                lower: Number(parsed.position_key.bounds.lower),
+                upper: Number(parsed.position_key.bounds.upper),
+              },
+            },
+            amount0: parsed.delta.amount0,
+            amount1: parsed.delta.amount1,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<SwappedEvent>>{
+      filter: {
+        fromAddress: coreAddress,
+        keys: [
+          // Swapped
+          "0x157717768aca88da4ac4279765f09f4d0151823d573537fbbeb950cdbd9a870",
+        ],
+      },
+      parser: parseSwappedEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("Swapped", { parsed, key });
+        await dao.insertSwappedEvent(
+          {
+            locker: parsed.locker,
+            poolId: poolKeyToPoolId(parsed.pool_key),
+            delta0: parsed.delta.amount0,
+            delta1: parsed.delta.amount1,
+            sqrtRatioAfter: parsed.sqrt_ratio_after,
+            tickAfter: Number(parsed.tick_after),
+            liquidityAfter: parsed.liquidity_after,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<PoolInitializationEvent>>{
+      filter: {
+        fromAddress: coreAddress,
+        keys: [
+          // PoolInitialized
+          "0x025ccf80ee62b2ca9b97c76ccea317c7f450fd6efb6ed6ea56da21d7bb9da5f1",
+        ],
+      },
+      parser: parsePoolInitializedEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("PoolInitialized", { parsed, key });
+        await dao.insertPoolInitializedEvent(
+          {
+            feeDenominator: STARKNET_POOL_FEE_DENOMINATOR,
+            poolKey: {
+              token0: parsed.pool_key.token0,
+              token1: parsed.pool_key.token1,
+              fee: parsed.pool_key.fee,
+              tickSpacing: Number(parsed.pool_key.tick_spacing),
+              extension: parsed.pool_key.extension,
+            },
+            poolId: poolKeyToPoolId(parsed.pool_key),
+            sqrtRatio: parsed.sqrt_ratio,
+            tick: Number(parsed.tick),
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<ProtocolFeesWithdrawnEvent>>{
+      filter: {
+        fromAddress: coreAddress,
+        keys: [
+          // ProtocolFeesWithdrawn
+          "0x291697c8230383d5c3cc8dc39443356a7da6b0735605fb0ee0f7bfbb7b824a",
+        ],
+      },
+      parser: parseProtocolFeesWithdrawnEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("ProtocolFeesWithdrawn", { parsed, key });
+        await dao.insertProtocolFeesWithdrawn(
+          {
+            recipient: parsed.recipient,
+            token: parsed.token,
+            amount: parsed.amount,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<ProtocolFeesPaidEvent>>{
+      filter: {
+        fromAddress: coreAddress,
+        keys: [
+          // ProtocolFeesPaid
+          "0x5dacf59794364ad1555bb3c9b2346afa81e57e5c19bb6bae0d22721c96c4e5",
+        ],
+      },
+      parser: parseProtocolFeesPaidEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("ProtocolFeesPaid", { parsed, key });
+        await dao.insertProtocolFeesPaid(
+          {
+            poolId: poolKeyToPoolId(parsed.pool_key),
+            locker: parsed.position_key.owner,
+            salt: parsed.position_key.salt,
+            bounds: {
+              lower: Number(parsed.position_key.bounds.lower),
+              upper: Number(parsed.position_key.bounds.upper),
+            },
+            delta0: parsed.delta.amount0,
+            delta1: parsed.delta.amount1,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<FeesAccumulatedEvent>>{
+      filter: {
+        fromAddress: coreAddress,
+        keys: [
+          // FeesAccumulated
+          "0x0237e5e0677822acfc9117ed0f7ba4810b2c6b539a2359e8d73f9025d56957aa",
+        ],
+      },
+      parser: parseFeesAccumulatedEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("FeesAccumulated", { parsed, key });
+        await dao.insertFeesAccumulatedEvent(
+          {
+            poolId: poolKeyToPoolId(parsed.pool_key),
+            amount0: parsed.amount0,
+            amount1: parsed.amount1,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<TokenRegistrationEvent>>{
+      filter: {
+        fromAddress: tokenRegistryAddress,
+        keys: [
+          // Registration
+          "0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74",
+        ],
+      },
+      parser: parseRegistrationEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("Registration from V1 Registry", { parsed, key });
+        await dao.insertRegistration(
+          {
+            address: parsed.address,
+            name: parsed.name,
+            symbol: parsed.symbol,
+            decimals: parsed.decimals,
+            totalSupply: parsed.total_supply,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<TokenRegistrationEvent>>{
+      filter: {
+        fromAddress: tokenRegistryV2Address,
+        keys: [
+          // Registration
+          "0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74",
+        ],
+      },
+      parser: parseRegistrationEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("Registration from V2 Registry", {
+          parsed,
+          key,
+        });
+        await dao.insertRegistration(
+          {
+            address: parsed.address,
+            name: parsed.name,
+            symbol: parsed.symbol,
+            decimals: parsed.decimals,
+            totalSupply: parsed.total_supply,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<TokenRegistrationEventV3>>{
+      filter: {
+        fromAddress: tokenRegistryV3Address,
+        keys: [
+          // Registration
+          "0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74",
+        ],
+      },
+      parser: parseRegistrationEventV3,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("Registration event from V3 Registry", { parsed, key });
+        await dao.insertRegistrationV3(
+          {
+            address: parsed.address,
+            name: parsed.name,
+            symbol: parsed.symbol,
+            decimals: parsed.decimals,
+            totalSupply: parsed.total_supply,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<OrderUpdatedEvent>>{
+      filter: {
+        fromAddress: twammAddress,
+        keys: [
+          // OrderUpdated
+          "0xb670ed7b7ee8ccb350963a7dea39493daff6e7a43ab021a0e4ac2d652d359e",
+        ],
+      },
+      parser: parseOrderUpdated,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("OrderUpdated", { parsed, key });
+
+        const [token0, token1] =
+          parsed.order_key.sell_token < parsed.order_key.buy_token
+            ? [parsed.order_key.sell_token, parsed.order_key.buy_token]
+            : [parsed.order_key.buy_token, parsed.order_key.sell_token];
+
+        await dao.insertTWAMMOrderUpdatedEvent(
+          {
+            coreAddress,
+            poolId: poolKeyToPoolId({
+              token0,
+              token1,
+              fee: parsed.order_key.fee,
+              tick_spacing: MAX_TICK_SPACING,
+              extension: BigInt(key.emitter),
+            }),
+            owner: parsed.owner,
+            salt: parsed.salt,
+            saleRateDelta: parsed.sale_rate_delta,
+            orderKey: {
+              sellToken: parsed.order_key.sell_token,
+              buyToken: parsed.order_key.buy_token,
+              fee: parsed.order_key.fee,
+              startTime: parsed.order_key.start_time,
+              endTime: parsed.order_key.end_time,
+            },
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<OrderProceedsWithdrawnEvent>>{
+      filter: {
+        fromAddress: twammAddress,
+        keys: [
+          // OrderProceedsWithdrawn
+          "0x3e074150c5906b2e323cea942b41f67f3639fcae5dc1fe4cf19c6801dff89b5",
+        ],
+      },
+      parser: parseOrderProceedsWithdrawn,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("OrderProceedsWithdrawn", { parsed, key });
+        const [token0, token1] =
+          parsed.order_key.sell_token < parsed.order_key.buy_token
+            ? [parsed.order_key.sell_token, parsed.order_key.buy_token]
+            : [parsed.order_key.buy_token, parsed.order_key.sell_token];
+        await dao.insertTWAMMOrderProceedsWithdrawnEvent(
+          {
+            coreAddress,
+            poolId: poolKeyToPoolId({
+              token0,
+              token1,
+              fee: parsed.order_key.fee,
+              tick_spacing: MAX_TICK_SPACING,
+              extension: BigInt(key.emitter),
+            }),
+            amount: parsed.amount,
+            owner: parsed.owner,
+            salt: parsed.salt,
+            orderKey: {
+              sellToken: parsed.order_key.sell_token,
+              buyToken: parsed.order_key.buy_token,
+              fee: parsed.order_key.fee,
+              startTime: parsed.order_key.start_time,
+              endTime: parsed.order_key.end_time,
+            },
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<VirtualOrdersExecutedEvent>>{
+      filter: {
+        fromAddress: twammAddress,
+        keys: [
+          // VirtualOrdersExecuted
+          "0x29416aa69fb4a5270dd3c2b3e6d05f457dc0dbf96f423db1f86c5b7b2e6840f",
+        ],
+      },
+      parser: parseVirtualOrdersExecuted,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("VirtualOrdersExecuted", { parsed, key });
+        const poolId = poolKeyToPoolId({
+          token0: parsed.key.token0,
+          token1: parsed.key.token1,
+          fee: parsed.key.fee,
+          tick_spacing: MAX_TICK_SPACING,
+          extension: BigInt(key.emitter),
+        });
+        await dao.insertTWAMMVirtualOrdersExecutedEvent(
+          {
+            coreAddress,
+            poolId,
+            saleRateToken0: parsed.token0_sale_rate,
+            saleRateToken1: parsed.token1_sale_rate,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<StakedEvent>>{
+      filter: {
+        fromAddress: stakerAddress,
+        keys: [
+          // Staked
+          "0x024fdaadc324c3bb8e59febfb2e8a399331e58193489e54ac40fec46745a9ebe",
+        ],
+      },
+      parser: parseStakedEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("StakerStakedEvent", { parsed, key });
+        await dao.insertStakerStakedEvent(
+          {
+            from: parsed.from,
+            amount: parsed.amount,
+            delegate: parsed.delegate,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<WithdrawnEvent>>{
+      filter: {
+        fromAddress: stakerAddress,
+        keys: [
+          // Withdrawn
+          "0x036a4d15ab9e146faab90d4abc1c0cad17c4ded24551c781ba100392b5a70248",
+        ],
+      },
+      parser: parseWithdrawnEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("StakerWithdrawnEvent", { parsed, key });
+        await dao.insertStakerWithdrawnEvent(
+          {
+            from: parsed.from,
+            amount: parsed.amount,
+            recipient: parsed.to,
+            delegate: parsed.delegate,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<GovernorProposedEvent>>{
+      filter: {
+        fromAddress: governorAddress,
+        keys: [
+          // Proposed
+          "0x02a98c37f5b13fe14803e72b284c81be9ebbedc6cf74ed8d1489ed74951cba3f",
+        ],
+      },
+      parser: parseGovernorProposedEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("GovernorProposed", { parsed, key });
+        await dao.insertGovernorProposedEvent(
+          {
+            proposal_id: parsed.id,
+            proposer: parsed.proposer,
+            configVersion: parsed.config_version,
+            calls: parsed.calls.map((call) => ({
+              to: call.to,
+              selector: call.selector,
+              calldata: call.calldata,
+            })),
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<GovernorCanceledEvent>>{
+      filter: {
+        fromAddress: governorAddress,
+        keys: [
+          // Canceled
+          "0xad1f80a0e6ac2d42f6ce99670de84817aef2368cd22a19f85fcb721f689192",
+        ],
+      },
+      parser: parseGovernorCanceledEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("GovernorCanceled", { parsed, key });
+        await dao.insertGovernorCanceledEvent(
+          {
+            proposal_id: parsed.id,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<GovernorCreationThresholdBreached>>{
+      filter: {
+        fromAddress: governorAddress,
+        keys: [
+          // CreationThresholdBreached
+          "0xda0eb1cb71bdbfac21648d8b87024714f7eb6207978c7eb359a20144a99baf",
+        ],
+      },
+      parser: parseGovernorCreationThresholdBreached,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("GovernorCreationThresholdBreached", { parsed, key });
+        // just use the canceled table
+        await dao.insertGovernorCanceledEvent(
+          {
+            proposal_id: parsed.id,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<GovernorVotedEvent>>{
+      filter: {
+        fromAddress: governorAddress,
+        keys: [
+          // Voted
+          "0x5c9afac1c510b50d3e0004024ba7b8e190864f1543dd8025d08f88410fb162",
+        ],
+      },
+      parser: parseGovernorVotedEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("GovernorVoted", { parsed, key });
+        await dao.insertGovernorVotedEvent(
+          {
+            proposal_id: parsed.id,
+            voter: parsed.voter,
+            weight: parsed.weight,
+            yea: parsed.yea,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<GovernorExecutedEvent>>{
+      filter: {
+        fromAddress: governorAddress,
+        keys: [
+          // Executed
+          "0x01f4317aae43f6c24b2b85c6d8b21d5fa0a28cee0476cd52ca5d60d4787aab78",
+        ],
+      },
+      parser: parseGovernorExecutedEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("GovernorExecuted", { parsed, key });
+        await dao.insertGovernorExecutedEvent(
+          {
+            proposal_id: parsed.id,
+            results: parsed.result_data,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<DescribedEvent>>{
+      filter: {
+        fromAddress: governorAddress,
+        keys: [
+          // Described
+          "0x8643a1c8a461189d5b77de7576b06aa9148c9127101228f02816d13768e7a9",
+        ],
+      },
+      parser: parseDescribedEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("GovernorProposalDescribed", { parsed, key });
+        await dao.insertGovernorProposalDescribedEvent(
+          {
+            proposal_id: parsed.id,
+            description: parsed.description,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<GovernorReconfiguredEvent>>{
+      filter: {
+        fromAddress: governorAddress,
+        keys: [
+          // Reconfigured
+          "0x02b9973fd701ab68169e139e241db74576eca4e885bad73d016982a59f1ac9fb",
+        ],
+      },
+      parser: parseGovernorReconfigured,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("GovernorReconfigured", { parsed, key });
+        await dao.insertGovernorReconfiguredEvent(
+          {
+            version: parsed.version,
+            votingStartDelay: parsed.new_config.voting_start_delay,
+            votingPeriod: parsed.new_config.voting_period,
+            votingWeightSmoothingDuration:
+              parsed.new_config.voting_weight_smoothing_duration,
+            quorum: parsed.new_config.quorum,
+            proposalCreationThreshold:
+              parsed.new_config.proposal_creation_threshold,
+            executionDelay: parsed.new_config.execution_delay,
+            executionWindow: parsed.new_config.execution_window,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<SnapshotEvent>>{
+      filter: {
+        fromAddress: oracleAddress,
+        keys: [
+          // SnapshotEvent
+          "0x0385e1b60fdfb8aeee9212a69cdb72415cef7b24ec07a60cdd65b65d0582238b",
+        ],
+      },
+      parser: parseSnapshotEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("Snapshot", { parsed, key });
+        await dao.insertOracleSnapshotEvent(
+          {
+            token0: parsed.token0,
+            token1: parsed.token1,
+            timestamp: parsed.snapshot.block_timestamp,
+            tickCumulative: parsed.snapshot.tick_cumulative,
+            secondsPerLiquidityCumulative: null,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<OrderPlacedEvent>>{
+      filter: {
+        fromAddress: limitOrdersAddress,
+        keys: [
+          // OrderPlaced
+          "0x03b935dbbdb7f463a394fc8729e7e26e30edebbc3bd5617bf1d7cf9e1ce6f7cb",
+        ],
+      },
+      parser: parseOrderPlaced,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("OrderPlaced", { parsed, key });
+        const poolId = poolKeyToPoolId({
+          token0: parsed.order_key.token0,
+          token1: parsed.order_key.token1,
+          fee: 0n,
+          tick_spacing: LIMIT_ORDER_TICK_SPACING,
+          extension: BigInt(key.emitter),
+        });
+        await dao.insertOrderPlacedEvent(
+          {
+            poolId,
+            locker: parsed.owner,
+            salt: parsed.salt,
+            token0: parsed.order_key.token0,
+            token1: parsed.order_key.token1,
+            tick: Number(parsed.order_key.tick),
+            liquidity: parsed.liquidity,
+            amount: parsed.amount,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<OrderClosedEvent>>{
+      filter: {
+        fromAddress: limitOrdersAddress,
+        keys: [
+          // OrderClosed
+          "0x0196e77c6eab92283e3fc303198bb0a523c0c7d93b4de1d8bf636eab7517c4ae",
+        ],
+      },
+      parser: parseOrderClosed,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("OrderClosed", { parsed, key });
+        const poolId = poolKeyToPoolId({
+          token0: parsed.order_key.token0,
+          token1: parsed.order_key.token1,
+          fee: 0n,
+          tick_spacing: LIMIT_ORDER_TICK_SPACING,
+          extension: BigInt(key.emitter),
+        });
+        await dao.insertOrderClosedEvent(
+          {
+            poolId,
+            locker: parsed.owner,
+            salt: parsed.salt,
+            token0: parsed.order_key.token0,
+            token1: parsed.order_key.token1,
+            tick: Number(parsed.order_key.tick),
+            amount0: parsed.amount0,
+            amount1: parsed.amount1,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<LiquidityUpdatedEvent>>{
+      filter: {
+        fromAddress: splineLiquidityProviderAddress,
+        keys: [
+          // LiquidityUpdated
+          "0x0203c047cc01ab425e271dd20fc0651f0e3ed06fb6545850508001db3c822b5d",
+        ],
+      },
+      parser: parseLiquidityUpdated,
+      async handle(dao, { parsed, key }): Promise<void> {
+        logger.debug("LiquidityUpdated", { parsed, key });
+        if (parsed.liquidity_factor !== 0n) {
+          const poolId = poolKeyToPoolId(parsed.pool_key);
+          await dao.insertSplineLiquidityUpdatedEvent(
+            {
+              poolId,
+              sender: parsed.sender,
+              liquidityFactor: parsed.liquidity_factor,
+              shares: parsed.shares,
+              amount0: parsed.amount0,
+              amount1: parsed.amount1,
+              protocolFees0: parsed.protocol_fees0,
+              protocolFees1: parsed.protocol_fees1,
+            },
+            key
+          );
+        }
+      },
+    },
+  ] as const;
+}

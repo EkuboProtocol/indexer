@@ -1,0 +1,67 @@
+CREATE VIEW token_pair_realized_volatility_view AS
+WITH times AS (
+	SELECT
+		chain_id,
+		max(blocks.block_time) - INTERVAL '7 days' AS start_time,
+		max(blocks.block_time) AS end_time
+	FROM
+		blocks
+	GROUP BY
+		chain_id),
+	prices AS (
+		SELECT
+			hpd.chain_id,
+			token0,
+			token1,
+			hour,
+			ln(total / k_volume) AS log_price,
+			row_number() OVER (PARTITION BY token0, token1 ORDER BY hour) AS row_no
+		FROM
+			hourly_price_data hpd
+			JOIN times t ON hpd.chain_id = t.chain_id
+		WHERE
+			hpd.hour BETWEEN t.start_time AND t.end_time
+			AND hpd.k_volume <> 0),
+		log_price_changes AS (
+			SELECT
+				chain_id,
+				token0,
+				token1,
+				log_price - lag(log_price) OVER (PARTITION BY token0, token1 ORDER BY row_no) AS price_change,
+				extract(HOURS FROM hour - lag(hour) OVER (PARTITION BY token0, token1 ORDER BY row_no)) AS hours_since_last
+			FROM
+				prices p
+			WHERE
+				p.row_no != 1), realized_volatility_by_pair AS (
+				SELECT
+					chain_id,
+					token0,
+					token1,
+					count(1) AS observation_count,
+					sqrt(sum(price_change * price_change)) AS realized_volatility
+				FROM
+					log_price_changes lpc
+				GROUP BY
+					chain_id,
+					token0,
+					token1
+)
+			SELECT
+				chain_id,
+				token0,
+				token1,
+				realized_volatility,
+				observation_count,
+				int4(floor(realized_volatility / ln(1.000001::numeric))) AS volatility_in_ticks
+		FROM
+			realized_volatility_by_pair
+		WHERE
+			realized_volatility IS NOT NULL;
+
+CREATE MATERIALIZED VIEW token_pair_realized_volatility_materialized AS
+SELECT
+	*
+FROM
+	token_pair_realized_volatility_view;
+
+CREATE UNIQUE INDEX idx_token_pair_realized_volatility_pair ON token_pair_realized_volatility_materialized (chain_id, token0, token1);

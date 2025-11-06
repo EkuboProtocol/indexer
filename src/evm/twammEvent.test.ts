@@ -5,8 +5,8 @@ describe(parseTwammVirtualOrdersExecuted, () => {
   it("works for example", () => {
     expect(
       parseTwammVirtualOrdersExecuted(
-        "0x12f9571ed354b82e74b3b03938d2d7d26c61897be74024a7170b8052743de8b90000000000ca1c01357e84b027e90000000000000000000000000000",
-      ),
+        "0x12f9571ed354b82e74b3b03938d2d7d26c61897be74024a7170b8052743de8b90000000000ca1c01357e84b027e90000000000000000000000000000"
+      )
     ).toMatchInlineSnapshot(`
       {
         "poolId": "0x12f9571ed354b82e74b3b03938d2d7d26c61897be74024a7170b8052743de8b9",
