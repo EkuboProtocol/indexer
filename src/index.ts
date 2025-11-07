@@ -23,6 +23,8 @@ if (!process.env.INDEXER_NAME) {
 
 const chainId = BigInt(process.env.CHAIN_ID);
 
+const hexChainId = `0x${chainId.toString(16)}`;
+
 if (!chainId) {
   throw new Error("Missing CHAIN_ID");
 }
@@ -165,7 +167,7 @@ function resetNoBlocksTimer() {
   })) {
     switch (message._tag) {
       case "heartbeat": {
-        logger.info(`Heartbeat`);
+        logger.debug(`Heartbeat`);
 
         // Note: We don't reset the no-blocks timer on heartbeats, only when actual blocks are received
         break;
@@ -278,7 +280,7 @@ function resetNoBlocksTimer() {
           });
 
           blockProcessingTimer.done({
-            chainId,
+            _chainId: hexChainId, // for readability
             blockNumber,
             eventsProcessed,
             blockTimestamp: blockTime,
