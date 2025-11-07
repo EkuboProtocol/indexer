@@ -7,6 +7,7 @@ const MIGRATION_FILES = [
   "002_core_tables.sql",
   "019_hourly_tables.sql",
   "026_hourly_tables_block_time.sql",
+  "028_fees_accumulated_block_time.sql",
 ] as const;
 
 let client: PGlite;
@@ -328,6 +329,98 @@ test("swap trigger ignores zero-volume events", async () => {
   );
 
   expect(priceCount.rows[0].count).toBe("0");
+});
+
+test("fees accumulated trigger upserts hourly fees", async () => {
+  const { chainId, blockNumber, poolKeyId } = await seedPool(client, {
+    chainId: 105,
+    blockNumber: 1004,
+  });
+
+  const {
+    rows: [{ event_id }],
+  } = await client.query<{ event_id: bigint }>(
+    `INSERT INTO fees_accumulated (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        delta0,
+        delta1
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      RETURNING event_id`,
+    [
+      chainId,
+      blockNumber,
+      0,
+      0,
+      "6300",
+      "7300",
+      poolKeyId,
+      "15",
+      "25",
+    ]
+  );
+
+  const {
+    rows: [{ block_time }],
+  } = await client.query<{ block_time: string }>(
+    `SELECT block_time::text AS block_time
+     FROM fees_accumulated
+     WHERE chain_id = $1 AND event_id = $2`,
+    [chainId, event_id]
+  );
+
+  expect(block_time).toBe("2024-01-01 00:00:00+00");
+
+  const token0Rows = await client.query<{
+    volume: string;
+    fees: string;
+  }>(
+    `SELECT volume, fees
+     FROM hourly_volume_by_token
+     WHERE pool_key_id = $1 AND token = $2`,
+    [poolKeyId, "4000"]
+  );
+
+  expect(token0Rows.rows.length).toBe(1);
+  expect(token0Rows.rows[0]).toMatchObject({
+    volume: "0",
+    fees: "15",
+  });
+
+  const token1Rows = await client.query<{
+    volume: string;
+    fees: string;
+  }>(
+    `SELECT volume, fees
+     FROM hourly_volume_by_token
+     WHERE pool_key_id = $1 AND token = $2`,
+    [poolKeyId, "4001"]
+  );
+
+  expect(token1Rows.rows.length).toBe(1);
+  expect(token1Rows.rows[0]).toMatchObject({
+    volume: "0",
+    fees: "25",
+  });
+
+  await client.query(
+    `DELETE FROM fees_accumulated WHERE chain_id = $1 AND event_id = $2`,
+    [chainId, event_id]
+  );
+
+  const remaining = await client.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+     FROM hourly_volume_by_token
+     WHERE pool_key_id = $1`,
+    [poolKeyId]
+  );
+
+  expect(remaining.rows[0].count).toBe("0");
 });
 
 test("protocol fees trigger aggregates revenue and latest event id", async () => {
