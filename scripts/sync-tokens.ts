@@ -19,6 +19,7 @@ async function addTokens(
     token_name: string;
     token_symbol: string;
     token_decimals: number;
+    total_supply: string | null;
     logo_url: string | null;
     visibility_priority: number;
     sort_order: number;
@@ -35,7 +36,8 @@ async function addTokens(
               token_decimals = EXCLUDED.token_decimals,
               logo_url = EXCLUDED.logo_url,
               visibility_priority = EXCLUDED.visibility_priority,
-              sort_order = EXCLUDED.sort_order;
+              sort_order = EXCLUDED.sort_order,
+              total_supply = EXCLUDED.total_supply;
     `;
   } else {
     return await sql`
@@ -65,6 +67,12 @@ async function main() {
         token_name: token.name,
         token_symbol: token.symbol,
         token_decimals: token.decimals,
+        total_supply:
+          token.total_supply !== null
+            ? BigInt(
+                Math.floor(token.total_supply * 10 ** token.decimals)
+              ).toString()
+            : null,
         logo_url:
           (EVM_TOKEN_LOGOS as Record<string, string>)[token.symbol] ?? null,
         visibility_priority: token.hidden ? -1 : 1,
@@ -84,6 +92,12 @@ async function main() {
         token_name: token.name,
         token_symbol: token.symbol,
         token_decimals: token.decimals,
+        total_supply:
+          token.total_supply !== null
+            ? BigInt(
+                Math.floor(token.total_supply * 10 ** token.decimals)
+              ).toString()
+            : null,
         logo_url:
           (EVM_TOKEN_LOGOS as Record<string, string>)[token.symbol] ?? null,
         visibility_priority: 1,
@@ -103,6 +117,12 @@ async function main() {
         token_name: token.name,
         token_symbol: token.symbol,
         token_decimals: token.decimals,
+        total_supply:
+          token.total_supply !== null
+            ? BigInt(
+                Math.floor(token.total_supply * 10 ** token.decimals)
+              ).toString()
+            : null,
         logo_url:
           (STARKNET_TOKEN_LOGOS as Record<string, string>)[token.symbol] ??
           null,
@@ -123,6 +143,12 @@ async function main() {
         token_name: token.name,
         token_symbol: token.symbol,
         token_decimals: token.decimals,
+        total_supply:
+          token.total_supply !== null
+            ? BigInt(
+                Math.floor(token.total_supply * 10 ** token.decimals)
+              ).toString()
+            : null,
         logo_url:
           (STARKNET_TOKEN_LOGOS as Record<string, string>)[token.symbol] ??
           null,
