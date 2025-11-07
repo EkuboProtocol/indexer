@@ -1,6 +1,6 @@
 import "../src/config";
 import postgres from "postgres";
-import { tokens as UNISWAP_DEFAULT_TOKENS } from "@uniswap/default-token-list";
+import UNISWAP_TOKEN_LIST from "@uniswap/default-token-list";
 import ETH_MAINNET_TOKENS from "./tokens/eth_mainnet.json";
 import ETH_SEPOLIA_TOKENS from "./tokens/eth_sepolia.json";
 import EVM_TOKEN_LOGOS from "./tokens/evm_logos.json";
@@ -11,6 +11,21 @@ import STARKNET_TOKEN_LOGOS from "./tokens/starknet_logos.json";
 const sql = postgres(process.env.PG_CONNECTION_STRING, {
   connect_timeout: 5,
 });
+
+const REMOTE_TOKEN_LISTS = [
+  {
+    name: "Coingecko All Token",
+    url: "https://tokens.coingecko.com/uniswap/all.json",
+  },
+  {
+    name: "Aave Token List",
+    url: "https://tokenlist.aave.eth.link",
+  },
+  {
+    name: "Compound Token List",
+    url: "https://raw.githubusercontent.com/compound-finance/token-list/master/compound.tokenlist.json",
+  },
+];
 
 async function addTokens(
   tokens: {
@@ -173,24 +188,62 @@ async function main() {
       `Inserted ${registrationTokensCount} from manual token registration events`
     );
 
+    const ADDRESS_REGEX = /^0x[a-fA-F0-9]+$/;
+
     const { count: uniswapTokensInserted } = await addTokens(
-      UNISWAP_DEFAULT_TOKENS.filter((t) =>
-        [1, 11155111].includes(t.chainId)
-      ).map((token) => ({
-        chain_id: String(token.chainId),
-        token_address: token.address,
-        token_name: token.name,
-        token_symbol: token.symbol,
-        token_decimals: token.decimals,
-        logo_url: token.logoURI,
-        visibility_priority: 0,
-        sort_order: 0,
-      }))
+      UNISWAP_TOKEN_LIST.tokens
+        .filter((t) => ADDRESS_REGEX.test(t.address))
+        .map((token) => ({
+          chain_id: String(token.chainId),
+          token_address: token.address,
+          token_name: token.name,
+          token_symbol: token.symbol,
+          token_decimals: token.decimals,
+          logo_url: token.logoURI,
+          visibility_priority: 0,
+          sort_order: 0,
+          total_supply: null,
+        }))
     );
 
     console.log(
       `Inserted ${uniswapTokensInserted} rows from Uniswap's default token list`
     );
+
+    for (const { url, name } of REMOTE_TOKEN_LISTS) {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) {
+          console.warn(
+            `Failed to download remote token list ${name} from ${url}: ${response.status}`
+          );
+          continue;
+        }
+        const list = (await response.json()) as typeof UNISWAP_TOKEN_LIST;
+
+        const { count: listTokensImported } = await addTokens(
+          list.tokens
+            .filter((t) => ADDRESS_REGEX.test(t.address))
+            .map((token) => ({
+              chain_id: String(token.chainId),
+              token_address: token.address,
+              token_name: token.name,
+              token_symbol: token.symbol,
+              token_decimals: token.decimals,
+              logo_url: token.logoURI ?? null,
+              visibility_priority: -1,
+              sort_order: 0,
+              total_supply: null,
+            }))
+        );
+
+        console.log(
+          `Inserted ${listTokensImported} rows from remote list ${name} at url ${url}`
+        );
+      } catch (e) {
+        console.error("Failed to import coingecko token list", e);
+      }
+    }
   });
 
   await sql.end({ timeout: 5 });
