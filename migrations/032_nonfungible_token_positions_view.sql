@@ -1,6 +1,6 @@
 CREATE VIEW nonfungible_token_positions_view AS
 SELECT n.*,
-       pc.core_address,
+       pc.pool_key_id,
        pc.lower_bound,
        pc.upper_bound,
        pc.liquidity
