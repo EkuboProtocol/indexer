@@ -40,15 +40,6 @@ BEGIN
     DO UPDATE SET
         liquidity = position_current_liquidity.liquidity + EXCLUDED.liquidity;
 
-    DELETE FROM position_current_liquidity
-    WHERE chain_id = NEW.chain_id
-      AND core_address = v_core_address
-      AND locker = NEW.locker
-      AND salt = NEW.salt
-      AND lower_bound = NEW.lower_bound
-      AND upper_bound = NEW.upper_bound
-      AND liquidity = 0;
-
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
@@ -63,6 +54,7 @@ BEGIN
     FROM pool_keys
     WHERE pool_key_id = OLD.pool_key_id;
 
+    -- it is assumed to exist
     UPDATE position_current_liquidity
     SET liquidity = liquidity - OLD.liquidity_delta
     WHERE chain_id = OLD.chain_id
@@ -73,33 +65,8 @@ BEGIN
       AND upper_bound = OLD.upper_bound;
 
     IF NOT FOUND THEN
-        INSERT INTO position_current_liquidity (
-            chain_id,
-            core_address,
-            locker,
-            salt,
-            lower_bound,
-            upper_bound,
-            liquidity
-        ) VALUES (
-            OLD.chain_id,
-            v_core_address,
-            OLD.locker,
-            OLD.salt,
-            OLD.lower_bound,
-            OLD.upper_bound,
-            -OLD.liquidity_delta
-        );
+        RAISE EXCEPTION 'failed to update position_current_liquidity on delete';
     END IF;
-
-    DELETE FROM position_current_liquidity
-    WHERE chain_id = OLD.chain_id
-      AND core_address = v_core_address
-      AND locker = OLD.locker
-      AND salt = OLD.salt
-      AND lower_bound = OLD.lower_bound
-      AND upper_bound = OLD.upper_bound
-      AND liquidity = 0;
 
     RETURN NULL;
 END;
@@ -130,8 +97,7 @@ GROUP BY
     pu.locker,
     pu.salt,
     pu.lower_bound,
-    pu.upper_bound
-HAVING SUM(pu.liquidity_delta) <> 0;
+    pu.upper_bound;
 
 CREATE TRIGGER position_current_liquidity_after_insert
     AFTER INSERT ON position_updates
