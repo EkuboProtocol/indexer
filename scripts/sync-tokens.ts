@@ -14,6 +14,11 @@ const sql = postgres(process.env.PG_CONNECTION_STRING, {
 
 const REMOTE_TOKEN_LISTS = [
   {
+    name: "1inch Token List",
+    url: "https://tokens.1inch.eth.link",
+    visibility_priority: 0,
+  },
+  {
     name: "Coingecko All Token",
     url: "https://tokens.coingecko.com/uniswap/all.json",
   },
@@ -210,7 +215,7 @@ async function main() {
       `Inserted ${uniswapTokensInserted} rows from Uniswap's default token list`
     );
 
-    for (const { url, name } of REMOTE_TOKEN_LISTS) {
+    for (const { url, name, visibility_priority = -1 } of REMOTE_TOKEN_LISTS) {
       try {
         const response = await fetch(url);
         if (!response.ok) {
@@ -231,7 +236,7 @@ async function main() {
               token_symbol: token.symbol,
               token_decimals: token.decimals,
               logo_url: token.logoURI ?? null,
-              visibility_priority: -1,
+              visibility_priority,
               sort_order: 0,
               total_supply: null,
             }))
