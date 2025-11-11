@@ -1,6 +1,5 @@
 import "../src/config";
 import postgres from "postgres";
-import UNISWAP_TOKEN_LIST from "@uniswap/default-token-list";
 import ETH_MAINNET_TOKENS from "./tokens/eth_mainnet.json";
 import ETH_SEPOLIA_TOKENS from "./tokens/eth_sepolia.json";
 import EVM_TOKEN_LOGOS from "./tokens/evm_logos.json";
@@ -12,7 +11,35 @@ const sql = postgres(process.env.PG_CONNECTION_STRING, {
   connect_timeout: 5,
 });
 
+type TokenListBridgeInfo = {
+  tokenAddress?: string;
+  originBridgeAddress?: string | null;
+  destBridgeAddress?: string | null;
+};
+
+type TokenListToken = {
+  chainId: number;
+  address: string;
+  name: string;
+  symbol: string;
+  decimals: number;
+  logoURI?: string;
+  extensions?: {
+    bridgeInfo?: Record<string, TokenListBridgeInfo>;
+  };
+};
+
+type TokenList = {
+  name: string;
+  tokens: TokenListToken[];
+};
+
 const REMOTE_TOKEN_LISTS = [
+  {
+    name: "Uniswap Default Token List",
+    url: "https://ipfs.io/ipns/tokens.uniswap.org",
+    visibility_priority: 0,
+  },
   {
     name: "1inch Token List",
     url: "https://tokens.1inch.eth.link",
@@ -68,6 +95,26 @@ async function addTokens(
   }
 }
 
+type BridgeRelationship = {
+  source_chain_id: string;
+  source_token_address: string;
+  source_bridge_address: string | null;
+  dest_chain_id: string;
+  dest_token_address: string;
+};
+
+async function addBridgeRelationships(relationships: BridgeRelationship[]) {
+  if (relationships.length === 0) {
+    return { count: 0 };
+  }
+
+  return await sql`
+    INSERT INTO erc20_tokens_bridge_relationships ${sql(relationships)}
+    ON CONFLICT (source_chain_id, source_token_address, source_bridge_address)
+    DO NOTHING;
+  `;
+}
+
 async function main() {
   await sql.begin(async (sql) => {
     const existingTokensCount = await sql<
@@ -97,6 +144,8 @@ async function main() {
           (EVM_TOKEN_LOGOS as Record<string, string>)[token.symbol] ?? null,
         visibility_priority: token.hidden ? -1 : 1,
         sort_order: token.sort_order,
+        usd_price: null,
+        last_updated: null,
       })),
       true
     );
@@ -122,6 +171,8 @@ async function main() {
           (EVM_TOKEN_LOGOS as Record<string, string>)[token.symbol] ?? null,
         visibility_priority: 1,
         sort_order: token.sort_order,
+        usd_price: null,
+        last_updated: null,
       })),
       true
     );
@@ -148,6 +199,8 @@ async function main() {
           null,
         visibility_priority: 1,
         sort_order: token.sort_order,
+        usd_price: null,
+        last_updated: null,
       })),
       true
     );
@@ -174,6 +227,8 @@ async function main() {
           null,
         visibility_priority: 1,
         sort_order: token.sort_order,
+        usd_price: null,
+        last_updated: null,
       })),
       true
     );
@@ -195,26 +250,6 @@ async function main() {
 
     const ADDRESS_REGEX = /^0x[a-fA-F0-9]+$/;
 
-    const { count: uniswapTokensInserted } = await addTokens(
-      UNISWAP_TOKEN_LIST.tokens
-        .filter((t) => ADDRESS_REGEX.test(t.address))
-        .map((token) => ({
-          chain_id: String(token.chainId),
-          token_address: token.address,
-          token_name: token.name,
-          token_symbol: token.symbol,
-          token_decimals: token.decimals,
-          logo_url: token.logoURI,
-          visibility_priority: 0,
-          sort_order: 0,
-          total_supply: null,
-        }))
-    );
-
-    console.log(
-      `Inserted ${uniswapTokensInserted} rows from Uniswap's default token list`
-    );
-
     for (const { url, name, visibility_priority = -1 } of REMOTE_TOKEN_LISTS) {
       try {
         const response = await fetch(url);
@@ -224,7 +259,7 @@ async function main() {
           );
           continue;
         }
-        const list = (await response.json()) as typeof UNISWAP_TOKEN_LIST;
+        const list = (await response.json()) as TokenList;
 
         const { count: listTokensImported } = await addTokens(
           list.tokens
@@ -239,14 +274,54 @@ async function main() {
               visibility_priority,
               sort_order: 0,
               total_supply: null,
+              usd_price: null,
+              last_updated: null,
             }))
         );
 
         console.log(
           `Inserted ${listTokensImported} rows from remote list ${name} at url ${url}`
         );
+
+        const relationships: BridgeRelationship[] = [];
+        for (const token of list.tokens) {
+          if (!ADDRESS_REGEX.test(token.address)) {
+            continue;
+          }
+
+          const bridgeInfo = token.extensions?.bridgeInfo;
+          if (!bridgeInfo) {
+            continue;
+          }
+
+          for (const [destChainId, info] of Object.entries(bridgeInfo)) {
+            if (!info?.tokenAddress || !ADDRESS_REGEX.test(info.tokenAddress)) {
+              continue;
+            }
+
+            relationships.push({
+              source_chain_id: String(token.chainId),
+              source_token_address: token.address,
+              source_bridge_address:
+                info.originBridgeAddress &&
+                ADDRESS_REGEX.test(info.originBridgeAddress)
+                  ? info.originBridgeAddress
+                  : null,
+              dest_chain_id: String(destChainId),
+              dest_token_address: info.tokenAddress,
+            });
+          }
+        }
+
+        if (relationships.length > 0) {
+          const { count: bridgeRelationshipsUpserted } =
+            await addBridgeRelationships(relationships);
+          console.log(
+            `Inserted ${bridgeRelationshipsUpserted} bridge relationships from remote list ${name}`
+          );
+        }
       } catch (e) {
-        console.error("Failed to import coingecko token list", e);
+        console.error(`Failed to import remote token list ${name}`, e);
       }
     }
   });

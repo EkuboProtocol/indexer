@@ -1,0 +1,20 @@
+ALTER TABLE erc20_tokens
+    ADD COLUMN usd_price DOUBLE PRECISION DEFAULT NULL,
+    ADD COLUMN last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+
+
+CREATE OR REPLACE FUNCTION set_last_updated_to_now()
+RETURNS trigger AS $$
+BEGIN
+	SELECT CURRENT_TIMESTAMP
+	INTO STRICT NEW.last_updated;
+
+	RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER set_last_updated_on_erc20_tokens
+	BEFORE UPDATE ON erc20_tokens
+	FOR EACH ROW
+	EXECUTE FUNCTION set_last_updated_to_now();
+
