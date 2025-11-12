@@ -194,8 +194,9 @@ export function createEventProcessors({
                 upper: Number(parsed.position_key.bounds.upper),
               },
             },
-            amount0: parsed.delta.amount0,
-            amount1: parsed.delta.amount1,
+            // we pass the amount of fees collected (positive). the event emits the pool balance delta
+            amount0: -parsed.delta.amount0,
+            amount1: -parsed.delta.amount1,
           },
           key
         );
