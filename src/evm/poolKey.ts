@@ -24,6 +24,45 @@ export function parsePoolKeyConfig(config: `0x${string}`): {
   };
 }
 
+export function parseV2PoolKeyConfig(config: `0x${string}`):
+  | {
+      fee: bigint;
+      tickSpacing: number;
+      extension: `0x${string}`;
+    }
+  | {
+      fee: bigint;
+      centerTick: number;
+      amplificationFactor: number;
+      extension: `0x${string}`;
+    } {
+  throw new Error("todo");
+}
+
+export function parsePoolBalanceUpdate(balanceUpdate: `0x${string}`): {
+  delta0: bigint;
+  delta1: bigint;
+} {
+  throw new Error("todo");
+}
+export function parsePositionId(positionId: `0x${string}`): {
+  salt: bigint;
+  lower: number;
+  upper: number;
+} {
+  throw new Error("todo");
+}
+
+export function parseOrderConfig(config: `0x${string}`): {
+  isToken1: boolean;
+  salt: bigint;
+  fee: bigint;
+  startTime: bigint;
+  endTime: bigint;
+} {
+  throw new Error("todo");
+}
+
 export function toPoolConfig({
   fee,
   tickSpacing,

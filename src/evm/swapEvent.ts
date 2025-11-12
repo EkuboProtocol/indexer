@@ -77,3 +77,7 @@ export function parseSwapEvent(data: `0x${string}`): CoreSwapped {
     tickAfter,
   };
 }
+
+export function parseSwapEventV2(data: `0x${string}`): CoreSwapped {
+  throw new Error("todo");
+}
