@@ -1087,12 +1087,12 @@ export class DAO {
     event: TwammOrderUpdatedInsert,
     key: EventKey
   ) {
-    const { orderKey, poolId } = event;
+    const { orderKey, poolId, coreAddress } = event;
 
     const [sale_rate_delta0, sale_rate_delta1] =
       BigInt(orderKey.sellToken) > BigInt(orderKey.buyToken)
-        ? [orderKey.buyToken, orderKey.sellToken, 0, event.saleRateDelta]
-        : [orderKey.sellToken, orderKey.buyToken, event.saleRateDelta, 0];
+        ? [0, event.saleRateDelta]
+        : [event.saleRateDelta, 0];
 
     await this.sql`
       INSERT INTO twamm_order_updates
@@ -1109,13 +1109,13 @@ export class DAO {
           SELECT pk.pool_key_id
           FROM pool_keys pk
           WHERE pk.chain_id = ${this.chainId}
-            AND pk.core_address = ${this.numeric(event.coreAddress)}
+            AND pk.core_address = ${this.numeric(coreAddress)}
             AND pk.pool_id = ${this.numeric(poolId)}
         ),
         ${this.numeric(BigInt(event.owner))},
         ${this.numeric(BigInt(event.salt))},
-        ${this.numeric(sale_rate_delta0)},
-        ${this.numeric(sale_rate_delta1)},
+        ${this.numeric(BigInt(sale_rate_delta0))},
+        ${this.numeric(BigInt(sale_rate_delta1))},
         ${new Date(Number(orderKey.startTime * 1000n))},
         ${new Date(Number(orderKey.endTime * 1000n))}
       );
