@@ -17,10 +17,6 @@ if (!process.env.NETWORK) {
   throw new Error(`Missing NETWORK`);
 }
 
-if (!process.env.INDEXER_NAME) {
-  throw new Error("Missing INDEXER_NAME");
-}
-
 const chainId = BigInt(process.env.CHAIN_ID);
 
 const hexChainId = `0x${chainId.toString(16)}`;

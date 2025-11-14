@@ -3,7 +3,6 @@ interface CommonConfiguration {
 
   NETWORK: string;
   CHAIN_ID: string;
-  INDEXER_NAME: string;
 
   STARTING_CURSOR_BLOCK_NUMBER: string;
 
