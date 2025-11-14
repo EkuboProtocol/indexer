@@ -46,7 +46,7 @@ async function main() {
       return;
     }
 
-    for (const chainId of chainIds.filter((cid) => cid === 1n)) {
+    for (const chainId of chainIds) {
       const updates: [
         chain_id: string,
         token_address: string,
@@ -55,12 +55,11 @@ async function main() {
 
       try {
         const prices = await fetchPricesForChain(chainId);
-        // const prices = { ["0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"]: 1.0 };
         for (const [tokenAddress, usdPrice] of Object.entries(prices)) {
           updates.push([String(chainId), tokenAddress, usdPrice]);
         }
       } catch (e) {
-        console.error(`Failed to fetch prices for chain ID ${chainId}`, e);
+        console.warn(`Failed to fetch prices for chain ID ${chainId}`, e);
         continue;
       }
 
@@ -81,9 +80,7 @@ async function main() {
       `;
 
       console.log(
-        `Updated ${updatedTokens.length} token prices across [${chainIds
-          .map((c) => `${c}`)
-          .join(", ")}] chain(s)`
+        `Updated ${updatedTokens.length} token prices for chain ID ${chainId}`
       );
     }
   });
