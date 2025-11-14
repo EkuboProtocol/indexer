@@ -11,6 +11,7 @@
     "starknet:sepolia": "NETWORK_TYPE=starknet NETWORK=sepolia jiti src/index.ts",
     "generate-systemd": "jiti scripts/create-systemd-services.ts",
     "sync-tokens": "jiti scripts/sync-tokens.ts",
+    "sync-token-prices": "jiti scripts/sync-token-prices.ts",
     "migrate": "jiti scripts/migrate.ts",
     "test": "vitest",
     "check-ts": "tsc --noEmit"
