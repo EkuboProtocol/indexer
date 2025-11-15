@@ -4,10 +4,10 @@ alerts:
   - rule: DEPLOYMENT_FAILED
     disabled: false
 databases:
-  - engine: PG
-    production: true
+  - name: indexer-db
+    engine: PG
     cluster_name: ekubo-db
-    name: indexer-db
+    production: true
 envs:
   - key: NODE_ENV
     scope: RUN_AND_BUILD_TIME
@@ -18,6 +18,7 @@ envs:
   - key: DNA_TOKEN
     scope: RUN_TIME
     type: SECRET
+    value: "EV[1:vZu6ADFXqdREl4HqIdWSjzd8QX4foxU6:Hi7U8OonUSTlFT50ZKepvfLwmz2HSgwqlS+v5p1JFJ/0hLbExibmeA==]"
 workers:
   - name: starknet-sepolia
     environment_slug: node-js
