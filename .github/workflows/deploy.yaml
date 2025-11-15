@@ -1,0 +1,21 @@
+name: Deploy to App Platform
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_ACCESS_TOKEN }}
+
+      - name: Upsert DigitalOcean App
+        env:
+          DNA_TOKEN: ${{ secrets.DNA_TOKEN }}
+        run: doctl apps create --spec .do/app.yaml --upsert --update-sources
