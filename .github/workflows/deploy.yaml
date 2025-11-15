@@ -16,6 +16,4 @@ jobs:
           token: ${{ secrets.DO_ACCESS_TOKEN }}
 
       - name: Upsert DigitalOcean App
-        env:
-          DNA_TOKEN: ${{ secrets.DNA_TOKEN }}
         run: doctl apps create --spec .do/app.yaml --upsert --update-sources

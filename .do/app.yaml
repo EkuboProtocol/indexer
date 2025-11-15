@@ -103,7 +103,7 @@ jobs:
   - name: sync-tokens
     kind: SCHEDULED
     schedule:
-      cron: "0 * * * *"
+      cron: "*/5 * * * *"
     environment_slug: node-js
     instance_size_slug: basic-xxs
     instance_count: 1
