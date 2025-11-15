@@ -5,12 +5,9 @@
     "token_name": "Wrapped BTC",
     "token_symbol": "WBTC",
     "token_decimals": 8,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/7dcb2db2-a7a7-44af-660b-8262e057a100/logo",
     "visibility_priority": 1,
-    "sort_order": 0,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 0
   },
   {
     "chain_id": "1",
@@ -18,12 +15,9 @@
     "token_name": "USDC",
     "token_symbol": "USDC",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/e5aaa970-a998-47e8-bd43-4a3b56b87200/logo",
-    "visibility_priority": 1,
-    "sort_order": 6,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 3,
+    "sort_order": 6
   },
   {
     "chain_id": "1",
@@ -31,12 +25,9 @@
     "token_name": "Savings USDS",
     "token_symbol": "sUSDS",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/df94bb94-7a61-45e1-9a9c-83edae909400/logo",
     "visibility_priority": 1,
-    "sort_order": 3,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 3
   },
   {
     "chain_id": "1",
@@ -44,12 +35,9 @@
     "token_name": "USDS Stablecoin",
     "token_symbol": "USDS",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/f08eec2a-994a-4ed8-bee7-9cd4cef9f400/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "1",
@@ -57,12 +45,9 @@
     "token_name": "EURC",
     "token_symbol": "EURC",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/5e771c51-ac56-4fd4-5216-f2d118d78000/logo",
     "visibility_priority": 1,
-    "sort_order": 5,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 5
   },
   {
     "chain_id": "1",
@@ -70,12 +55,9 @@
     "token_name": "LUSD Stablecoin",
     "token_symbol": "LUSD",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/dc0ae733-5498-4afa-f475-48dba677aa00/logo",
-    "visibility_priority": -1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 4
   },
   {
     "chain_id": "1",
@@ -83,12 +65,9 @@
     "token_name": "ebUSD Stablecoin",
     "token_symbol": "ebUSD",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/cdfa0f9b-2d13-4c33-84dc-8fea2a117700/logo",
-    "visibility_priority": -1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 4
   },
   {
     "chain_id": "1",
@@ -96,12 +75,9 @@
     "token_name": "Tether USD",
     "token_symbol": "USDT",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/c8a721d1-07c3-46e4-ab4e-523977c30b00/logo",
-    "visibility_priority": 1,
-    "sort_order": 5,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 3,
+    "sort_order": 5
   },
   {
     "chain_id": "1",
@@ -109,12 +85,9 @@
     "token_name": "Ether",
     "token_symbol": "ETH",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/e07829b7-0382-4e03-7ecd-a478c5aa9f00/logo",
-    "visibility_priority": 1,
-    "sort_order": 3,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 3,
+    "sort_order": 3
   },
   {
     "chain_id": "1",
@@ -122,12 +95,9 @@
     "token_name": "Dai Stablecoin",
     "token_symbol": "DAI",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/919e761b-56f7-4f53-32aa-5e066f7f6200/logo",
-    "visibility_priority": -1,
-    "sort_order": 5,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 5
   },
   {
     "chain_id": "1",
@@ -135,12 +105,9 @@
     "token_name": "Wrapped liquid staked Ether 2.0",
     "token_symbol": "wstETH",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/dbbcbdea-1a92-437d-3701-4a5ee129d000/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "1",
@@ -148,12 +115,9 @@
     "token_name": "Rocket Pool ETH",
     "token_symbol": "rETH",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/c9f2d6fe-fbc6-4384-0990-923dfcb7a200/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "1",
@@ -161,12 +125,9 @@
     "token_name": "Uniswap",
     "token_symbol": "UNI",
     "token_decimals": 18,
-    "total_supply": "1000000000000000013287555072",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/361b018e-bd53-4019-27c8-7cf8d9031b00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "1",
@@ -174,12 +135,9 @@
     "token_name": "Starknet Token",
     "token_symbol": "STRK",
     "token_decimals": 18,
-    "total_supply": "9999999999999999583119736832",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/1b126320-367c-48ed-cf5a-ba7580e49600/logo",
     "visibility_priority": 1,
-    "sort_order": 2,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 2
   },
   {
     "chain_id": "1",
@@ -187,12 +145,9 @@
     "token_name": "Ekubo Protocol",
     "token_symbol": "EKUBO",
     "token_decimals": 18,
-    "total_supply": "10000000000000000905969664",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/634d9c36-2f0b-4781-93e6-72d701b5af00/logo",
     "visibility_priority": 1,
-    "sort_order": 2,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 2
   },
   {
     "chain_id": "1",
@@ -200,12 +155,9 @@
     "token_name": "SOCKS",
     "token_symbol": "SOCKS",
     "token_decimals": 18,
-    "total_supply": "99999999999999991433150857216",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/2db5a2a6-c98e-4b80-35e0-31b489132100/logo",
-    "visibility_priority": -1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "1",
@@ -213,12 +165,9 @@
     "token_name": "Level USD",
     "token_symbol": "lvlUSD",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/c3d5e2d9-691e-4a08-08b7-391cc5afb000/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "1",
@@ -226,12 +175,9 @@
     "token_name": "Elixir deUSD",
     "token_symbol": "deUSD",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/5199aa69-2f28-47bc-95ae-4df5a48bb700/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "1",
@@ -239,12 +185,9 @@
     "token_name": "Agora USD",
     "token_symbol": "AUSD",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/09410916-e126-42d5-847f-e5bf593d5b00/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "1",
@@ -252,12 +195,9 @@
     "token_name": "USDe",
     "token_symbol": "USDe",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/d9c247ea-e3c1-4399-e9d5-6005a8e20200/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "1",
@@ -265,12 +205,9 @@
     "token_name": "BOLD Stablecoin",
     "token_symbol": "BOLD",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/201c7b2c-42a9-4294-fa4c-1b0aba4f4a00/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "1",
@@ -278,12 +215,9 @@
     "token_name": "Euler",
     "token_symbol": "EUL",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/0ddf147b-a073-456d-8d03-afc790472900/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "1",
@@ -291,12 +225,9 @@
     "token_name": "Resolv USD",
     "token_symbol": "USR",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/f359d85e-942b-45b5-fb46-455b1beb7b00/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "1",
@@ -304,12 +235,9 @@
     "token_name": "Staked USDe",
     "token_symbol": "sUSDe",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/6635d0db-7a64-4013-4f99-51371acf0000/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "1",
@@ -317,12 +245,9 @@
     "token_name": "GHO token",
     "token_symbol": "GHO",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/fa47e223-ec0e-4cec-0d1a-7456a5197800/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "1",
@@ -330,12 +255,9 @@
     "token_name": "Succinct",
     "token_symbol": "PROVE",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/5fb6909d-34dc-495c-dada-b3c03841f200/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "1",
@@ -343,12 +265,9 @@
     "token_name": "Ekubo Protocol Apr/1/2026",
     "token_symbol": "gEKUBO-26Q2",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/ec052125-c8e6-49ca-6915-13e97ca62c00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "1",
@@ -356,12 +275,9 @@
     "token_name": "Ethena",
     "token_symbol": "ENA",
     "token_decimals": 18,
-    "total_supply": "15000000000000000474191233024",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/c155259b-b8d7-469d-4dd6-753f217d0300/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "1",
@@ -369,12 +285,9 @@
     "token_name": "Wrapped eETH",
     "token_symbol": "weETH",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/3129aae3-b9de-42e9-f3f6-c8103790cf00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "1",
@@ -382,12 +295,9 @@
     "token_name": "Curve.Fi USD",
     "token_symbol": "crvUSD",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/c1f85e2b-58f1-4910-c1e2-34caa0a73900/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "1",
@@ -395,12 +305,9 @@
     "token_name": "Yield Basis",
     "token_symbol": "YB",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/73d9bf5d-2dfc-4522-08d7-661f4c358200/logo",
     "visibility_priority": 1,
-    "sort_order": 3,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 3
   },
   {
     "chain_id": "11155111",
@@ -408,12 +315,9 @@
     "token_name": "Ether",
     "token_symbol": "ETH",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/e07829b7-0382-4e03-7ecd-a478c5aa9f00/logo",
-    "visibility_priority": 1,
-    "sort_order": 2,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 3,
+    "sort_order": 2
   },
   {
     "chain_id": "11155111",
@@ -421,12 +325,9 @@
     "token_name": "USDC",
     "token_symbol": "USDC",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/e5aaa970-a998-47e8-bd43-4a3b56b87200/logo",
-    "visibility_priority": 1,
-    "sort_order": 5,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 3,
+    "sort_order": 5
   },
   {
     "chain_id": "11155111",
@@ -434,12 +335,9 @@
     "token_name": "EURC",
     "token_symbol": "EURC",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/5e771c51-ac56-4fd4-5216-f2d118d78000/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "11155111",
@@ -447,12 +345,9 @@
     "token_name": "USDT",
     "token_symbol": "USDT",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/c8a721d1-07c3-46e4-ab4e-523977c30b00/logo",
-    "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 3,
+    "sort_order": 4
   },
   {
     "chain_id": "11155111",
@@ -460,12 +355,9 @@
     "token_name": "Ekubo Protocol",
     "token_symbol": "EKUBO",
     "token_decimals": 18,
-    "total_supply": "10000000000000000905969664",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/634d9c36-2f0b-4781-93e6-72d701b5af00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "11155111",
@@ -473,12 +365,9 @@
     "token_name": "Starknet Token",
     "token_symbol": "STRK",
     "token_decimals": 18,
-    "total_supply": "9999999999999999583119736832",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/1b126320-367c-48ed-cf5a-ba7580e49600/logo",
     "visibility_priority": 1,
-    "sort_order": 2,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 2
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -486,12 +375,9 @@
     "token_name": "Wrapped BTC",
     "token_symbol": "WBTC",
     "token_decimals": 8,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/7dcb2db2-a7a7-44af-660b-8262e057a100/logo",
     "visibility_priority": 1,
-    "sort_order": 0,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 0
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -499,12 +385,9 @@
     "token_name": "Threshold tBTC",
     "token_symbol": "tBTC",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/9e04d713-fc0e-4e96-342b-0334f5133b00/logo",
     "visibility_priority": 1,
-    "sort_order": 0,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 0
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -512,12 +395,9 @@
     "token_name": "USD Coin",
     "token_symbol": "USDC",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/e5aaa970-a998-47e8-bd43-4a3b56b87200/logo",
-    "visibility_priority": 1,
-    "sort_order": 7,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 3,
+    "sort_order": 7
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -525,12 +405,9 @@
     "token_name": "LUSD Stablecoin",
     "token_symbol": "LUSD",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/dc0ae733-5498-4afa-f475-48dba677aa00/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -538,12 +415,9 @@
     "token_name": "Tether USD",
     "token_symbol": "USDT",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/c8a721d1-07c3-46e4-ab4e-523977c30b00/logo",
-    "visibility_priority": 1,
-    "sort_order": 6,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 3,
+    "sort_order": 6
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -551,12 +425,9 @@
     "token_name": "Ether",
     "token_symbol": "ETH",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/e07829b7-0382-4e03-7ecd-a478c5aa9f00/logo",
-    "visibility_priority": 1,
-    "sort_order": 3,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 3,
+    "sort_order": 3
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -564,12 +435,9 @@
     "token_name": "Dai Stablecoin",
     "token_symbol": "DAIv0",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/919e761b-56f7-4f53-32aa-5e066f7f6200/logo",
     "visibility_priority": 1,
-    "sort_order": 5,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 5
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -577,12 +445,9 @@
     "token_name": "Dai Stablecoin",
     "token_symbol": "DAI",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/919e761b-56f7-4f53-32aa-5e066f7f6200/logo",
     "visibility_priority": 1,
-    "sort_order": 5,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 5
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -590,12 +455,9 @@
     "token_name": "Legacy Starknet Wrapped Staked Ether",
     "token_symbol": "wstETH-legacy",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/26162dcc-29c2-4f5e-3acd-5e6be1f07a00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -603,12 +465,9 @@
     "token_name": "Wrapped Staked Ether",
     "token_symbol": "wstETH",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/dbbcbdea-1a92-437d-3701-4a5ee129d000/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -616,12 +475,9 @@
     "token_name": "Rocket Pool ETH",
     "token_symbol": "rETH",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/c9f2d6fe-fbc6-4384-0990-923dfcb7a200/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -629,12 +485,9 @@
     "token_name": "LORDS",
     "token_symbol": "LORDS",
     "token_decimals": 18,
-    "total_supply": "50899999999999999521849344",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/a3bfe959-50c4-4f89-0aef-b19207d82a00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -642,12 +495,9 @@
     "token_name": "R Stablecoin",
     "token_symbol": "R",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/77612e4e-f7ee-4dba-2066-af321843ef00/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -655,12 +505,9 @@
     "token_name": "Frax",
     "token_symbol": "FRAX",
     "token_decimals": 18,
-    "total_supply": "649462234999999933049733120",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/eeaf0779-e492-474c-ef19-b27843525600/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -668,12 +515,9 @@
     "token_name": "Frax Share",
     "token_symbol": "FXS",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/98bea621-1e4f-4d63-9689-bdaef0d56500/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -681,12 +525,9 @@
     "token_name": "Staked Frax Ether",
     "token_symbol": "sfrxETH",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/cd6fe18a-25db-4de9-758a-daf3b364ea00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -694,12 +535,9 @@
     "token_name": "Anubis",
     "token_symbol": "ANB",
     "token_decimals": 18,
-    "total_supply": "1000000000000000013287555072",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/ef8a0a50-7c12-4b9b-e937-1bea5bdd3500/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -707,12 +545,9 @@
     "token_name": "Uniswap",
     "token_symbol": "UNI",
     "token_decimals": 18,
-    "total_supply": "1000000000000000013287555072",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/361b018e-bd53-4019-27c8-7cf8d9031b00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -720,12 +555,9 @@
     "token_name": "OWL",
     "token_symbol": "OWL",
     "token_decimals": 18,
-    "total_supply": "100000000000000004764729344",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/30622111-3d69-4d47-37fd-2beac1c53400/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -733,12 +565,9 @@
     "token_name": "Paper",
     "token_symbol": "PAPER",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/811f019a-0461-4cff-6c1e-442102863f00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -746,12 +575,9 @@
     "token_name": "STRAK-meme",
     "token_symbol": "STRAK-meme",
     "token_decimals": 18,
-    "total_supply": "9999999999999999583119736832",
     "logo_url": null,
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -759,12 +585,9 @@
     "token_name": "StarkPepe",
     "token_symbol": "xSPEPE",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": null,
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -772,12 +595,9 @@
     "token_name": "Gary Gensler",
     "token_symbol": "xGARY",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": null,
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -785,12 +605,9 @@
     "token_name": "StarkBanana",
     "token_symbol": "xSBANANA",
     "token_decimals": 18,
-    "total_supply": "100000000000000004764729344",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/516c435e-f89a-4a88-aff0-fdcc6e218900/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -798,12 +615,9 @@
     "token_name": "Starknet Token",
     "token_symbol": "STRK",
     "token_decimals": 18,
-    "total_supply": "9999999999999999583119736832",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/1b126320-367c-48ed-cf5a-ba7580e49600/logo",
-    "visibility_priority": 1,
-    "sort_order": 2,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 3,
+    "sort_order": 2
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -811,12 +625,9 @@
     "token_name": "zkLend Token",
     "token_symbol": "ZEND",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/95515b0e-1230-4158-10f1-56888f613c00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -824,12 +635,9 @@
     "token_name": "Ekubo Protocol",
     "token_symbol": "EKUBO",
     "token_decimals": 18,
-    "total_supply": "10000000000000000905969664",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/634d9c36-2f0b-4781-93e6-72d701b5af00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -837,12 +645,9 @@
     "token_name": "SOCKS",
     "token_symbol": "SOCKS",
     "token_decimals": 18,
-    "total_supply": "99999999999999991433150857216",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/2db5a2a6-c98e-4b80-35e0-31b489132100/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -850,12 +655,9 @@
     "token_name": "Nostra",
     "token_symbol": "NSTR",
     "token_decimals": 18,
-    "total_supply": "100000000000000004764729344",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/a45c2224-17a7-4269-ea7e-3924e9755800/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -863,12 +665,9 @@
     "token_name": "Standard Weighted Adalian Yield",
     "token_symbol": "SWAY",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/dd43c15d-80bf-4298-7620-abc12d474f00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -876,12 +675,9 @@
     "token_name": "ZKX",
     "token_symbol": "ZKX",
     "token_decimals": 18,
-    "total_supply": "100000000000000004764729344",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/bfc2ef55-3dd4-43ef-66a7-9a0e228b5900/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -889,12 +685,9 @@
     "token_name": "Carmine",
     "token_symbol": "CRM",
     "token_decimals": 18,
-    "total_supply": "100000000000000004764729344",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/6ab817f1-8075-4a94-6e14-f112f1f89d00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -902,12 +695,9 @@
     "token_name": "Nimbora sDAI",
     "token_symbol": "nsDAI",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/a016d9ab-a7b5-4f31-3656-f41fa27cc300/logo",
     "visibility_priority": 1,
-    "sort_order": 2,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 2
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -915,12 +705,9 @@
     "token_name": "Nimbora Pendle EtherFi ETH",
     "token_symbol": "npeETH",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/f1f900d0-da29-49f6-271b-d1a3754aa200/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -928,12 +715,9 @@
     "token_name": "Nimbora Pendle Puffer ETH",
     "token_symbol": "nppETH",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/d37fbc14-daa9-45e8-d523-c656704e7d00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -941,12 +725,9 @@
     "token_name": "Nimbora Pendle Flux USDC",
     "token_symbol": "npfUSDC",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/af942cb7-aae8-41dc-5cc9-4aedc5c06000/logo",
     "visibility_priority": 1,
-    "sort_order": 3,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 3
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -954,12 +735,9 @@
     "token_name": "Nimbora Pendle Aave USDT",
     "token_symbol": "npaUSDT",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/f376f6d9-bcf3-41b0-c0d3-6ef2f606d200/logo",
     "visibility_priority": 1,
-    "sort_order": 3,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 3
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -967,12 +745,9 @@
     "token_name": "Cash",
     "token_symbol": "CASH",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/6bd6d156-f509-4b51-5dfc-3ee566143600/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -980,12 +755,9 @@
     "token_name": "Flip",
     "token_symbol": "FLIP",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/275f0fa8-a691-471c-ace6-0eb0315dde00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -993,12 +765,9 @@
     "token_name": "Alf the Alpha",
     "token_symbol": "ALF",
     "token_decimals": 18,
-    "total_supply": "10065076069999999360891355136",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/5864e60d-8432-42d3-1ad4-fced31d43a00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1006,12 +775,9 @@
     "token_name": "Endur xSTRK",
     "token_symbol": "xSTRK",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/c1f44170-c1b0-4531-3d3b-5f0bacfe1300/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1019,12 +785,9 @@
     "token_name": "Nimbora Staked Starknet Token",
     "token_symbol": "sSTRK",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/e28697ac-a8ba-462f-0d40-ad33b285c200/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1032,12 +795,9 @@
     "token_name": "zkLend Staked STRK",
     "token_symbol": "kSTRK",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/585854e8-3656-4bfc-412b-9cd8b8ae2900/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1045,12 +805,9 @@
     "token_name": "SCHIZODIO",
     "token_symbol": "SCHIZODIO",
     "token_decimals": 18,
-    "total_supply": "1000000000000000013287555072",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/741c76d8-6a9c-49ea-da66-6cee3216c200/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1058,12 +815,9 @@
     "token_name": "Eternum Stone",
     "token_symbol": "STONE",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/932e7f83-a4c2-40f0-3048-35af3b194100/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1071,12 +825,9 @@
     "token_name": "Eternum Coal",
     "token_symbol": "COAL",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/cf2ee180-06bf-4443-e3aa-724d7c28e800/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1084,12 +835,9 @@
     "token_name": "Eternum Wood",
     "token_symbol": "WOOD",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/1db5f954-c1ef-447e-9f8f-05bd9f3b2b00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1097,12 +845,9 @@
     "token_name": "Eternum Copper",
     "token_symbol": "COPPER",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/6bbcdcc9-6146-404d-9501-92a664cf3100/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1110,12 +855,9 @@
     "token_name": "Eternum Ironwood",
     "token_symbol": "IRONWOOD",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/5af7c03b-e4ae-4aee-eba4-a4e2160a1d00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1123,12 +865,9 @@
     "token_name": "Eternum Obsidian",
     "token_symbol": "OBSIDIAN",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/8be9bc66-486b-4181-6804-725a1db8ad00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1136,12 +875,9 @@
     "token_name": "Eternum Gold",
     "token_symbol": "GOLD",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/fb9e90f7-3c2f-4c64-7e43-c3f694f35e00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1149,12 +885,9 @@
     "token_name": "Eternum Silver",
     "token_symbol": "SILVER",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/e443afeb-850b-46a0-a7ba-a473306d6b00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1162,12 +895,9 @@
     "token_name": "Eternum Mithral",
     "token_symbol": "MITHRAL",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/33dc517f-8a66-45eb-f2c5-de5388e47500/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1175,12 +905,9 @@
     "token_name": "Eternum Alchemical Silver",
     "token_symbol": "ALCHEMICALSILVER",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/3d2e0fd8-4af8-49a0-4bdb-691a4d6ef800/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1188,12 +915,9 @@
     "token_name": "Eternum Cold Iron",
     "token_symbol": "COLDIRON",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/878c0d8a-8e2c-4281-0896-9cbbb2ef9400/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1201,12 +925,9 @@
     "token_name": "Eternum Deep Crystal",
     "token_symbol": "DEEPCRYSTAL",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/1c2c954f-448c-476b-a4a6-19b52efe3e00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1214,12 +935,9 @@
     "token_name": "Eternum Ruby",
     "token_symbol": "RUBY",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/6a45b34d-3bfe-4994-45b0-f2bee8abac00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1227,12 +945,9 @@
     "token_name": "Eternum Diamonds",
     "token_symbol": "DIAMONDS",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/b1fa609d-8799-4754-cdea-ab69514ca700/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1240,12 +955,9 @@
     "token_name": "Eternum Hartwood",
     "token_symbol": "HARTWOOD",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/27e37e85-91bd-4ee1-0552-1e0795077400/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1253,12 +965,9 @@
     "token_name": "Eternum Ignium",
     "token_symbol": "IGNIUM",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/58591e20-24fb-4353-417a-81d877a5a200/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1266,12 +975,9 @@
     "token_name": "Eternum Twilight Quartz",
     "token_symbol": "TWILIGHTQUARTZ",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/2f8cb892-e82a-4af3-bd09-316061faec00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1279,12 +985,9 @@
     "token_name": "Eternum True Ice",
     "token_symbol": "TRUEICE",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/fe4bfc17-6553-4dc5-58d2-f452b4aa8a00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1292,12 +995,9 @@
     "token_name": "Eternum Adamantine",
     "token_symbol": "ADAMANTINE",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/13bd026b-3612-480e-0119-04cf4c505a00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1305,12 +1005,9 @@
     "token_name": "Eternum Sapphire",
     "token_symbol": "SAPPHIRE",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/0ebf555f-e732-4054-f8e5-55b2ed49ba00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1318,12 +1015,9 @@
     "token_name": "Eternum Ethereal Silica",
     "token_symbol": "ETHEREALSILICA",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/f02a5b43-bfcf-408c-7d1b-fcfe68b02d00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1331,12 +1025,9 @@
     "token_name": "Eternum Dragon Hide",
     "token_symbol": "DRAGONHIDE",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/e74955fc-5c8a-4dff-4882-a49a46a5a800/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1344,12 +1035,9 @@
     "token_name": "Eternum Ancient Fragment",
     "token_symbol": "ANCIENTFRAGMENT",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/9af855b7-4790-4390-9466-6bed4481ab00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1357,12 +1045,9 @@
     "token_name": "Eternum Donkey",
     "token_symbol": "DONKEY",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/20817378-a45e-4521-f464-10f6dd13c500/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1370,12 +1055,9 @@
     "token_name": "Eternum Knight",
     "token_symbol": "KNIGHT",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/8787ed1f-af5c-4873-c01a-55f05e999a00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1383,12 +1065,9 @@
     "token_name": "Eternum Crossbowman",
     "token_symbol": "CROSSBOWMAN",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/dec7f31b-4b1d-46bb-4fca-c0253cf55a00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1396,12 +1075,9 @@
     "token_name": "Eternum Paladin",
     "token_symbol": "PALADIN",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/7d2cd5a5-f38a-49f6-11f8-ba3b59a59e00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1409,12 +1085,9 @@
     "token_name": "Eternum Wheat",
     "token_symbol": "WHEAT",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/c338b6a8-77c4-4dd6-34f5-1af0d3fb1e00/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1422,12 +1095,9 @@
     "token_name": "Eternum Fish",
     "token_symbol": "FISH",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/6deef27f-df40-4248-4e1b-ed1d79a3f000/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 0,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1435,12 +1105,9 @@
     "token_name": "Relend Network USDC - Starknet",
     "token_symbol": "rUSDC-stark",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/7b6dc659-f9c3-4f95-0943-1976a7354a00/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1448,12 +1115,9 @@
     "token_name": "DOG GO TO THE MOON",
     "token_symbol": "DOG",
     "token_decimals": 5,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/43bf2a37-d5a4-40e3-45a6-2488108b0c00/logo",
     "visibility_priority": 1,
-    "sort_order": 2,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 2
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1461,12 +1125,9 @@
     "token_name": "MAGIC INTERNET MONEY",
     "token_symbol": "MIM",
     "token_decimals": 0,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/27e0f7b9-ca5d-4af6-7d2e-ed3f72826700/logo",
     "visibility_priority": 1,
-    "sort_order": 2,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 2
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1474,12 +1135,9 @@
     "token_name": "PUPS WORLD PEACE",
     "token_symbol": "PUPS",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/9af521eb-16e2-4d8b-50cd-c9f847563100/logo",
     "visibility_priority": 1,
-    "sort_order": 2,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 2
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1487,12 +1145,9 @@
     "token_name": "BILLION DOLLAR CAT",
     "token_symbol": "BDC",
     "token_decimals": 0,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/68e9d7a7-8289-4ed8-f47f-4947ff152000/logo",
     "visibility_priority": 1,
-    "sort_order": 2,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 2
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1500,12 +1155,9 @@
     "token_name": "UNCOMMON GOODS",
     "token_symbol": "UCG",
     "token_decimals": 0,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/1604eb09-60d6-4433-d0ba-012b5b0c4700/logo",
     "visibility_priority": 1,
-    "sort_order": 2,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 2
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1513,12 +1165,9 @@
     "token_name": "Pump",
     "token_symbol": "PUMP",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": null,
     "visibility_priority": 1,
-    "sort_order": 2,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 2
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1526,12 +1175,9 @@
     "token_name": "Survivor",
     "token_symbol": "SURVIVOR",
     "token_decimals": 18,
-    "total_supply": "10000000000000000905969664",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/399cb277-f675-4efe-97fb-fac94a236a00/logo",
     "visibility_priority": 1,
-    "sort_order": 2,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 2
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1539,12 +1185,9 @@
     "token_name": "USN",
     "token_symbol": "USN",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/1c13351a-bb95-4ce3-2303-9793617fd200/logo",
     "visibility_priority": 1,
-    "sort_order": 5,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 5
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1552,12 +1195,9 @@
     "token_name": "Staked USN",
     "token_symbol": "sUSN",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/57c7fd1e-f278-4cd1-dddc-122a8fb98000/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1565,12 +1205,9 @@
     "token_name": "ForgeYieldsWBTC",
     "token_symbol": "fyWBTC",
     "token_decimals": 8,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/8b917d7a-60bd-4788-9336-e6781d222700/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1578,12 +1215,9 @@
     "token_name": "Endur xWBTC",
     "token_symbol": "xWBTC",
     "token_decimals": 8,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/6d2f83ef-6bd6-44af-dd34-9076eeae5e00/logo",
     "visibility_priority": 1,
-    "sort_order": 0,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 0
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1591,12 +1225,9 @@
     "token_name": "Endur xtBTC",
     "token_symbol": "xtBTC",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/b9ad718c-d6bb-45d5-d1f9-a8ae911efb00/logo",
     "visibility_priority": 1,
-    "sort_order": 0,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 0
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1604,12 +1235,9 @@
     "token_name": "Endur xLBTC",
     "token_symbol": "xLBTC",
     "token_decimals": 8,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/1d016787-181b-4373-4aa5-962adddc6c00/logo",
     "visibility_priority": 1,
-    "sort_order": 0,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 0
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1617,12 +1245,9 @@
     "token_name": "Endur xsBTC",
     "token_symbol": "xsBTC",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/b978fbfd-4aa0-4a56-5402-47857c921e00/logo",
     "visibility_priority": 1,
-    "sort_order": 0,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 0
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1630,12 +1255,9 @@
     "token_name": "Yield BTC.B",
     "token_symbol": "YBTC.B",
     "token_decimals": 8,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/21264f6b-bd3e-4bef-b54d-78d268dcce00/logo",
     "visibility_priority": 1,
-    "sort_order": 0,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 0
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1643,12 +1265,9 @@
     "token_name": "uniBTC",
     "token_symbol": "uniBTC",
     "token_decimals": 8,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/27f11c5f-544e-4d95-b0e5-7300eddc1900/logo",
     "visibility_priority": 1,
-    "sort_order": 0,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 0
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1656,12 +1275,9 @@
     "token_name": "Lombard Staked Bitcoin",
     "token_symbol": "LBTC",
     "token_decimals": 8,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/d57a3c6e-83fc-47c6-2a2b-df3a9c216100/logo",
     "visibility_priority": 1,
-    "sort_order": 0,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 0
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1669,12 +1285,9 @@
     "token_name": "pumpBTC.stk",
     "token_symbol": "pumpBTC",
     "token_decimals": 8,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/c075b9c2-7d88-447d-bdb8-567b0e060600/logo",
     "visibility_priority": 1,
-    "sort_order": 0,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 0
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1682,12 +1295,9 @@
     "token_name": "Solv BTC",
     "token_symbol": "SolvBTC",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/b510231d-c479-4f22-eda5-0457222e7e00/logo",
     "visibility_priority": 1,
-    "sort_order": 0,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 0
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1695,12 +1305,9 @@
     "token_name": "Midas Re7 BTC",
     "token_symbol": "mRe7BTC",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/3a62ecee-1e58-45d3-9862-3ce90dff1900/logo",
     "visibility_priority": 1,
-    "sort_order": 0,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 0
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1708,12 +1315,9 @@
     "token_name": "Dungeon Ticket",
     "token_symbol": "TICKET",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/f96b51e2-e978-42e2-c67a-e84159015000/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1721,12 +1325,9 @@
     "token_name": "Bonk",
     "token_symbol": "BONK",
     "token_decimals": 5,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/05c7a597-ea71-4129-6bf0-ad2d18cb1200/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494e",
@@ -1734,12 +1335,9 @@
     "token_name": "Uncap USD",
     "token_symbol": "USDU",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/1cf94983-68e7-42e3-61c4-081d61d57700/logo",
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   },
   {
     "chain_id": "0x534e5f4d41494f",
@@ -1747,12 +1345,9 @@
     "token_name": "Ether",
     "token_symbol": "ETH",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/e07829b7-0382-4e03-7ecd-a478c5aa9f00/logo",
-    "visibility_priority": 1,
-    "sort_order": 2,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 3,
+    "sort_order": 2
   },
   {
     "chain_id": "0x534e5f4d41494f",
@@ -1760,12 +1355,9 @@
     "token_name": "Starknet Token",
     "token_symbol": "STRK",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/1b126320-367c-48ed-cf5a-ba7580e49600/logo",
-    "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 3,
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494f",
@@ -1773,12 +1365,9 @@
     "token_name": "Ekubo Protocol",
     "token_symbol": "EKUBO",
     "token_decimals": 18,
-    "total_supply": "10000000000000000905969664",
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/634d9c36-2f0b-4781-93e6-72d701b5af00/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494f",
@@ -1786,12 +1375,9 @@
     "token_name": "Fake USD Coin",
     "token_symbol": "fUSDC",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": null,
     "visibility_priority": 1,
-    "sort_order": 3,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 3
   },
   {
     "chain_id": "0x534e5f4d41494f",
@@ -1799,12 +1385,9 @@
     "token_name": "USD Coin",
     "token_symbol": "USDC",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/e5aaa970-a998-47e8-bd43-4a3b56b87200/logo",
-    "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "visibility_priority": 3,
+    "sort_order": 4
   },
   {
     "chain_id": "0x534e5f4d41494f",
@@ -1812,12 +1395,9 @@
     "token_name": "DAI Stablecoin (Fake)",
     "token_symbol": "DAI",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/919e761b-56f7-4f53-32aa-5e066f7f6200/logo",
     "visibility_priority": 1,
-    "sort_order": 2,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 2
   },
   {
     "chain_id": "0x534e5f4d41494f",
@@ -1825,12 +1405,9 @@
     "token_name": "Wrapped Bitcoin (Fake)",
     "token_symbol": "WBTC",
     "token_decimals": 8,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/7dcb2db2-a7a7-44af-660b-8262e057a100/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494f",
@@ -1838,12 +1415,9 @@
     "token_name": "AXE",
     "token_symbol": "AXE",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": null,
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494f",
@@ -1851,12 +1425,9 @@
     "token_name": "MINERAL",
     "token_symbol": "MINERAL",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": null,
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494f",
@@ -1864,12 +1435,9 @@
     "token_name": "wstETH OpenMint (OLD)",
     "token_symbol": "wstETH-OLD",
     "token_decimals": 18,
-    "total_supply": "100000000000000000000",
     "logo_url": null,
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494f",
@@ -1877,12 +1445,9 @@
     "token_name": "Wrapped liquid staked Ether 2.0",
     "token_symbol": "wstETH",
     "token_decimals": 18,
-    "total_supply": null,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/dbbcbdea-1a92-437d-3701-4a5ee129d000/logo",
     "visibility_priority": 1,
-    "sort_order": 1,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 1
   },
   {
     "chain_id": "0x534e5f4d41494f",
@@ -1890,12 +1455,9 @@
     "token_name": "Wrapped Bitcoin (Vesu)",
     "token_symbol": "WBTCv",
     "token_decimals": 8,
-    "total_supply": null,
     "logo_url": null,
     "visibility_priority": 1,
-    "sort_order": 0,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 0
   },
   {
     "chain_id": "0x534e5f4d41494f",
@@ -1903,11 +1465,8 @@
     "token_name": "USDC (Vesu)",
     "token_symbol": "USDCv",
     "token_decimals": 6,
-    "total_supply": null,
     "logo_url": null,
     "visibility_priority": 1,
-    "sort_order": 4,
-    "usd_price": null,
-    "last_updated": null
+    "sort_order": 4
   }
 ]

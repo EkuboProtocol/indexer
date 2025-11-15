@@ -1,5 +1,5 @@
 import "../src/config";
-import postgres from "postgres";
+import postgres, { type Sql } from "postgres";
 import DEFAULT_TOKENS from "./tokens/default-tokens.json";
 
 const sql = postgres(process.env.PG_CONNECTION_STRING, {
@@ -54,7 +54,12 @@ const REMOTE_TOKEN_LISTS = [
   },
 ];
 
-async function addTokens(
+async function addTokens({
+  sql,
+  tokens,
+  upsert = false,
+}: {
+  sql: Sql;
   tokens: {
     chain_id: string;
     token_address: string;
@@ -65,11 +70,13 @@ async function addTokens(
     logo_url: string | null;
     visibility_priority: number;
     sort_order: number;
-  }[],
-  upsert: boolean = false
-) {
+  }[];
+  upsert?: boolean;
+}): Promise<number> {
+  if (!tokens.length) return 0;
+
   if (upsert) {
-    return await sql`
+    const { count } = await sql`
       INSERT INTO erc20_tokens ${sql(tokens)}
       ON CONFLICT (chain_id, token_address)
       DO UPDATE
@@ -79,14 +86,24 @@ async function addTokens(
               logo_url = EXCLUDED.logo_url,
               visibility_priority = EXCLUDED.visibility_priority,
               sort_order = EXCLUDED.sort_order,
-              total_supply = EXCLUDED.total_supply;
+              total_supply = EXCLUDED.total_supply
+          WHERE
+            erc20_tokens.token_name != EXCLUDED.token_name OR
+            erc20_tokens.token_symbol != EXCLUDED.token_symbol OR
+            erc20_tokens.token_decimals != EXCLUDED.token_decimals OR
+            erc20_tokens.logo_url != EXCLUDED.logo_url OR
+            erc20_tokens.visibility_priority != EXCLUDED.visibility_priority OR
+            erc20_tokens.sort_order != EXCLUDED.sort_order OR
+            erc20_tokens.total_supply != EXCLUDED.total_supply;
     `;
+    return count;
   } else {
-    return await sql`
+    const { count } = await sql`
       INSERT INTO erc20_tokens ${sql(tokens)}
       ON CONFLICT (chain_id, token_address)
       DO NOTHING;
     `;
+    return count;
   }
 }
 
@@ -98,7 +115,13 @@ type BridgeRelationship = {
   dest_token_address: string;
 };
 
-async function addBridgeRelationships(relationships: BridgeRelationship[]) {
+async function addBridgeRelationships({
+  sql,
+  relationships,
+}: {
+  sql: Sql;
+  relationships: BridgeRelationship[];
+}) {
   if (relationships.length === 0) {
     return { count: 0 };
   }
@@ -114,32 +137,66 @@ async function main() {
   await sql.begin(async (sql) => {
     const existingTokensCount = await sql<
       {
+        chain_id: bigint;
         num_tokens: bigint;
       }[]
-    >`SELECT count(1) as num_tokens FROM erc20_tokens`;
+    >`SELECT chain_id, count(1) as num_tokens FROM erc20_tokens GROUP BY chain_id ORDER BY 2 DESC`;
 
     console.log(
-      `Database has ${existingTokensCount[0]?.num_tokens ?? 0} tokens`
+      `Database has tokens (by chain ID):\n${existingTokensCount
+        .map(({ chain_id, num_tokens }) => `\t${chain_id}: ${num_tokens}`)
+        .join("\n")}`
     );
 
-    const { count: defaultTokensInserted } = await addTokens(
-      DEFAULT_TOKENS as Parameters<typeof addTokens>[0],
-      true
-    );
+    const numDefaultTokensUpserted = await addTokens({
+      sql,
+      tokens: DEFAULT_TOKENS.map((t) => ({
+        ...t,
+        total_supply: null,
+      })) satisfies Parameters<typeof addTokens>[0]["tokens"],
+      upsert: true,
+    });
 
     console.log(
-      `Inserted/updated ${defaultTokensInserted} rows from hard coded default token list`
+      `Upserted ${numDefaultTokensUpserted} rows from default token list`
     );
 
-    const { count: registrationTokensCount } = await sql`
-      INSERT INTO erc20_tokens (chain_id,token_address,token_name,token_symbol,token_decimals,total_supply,visibility_priority,sort_order)
-        (SELECT chain_id, address, name, symbol, decimals, total_supply, -1 as visibility_priority, 0 as sort_order 
-        FROM latest_token_registrations_view)
-        ON CONFLICT (chain_id, token_address) DO NOTHING;
+    const registeredTokens = await sql<
+      {
+        chain_id: bigint;
+        token_address: string;
+        token_name: string;
+        token_symbol: string;
+        token_decimals: number;
+        total_supply: string;
+      }[]
+    >`
+      SELECT chain_id,
+            address  AS token_address,
+            name     AS token_name,
+            symbol   AS token_symbol,
+            decimals AS token_decimals,
+            total_supply
+      FROM latest_token_registrations_view;
     `;
 
+    const userRegistrationTokensCount = await addTokens({
+      sql,
+      tokens: registeredTokens.map((t) => ({
+        chain_id: t.chain_id.toString(),
+        sort_order: -1,
+        visibility_priority: -1,
+        token_address: t.token_address,
+        token_decimals: t.token_decimals,
+        token_name: t.token_name,
+        token_symbol: t.token_symbol,
+        total_supply: t.total_supply,
+        logo_url: null,
+      })),
+    });
+
     console.log(
-      `Inserted ${registrationTokensCount} from manual token registration events`
+      `Upserted ${userRegistrationTokensCount} from user token registration events`
     );
 
     const ADDRESS_REGEX = /^0x[a-fA-F0-9]+$/;
@@ -155,8 +212,9 @@ async function main() {
         }
         const list = (await response.json()) as TokenList;
 
-        const { count: listTokensImported } = await addTokens(
-          list.tokens
+        const listTokensImported = await addTokens({
+          sql,
+          tokens: list.tokens
             .filter((t) => ADDRESS_REGEX.test(t.address))
             .map((token) => ({
               chain_id: String(token.chainId),
@@ -168,10 +226,8 @@ async function main() {
               visibility_priority,
               sort_order: 0,
               total_supply: null,
-              usd_price: null,
-              last_updated: null,
-            }))
-        );
+            })),
+        });
 
         console.log(
           `Inserted ${listTokensImported} rows from remote list ${name} at url ${url}`
@@ -209,7 +265,7 @@ async function main() {
 
         if (relationships.length > 0) {
           const { count: bridgeRelationshipsUpserted } =
-            await addBridgeRelationships(relationships);
+            await addBridgeRelationships({ sql, relationships });
           console.log(
             `Inserted ${bridgeRelationshipsUpserted} bridge relationships from remote list ${name}`
           );

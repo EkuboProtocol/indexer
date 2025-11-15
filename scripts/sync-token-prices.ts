@@ -1,14 +1,21 @@
 import "../src/config";
-import postgres from "postgres";
+import postgres, { type Sql } from "postgres";
 
-type SushiPriceResponse = Record<`0x${string}`, number>;
+const sql = postgres(process.env.PG_CONNECTION_STRING, {
+  connect_timeout: 5,
+  types: { bigint: postgres.BigInt },
+});
 
-const SUSHI_PRICE_API_BASE_URL = "https://api.sushi.com/price/v1";
+type AddressPriceMap = Record<`0x${string}`, number>;
 
-async function fetchPricesForChain(
-  chainId: bigint
-): Promise<SushiPriceResponse> {
-  const url = `${SUSHI_PRICE_API_BASE_URL}/${chainId}`;
+interface PriceFetcher {
+  (sql: Sql<{ bigint: bigint }>, chainId: bigint):
+    | AddressPriceMap
+    | Promise<AddressPriceMap>;
+}
+
+const sushiswapApiPriceFetcher: PriceFetcher = async (sql, chainId: bigint) => {
+  const url = `https://api.sushi.com/price/v1/${chainId}`;
 
   const response = await fetch(url, {
     method: "GET",
@@ -20,33 +27,37 @@ async function fetchPricesForChain(
   });
 
   if (!response.ok) {
-    throw new Error(
-      `Failed to fetch prices for chain ${chainId}: ${response.status} ${response.statusText}`
+    console.error(
+      `Failed to fetch sushiswap prices for chain ${chainId}: ${response.status} ${response.statusText}`
     );
   }
 
-  return response.json() as Promise<SushiPriceResponse>;
-}
+  const unscaledResult = (await response.json()) as AddressPriceMap;
 
-const sql = postgres(process.env.PG_CONNECTION_STRING, {
-  connect_timeout: 5,
-  types: { bigint: postgres.BigInt },
-});
+  return unscaledResult;
+};
+
+const ekuboUsdPriceFetcher: PriceFetcher = async (_sql, _chainId) => {
+  // todo: compute the prices from the database using oracle snapshots
+  return {};
+};
+
+const FETCHER_BY_CHAIN_ID: { [chainId: string]: PriceFetcher[] } = {
+  // eth mainnet
+  ["1"]: [ekuboUsdPriceFetcher, sushiswapApiPriceFetcher],
+  // eth sepolia
+  ["11155111"]: [ekuboUsdPriceFetcher, sushiswapApiPriceFetcher],
+  // starknet mainnet
+  ["23448594291968334"]: [ekuboUsdPriceFetcher],
+  // starknet sepolia
+  ["23448594291968335"]: [ekuboUsdPriceFetcher],
+};
 
 async function main() {
   await sql.begin(async (sql) => {
-    const chainIds = (
-      await sql<
-        { chain_id: bigint }[]
-      >`SELECT chain_id FROM indexer_cursor GROUP BY chain_id;`
-    ).map((c) => c.chain_id);
+    for (const chainId of Object.keys(FETCHER_BY_CHAIN_ID)) {
+      const fetchers = FETCHER_BY_CHAIN_ID[chainId];
 
-    if (chainIds.length === 0) {
-      console.log("No indexers running.");
-      return;
-    }
-
-    for (const chainId of chainIds) {
       const updates: [
         chain_id: string,
         token_address: string,
@@ -54,7 +65,18 @@ async function main() {
       ][] = [];
 
       try {
-        const prices = await fetchPricesForChain(chainId);
+        const prices = (
+          await Promise.all(
+            fetchers.map((fetcher) => fetcher(sql, BigInt(chainId)))
+          )
+        ).reduce<AddressPriceMap>(
+          (memo, value) => ({
+            ...value,
+            ...memo,
+          }),
+          {}
+        );
+
         for (const [tokenAddress, usdPrice] of Object.entries(prices)) {
           updates.push([String(chainId), tokenAddress, usdPrice]);
         }
@@ -68,20 +90,17 @@ async function main() {
         continue;
       }
 
-      const updatedTokens = await sql`
+      const { count } = await sql`
         UPDATE erc20_tokens AS t
         SET usd_price = data.usd_price::double precision
         FROM (values ${sql(
           updates
         )}) as data (chain_id, token_address, usd_price)
         WHERE t.chain_id = data.chain_id::int8
-            AND t.token_address = data.token_address::numeric
-        RETURNING t.token_address
+            AND t.token_address = data.token_address::numeric;
       `;
 
-      console.log(
-        `Updated ${updatedTokens.length} token prices for chain ID ${chainId}`
-      );
+      console.log(`Updated ${count} token prices for chain ID ${chainId}`);
     }
   });
 }
