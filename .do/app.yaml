@@ -18,7 +18,7 @@ envs:
   - key: DNA_TOKEN
     scope: RUN_TIME
     type: SECRET
-    value: "EV[1:vZu6ADFXqdREl4HqIdWSjzd8QX4foxU6:Hi7U8OonUSTlFT50ZKepvfLwmz2HSgwqlS+v5p1JFJ/0hLbExibmeA==]"
+    value: ${APIBARA_DNA_TOKEN}
 workers:
   - name: starknet-sepolia
     environment_slug: node-js
@@ -103,7 +103,7 @@ jobs:
   - name: sync-tokens
     kind: SCHEDULED
     schedule:
-      cron: "*/5 * * * *"
+      cron: "*/15 * * * *"
     environment_slug: node-js
     instance_size_slug: basic-xxs
     instance_count: 1

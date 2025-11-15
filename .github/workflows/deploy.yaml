@@ -15,5 +15,10 @@ jobs:
         with:
           token: ${{ secrets.DO_ACCESS_TOKEN }}
 
+      - name: Install envsubst
+        run: sudo apt-get update && sudo apt-get install -y gettext
+
       - name: Upsert DigitalOcean App
-        run: doctl apps create --spec .do/app.yaml --upsert --update-sources
+        env:
+          DNA_TOKEN: ${{ secrets.APIBARA_DNA_TOKEN }}
+        run: envsubst < .do/app.yaml | doctl apps create --spec - --upsert --update-sources
