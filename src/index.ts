@@ -52,6 +52,13 @@ function resetNoBlocksTimer() {
 }
 
 (async function () {
+  {
+    logger.info({ message: `Acquiring lock for chain ID ${chainId}` });
+    const lockTimer = logger.startTimer();
+    await dao.acquireLock();
+    lockTimer.done({ message: `Acquired lock for chain ID ${chainId}` });
+  }
+
   // first set up the schema
   let databaseStartingCursor;
   {
@@ -304,4 +311,7 @@ function resetNoBlocksTimer() {
     logger.error(error);
     process.exit(1);
   })
-  .finally(() => dao.end());
+  .finally(async () => {
+    await dao.releaseLock();
+    await dao.end();
+  });

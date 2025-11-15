@@ -328,6 +328,20 @@ export class DAO {
     );
   }
 
+  public async acquireLock(): Promise<void> {
+    const rows = await this
+      .sql`SELECT pg_advisory_lock(hashtext('ekubo-indexer-' || ${this.chainId})::bigint);`;
+    if (!rows.length)
+      throw new Error(`Failed to acquire lock for chain ID ${this.chainId}`);
+  }
+
+  public async releaseLock(): Promise<void> {
+    const rows = await this
+      .sql`SELECT pg_advisory_unlock(hashtext('ekubo-indexer-' || ${this.chainId})::bigint);`;
+    if (!rows.length)
+      throw new Error(`Failed to release lock for chain ID ${this.chainId}`);
+  }
+
   public async begin<T>(
     cb: (dao: DAO) => T | Promise<T>
   ): Promise<UnwrapPromiseArray<T>> {
