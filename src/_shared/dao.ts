@@ -315,29 +315,30 @@ export class DAO {
   }
 
   public static create(pgConnectionString: string, chainId: bigint): DAO {
-    return new DAO(
-      postgres(pgConnectionString, {
-        connect_timeout: 5,
-        debug: true,
-        types: {
-          bigint: postgres.BigInt,
-          numeric: NumericIntegerType,
-        },
-      }),
-      chainId
-    );
+    // should be a single connection that never closes
+    const sql = postgres(pgConnectionString, {
+      connect_timeout: 5,
+      idle_timeout: 0,
+      max_lifetime: null,
+      max: 1,
+      types: {
+        bigint: postgres.BigInt,
+        numeric: NumericIntegerType,
+      },
+    });
+    return new DAO(sql, chainId);
   }
 
   public async acquireLock(): Promise<void> {
     const rows = await this
-      .sql`SELECT pg_advisory_lock(hashtext('ekubo-indexer-' || ${this.chainId})::bigint);`;
+      .sql`SELECT pg_advisory_lock(hashtext('ekubo-indexer-' || ${this.chainId}));`;
     if (!rows.length)
       throw new Error(`Failed to acquire lock for chain ID ${this.chainId}`);
   }
 
   public async releaseLock(): Promise<void> {
     const rows = await this
-      .sql`SELECT pg_advisory_unlock(hashtext('ekubo-indexer-' || ${this.chainId})::bigint);`;
+      .sql`SELECT pg_advisory_unlock(hashtext('ekubo-indexer-' || ${this.chainId}));`;
     if (!rows.length)
       throw new Error(`Failed to release lock for chain ID ${this.chainId}`);
   }
