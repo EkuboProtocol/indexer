@@ -188,6 +188,17 @@ function resetNoBlocksTimer() {
         break;
       }
 
+      case "finalize": {
+        logger.info("Chain finalized", {
+          chainId,
+          cursor: {
+            orderKey: message.finalize.cursor?.orderKey?.toString(),
+            unqiueKey: message.finalize.cursor?.uniqueKey?.toString(),
+          },
+        });
+        break;
+      }
+
       case "invalidate": {
         let invalidatedCursor = message.invalidate.cursor;
 
