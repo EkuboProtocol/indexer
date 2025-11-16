@@ -1,6 +1,9 @@
 name: Deploy to App Platform
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
