@@ -123,14 +123,15 @@ async function addBridgeRelationships({
   relationships: BridgeRelationship[];
 }) {
   if (relationships.length === 0) {
-    return { count: 0 };
+    return 0;
   }
 
-  return await sql`
+  const { count } = await sql`
     INSERT INTO erc20_tokens_bridge_relationships ${sql(relationships)}
     ON CONFLICT (source_chain_id, source_token_address, source_bridge_address)
     DO NOTHING;
   `;
+  return count;
 }
 
 async function main() {
@@ -264,8 +265,10 @@ async function main() {
         }
 
         if (relationships.length > 0) {
-          const { count: bridgeRelationshipsUpserted } =
-            await addBridgeRelationships({ sql, relationships });
+          const bridgeRelationshipsUpserted = await addBridgeRelationships({
+            sql,
+            relationships,
+          });
           console.log(
             `Inserted ${bridgeRelationshipsUpserted} bridge relationships from remote list ${name}`
           );
