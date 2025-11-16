@@ -6,7 +6,7 @@ const sql = postgres(process.env.PG_CONNECTION_STRING, {
   types: { bigint: postgres.BigInt },
 });
 
-type AddressPriceMap = Record<`0x${string}`, number>;
+type AddressPriceMap = Record<`0x${string}` | string, number>;
 
 interface PriceFetcher {
   (sql: Sql<{ bigint: bigint }>, chainId: bigint):
@@ -37,21 +37,86 @@ const sushiswapApiPriceFetcher: PriceFetcher = async (sql, chainId: bigint) => {
   return unscaledResult;
 };
 
-const ekuboUsdPriceFetcher: PriceFetcher = async (_sql, _chainId) => {
-  // todo: compute the prices from the database using oracle snapshots
-  return {};
+const ekuboUsdOraclePriceFetcher: PriceFetcher = async (sql, chainId) => {
+  let prices: { token_address: string; usd_price: string }[] = [];
+  switch (chainId) {
+    // mainnet
+    case 1n: {
+      prices = await sql`
+        SELECT token_address, usd_price
+        FROM get_oracle_usd_prices(1,
+                                  0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48,
+                                  0x51d02A5948496a67827242EaBc5725531342527C,
+                                  0x0,
+                                  60);
+      `;
+      break;
+    }
+    // sepolia
+    case 11155111n: {
+      prices = await sql`
+        SELECT token_address, usd_price
+        FROM get_oracle_usd_prices(11155111,
+                                  0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238,
+                                  0x51d02A5948496a67827242EaBc5725531342527C,
+                                  0x0,
+                                  60);
+      `;
+      break;
+    }
+    // starknet mainnet
+    case 0x534e5f4d41494en: {
+      prices = await sql`
+        SELECT token_address, usd_price
+        FROM get_oracle_usd_prices(23448594291968334,
+                           0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8,
+                           0x005e470ff654d834983a46b8f29dfa99963d5044b993cb7b9c92243a69dab38f,
+                           0x075afe6402ad5a5c20dd25e10ec3b3986acaa647b77e4ae24b0cbc9a54a27a87,
+                           60);
+      `;
+      break;
+    }
+    // starknet sepolia
+    case 0x534e5f4d41494fn: {
+      prices = await sql`
+        SELECT token_address, usd_price
+        FROM get_oracle_usd_prices(23448594291968335,
+                           0x053b40a647cedfca6ca84f542a0fe36736031905a9639a7f19a3c1e66bfd5080,
+                           0x003ccf3ee24638dd5f1a51ceb783e120695f53893f6fd947cc2dcabb3f86dc65,
+                           0x01fad7c03b2ea7fbef306764e20977f8d4eae6191b3a54e4514cc5fc9d19e569,
+                           60);
+      `;
+      break;
+    }
+    default: {
+      throw new Error(`Unsupported chain ID ${chainId}`);
+    }
+  }
+  return prices.reduce<AddressPriceMap>((memo, value) => {
+    memo[value.token_address] = Number(value.usd_price);
+    return memo;
+  }, {});
 };
 
 const FETCHER_BY_CHAIN_ID: { [chainId: string]: PriceFetcher[] } = {
   // eth mainnet
-  ["1"]: [ekuboUsdPriceFetcher, sushiswapApiPriceFetcher],
+  ["1"]: [ekuboUsdOraclePriceFetcher, sushiswapApiPriceFetcher],
   // eth sepolia
-  ["11155111"]: [ekuboUsdPriceFetcher, sushiswapApiPriceFetcher],
+  ["11155111"]: [ekuboUsdOraclePriceFetcher, sushiswapApiPriceFetcher],
   // starknet mainnet
-  ["23448594291968334"]: [ekuboUsdPriceFetcher],
+  ["23448594291968334"]: [ekuboUsdOraclePriceFetcher],
   // starknet sepolia
-  ["23448594291968335"]: [ekuboUsdPriceFetcher],
+  ["23448594291968335"]: [ekuboUsdOraclePriceFetcher],
 };
+
+function normalizeMapKeys(apm: AddressPriceMap): AddressPriceMap {
+  return Object.fromEntries(
+    Object.entries(apm).map(([key, value]) => [
+      `0x${BigInt(key).toString(16)}`,
+      value,
+    ])
+  );
+}
 
 async function main() {
   await sql.begin(async (sql) => {
@@ -71,7 +136,7 @@ async function main() {
           )
         ).reduce<AddressPriceMap>(
           (memo, value) => ({
-            ...value,
+            ...normalizeMapKeys(value),
             ...memo,
           }),
           {}

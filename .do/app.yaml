@@ -2,7 +2,6 @@ name: ekubo-indexer
 region: nyc
 alerts:
   - rule: DEPLOYMENT_FAILED
-    disabled: false
 databases:
   - name: indexer-db
     engine: PG
