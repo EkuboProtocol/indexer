@@ -21,3 +21,6 @@ Commits follow short, action-oriented summaries (see `git log`, e.g. `increase n
 
 ## Environment & Deployment Tips
 `src/config.ts` loads cascading `.env` files: `.env`, `.env.<networkType>`, `.env.<networkType>.<network>`, plus optional `.local` overrides. Keep secrets in untracked `.local` files. Production deployments rely on the Docker image described in `Dockerfile`/`README.md`, the DigitalOcean App spec in `.do/app.yaml`, and nightly Postgres dumps from `.github/workflows/pg-dump.yaml` for rapid restores. Align local env vars with the DO spec, and prefer `bun` commands for any long-running workers or one-off scripts.
+
+## Breaking Change Documentation
+Any deployment that requires manual intervention or alters the database schema must be recorded in the README’s breaking changelog section. Include the date, affected networks, necessary operator actions, and downstream compatibility notes so future contributors know how to prepare for rollouts.
