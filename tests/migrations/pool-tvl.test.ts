@@ -3,9 +3,9 @@ import type { PGlite } from "@electric-sql/pglite";
 import { createClient } from "../helpers/db.js";
 
 const MIGRATION_FILES = [
-  "001_chain_tables.sql",
-  "002_core_tables.sql",
-  "011_pool_tvl.sql",
+  "00001_chain_tables",
+  "00002_core_tables",
+  "00011_pool_tvl",
 ] as const;
 
 let client: PGlite;

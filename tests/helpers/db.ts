@@ -4,26 +4,50 @@ import { PGlite } from "@electric-sql/pglite";
 
 const MIGRATIONS_DIR = path.resolve(process.cwd(), "migrations");
 
-async function loadMigrationFiles(select?: string[]) {
-  const entries = await fs.readdir(MIGRATIONS_DIR);
-  const sqlFiles = entries.filter((file) => file.endsWith(".sql")).sort();
+function normalizeSelection(name: string) {
+  if (!name) return name;
+  let normalized = name.replace(/\/?index\.(sql|js)$/, "");
+  normalized = normalized.replace(/\.sql$/, "");
+  const match = normalized.match(/^(\d+)(_.+)?$/);
+  if (!match) {
+    return normalized;
+  }
+  const [, numericPart, rest = ""] = match;
+  const padded = numericPart.padStart(5, "0");
+  return `${padded}${rest}`;
+}
+
+async function loadMigrationDirs(select?: string[]) {
+  const entries = await fs.readdir(MIGRATIONS_DIR, { withFileTypes: true });
+  const directories = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
 
   if (!select || select.length === 0) {
-    return sqlFiles;
+    return directories;
   }
 
-  const remaining = new Set(select);
+  const normalizedSelect = select.map((name) => ({
+    original: name,
+    normalized: normalizeSelection(name),
+  }));
+
+  const lookup = new Map(
+    normalizedSelect.map((item) => [item.normalized, item.original])
+  );
+
   const picked: string[] = [];
-  for (const file of sqlFiles) {
-    if (remaining.has(file)) {
-      picked.push(file);
-      remaining.delete(file);
+  for (const dir of directories) {
+    if (lookup.has(dir)) {
+      picked.push(dir);
+      lookup.delete(dir);
     }
   }
 
-  if (remaining.size > 0) {
-    const missing = Array.from(remaining).join(", ");
-    throw new Error(`Missing migration files: ${missing}`);
+  if (lookup.size > 0) {
+    const missing = Array.from(lookup.values()).join(", ");
+    throw new Error(`Missing migration directories: ${missing}`);
   }
 
   return picked;
@@ -34,10 +58,13 @@ export async function runMigrations(
   options: { files?: string[] } = {}
 ) {
   const { files } = options;
-  const migrations = await loadMigrationFiles(files);
+  const migrations = await loadMigrationDirs(files);
 
   for (const file of migrations) {
-    const sql = await fs.readFile(path.join(MIGRATIONS_DIR, file), "utf8");
+    const sql = await fs.readFile(
+      path.join(MIGRATIONS_DIR, file, "index.sql"),
+      "utf8"
+    );
     await client.exec(sql);
   }
 }

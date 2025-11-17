@@ -3,14 +3,14 @@ import type { PGlite } from "@electric-sql/pglite";
 import { createClient } from "../helpers/db.js";
 
 const MIGRATION_FILES = [
-  "001_chain_tables.sql",
-  "002_core_tables.sql",
-  "009_oracle_tables.sql",
-  "010_oracle_pool_states.sql",
-  "018_tokens.sql",
-  "019_hourly_tables.sql",
-  "026_hourly_tables_block_time.sql",
-  "042_oracle_twap_function.sql",
+  "00001_chain_tables",
+  "00002_core_tables",
+  "00009_oracle_tables",
+  "00010_oracle_pool_states",
+  "00018_tokens",
+  "00019_hourly_tables",
+  "00026_hourly_tables_block_time",
+  "00042_oracle_twap_function",
 ] as const;
 
 let client: PGlite;

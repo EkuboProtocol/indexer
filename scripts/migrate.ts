@@ -1,12 +1,17 @@
 import "../src/config";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import pg from "pg";
-import { migrate } from "postgres-migrations";
+import postgres from "postgres";
+import shift from "postgres-shift";
 
 async function main() {
-  const client = new pg.Client({
-    connectionString: process.env.PG_CONNECTION_STRING,
+  const connectionString = process.env.PG_CONNECTION_STRING;
+  if (!connectionString) {
+    throw new Error("PG_CONNECTION_STRING must be set");
+  }
+
+  const sql = postgres(connectionString, {
+    idle_timeout: 1,
   });
 
   const migrationsPath = resolve(
@@ -14,13 +19,17 @@ async function main() {
     "../migrations"
   );
 
-  await client.connect();
-
   try {
-    await migrate({ client }, migrationsPath);
+    await shift({
+      sql,
+      path: migrationsPath,
+      before: ({ migration_id, name }) => {
+        console.log("Migrating", migration_id, name);
+      },
+    });
     console.log("Migrations applied successfully.");
   } finally {
-    await client.end();
+    await sql.end({ timeout: 5 });
   }
 }
 

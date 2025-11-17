@@ -3,10 +3,10 @@ import type { PGlite } from "@electric-sql/pglite";
 import { createClient } from "../helpers/db.js";
 
 const MIGRATION_FILES = [
-  "001_chain_tables.sql",
-  "002_core_tables.sql",
-  "004_pool_states.sql",
-  "013_limit_orders.sql",
+  "00001_chain_tables",
+  "00002_core_tables",
+  "00004_pool_states",
+  "00013_limit_orders",
 ] as const;
 
 let client: PGlite;
