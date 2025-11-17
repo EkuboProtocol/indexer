@@ -35,6 +35,7 @@ jobs:
         run: |
           docker build -t "$IMAGE_REPOSITORY:$IMAGE_TAG" -t "$IMAGE_REPOSITORY:latest" .
           docker push "$IMAGE_REPOSITORY:$IMAGE_TAG"
+          docker push "$IMAGE_REPOSITORY:latest"
 
       - name: Install envsubst
         run: sudo apt-get update && sudo apt-get install -y gettext
