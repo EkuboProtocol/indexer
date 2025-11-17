@@ -22,6 +22,7 @@ workers:
   - name: starknet-sepolia
     image: &indexer-image
       registry_type: GHCR
+      registry: ghcr.io
       repository: ekuboprotocol/indexer
       tag: ${IMAGE_TAG}
     instance_size_slug: basic-xxs
