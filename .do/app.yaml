@@ -5,7 +5,7 @@ alerts:
 databases:
   - name: indexer-db
     engine: PG
-    cluster_name: ekubo-db
+    cluster_name: ekubo-db-nyc1
     production: true
 envs:
   - key: NODE_ENV
