@@ -3,7 +3,7 @@ region: nyc
 alerts:
   - rule: DEPLOYMENT_FAILED
 databases:
-  - name: indexer-db
+  - name: indexer-db-nyc1
     engine: PG
     cluster_name: ekubo-db-nyc1
     production: true
@@ -13,7 +13,7 @@ envs:
     value: PRODUCTION
   - key: PG_CONNECTION_STRING
     scope: RUN_TIME
-    value: ${indexer-db.DATABASE_URL}
+    value: ${indexer-db-nyc1.DATABASE_URL}
   - key: DNA_TOKEN
     scope: RUN_TIME
     type: SECRET
