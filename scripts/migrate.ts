@@ -1,17 +1,17 @@
 import "../src/config.js";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { Client } from "pg";
+import pg from "pg";
 import { migrate } from "postgres-migrations";
 
 async function main() {
-  const client = new Client({
+  const client = new pg.Client({
     connectionString: process.env.PG_CONNECTION_STRING,
   });
 
   const migrationsPath = resolve(
     dirname(fileURLToPath(import.meta.url)),
-    "../migrations.js"
+    "../migrations"
   );
 
   await client.connect();

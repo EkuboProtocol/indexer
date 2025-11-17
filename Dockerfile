@@ -11,7 +11,6 @@ RUN npm ci
 COPY tsconfig*.json ./
 COPY src ./src
 COPY scripts ./scripts
-COPY migrations ./migrations
 RUN npm run build
 
 # Remove dev dependencies before shipping
@@ -25,7 +24,7 @@ WORKDIR /app
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/migrations ./migrations
+COPY migrations /app/dist/migrations
 COPY .env* ./
 
 ENTRYPOINT ["node"]

@@ -43,4 +43,4 @@ jobs:
       - name: Deploy App
         env:
           APIBARA_DNA_TOKEN: ${{ secrets.APIBARA_DNA_TOKEN }}
-        run: envsubst < .do/app.yaml | doctl apps create --spec - --upsert --update-sources
+        run: envsubst < .do/app.yaml | doctl apps create --spec - --upsert
