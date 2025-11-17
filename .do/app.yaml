@@ -11,6 +11,9 @@ envs:
   - key: NODE_ENV
     scope: RUN_AND_BUILD_TIME
     value: PRODUCTION
+  - key: NODE_TLS_REJECT_UNAUTHORIZED
+    scope: RUN_TIME
+    value: 0
   - key: PG_CONNECTION_STRING
     scope: RUN_TIME
     value: ${indexer-db-nyc1.DATABASE_URL}
