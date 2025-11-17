@@ -1,0 +1,41 @@
+name: Dump Database
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    env:
+      PGHOST: ${{ secrets.PG_DUMP_HOST }}
+      PGPORT: ${{ secrets.PG_DUMP_PORT }}
+      PGUSER: ${{ secrets.PG_DUMP_USER }}
+      PGDATABASE: ${{ secrets.PG_DUMP_DATABASE }}
+      PGPASSWORD: ${{ secrets.PG_DUMP_PASSWORD }}
+    steps:
+      - name: Install PostgreSQL 18 client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /usr/share/keyrings/postgresql.gpg
+          echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-18
+
+      - name: Create custom-format dump
+        id: dump
+        shell: bash
+        run: |
+          timestamp="$(date -u +"%Y%m%dT%H%M%SZ")"
+          dump_file="db-backup-${timestamp}.dump"
+          echo "dump_file=${dump_file}" >> "$GITHUB_OUTPUT"
+          pg_dump -Fc -f "${dump_file}"
+
+      - name: Upload dump artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: ${{ steps.dump.outputs.dump_file }}
+          retention-days: 7
