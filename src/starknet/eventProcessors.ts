@@ -1,6 +1,6 @@
-import { logger } from "../_shared/logger.js";
-import { parseTransferEvent } from "./nft.js";
-import type { TransferEvent } from "./nft.js";
+import { logger } from "../_shared/logger";
+import { parseTransferEvent } from "./nft";
+import type { TransferEvent } from "./nft";
 import {
   parseFeesAccumulatedEvent,
   parsePoolInitializedEvent,
@@ -9,7 +9,7 @@ import {
   parseProtocolFeesPaidEvent,
   parseProtocolFeesWithdrawnEvent,
   parseSwappedEvent,
-} from "./core.js";
+} from "./core";
 import type {
   FeesAccumulatedEvent,
   PoolInitializationEvent,
@@ -19,19 +19,19 @@ import type {
   ProtocolFeesPaidEvent,
   ProtocolFeesWithdrawnEvent,
   SwappedEvent,
-} from "./core.js";
+} from "./core";
 import {
   parseOrderProceedsWithdrawn,
   parseOrderUpdated,
   parseVirtualOrdersExecuted,
-} from "./twamm.js";
+} from "./twamm";
 import type {
   OrderProceedsWithdrawnEvent,
   OrderUpdatedEvent,
   VirtualOrdersExecutedEvent,
-} from "./twamm.js";
-import { parseStakedEvent, parseWithdrawnEvent } from "./staker.js";
-import type { StakedEvent, WithdrawnEvent } from "./staker.js";
+} from "./twamm";
+import { parseStakedEvent, parseWithdrawnEvent } from "./staker";
+import type { StakedEvent, WithdrawnEvent } from "./staker";
 import {
   parseDescribedEvent,
   parseGovernorCanceledEvent,
@@ -40,7 +40,7 @@ import {
   parseGovernorProposedEvent,
   parseGovernorReconfigured,
   parseGovernorVotedEvent,
-} from "./governor.js";
+} from "./governor";
 import type {
   DescribedEvent,
   GovernorCanceledEvent,
@@ -49,25 +49,25 @@ import type {
   GovernorProposedEvent,
   GovernorReconfiguredEvent,
   GovernorVotedEvent,
-} from "./governor.js";
+} from "./governor";
 import {
   parseRegistrationEvent,
   parseRegistrationEventV3,
-} from "./tokenRegistry.js";
+} from "./tokenRegistry";
 import type {
   TokenRegistrationEvent,
   TokenRegistrationEventV3,
-} from "./tokenRegistry.js";
-import { parseSnapshotEvent } from "./oracle.js";
-import type { SnapshotEvent } from "./oracle.js";
-import { parseOrderClosed, parseOrderPlaced } from "./limitOrders.js";
-import type { OrderClosedEvent, OrderPlacedEvent } from "./limitOrders.js";
-import { parseLiquidityUpdated } from "./spline.js";
-import type { LiquidityUpdatedEvent } from "./spline.js";
-import type { EventKey } from "../_shared/eventKey.js";
-import type { Parser } from "./parse.js";
-import { DAO } from "../_shared/dao.js";
-import { computeKeyHash } from "./poolKeyHash.js";
+} from "./tokenRegistry";
+import { parseSnapshotEvent } from "./oracle";
+import type { SnapshotEvent } from "./oracle";
+import { parseOrderClosed, parseOrderPlaced } from "./limitOrders";
+import type { OrderClosedEvent, OrderPlacedEvent } from "./limitOrders";
+import { parseLiquidityUpdated } from "./spline";
+import type { LiquidityUpdatedEvent } from "./spline";
+import type { EventKey } from "../_shared/eventKey";
+import type { Parser } from "./parse";
+import { DAO } from "../_shared/dao";
+import { computeKeyHash } from "./poolKeyHash";
 
 export interface ParsedEventWithKey<T> {
   key: EventKey;

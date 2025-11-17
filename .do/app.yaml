@@ -37,7 +37,7 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: sepolia
-    run_command: node dist/src/index.js
+    run_command: bun src/index.ts
   - name: starknet-mainnet
     image: *indexer-image
     instance_size_slug: basic-xxs
@@ -49,7 +49,7 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet
-    run_command: node dist/src/index.js
+    run_command: bun src/index.ts
   - name: eth-sepolia
     image: *indexer-image
     instance_size_slug: basic-xxs
@@ -61,7 +61,7 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: sepolia
-    run_command: node dist/src/index.js
+    run_command: bun src/index.ts
   - name: eth-mainnet
     image: *indexer-image
     instance_size_slug: basic-xxs
@@ -73,14 +73,14 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet
-    run_command: node dist/src/index.js
+    run_command: bun src/index.ts
 jobs:
   - name: run-migrations
     kind: PRE_DEPLOY
     image: *indexer-image
     instance_size_slug: basic-xxs
     instance_count: 1
-    run_command: node dist/scripts/migrate.js
+    run_command: bun scripts/migrate.ts
   - name: sync-tokens
     kind: SCHEDULED
     schedule:
@@ -88,7 +88,7 @@ jobs:
     image: *indexer-image
     instance_size_slug: basic-xxs
     instance_count: 1
-    run_command: node dist/scripts/sync-tokens.js
+    run_command: bun scripts/sync-tokens.ts
   - name: sync-token-prices
     kind: SCHEDULED
     schedule:
@@ -96,4 +96,4 @@ jobs:
     image: *indexer-image
     instance_size_slug: basic-xxs
     instance_count: 1
-    run_command: node dist/scripts/sync-token-prices.js
+    run_command: bun scripts/sync-token-prices.ts

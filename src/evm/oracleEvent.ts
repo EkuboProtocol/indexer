@@ -1,5 +1,5 @@
 import { checksumAddress, numberToHex } from "viem";
-import { toSigned } from "./swapEvent.js";
+import { toSigned } from "./swapEvent";
 
 export interface OracleEvent {
   token: `0x${string}`;

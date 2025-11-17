@@ -8,8 +8,8 @@ import {
   parseSpanOf,
   parseU128,
   parseU64,
-} from "./parse.js";
-import type { GetParserType } from "./parse.js";
+} from "./parse";
+import type { GetParserType } from "./parse";
 
 export const parseCall = combineParsers({
   to: { index: 0, parser: parseAddress },

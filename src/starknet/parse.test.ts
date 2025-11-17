@@ -1,9 +1,9 @@
-import { parsePoolKey } from "./core.js";
-import { describe, expect, it } from "vitest";
-import { parseByteArray, parseUint8Array } from "./parse.js";
+import { parsePoolKey } from "./core";
+import { describe, expect, it } from "bun:test";
+import { parseByteArray, parseUint8Array } from "./parse";
 
 describe("parse", () => {
-  describe(parsePoolKey, () => {
+  describe("parsePoolKey", () => {
     it("works correctly for random data from 0", () => {
       const result = parsePoolKey(
         ["0x5", "0x4", "0x3", "0x2", "0x1", "0x0"],

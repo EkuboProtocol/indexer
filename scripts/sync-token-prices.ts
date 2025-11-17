@@ -1,4 +1,4 @@
-import "../src/config.js";
+import "../src/config";
 import postgres, { type Sql } from "postgres";
 
 const sql = postgres(process.env.PG_CONNECTION_STRING, {
@@ -14,7 +14,10 @@ interface PriceFetcher {
     | Promise<AddressPriceMap>;
 }
 
-const sushiswapApiPriceFetcher: PriceFetcher = async (_sql, chainId: bigint) => {
+const sushiswapApiPriceFetcher: PriceFetcher = async (
+  _sql,
+  chainId: bigint
+) => {
   const url = `https://api.sushi.com/price/v1/${chainId}`;
 
   const response = await fetch(url, {

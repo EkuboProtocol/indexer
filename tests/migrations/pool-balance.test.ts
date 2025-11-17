@@ -1,4 +1,4 @@
-import { beforeAll, test, expect, afterAll } from "vitest";
+import { beforeAll, test, expect, afterAll } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
 import { createClient } from "../helpers/db.js";
 

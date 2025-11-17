@@ -5,8 +5,8 @@ import {
   parseFelt252,
   parseU128,
   parseU8,
-} from "./parse.js";
-import type { GetParserType } from "./parse.js";
+} from "./parse";
+import type { GetParserType } from "./parse";
 
 export const parseRegistrationEvent = combineParsers({
   address: { index: 0, parser: parseAddress },

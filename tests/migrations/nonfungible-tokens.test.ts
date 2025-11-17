@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, expect, test } from "vitest";
+import { beforeAll, afterAll, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
 import { createClient } from "../helpers/db.js";
 
@@ -206,7 +206,12 @@ test("deleting blocks cascades NFT transfer history and rewinds ownership", asyn
   await client.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
      VALUES ($1, $2, $3, $4)`,
-    [chainId, secondBlock, `${chainId}${secondBlock}`, new Date("2024-02-02T00:00:00Z")]
+    [
+      chainId,
+      secondBlock,
+      `${chainId}${secondBlock}`,
+      new Date("2024-02-02T00:00:00Z"),
+    ]
   );
 
   const firstEventId = await insertTransfer({

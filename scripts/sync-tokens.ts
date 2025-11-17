@@ -1,6 +1,6 @@
-import "../src/config.js";
+import "../src/config";
 import postgres, { type Sql } from "postgres";
-import DEFAULT_TOKENS from "./tokens/default-tokens.json" assert { type: "json" };
+import DEFAULT_TOKENS from "./tokens/default-tokens.json";
 
 const sql = postgres(process.env.PG_CONNECTION_STRING, {
   connect_timeout: 5,

@@ -16,7 +16,7 @@ Join the [Discord](https://discord.ekubo.org) and ask in the `#devs` channel to 
 
 ## Docker image
 
-Build the runtime image once, which compiles the TypeScript sources to JavaScript during the Docker build:
+Build the runtime image once. Bun executes the TypeScript sources directly, so no separate build step is required:
 
 ```bash
 docker build -t ekubo-indexer .
@@ -28,7 +28,7 @@ CI publishes the same image to GitHub Container Registry under `ghcr.io/ekubopro
 docker pull ghcr.io/ekuboprotocol/indexer:<git-sha>
 ```
 
-The resulting image can execute any of the compiled entrypoints. By default it runs the main indexer; pass environment variables the same way you would locally:
+The resulting image can execute any of the TypeScript entrypoints. By default it runs the main indexer; pass environment variables the same way you would locally:
 
 ```bash
 docker run --rm \
@@ -37,11 +37,11 @@ docker run --rm \
   ekubo-indexer
 ```
 
-Override the command to reuse the same image for auxiliary scripts (migrations, token sync, etc.):
+Override the command to reuse the same image for auxiliary scripts (migrations, token sync, etc.); the default entrypoint is already `bun`:
 
 ```bash
 docker run --rm \
   --env-file .env \
   ekubo-indexer \
-  dist/scripts/migrate.js
+  scripts/migrate.ts
 ```

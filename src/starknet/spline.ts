@@ -4,9 +4,9 @@ import {
   parseI129,
   parseU128,
   parseU256,
-} from "./parse.js";
-import type { GetParserType } from "./parse.js";
-import { parsePoolKey } from "./core.js";
+} from "./parse";
+import type { GetParserType } from "./parse";
+import { parsePoolKey } from "./core";
 
 export const parseLiquidityUpdated = combineParsers({
   pool_key: { index: 0, parser: parsePoolKey },

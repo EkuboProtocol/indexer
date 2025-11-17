@@ -1,31 +1,20 @@
 # syntax=docker/dockerfile:1.6
 
-FROM node:22-bookworm-slim AS builder
+FROM oven/bun:1.3 AS runner
 WORKDIR /app
 
-# Install dependencies
-COPY package*.json ./
-RUN npm ci
-
-# Copy sources and build once
-COPY tsconfig*.json ./
-COPY src ./src
-COPY scripts ./scripts
-RUN npm run build
-
-# Remove dev dependencies before shipping
-RUN npm prune --omit=dev
-
-FROM node:22-bookworm-slim AS runner
 ENV NODE_ENV=production
 ENV NODE_OPTIONS=--enable-source-maps
-WORKDIR /app
 
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
-COPY migrations /app/dist/migrations
+# Install only production dependencies
+COPY package*.json ./
+RUN bun ci --omit=dev
+
+# Copy source files that Bun can execute directly
+COPY src ./src
+COPY scripts ./scripts
+COPY migrations ./migrations
 COPY .env* ./
 
-ENTRYPOINT ["node"]
-CMD ["dist/src/index.js"]
+ENTRYPOINT ["bun"]
+CMD ["src/index.ts"]

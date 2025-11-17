@@ -2,42 +2,34 @@
   "name": "@ekubo/indexer",
   "private": true,
   "version": "0.0.1",
-  "main": "index.js",
   "description": "Indexes Ekubo data into a Postgres database",
   "scripts": {
-    "build": "tsc --project tsconfig.build.json",
-    "eth:mainnet": "NETWORK_TYPE=evm NETWORK=mainnet jiti src/index.ts",
-    "eth:sepolia": "NETWORK_TYPE=evm NETWORK=sepolia jiti src/index.ts",
-    "starknet:mainnet": "NETWORK_TYPE=starknet NETWORK=mainnet jiti src/index.ts",
-    "starknet:sepolia": "NETWORK_TYPE=starknet NETWORK=sepolia jiti src/index.ts",
-    "generate-systemd": "jiti scripts/create-systemd-services.ts",
-    "sync-tokens": "jiti scripts/sync-tokens.ts",
-    "sync-token-prices": "jiti scripts/sync-token-prices.ts",
-    "migrate": "jiti scripts/migrate.ts",
-    "test": "vitest",
-    "check-ts": "tsc --noEmit"
+    "eth:mainnet": "NETWORK_TYPE=evm NETWORK=mainnet bun src/index.ts",
+    "eth:sepolia": "NETWORK_TYPE=evm NETWORK=sepolia bun src/index.ts",
+    "starknet:mainnet": "NETWORK_TYPE=starknet NETWORK=mainnet bun src/index.ts",
+    "starknet:sepolia": "NETWORK_TYPE=starknet NETWORK=sepolia bun src/index.ts",
+    "sync-tokens": "bun scripts/sync-tokens.ts",
+    "sync-token-prices": "bun scripts/sync-token-prices.ts",
+    "migrate": "bun scripts/migrate.ts"
   },
   "author": "Moody Salem",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "bun": ">=1.3"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.11",
-    "@types/node": "^22.10.7",
-    "@types/pg": "^8.11.10",
-    "typescript": "^5.7.3",
-    "vitest": "^3.1.1"
+    "@types/bun": "^1.3.2",
+    "@types/pg": "^8.11.10"
   },
   "dependencies": {
     "@apibara/evm": "^2.1.0-beta.40",
     "@apibara/protocol": "^2.1.0-beta.40",
     "@apibara/starknet": "^2.1.0-beta.40",
-    "pg": "^8.13.1",
-    "postgres-migrations": "^5.3.0",
     "dotenv": "^16.4.7",
-    "jiti": "^2.4.2",
+    "pg": "^8.13.1",
     "postgres": "^3.4.7",
+    "postgres-migrations": "^5.3.0",
     "viem": "^2.22.9",
     "winston": "^3.17.0"
   }

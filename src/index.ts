@@ -1,13 +1,13 @@
-import "./config.js";
-import type { EventKey } from "./_shared/eventKey.js";
-import { logger } from "./_shared/logger.js";
-import { DAO } from "./_shared/dao.js";
+import "./config";
+import type { EventKey } from "./_shared/eventKey";
+import { logger } from "./_shared/logger";
+import { DAO } from "./_shared/dao";
 import { Block as EvmBlock, EvmStream } from "@apibara/evm";
 import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
-import { createLogProcessors } from "./evm/logProcessors.js";
-import { createEventProcessors } from "./starknet/eventProcessors.js";
+import { createLogProcessors } from "./evm/logProcessors";
+import { createEventProcessors } from "./starknet/eventProcessors";
 import { createClient, Metadata } from "@apibara/protocol";
-import { msToHumanShort } from "./_shared/msToHumanShort.js";
+import { msToHumanShort } from "./_shared/msToHumanShort";
 
 if (!["starknet", "evm"].includes(process.env.NETWORK_TYPE)) {
   throw new Error(`Invalid NETWORK_TYPE: "${process.env.NETWORK_TYPE}"`);

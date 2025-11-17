@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
 import { createClient } from "../helpers/db.js";
 
@@ -87,17 +87,7 @@ async function insertPoolKey(chainId: number) {
         pool_extension
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING pool_key_id`,
-    [
-      chainId,
-      "1000",
-      "2000",
-      "4000",
-      "5000",
-      "10",
-      "1000",
-      60,
-      "6000",
-    ]
+    [chainId, "1000", "2000", "4000", "5000", "10", "1000", 60, "6000"]
   );
 
   return Number(poolKeyId);
@@ -406,9 +396,17 @@ test("twamm pool states stay in sync with VOE and order update events", async ()
   const orderStartTime = new Date("2024-02-03T01:00:00Z");
   const orderEndTime = new Date("2024-02-03T03:00:00Z");
 
-  await seedBlock({ chainId, blockNumber: baseBlockNumber, blockTime: baseTime });
+  await seedBlock({
+    chainId,
+    blockNumber: baseBlockNumber,
+    blockTime: baseTime,
+  });
   await seedBlock({ chainId, blockNumber: voeBlockNumber, blockTime: voeTime });
-  await seedBlock({ chainId, blockNumber: ouBlockNumber, blockTime: orderEndTime });
+  await seedBlock({
+    chainId,
+    blockNumber: ouBlockNumber,
+    blockTime: orderEndTime,
+  });
 
   const poolKeyId = await insertPoolKey(chainId);
 
@@ -427,17 +425,7 @@ test("twamm pool states stay in sync with VOE and order update events", async ()
         sqrt_ratio
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING event_id AS pool_state_event_id`,
-    [
-      chainId,
-      baseBlockNumber,
-      0,
-      0,
-      "9000",
-      "9100",
-      poolKeyId,
-      10,
-      "1000",
-    ]
+    [chainId, baseBlockNumber, 0, 0, "9000", "9100", poolKeyId, 10, "1000"]
   );
 
   const basePoolStateEventId = poolStateEventId;
@@ -481,9 +469,9 @@ test("twamm pool states stay in sync with VOE and order update events", async ()
   expect(new Date(initialState.last_virtual_execution_time).toISOString()).toBe(
     voeTime.toISOString()
   );
-  expect(valueToBigInt(initialState.last_virtual_order_execution_event_id)).toBe(
-    voeEventId
-  );
+  expect(
+    valueToBigInt(initialState.last_virtual_order_execution_event_id)
+  ).toBe(voeEventId);
   expect(valueToBigInt(initialState.last_event_id)).toBe(
     voeEventId > basePoolStateEventId ? voeEventId : basePoolStateEventId
   );

@@ -1,4 +1,4 @@
-import type { PoolKey } from "./core.js";
+import type { PoolKey } from "./core";
 import { createHash } from "crypto";
 
 export function computeKeyHash(poolKey: PoolKey): bigint {

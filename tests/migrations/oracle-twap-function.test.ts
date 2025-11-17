@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
 import { createClient } from "../helpers/db.js";
 
@@ -35,7 +35,12 @@ async function insertBlock({
   await client.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
      VALUES ($1, $2, $3, $4)`,
-    [chainId, blockNumber, `${chainId}${blockNumber}`, new Date(timestamp * 1000)]
+    [
+      chainId,
+      blockNumber,
+      `${chainId}${blockNumber}`,
+      new Date(timestamp * 1000),
+    ]
   );
 }
 
@@ -427,9 +432,13 @@ test("throws when the TWAP duration is non-positive", async () => {
   const oracleExtension = "3001";
 
   await expect(
-    client.query(
-      `SELECT get_pair_twap_tick($1,$2,$3,$4,$5,$6)`,
-      [chainId, oracleExtension, oracleToken, baseToken, quoteToken, 0]
-    )
+    client.query(`SELECT get_pair_twap_tick($1,$2,$3,$4,$5,$6)`, [
+      chainId,
+      oracleExtension,
+      oracleToken,
+      baseToken,
+      quoteToken,
+      0,
+    ])
   ).rejects.toThrow(/twap duration must be positive/i);
 });

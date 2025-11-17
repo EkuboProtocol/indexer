@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
 import { createClient } from "../helpers/db.js";
 
@@ -45,17 +45,7 @@ async function insertPoolKey(chainId: number) {
         pool_extension
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING pool_key_id`,
-    [
-      chainId,
-      "1000",
-      "2000",
-      "1",
-      "2",
-      "10",
-      "1000",
-      60,
-      "5000",
-    ]
+    [chainId, "1000", "2000", "1", "2", "10", "1000", 60, "5000"]
   );
 
   return poolKeyId;
@@ -201,7 +191,9 @@ test("position deletes adjust per_pool_per_tick_liquidity aggregates", async () 
     liquidityDelta: secondLiquidity,
   });
 
-  const summedLiquidity = (BigInt(firstLiquidity) + BigInt(secondLiquidity)).toString();
+  const summedLiquidity = (
+    BigInt(firstLiquidity) + BigInt(secondLiquidity)
+  ).toString();
 
   const afterInsert = await client.query<{
     tick: number;

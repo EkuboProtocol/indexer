@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, test, expect } from "vitest";
+import { beforeAll, afterAll, test, expect } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
 import { createClient } from "../helpers/db.js";
 
@@ -352,17 +352,7 @@ test("fees accumulated trigger upserts hourly fees", async () => {
         delta1
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
       RETURNING event_id`,
-    [
-      chainId,
-      blockNumber,
-      0,
-      0,
-      "6300",
-      "7300",
-      poolKeyId,
-      "15",
-      "25",
-    ]
+    [chainId, blockNumber, 0, 0, "6300", "7300", poolKeyId, "15", "25"]
   );
 
   const {

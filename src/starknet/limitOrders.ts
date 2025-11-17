@@ -4,8 +4,8 @@ import {
   parseFelt252,
   parseI129,
   parseU128,
-} from "./parse.js";
-import type { GetParserType } from "./parse.js";
+} from "./parse";
+import type { GetParserType } from "./parse";
 
 export const parseLimitOrderKey = combineParsers({
   token0: { index: 0, parser: parseAddress },
