@@ -34,7 +34,7 @@ jobs:
       - name: Build and push Docker image
         run: |
           docker build -t "$IMAGE_REPOSITORY:$IMAGE_TAG" -t "$IMAGE_REPOSITORY:latest" .
-          docker push "$IMAGE_REPOSITORY:$IMAGE_TAG" "$IMAGE_REPOSITORY:latest"
+          docker push "$IMAGE_REPOSITORY:$IMAGE_TAG"
 
       - name: Install envsubst
         run: sudo apt-get update && sudo apt-get install -y gettext
