@@ -10,9 +10,23 @@ Events are not transformed by the indexer, simply cataloged for later use such a
 
 ## Syncing a new node
 
-It can take weeks to sync a new mainnet node, so it's recommended to start from a backup of our production database.
+It can take days to sync a fresh database with all the networks, so it's recommended to start from a backup of our production database.
 
-Join the [Discord](https://discord.ekubo.org) and ask in the `#devs` channel to get the latest export of the data.
+Nightly dumps are published by `.github/workflows/pg-dump.yaml`—grab the most recent `db-backup-<timestamp>.dump` artifact from the Actions tab, then import it into your Postgres instance:
+
+```bash
+pg_restore --clean --if-exists --no-owner \
+  --dbname postgres://user:pass@host:5432/dbname \
+  db-backup-20240101T000000Z.dump
+```
+
+During restore you may see warnings or errors about the DigitalOcean `doadmin` role or the `pg_cron` extension; those are expected and can be ignored if your target database lacks the same privileges/extensions.
+
+Join the [Discord](https://discord.ekubo.org) and ask in the `#devs` channel if you need support.
+
+### Automated database dumps
+
+Nightly backups run through `.github/workflows/pg-dump.yaml`, which connects to the production database using repository secrets, runs `pg_dump -Fc`, and uploads the resulting `db-backup-<timestamp>.dump` as a GitHub Actions artifact (retained for 7 days, named `db-backup-<run_id>`). These artifacts let you bootstrap a new node quickly without waiting for a multi-day sync—grab the latest run from the Actions tab when you need a fresh snapshot.
 
 ## Docker image
 
@@ -37,11 +51,35 @@ docker run --rm \
   ekubo-indexer
 ```
 
-Override the command to reuse the same image for auxiliary scripts (migrations, token sync, etc.); the default entrypoint is already `bun`:
+### Running scripts from the Docker image
+
+Override the command to reuse the same image for auxiliary scripts (migrations, token sync, etc.). The default entrypoint is already `bun`, so point it to the desired TypeScript file:
 
 ```bash
-docker run --rm \
-  --env-file .env \
-  ekubo-indexer \
-  scripts/migrate.ts
+docker run --rm ekubo-indexer scripts/migrate.ts
 ```
+
+Match the examples in `.do/app.yaml` to run other helpers, e.g.:
+
+```bash
+docker run --rm ekubo-indexer scripts/sync-tokens.ts
+docker run --rm ekubo-indexer scripts/sync-token-prices.ts
+```
+
+## Database migrations
+
+- Local: `bun run migrate` or `bun scripts/migrate.ts` (both invoke `scripts/migrate.ts`).
+- Docker: `docker run --rm --env-file .env ekubo-indexer scripts/migrate.ts`.
+- DigitalOcean: the `.do/app.yaml` `run-migrations` pre-deploy job automatically applies migrations before rolling out new workers, ensuring the Postgres schema is up-to-date.
+
+Migration files live under `migrations/` and execute in order via `scripts/migrate.ts`.
+
+## DigitalOcean App Spec
+
+The DigitalOcean Apps spec in `.do/app.yaml` documents the full production stack:
+
+- Workers for each network (e.g.: `starknet-sepolia`, `starknet-mainnet`, `eth-sepolia`, `eth-mainnet`) that all run `bun src/index.ts` with the appropriate `NETWORK_TYPE`/`NETWORK` pairs, pulling the published Docker image (`ghcr.io/ekuboprotocol/indexer:${IMAGE_TAG}`).
+- Managed Postgres (`indexer-db-nyc1`) wired in via the `PG_CONNECTION_STRING` env var along with secrets such as `DNA_TOKEN`.
+- A `run-migrations` pre-deploy job plus scheduled jobs for `scripts/sync-tokens.ts` and `scripts/sync-token-prices.ts`.
+
+Use this file as a base to recreate the stack in a new DigitalOcean App Platform project or as a reference for configuring similar infrastructure elsewhere.
