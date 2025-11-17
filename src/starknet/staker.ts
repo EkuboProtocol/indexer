@@ -1,5 +1,5 @@
-import { combineParsers, parseAddress, parseU128 } from "./parse";
-import type { GetParserType } from "./parse";
+import { combineParsers, parseAddress, parseU128 } from "./parse.js";
+import type { GetParserType } from "./parse.js";
 
 export const parseStakedEvent = combineParsers({
   from: { index: 0, parser: parseAddress },

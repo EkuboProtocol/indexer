@@ -20,13 +20,13 @@ envs:
     value: ${APIBARA_DNA_TOKEN}
 workers:
   - name: starknet-sepolia
-    environment_slug: node-js
+    image: &indexer-image
+      registry_type: DOCKER_HUB
+      registry: ghcr.io
+      repository: EkuboProtocol/indexer
+      tag: ${IMAGE_TAG}
     instance_size_slug: basic-xxs
     instance_count: 1
-    git:
-      repo_clone_url: https://github.com/EkuboProtocol/indexer.git
-      branch: main
-    source_dir: .
     envs:
       - key: NETWORK_TYPE
         scope: RUN_TIME
@@ -34,17 +34,11 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: sepolia
-    build_command: npm install
-    run_command: jiti src/index.ts
+    run_command: dist/src/index.js
   - name: starknet-mainnet
-    environment_slug: node-js
+    image: *indexer-image
     instance_size_slug: basic-xxs
     instance_count: 1
-    git:
-      repo_clone_url: https://github.com/EkuboProtocol/indexer.git
-      branch: main
-    source_dir: .
-    build_command: npm install
     envs:
       - key: NETWORK_TYPE
         scope: RUN_TIME
@@ -52,15 +46,11 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet
-    run_command: jiti src/index.ts
+    run_command: dist/src/index.js
   - name: eth-sepolia
-    environment_slug: node-js
+    image: *indexer-image
     instance_size_slug: basic-xxs
     instance_count: 1
-    git:
-      repo_clone_url: https://github.com/EkuboProtocol/indexer.git
-      branch: main
-    source_dir: .
     envs:
       - key: NETWORK_TYPE
         scope: RUN_TIME
@@ -68,16 +58,11 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: sepolia
-    build_command: npm install
-    run_command: NETWORK_TYPE=evm NETWORK=sepolia jiti src/index.ts
+    run_command: dist/src/index.js
   - name: eth-mainnet
-    environment_slug: node-js
+    image: *indexer-image
     instance_size_slug: basic-xxs
     instance_count: 1
-    git:
-      repo_clone_url: https://github.com/EkuboProtocol/indexer.git
-      branch: main
-    source_dir: .
     envs:
       - key: NETWORK_TYPE
         scope: RUN_TIME
@@ -85,43 +70,27 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet
-    build_command: npm install
-    run_command: jiti src/index.ts
+    run_command: dist/src/index.js
 jobs:
   - name: run-migrations
     kind: PRE_DEPLOY
-    environment_slug: node-js
+    image: *indexer-image
     instance_size_slug: basic-xxs
     instance_count: 1
-    git:
-      repo_clone_url: https://github.com/EkuboProtocol/indexer.git
-      branch: main
-    source_dir: .
-    build_command: npm install
-    run_command: npm run migrate
+    run_command: dist/scripts/migrate.js
   - name: sync-tokens
     kind: SCHEDULED
     schedule:
       cron: "*/15 * * * *"
-    environment_slug: node-js
+    image: *indexer-image
     instance_size_slug: basic-xxs
     instance_count: 1
-    git:
-      repo_clone_url: https://github.com/EkuboProtocol/indexer.git
-      branch: main
-    source_dir: .
-    build_command: npm install
-    run_command: npm run sync-tokens
+    run_command: dist/scripts/sync-tokens.js
   - name: sync-token-prices
     kind: SCHEDULED
     schedule:
       cron: "30 * * * *"
-    environment_slug: node-js
+    image: *indexer-image
     instance_size_slug: basic-xxs
     instance_count: 1
-    git:
-      repo_clone_url: https://github.com/EkuboProtocol/indexer.git
-      branch: main
-    source_dir: .
-    build_command: npm install
-    run_command: npm run sync-token-prices
+    run_command: dist/scripts/sync-token-prices.js

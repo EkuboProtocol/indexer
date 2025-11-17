@@ -9,6 +9,12 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE_REPOSITORY: ghcr.io/EkuboProtocol/indexer
+      IMAGE_TAG: ${{ github.sha }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -18,10 +24,22 @@ jobs:
         with:
           token: ${{ secrets.DO_ACCESS_TOKEN }}
 
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push Docker image
+        run: |
+          docker build -t "$IMAGE_REPOSITORY:$IMAGE_TAG" .
+          docker push "$IMAGE_REPOSITORY:$IMAGE_TAG"
+
       - name: Install envsubst
         run: sudo apt-get update && sudo apt-get install -y gettext
 
-      - name: Upsert DigitalOcean App
+      - name: Deploy App
         env:
           APIBARA_DNA_TOKEN: ${{ secrets.APIBARA_DNA_TOKEN }}
         run: envsubst < .do/app.yaml | doctl apps create --spec - --upsert --update-sources

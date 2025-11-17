@@ -1,6 +1,6 @@
-import { parsePoolKey } from "./core";
+import { parsePoolKey } from "./core.js";
 import { describe, expect, it } from "vitest";
-import { parseByteArray, parseUint8Array } from "./parse";
+import { parseByteArray, parseUint8Array } from "./parse.js";
 
 describe("parse", () => {
   describe(parsePoolKey, () => {

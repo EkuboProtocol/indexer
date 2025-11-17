@@ -5,8 +5,8 @@ import {
   parseI129,
   parseU128,
   parseU256,
-} from "./parse";
-import type { GetParserType } from "./parse";
+} from "./parse.js";
+import type { GetParserType } from "./parse.js";
 
 export const parsePoolKey = combineParsers({
   token0: { index: 0, parser: parseAddress },

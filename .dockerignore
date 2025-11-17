@@ -1,0 +1,7 @@
+node_modules
+dist
+.git
+.github
+tests
+npm-debug.log
+AGENTS.md

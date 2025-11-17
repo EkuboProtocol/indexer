@@ -1,5 +1,5 @@
-import { combineParsers, parseAddress, parseI129, parseU64 } from "./parse";
-import type { GetParserType } from "./parse";
+import { combineParsers, parseAddress, parseI129, parseU64 } from "./parse.js";
+import type { GetParserType } from "./parse.js";
 
 export const parseSnapshot = combineParsers({
   block_timestamp: { index: 0, parser: parseU64 },

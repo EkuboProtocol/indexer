@@ -5,8 +5,8 @@ import {
   POSITIONS_ABI,
   TOKEN_WRAPPER_FACTORY_ABI,
   TWAMM_ABI,
-} from "./abis.ts";
-import type { ContractEvent } from "./logProcessors.ts";
+} from "./abis.js";
+import type { ContractEvent } from "./logProcessors.js";
 
 export type PoolKey = ContractEvent<
   typeof CORE_ABI,

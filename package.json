@@ -5,6 +5,7 @@
   "main": "index.js",
   "description": "Indexes Ekubo data into a Postgres database",
   "scripts": {
+    "build": "tsc --project tsconfig.build.json",
     "eth:mainnet": "NETWORK_TYPE=evm NETWORK=mainnet jiti src/index.ts",
     "eth:sepolia": "NETWORK_TYPE=evm NETWORK=sepolia jiti src/index.ts",
     "starknet:mainnet": "NETWORK_TYPE=starknet NETWORK=mainnet jiti src/index.ts",

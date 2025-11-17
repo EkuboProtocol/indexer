@@ -1,5 +1,5 @@
-import { DAO, type PoolInitializedInsert } from "../_shared/dao.ts";
-import type { EventKey } from "../_shared/eventKey.ts";
+import { DAO, type PoolInitializedInsert } from "../_shared/dao.js";
+import type { EventKey } from "../_shared/eventKey.js";
 import {
   CORE_ABI,
   INCENTIVES_ABI,
@@ -8,7 +8,7 @@ import {
   POSITIONS_ABI,
   TOKEN_WRAPPER_FACTORY_ABI,
   TWAMM_ABI,
-} from "./abis.ts";
+} from "./abis.js";
 import {
   CORE_ABI as CORE_ABI_V2,
   INCENTIVES_ABI as INCENTIVES_ABI_V2,
@@ -17,7 +17,7 @@ import {
   POSITIONS_ABI as POSITIONS_ABI_V2,
   TOKEN_WRAPPER_FACTORY_ABI as TOKEN_WRAPPER_FACTORY_ABI_V2,
   TWAMM_ABI as TWAMM_ABI_V2,
-} from "./abis_v2.ts";
+} from "./abis_v2.js";
 import type {
   Abi,
   AbiParameterToPrimitiveType,
@@ -29,14 +29,14 @@ import {
   decodeEventLog,
   encodeEventTopics,
 } from "viem";
-import { logger } from "../_shared/logger.ts";
+import { logger } from "../_shared/logger.js";
 import {
   floatSqrtRatioToFixed,
   parseSwapEvent,
   parseSwapEventV2,
-} from "./swapEvent.ts";
-import { parseOracleEvent } from "./oracleEvent.ts";
-import { parseTwammVirtualOrdersExecuted } from "./twammEvent.ts";
+} from "./swapEvent.js";
+import { parseOracleEvent } from "./oracleEvent.js";
+import { parseTwammVirtualOrdersExecuted } from "./twammEvent.js";
 import {
   parseOrderConfig,
   parsePoolBalanceUpdate,
@@ -45,7 +45,7 @@ import {
   parseV2PoolKeyConfig,
   toPoolConfig,
   toPoolId,
-} from "./poolKey.ts";
+} from "./poolKey.js";
 
 export type ContractEvent<
   abi extends Abi,

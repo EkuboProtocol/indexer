@@ -5,9 +5,9 @@ import {
   parseI129,
   parseU128,
   parseU64,
-} from "./parse";
-import { parseDelta } from "./core";
-import type { GetParserType } from "./parse";
+} from "./parse.js";
+import { parseDelta } from "./core.js";
+import type { GetParserType } from "./parse.js";
 
 export const parseOrderKey = combineParsers({
   sell_token: { index: 0, parser: parseAddress },

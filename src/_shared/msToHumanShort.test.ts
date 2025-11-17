@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { msToHumanShort } from "./msToHumanShort.ts";
+import { msToHumanShort } from "./msToHumanShort.js";
 
 describe("msToHumanShort", () => {
   it("returns 0ms for zero input", () => {

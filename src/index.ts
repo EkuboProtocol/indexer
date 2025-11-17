@@ -1,13 +1,13 @@
-import "./config";
-import type { EventKey } from "./_shared/eventKey.ts";
-import { logger } from "./_shared/logger.ts";
-import { DAO } from "./_shared/dao.ts";
+import "./config.js";
+import type { EventKey } from "./_shared/eventKey.js";
+import { logger } from "./_shared/logger.js";
+import { DAO } from "./_shared/dao.js";
 import { Block as EvmBlock, EvmStream } from "@apibara/evm";
 import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
-import { createLogProcessors } from "./evm/logProcessors.ts";
-import { createEventProcessors } from "./starknet/eventProcessors.ts";
+import { createLogProcessors } from "./evm/logProcessors.js";
+import { createEventProcessors } from "./starknet/eventProcessors.js";
 import { createClient, Metadata } from "@apibara/protocol";
-import { msToHumanShort } from "./_shared/msToHumanShort.ts";
+import { msToHumanShort } from "./_shared/msToHumanShort.js";
 
 if (!["starknet", "evm"].includes(process.env.NETWORK_TYPE)) {
   throw new Error(`Invalid NETWORK_TYPE: "${process.env.NETWORK_TYPE}"`);
@@ -308,7 +308,8 @@ function resetNoBlocksTimer() {
       }
 
       default: {
-        logger.error(`Unhandled message type: ${message._tag}`);
+        const unexpectedMessage: never = message;
+        logger.error("Unhandled message type", unexpectedMessage);
         break;
       }
     }

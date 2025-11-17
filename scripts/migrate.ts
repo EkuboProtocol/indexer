@@ -1,4 +1,4 @@
-import "../src/config";
+import "../src/config.js";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { Client } from "pg";
@@ -11,7 +11,7 @@ async function main() {
 
   const migrationsPath = resolve(
     dirname(fileURLToPath(import.meta.url)),
-    "../migrations"
+    "../migrations.js"
   );
 
   await client.connect();

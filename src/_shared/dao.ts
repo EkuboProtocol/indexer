@@ -1,5 +1,5 @@
 import type { Sql } from "postgres";
-import { type EventKey } from "./eventKey.ts";
+import { type EventKey } from "./eventKey.js";
 import postgres from "postgres";
 
 export type NumericValue = bigint | number | `0x${string}`;
