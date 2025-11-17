@@ -23,7 +23,7 @@ workers:
     image: &indexer-image
       registry_type: DOCKER_HUB
       registry: ghcr.io
-      repository: EkuboProtocol/indexer
+      repository: ekuboprotocol/indexer
       tag: ${IMAGE_TAG}
     instance_size_slug: basic-xxs
     instance_count: 1

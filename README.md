@@ -22,10 +22,10 @@ Build the runtime image once, which compiles the TypeScript sources to JavaScrip
 docker build -t ekubo-indexer .
 ```
 
-CI publishes the same image to GitHub Container Registry under `ghcr.io/EkuboProtocol/indexer:<git-sha>` so other environments can pull the exact build:
+CI publishes the same image to GitHub Container Registry under `ghcr.io/ekuboprotocol/indexer:<git-sha>` so other environments can pull the exact build:
 
 ```bash
-docker pull ghcr.io/EkuboProtocol/indexer:<git-sha>
+docker pull ghcr.io/ekuboprotocol/indexer:<git-sha>
 ```
 
 The resulting image can execute any of the compiled entrypoints. By default it runs the main indexer; pass environment variables the same way you would locally:

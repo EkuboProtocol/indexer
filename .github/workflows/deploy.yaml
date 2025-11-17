@@ -13,7 +13,7 @@ jobs:
       contents: read
       packages: write
     env:
-      IMAGE_REPOSITORY: ghcr.io/EkuboProtocol/indexer
+      IMAGE_REPOSITORY: ghcr.io/ekuboprotocol/indexer
       IMAGE_TAG: ${{ github.sha }}
     steps:
       - name: Checkout repository
