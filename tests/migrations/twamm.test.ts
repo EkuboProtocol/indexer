@@ -13,6 +13,7 @@ const MIGRATION_FILES = [
   "00029_nft_locker_mappings",
   "00037_order_current_sale_rate",
   "00043_order_current_sale_rate_proceeds",
+  "00044_order_current_sale_rate_is_selling_token1",
 ] as const;
 
 let client: PGlite;
@@ -103,32 +104,35 @@ async function getOrderCurrentSaleRate({
   salt,
   startTime,
   endTime,
+  isSellingToken1,
 }: {
   poolKeyId: number;
   locker: string;
   salt: string;
   startTime: Date;
   endTime: Date;
+  isSellingToken1: boolean;
 }) {
   const { rows } = await client.query<{
     sale_rate0: string;
     sale_rate1: string;
     total_proceeds_withdrawn0: string;
     total_proceeds_withdrawn1: string;
-    is_token1: boolean;
+    is_selling_token1: boolean;
   }>(
     `SELECT sale_rate0,
             sale_rate1,
             total_proceeds_withdrawn0,
             total_proceeds_withdrawn1,
-            is_token1
+            is_selling_token1
      FROM order_current_sale_rate
      WHERE pool_key_id = $1
        AND locker = $2
        AND salt = $3
        AND start_time = $4
-       AND end_time = $5`,
-    [poolKeyId, locker, salt, startTime, endTime]
+       AND end_time = $5
+       AND is_selling_token1 = $6`,
+    [poolKeyId, locker, salt, startTime, endTime, isSellingToken1]
   );
 
   return rows[0];
@@ -468,12 +472,13 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
     salt: token0Order.salt,
     startTime: token0Order.start,
     endTime: token0Order.end,
+    isSellingToken1: false,
   });
   expect(token0State.sale_rate0).toBe("100");
   expect(token0State.sale_rate1).toBe("0");
   expect(token0State.total_proceeds_withdrawn0).toBe("0");
   expect(token0State.total_proceeds_withdrawn1).toBe("0");
-  expect(token0State.is_token1).toBe(false);
+  expect(token0State.is_selling_token1).toBe(false);
 
   await client.query(
     `INSERT INTO twamm_order_updates (
@@ -516,8 +521,9 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
     salt: token0Order.salt,
     startTime: token0Order.start,
     endTime: token0Order.end,
+    isSellingToken1: false,
   });
-  expect(token0State.is_token1).toBe(false);
+  expect(token0State.is_selling_token1).toBe(false);
 
   const {
     rows: [{ event_id: token0WithdrawalId }],
@@ -563,10 +569,11 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
     salt: token0Order.salt,
     startTime: token0Order.start,
     endTime: token0Order.end,
+    isSellingToken1: false,
   });
   expect(token0State.total_proceeds_withdrawn0).toBe("0");
   expect(token0State.total_proceeds_withdrawn1).toBe("5");
-  expect(token0State.is_token1).toBe(false);
+  expect(token0State.is_selling_token1).toBe(false);
 
   await client.query(
     `DELETE FROM twamm_proceeds_withdrawals WHERE chain_id = $1 AND event_id = $2`,
@@ -579,10 +586,11 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
     salt: token0Order.salt,
     startTime: token0Order.start,
     endTime: token0Order.end,
+    isSellingToken1: false,
   });
   expect(token0State.total_proceeds_withdrawn0).toBe("0");
   expect(token0State.total_proceeds_withdrawn1).toBe("0");
-  expect(token0State.is_token1).toBe(false);
+  expect(token0State.is_selling_token1).toBe(false);
 
   const token1Order = {
     locker: "9300",
@@ -632,10 +640,11 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
     salt: token1Order.salt,
     startTime: token1Order.start,
     endTime: token1Order.end,
+    isSellingToken1: true,
   });
   expect(token1State.sale_rate0).toBe("0");
   expect(token1State.sale_rate1).toBe("250");
-  expect(token1State.is_token1).toBe(true);
+  expect(token1State.is_selling_token1).toBe(true);
 
   await client.query(
     `INSERT INTO twamm_proceeds_withdrawals (
@@ -678,10 +687,11 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
     salt: token1Order.salt,
     startTime: token1Order.start,
     endTime: token1Order.end,
+    isSellingToken1: true,
   });
   expect(token1State.total_proceeds_withdrawn0).toBe("7");
   expect(token1State.total_proceeds_withdrawn1).toBe("0");
-  expect(token1State.is_token1).toBe(true);
+  expect(token1State.is_selling_token1).toBe(true);
 
   await client.query(
     `INSERT INTO twamm_proceeds_withdrawals (
@@ -724,9 +734,10 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
     salt: token1Order.salt,
     startTime: token1Order.start,
     endTime: token1Order.end,
+    isSellingToken1: true,
   });
   expect(token1State.total_proceeds_withdrawn0).toBe("7");
-  expect(token1State.is_token1).toBe(true);
+  expect(token1State.is_selling_token1).toBe(true);
 
   const orphanOrder = {
     locker: "9500",
@@ -779,12 +790,13 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
     salt: orphanOrder.salt,
     startTime: orphanOrder.start,
     endTime: orphanOrder.end,
+    isSellingToken1: true,
   });
   expect(orphanState.sale_rate0).toBe("0");
   expect(orphanState.sale_rate1).toBe("0");
   expect(orphanState.total_proceeds_withdrawn0).toBe("3");
   expect(orphanState.total_proceeds_withdrawn1).toBe("0");
-  expect(orphanState.is_token1).toBe(true);
+  expect(orphanState.is_selling_token1).toBe(true);
 
   await client.query(
     `INSERT INTO twamm_order_updates (
@@ -827,10 +839,11 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
     salt: orphanOrder.salt,
     startTime: orphanOrder.start,
     endTime: orphanOrder.end,
+    isSellingToken1: true,
   });
   expect(orphanState.sale_rate1).toBe("12");
   expect(orphanState.total_proceeds_withdrawn0).toBe("3");
-  expect(orphanState.is_token1).toBe(true);
+  expect(orphanState.is_selling_token1).toBe(true);
 
   await client.query(
     `DELETE FROM twamm_proceeds_withdrawals WHERE chain_id = $1 AND event_id = $2`,
@@ -843,11 +856,12 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
     salt: orphanOrder.salt,
     startTime: orphanOrder.start,
     endTime: orphanOrder.end,
+    isSellingToken1: true,
   });
   expect(orphanState.total_proceeds_withdrawn0).toBe("0");
   expect(orphanState.total_proceeds_withdrawn1).toBe("0");
   expect(orphanState.sale_rate1).toBe("12");
-  expect(orphanState.is_token1).toBe(true);
+  expect(orphanState.is_selling_token1).toBe(true);
 });
 
 type TwammPoolStateRow = {
