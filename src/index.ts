@@ -1,12 +1,12 @@
 import "./config";
 import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
-import { DAO } from "./_shared/dao";
+import { DAO, type IndexerCursor } from "./_shared/dao";
 import { Block as EvmBlock, EvmStream } from "@apibara/evm";
 import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
 import { createLogProcessors } from "./evm/logProcessors";
 import { createEventProcessors } from "./starknet/eventProcessors";
-import { createClient, Metadata } from "@apibara/protocol";
+import { Bytes, createClient, Metadata } from "@apibara/protocol";
 import { msToHumanShort } from "./_shared/msToHumanShort";
 
 if (!["starknet", "evm"].includes(process.env.NETWORK_TYPE)) {
@@ -61,22 +61,27 @@ function resetNoBlocksTimer() {
   }
 
   // first set up the schema
-  let databaseStartingCursor;
+  let currentCursor: IndexerCursor;
   {
     const initializeTimer = logger.startTimer();
     await dao.begin(async (dao) => {
-      databaseStartingCursor = await dao.loadCursor();
-
-      // we need to clear anything that was potentially inserted as pending before starting
+      const databaseStartingCursor = await dao.loadCursor();
       if (databaseStartingCursor) {
-        await dao.deleteOldBlockNumbers(
-          Number(databaseStartingCursor.orderKey) + 1
+        currentCursor = databaseStartingCursor;
+      } else {
+        currentCursor = await dao.writeCursor(
+          {
+            orderKey: BigInt(process.env.STARTING_CURSOR_BLOCK_NUMBER),
+          },
+          // should never happen but so this will cause it to revert if there's a race condition
+          { orderKey: 0n }
         );
+
+        initializeTimer.done({
+          message: "Prepared indexer state",
+          startingCursor: currentCursor,
+        });
       }
-    });
-    initializeTimer.done({
-      message: "Prepared indexer state",
-      startingCursor: databaseStartingCursor,
     });
   }
 
@@ -161,9 +166,7 @@ function resetNoBlocksTimer() {
   for await (const message of streamClient.streamData({
     filter: filterConfig,
     finality: "accepted",
-    startingCursor: databaseStartingCursor
-      ? databaseStartingCursor
-      : { orderKey: BigInt(process.env.STARTING_CURSOR_BLOCK_NUMBER ?? 0) },
+    startingCursor: currentCursor!,
     heartbeatInterval: {
       seconds: 10n,
       nanos: 0,
@@ -201,18 +204,21 @@ function resetNoBlocksTimer() {
       }
 
       case "invalidate": {
-        let invalidatedCursor = message.invalidate.cursor;
+        const invalidatedCursor = message.invalidate.cursor;
+        if (!invalidatedCursor)
+          throw new Error("invalidate message missing a cursor");
 
         if (invalidatedCursor) {
-          logger.warn(`Invalidated cursor`, {
-            cursor: invalidatedCursor,
-          });
+          logger.warn(`Cursor invalidated`, { cursor: invalidatedCursor });
 
           await dao.begin(async (dao) => {
             await dao.deleteOldBlockNumbers(
               Number(invalidatedCursor.orderKey) + 1
             );
-            await dao.writeCursor(invalidatedCursor);
+            currentCursor = await dao.writeCursor(
+              invalidatedCursor,
+              currentCursor
+            );
           });
         }
 
@@ -226,6 +232,10 @@ function resetNoBlocksTimer() {
         const blockProcessingTimer = logger.startTimer();
 
         let eventsProcessed: number = 0;
+        const endCursor = message.data.endCursor;
+        if (!endCursor) {
+          throw new Error("Received data message without an end cursor");
+        }
 
         for (const block of message.data.data) {
           if (!block) continue;
@@ -291,7 +301,7 @@ function resetNoBlocksTimer() {
             }
 
             // endCursor is what we write so when we restart we delete any pending block information
-            await dao.writeCursor(message.data.endCursor);
+            currentCursor = await dao.writeCursor(endCursor, currentCursor);
           });
 
           blockProcessingTimer.done({
