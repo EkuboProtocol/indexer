@@ -650,7 +650,7 @@ export class DAO {
           ${tickSpacing},
           ${this.numeric(extension)},
           ${this.numeric(feeDenominator)}
-        )
+        ) ON CONFLICT (chain_id, core_address, pool_id) DO NOTHING
         RETURNING pool_key_id
       )
       INSERT INTO pool_initializations
