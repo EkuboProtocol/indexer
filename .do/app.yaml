@@ -28,7 +28,7 @@ workers:
       registry: ghcr.io
       repository: ekuboprotocol/indexer
       tag: ${IMAGE_TAG}
-    instance_size_slug: basic-xxs
+    instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
       - key: NETWORK_TYPE
@@ -40,7 +40,7 @@ workers:
     run_command: bun src/index.ts
   - name: starknet-mainnet
     image: *indexer-image
-    instance_size_slug: basic-xs
+    instance_size_slug: apps-s-1vcpu-1gb-fixed
     instance_count: 1
     envs:
       - key: NETWORK_TYPE
@@ -52,7 +52,7 @@ workers:
     run_command: bun src/index.ts
   - name: eth-sepolia
     image: *indexer-image
-    instance_size_slug: basic-xxs
+    instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
       - key: NETWORK_TYPE
@@ -64,7 +64,7 @@ workers:
     run_command: bun src/index.ts
   - name: eth-mainnet
     image: *indexer-image
-    instance_size_slug: basic-xs
+    instance_size_slug: apps-s-1vcpu-1gb-fixed
     instance_count: 1
     envs:
       - key: NETWORK_TYPE
@@ -78,7 +78,7 @@ jobs:
   - name: run-migrations
     kind: PRE_DEPLOY
     image: *indexer-image
-    instance_size_slug: basic-xxs
+    instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     run_command: bun scripts/migrate.ts
   - name: sync-tokens
@@ -86,7 +86,7 @@ jobs:
     schedule:
       cron: "*/15 * * * *"
     image: *indexer-image
-    instance_size_slug: basic-xxs
+    instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     run_command: bun scripts/sync-tokens.ts
   - name: sync-token-prices
@@ -94,6 +94,6 @@ jobs:
     schedule:
       cron: "*/15 * * * *"
     image: *indexer-image
-    instance_size_slug: basic-xxs
+    instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     run_command: bun scripts/sync-token-prices.ts
