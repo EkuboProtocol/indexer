@@ -120,6 +120,7 @@ export interface TwammOrderUpdatedInsert {
   saleRateDelta: bigint;
   owner: AddressValue;
   salt: NumericValue;
+  is_selling_token1: boolean;
 }
 
 export interface TwammOrderProceedsWithdrawnInsert {
@@ -129,6 +130,7 @@ export interface TwammOrderProceedsWithdrawnInsert {
   amount: NumericValue;
   owner: AddressValue;
   salt: NumericValue;
+  is_selling_token1: boolean;
 }
 
 export interface TwammVirtualOrdersExecutedInsert {
@@ -1104,15 +1106,14 @@ export class DAO {
   ) {
     const { orderKey, poolId, coreAddress } = event;
 
-    const [sale_rate_delta0, sale_rate_delta1] =
-      BigInt(orderKey.sellToken) > BigInt(orderKey.buyToken)
-        ? [0, event.saleRateDelta]
-        : [event.saleRateDelta, 0];
+    const [sale_rate_delta0, sale_rate_delta1] = event.is_selling_token1
+      ? [0, event.saleRateDelta]
+      : [event.saleRateDelta, 0];
 
     await this.sql`
       INSERT INTO twamm_order_updates
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-         pool_key_id, locker, salt, sale_rate_delta0, sale_rate_delta1, start_time, end_time)
+         pool_key_id, locker, salt, sale_rate_delta0, sale_rate_delta1, start_time, end_time, is_selling_token1)
       VALUES (
         ${this.chainId},
         ${key.blockNumber},
@@ -1132,7 +1133,8 @@ export class DAO {
         ${this.numeric(BigInt(sale_rate_delta0))},
         ${this.numeric(BigInt(sale_rate_delta1))},
         ${new Date(Number(orderKey.startTime * 1000n))},
-        ${new Date(Number(orderKey.endTime * 1000n))}
+        ${new Date(Number(orderKey.endTime * 1000n))},
+        ${event.is_selling_token1}
       );
     `;
   }
@@ -1143,15 +1145,14 @@ export class DAO {
   ) {
     const { orderKey, poolId } = event;
 
-    const [amount0, amount1] =
-      BigInt(orderKey.sellToken) > BigInt(orderKey.buyToken)
-        ? [orderKey.buyToken, orderKey.sellToken, 0, event.amount]
-        : [orderKey.sellToken, orderKey.buyToken, event.amount, 0];
+    const [amount0, amount1] = event.is_selling_token1
+      ? [BigInt(event.amount), 0n]
+      : [0n, BigInt(event.amount)];
 
     await this.sql`
       INSERT INTO twamm_proceeds_withdrawals
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-         pool_key_id, locker, salt, amount0, amount1, start_time, end_time)
+         pool_key_id, locker, salt, amount0, amount1, start_time, end_time, is_selling_token1)
       VALUES (
         ${this.chainId},
         ${key.blockNumber},
@@ -1171,7 +1172,8 @@ export class DAO {
         ${this.numeric(amount0)},
         ${this.numeric(amount1)},
         ${new Date(Number(orderKey.startTime * 1000n))},
-        ${new Date(Number(orderKey.endTime * 1000n))}
+        ${new Date(Number(orderKey.endTime * 1000n))},
+        ${event.is_selling_token1}
       );
     `;
   }
