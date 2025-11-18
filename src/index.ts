@@ -43,7 +43,8 @@ function resetNoBlocksTimer() {
     noBlocksTimer = setTimeout(() => {
       logger.error(
         `No blocks received in the last ${msToHumanShort(
-          NO_BLOCKS_TIMEOUT_MS
+          NO_BLOCKS_TIMEOUT_MS,
+          2
         )}. Exiting process.`
       );
       process.exit(1);
@@ -294,12 +295,12 @@ function resetNoBlocksTimer() {
           });
 
           blockProcessingTimer.done({
-            _chainId: hexChainId, // for readability
-            blockNumber,
-            eventsProcessed,
-            blockTimestamp: blockTime,
+            bNo: blockNumber,
+            bTs: blockTime,
+            evts: eventsProcessed,
             lag: msToHumanShort(
-              Math.floor(Date.now() - Number(blockTime.getTime()))
+              Math.floor(Date.now() - Number(blockTime.getTime())),
+              2
             ),
           });
         }
