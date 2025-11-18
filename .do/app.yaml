@@ -92,7 +92,7 @@ jobs:
   - name: sync-token-prices
     kind: SCHEDULED
     schedule:
-      cron: "30 * * * *"
+      cron: "*/15 * * * *"
     image: *indexer-image
     instance_size_slug: basic-xxs
     instance_count: 1
