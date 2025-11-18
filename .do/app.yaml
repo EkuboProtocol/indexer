@@ -11,6 +11,7 @@ envs:
     value: "0"
   - key: PG_CONNECTION_STRING
     scope: RUN_TIME
+    type: SECRET
     value: ${PG_CONNECTION_STRING}
   - key: DNA_TOKEN
     scope: RUN_TIME
