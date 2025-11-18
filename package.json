@@ -10,7 +10,8 @@
     "starknet:sepolia": "NETWORK_TYPE=starknet NETWORK=sepolia bun src/index.ts",
     "sync-tokens": "bun scripts/sync-tokens.ts",
     "sync-token-prices": "bun scripts/sync-token-prices.ts",
-    "migrate": "bun scripts/migrate.ts"
+    "migrate": "bun scripts/migrate.ts",
+    "import-legacy-incentives": "bun scripts/import-legacy-incentives.ts"
   },
   "author": "Moody Salem",
   "type": "module",
