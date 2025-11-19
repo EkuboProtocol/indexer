@@ -95,3 +95,5 @@ jobs:
     run_command: bun scripts/sync-token-prices.ts
 vpc:
   id: ${VPC_ID}
+features:
+  - xl-build
