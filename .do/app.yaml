@@ -60,7 +60,7 @@ workers:
     run_command: bun src/index.ts
   - name: eth-mainnet
     image: *indexer-image
-    instance_size_slug: apps-d-2vcpu-4gb
+    instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
       - key: NETWORK_TYPE
