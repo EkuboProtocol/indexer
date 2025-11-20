@@ -31,6 +31,19 @@ const dao = DAO.create(process.env.PG_CONNECTION_STRING, chainId);
 const NO_BLOCKS_TIMEOUT_MS = parseInt(process.env.NO_BLOCKS_TIMEOUT_MS || "0");
 let noBlocksTimer: NodeJS.Timeout | null = null;
 
+const statsBlockIntervalRaw = parseInt(
+  process.env.EVENT_STATS_BLOCK_INTERVAL || "100",
+  10
+);
+const EVENT_STATS_BLOCK_INTERVAL = Number.isNaN(statsBlockIntervalRaw)
+  ? 100
+  : statsBlockIntervalRaw;
+let statsBlocksProcessed = 0;
+let statsEventsInserted = 0;
+let statsProcessingTimeMs = 0;
+let statsLagReducedMs = 0;
+let lastObservedLagMs: number | null = null;
+
 // Function to set or reset the no-blocks timer
 function resetNoBlocksTimer() {
   // Clear existing timer if it exists
@@ -193,12 +206,11 @@ function resetNoBlocksTimer() {
       }
 
       case "finalize": {
-        logger.info("Chain finalized", {
+        logger.info({
+          evt: "finalize",
           chainId,
-          cursor: {
-            orderKey: message.finalize.cursor?.orderKey?.toString(),
-            unqiueKey: message.finalize.cursor?.uniqueKey?.toString(),
-          },
+          cursorOrderKey: message.finalize.cursor?.orderKey?.toString(),
+          cursorUniqueKey: message.finalize.cursor?.uniqueKey?.toString(),
         });
         break;
       }
@@ -229,9 +241,6 @@ function resetNoBlocksTimer() {
         // Reset the no-blocks timer since we received block data
         resetNoBlocksTimer();
 
-        const blockProcessingTimer = logger.startTimer();
-
-        let eventsProcessed: number = 0;
         const endCursor = message.data.endCursor;
         if (!endCursor) {
           throw new Error("Received data message without an end cursor");
@@ -239,6 +248,9 @@ function resetNoBlocksTimer() {
 
         for (const block of message.data.data) {
           if (!block) continue;
+          const blockProcessingTimer = logger.startTimer();
+          const blockProcessingStartMs = Date.now();
+          let eventsProcessed = 0;
 
           const blockNumber = Number(block.header.blockNumber);
           const blockTime = block.header.timestamp;
@@ -304,15 +316,62 @@ function resetNoBlocksTimer() {
             currentCursor = await dao.writeCursor(endCursor, currentCursor);
           });
 
+          const nowMs = Date.now();
+          const lagMs = Math.max(0, nowMs - Number(blockTime.getTime()));
+
           blockProcessingTimer.done({
             bNo: blockNumber,
             bTs: blockTime,
             evts: eventsProcessed,
-            lag: msToHumanShort(
-              Math.floor(Date.now() - Number(blockTime.getTime())),
-              2
-            ),
+            lag: msToHumanShort(lagMs, 2),
+            lagMs,
           });
+
+          if (lastObservedLagMs !== null) {
+            statsLagReducedMs += lastObservedLagMs - lagMs;
+          }
+          lastObservedLagMs = lagMs;
+
+          if (EVENT_STATS_BLOCK_INTERVAL > 0) {
+            const blockDurationMs = nowMs - blockProcessingStartMs;
+            statsBlocksProcessed += 1;
+            statsEventsInserted += eventsProcessed;
+            statsProcessingTimeMs += blockDurationMs;
+
+            if (statsBlocksProcessed === EVENT_STATS_BLOCK_INTERVAL) {
+              const eventsPerSecond =
+                statsProcessingTimeMs > 0
+                  ? statsEventsInserted / (statsProcessingTimeMs / 1000)
+                  : 0;
+
+              const catchupMsPerSec =
+                statsProcessingTimeMs > 0
+                  ? (statsLagReducedMs * 1000) / statsProcessingTimeMs
+                  : 0;
+
+              const etaMs =
+                catchupMsPerSec > 0 && lastObservedLagMs !== null
+                  ? Math.round((lastObservedLagMs / catchupMsPerSec) * 1000)
+                  : null;
+
+              logger.info({
+                evt: "event-ingest-stats",
+                blocks: statsBlocksProcessed,
+                events: statsEventsInserted,
+                durationMs: Math.round(statsProcessingTimeMs),
+                eps: Number(eventsPerSecond.toFixed(2)),
+                lagMs: lastObservedLagMs,
+                catchupMsPerSec: Number(catchupMsPerSec.toFixed(2)),
+                etaMs,
+                eta: etaMs !== null ? msToHumanShort(etaMs, 2) : null,
+              });
+
+              statsBlocksProcessed = 0;
+              statsEventsInserted = 0;
+              statsProcessingTimeMs = 0;
+              statsLagReducedMs = 0;
+            }
+          }
         }
 
         break;
