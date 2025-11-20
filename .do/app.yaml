@@ -2,11 +2,6 @@ name: ekubo-indexer
 region: nyc
 alerts:
   - rule: DEPLOYMENT_FAILED
-databases:
-  - name: indexer-db-nyc1
-    engine: PG
-    cluster_name: ekubo-db-nyc1
-    production: true
 envs:
   - key: NODE_ENV
     scope: RUN_AND_BUILD_TIME
@@ -16,7 +11,8 @@ envs:
     value: "0"
   - key: PG_CONNECTION_STRING
     scope: RUN_TIME
-    value: ${indexer-db-nyc1.DATABASE_URL}
+    type: SECRET
+    value: ${PG_CONNECTION_STRING}
   - key: DNA_TOKEN
     scope: RUN_TIME
     type: SECRET
@@ -28,7 +24,7 @@ workers:
       registry: ghcr.io
       repository: ekuboprotocol/indexer
       tag: ${IMAGE_TAG}
-    instance_size_slug: basic-xxs
+    instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
       - key: NETWORK_TYPE
@@ -40,7 +36,7 @@ workers:
     run_command: bun src/index.ts
   - name: starknet-mainnet
     image: *indexer-image
-    instance_size_slug: basic-xxs
+    instance_size_slug: apps-d-2vcpu-4gb
     instance_count: 1
     envs:
       - key: NETWORK_TYPE
@@ -52,7 +48,7 @@ workers:
     run_command: bun src/index.ts
   - name: eth-sepolia
     image: *indexer-image
-    instance_size_slug: basic-xxs
+    instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
       - key: NETWORK_TYPE
@@ -64,7 +60,7 @@ workers:
     run_command: bun src/index.ts
   - name: eth-mainnet
     image: *indexer-image
-    instance_size_slug: basic-xxs
+    instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
       - key: NETWORK_TYPE
@@ -78,7 +74,7 @@ jobs:
   - name: run-migrations
     kind: PRE_DEPLOY
     image: *indexer-image
-    instance_size_slug: basic-xxs
+    instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     run_command: bun scripts/migrate.ts
   - name: sync-tokens
@@ -86,14 +82,16 @@ jobs:
     schedule:
       cron: "*/15 * * * *"
     image: *indexer-image
-    instance_size_slug: basic-xxs
+    instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     run_command: bun scripts/sync-tokens.ts
   - name: sync-token-prices
     kind: SCHEDULED
     schedule:
-      cron: "30 * * * *"
+      cron: "*/15 * * * *"
     image: *indexer-image
-    instance_size_slug: basic-xxs
+    instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     run_command: bun scripts/sync-token-prices.ts
+vpc:
+  id: ${VPC_ID}

@@ -5,10 +5,18 @@ import { createClient } from "../helpers/db.js";
 const MIGRATION_FILES = [
   "00001_chain_tables",
   "00002_core_tables",
+  "00003_nonfungible_tokens",
   "00004_pool_states",
   "00006_twamm_tables",
   "00007_twamm_pool_states",
   "00008_twamm_sale_rate_deltas",
+  "00029_nft_locker_mappings",
+  "00030_position_current_liquidity",
+  "00037_order_current_sale_rate",
+  "00043_order_current_sale_rate_proceeds",
+  "00044_order_current_sale_rate_is_selling_token1",
+  "00046_add_locker_to_nonfungible_token_views",
+  "00048_order_amount_sold_tracking",
 ] as const;
 
 let client: PGlite;
@@ -93,6 +101,52 @@ async function insertPoolKey(chainId: number) {
   return Number(poolKeyId);
 }
 
+async function getOrderCurrentSaleRate({
+  poolKeyId,
+  locker,
+  salt,
+  startTime,
+  endTime,
+  isSellingToken1,
+}: {
+  poolKeyId: number;
+  locker: string;
+  salt: string;
+  startTime: Date;
+  endTime: Date;
+  isSellingToken1: boolean;
+}) {
+  const { rows } = await client.query<{
+    sale_rate0: string;
+    sale_rate1: string;
+    total_proceeds_withdrawn0: string;
+    total_proceeds_withdrawn1: string;
+    is_selling_token1: boolean;
+    amount0_sold_last: string;
+    amount1_sold_last: string;
+    amount_sold_last_block_time: string;
+  }>(
+    `SELECT sale_rate0,
+            sale_rate1,
+            total_proceeds_withdrawn0,
+            total_proceeds_withdrawn1,
+            is_selling_token1,
+            amount0_sold_last,
+            amount1_sold_last,
+            amount_sold_last_block_time::text AS amount_sold_last_block_time
+     FROM order_current_sale_rate
+     WHERE pool_key_id = $1
+       AND locker = $2
+       AND salt = $3
+       AND start_time = $4
+       AND end_time = $5
+       AND is_selling_token1 = $6`,
+    [poolKeyId, locker, salt, startTime, endTime, isSellingToken1]
+  );
+
+  return rows[0];
+}
+
 test("twamm event tables generate event ids, forbid updates, and cascade on block deletion", async () => {
   const chainId = 2100;
   const blockNumber = 90;
@@ -147,6 +201,12 @@ test("twamm event tables generate event ids, forbid updates, and cascade on bloc
     )
   ).rejects.toThrow(/Updates are not allowed/);
 
+  const orderStartTime = new Date(blockTime.getTime() - 60000);
+  const orderEndTime = new Date(blockTime.getTime() + 60000);
+
+  const locker = "7200";
+  const salt = "7300";
+
   const {
     rows: [{ event_id: orderUpdateEventId }],
   } = await client.query<{ event_id: bigint }>(
@@ -163,8 +223,9 @@ test("twamm event tables generate event ids, forbid updates, and cascade on bloc
         sale_rate_delta0,
         sale_rate_delta1,
         start_time,
-        end_time
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      RETURNING event_id`,
     [
       chainId,
@@ -174,12 +235,13 @@ test("twamm event tables generate event ids, forbid updates, and cascade on bloc
       "7001",
       "7101",
       poolKeyId,
-      "7200",
-      "7300",
-      "10",
+      locker,
+      salt,
+      "0",
       "-5",
-      new Date(blockTime.getTime() - 60000),
-      new Date(blockTime.getTime() + 60000),
+      orderStartTime,
+      orderEndTime,
+      true,
     ]
   );
 
@@ -192,8 +254,8 @@ test("twamm event tables generate event ids, forbid updates, and cascade on bloc
     )
   ).rejects.toThrow(/Updates are not allowed/);
 
-  const withdrawalStart = new Date(blockTime.getTime() - 120000);
-  const withdrawalEnd = new Date(blockTime.getTime() - 60000);
+  const withdrawalStart = orderStartTime;
+  const withdrawalEnd = orderEndTime;
 
   const {
     rows: [{ event_id: withdrawalEventId }],
@@ -211,8 +273,9 @@ test("twamm event tables generate event ids, forbid updates, and cascade on bloc
         start_time,
         end_time,
         amount0,
-        amount1
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        amount1,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      RETURNING event_id`,
     [
       chainId,
@@ -222,12 +285,13 @@ test("twamm event tables generate event ids, forbid updates, and cascade on bloc
       "7002",
       "7102",
       poolKeyId,
-      "7400",
-      "7500",
+      locker,
+      salt,
       withdrawalStart,
       withdrawalEnd,
       "11",
-      "22",
+      "0",
+      true,
     ]
   );
 
@@ -277,7 +341,7 @@ test("twamm order updates maintain sparse sale rate deltas", async () => {
   const startTime = new Date("2024-02-02T00:10:00Z");
   const endTime = new Date("2024-02-02T00:30:00Z");
   const delta0 = "40";
-  const delta1 = "-15";
+  const delta1 = "0";
 
   const {
     rows: [{ event_id: eventId }],
@@ -295,8 +359,9 @@ test("twamm order updates maintain sparse sale rate deltas", async () => {
         sale_rate_delta0,
         sale_rate_delta1,
         start_time,
-        end_time
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      RETURNING event_id`,
     [
       chainId,
@@ -312,6 +377,7 @@ test("twamm order updates maintain sparse sale rate deltas", async () => {
       delta1,
       startTime,
       endTime,
+      delta1 !== "0",
     ]
   );
 
@@ -358,6 +424,1284 @@ test("twamm order updates maintain sparse sale rate deltas", async () => {
     [poolKeyId]
   );
   expect(afterDeleteRows.length).toBe(0);
+});
+
+test("order_current_sale_rate captures proceeds totals and token side", async () => {
+  const chainId = 2250;
+  const blockNumber = 140;
+  const blockTime = new Date("2024-02-02T12:00:00Z");
+  await seedBlock({ chainId, blockNumber, blockTime });
+  const poolKeyId = await insertPoolKey(chainId);
+
+  const token0Order = {
+    locker: "9100",
+    salt: "9200",
+    start: new Date("2024-02-02T12:05:00Z"),
+    end: new Date("2024-02-02T13:05:00Z"),
+  };
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockNumber,
+      0,
+      0,
+      "8000",
+      "8100",
+      poolKeyId,
+      token0Order.locker,
+      token0Order.salt,
+      "100",
+      "0",
+      token0Order.start,
+      token0Order.end,
+      false,
+    ]
+  );
+
+  let token0State = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker: token0Order.locker,
+    salt: token0Order.salt,
+    startTime: token0Order.start,
+    endTime: token0Order.end,
+    isSellingToken1: false,
+  });
+  expect(token0State.sale_rate0).toBe("100");
+  expect(token0State.sale_rate1).toBe("0");
+  expect(token0State.total_proceeds_withdrawn0).toBe("0");
+  expect(token0State.total_proceeds_withdrawn1).toBe("0");
+  expect(token0State.is_selling_token1).toBe(false);
+  expect(token0State.amount0_sold_last).toBe("0");
+  expect(token0State.amount1_sold_last).toBe("0");
+  expect(new Date(token0State.amount_sold_last_block_time).toISOString()).toBe(
+    token0Order.start.toISOString()
+  );
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockNumber,
+      0,
+      1,
+      "8001",
+      "8101",
+      poolKeyId,
+      token0Order.locker,
+      token0Order.salt,
+      "0",
+      "0",
+      token0Order.start,
+      token0Order.end,
+      false,
+    ]
+  );
+
+  token0State = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker: token0Order.locker,
+    salt: token0Order.salt,
+    startTime: token0Order.start,
+    endTime: token0Order.end,
+    isSellingToken1: false,
+  });
+  expect(token0State.is_selling_token1).toBe(false);
+
+  const {
+    rows: [{ event_id: token0WithdrawalId }],
+  } = await client.query<{ event_id: bigint }>(
+    `INSERT INTO twamm_proceeds_withdrawals (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        start_time,
+        end_time,
+        amount0,
+        amount1,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+     RETURNING event_id`,
+    [
+      chainId,
+      blockNumber,
+      0,
+      2,
+      "8002",
+      "8102",
+      poolKeyId,
+      token0Order.locker,
+      token0Order.salt,
+      token0Order.start,
+      token0Order.end,
+      "0",
+      "5",
+      false,
+    ]
+  );
+
+  token0State = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker: token0Order.locker,
+    salt: token0Order.salt,
+    startTime: token0Order.start,
+    endTime: token0Order.end,
+    isSellingToken1: false,
+  });
+  expect(token0State.total_proceeds_withdrawn0).toBe("0");
+  expect(token0State.total_proceeds_withdrawn1).toBe("5");
+  expect(token0State.is_selling_token1).toBe(false);
+
+  await client.query(
+    `DELETE FROM twamm_proceeds_withdrawals WHERE chain_id = $1 AND event_id = $2`,
+    [chainId, token0WithdrawalId]
+  );
+
+  token0State = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker: token0Order.locker,
+    salt: token0Order.salt,
+    startTime: token0Order.start,
+    endTime: token0Order.end,
+    isSellingToken1: false,
+  });
+  expect(token0State.total_proceeds_withdrawn0).toBe("0");
+  expect(token0State.total_proceeds_withdrawn1).toBe("0");
+  expect(token0State.is_selling_token1).toBe(false);
+
+  const token1Order = {
+    locker: "9300",
+    salt: "9400",
+    start: new Date("2024-02-02T13:10:00Z"),
+    end: new Date("2024-02-02T14:10:00Z"),
+  };
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockNumber,
+      0,
+      3,
+      "8003",
+      "8103",
+      poolKeyId,
+      token1Order.locker,
+      token1Order.salt,
+      "0",
+      "250",
+      token1Order.start,
+      token1Order.end,
+      true,
+    ]
+  );
+
+  let token1State = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker: token1Order.locker,
+    salt: token1Order.salt,
+    startTime: token1Order.start,
+    endTime: token1Order.end,
+    isSellingToken1: true,
+  });
+  expect(token1State.sale_rate0).toBe("0");
+  expect(token1State.sale_rate1).toBe("250");
+  expect(token1State.is_selling_token1).toBe(true);
+
+  await client.query(
+    `INSERT INTO twamm_proceeds_withdrawals (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        start_time,
+        end_time,
+        amount0,
+        amount1,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockNumber,
+      0,
+      4,
+      "8004",
+      "8104",
+      poolKeyId,
+      token1Order.locker,
+      token1Order.salt,
+      token1Order.start,
+      token1Order.end,
+      "7",
+      "0",
+      true,
+    ]
+  );
+
+  token1State = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker: token1Order.locker,
+    salt: token1Order.salt,
+    startTime: token1Order.start,
+    endTime: token1Order.end,
+    isSellingToken1: true,
+  });
+  expect(token1State.total_proceeds_withdrawn0).toBe("7");
+  expect(token1State.total_proceeds_withdrawn1).toBe("0");
+  expect(token1State.is_selling_token1).toBe(true);
+
+  await client.query(
+    `INSERT INTO twamm_proceeds_withdrawals (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        start_time,
+        end_time,
+        amount0,
+        amount1,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockNumber,
+      0,
+      5,
+      "8005",
+      "8105",
+      poolKeyId,
+      token1Order.locker,
+      token1Order.salt,
+      token1Order.start,
+      token1Order.end,
+      "0",
+      "0",
+      true,
+    ]
+  );
+
+  token1State = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker: token1Order.locker,
+    salt: token1Order.salt,
+    startTime: token1Order.start,
+    endTime: token1Order.end,
+    isSellingToken1: true,
+  });
+  expect(token1State.total_proceeds_withdrawn0).toBe("7");
+  expect(token1State.is_selling_token1).toBe(true);
+
+  const orphanOrder = {
+    locker: "9500",
+    salt: "9600",
+    start: new Date("2024-02-02T14:20:00Z"),
+    end: new Date("2024-02-02T15:20:00Z"),
+  };
+
+  const {
+    rows: [{ event_id: orphanWithdrawalId }],
+  } = await client.query<{ event_id: bigint }>(
+    `INSERT INTO twamm_proceeds_withdrawals (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        start_time,
+        end_time,
+        amount0,
+        amount1,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+     RETURNING event_id`,
+    [
+      chainId,
+      blockNumber,
+      0,
+      6,
+      "8006",
+      "8106",
+      poolKeyId,
+      orphanOrder.locker,
+      orphanOrder.salt,
+      orphanOrder.start,
+      orphanOrder.end,
+      "3",
+      "0",
+      true,
+    ]
+  );
+
+  let orphanState = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker: orphanOrder.locker,
+    salt: orphanOrder.salt,
+    startTime: orphanOrder.start,
+    endTime: orphanOrder.end,
+    isSellingToken1: true,
+  });
+  expect(orphanState.sale_rate0).toBe("0");
+  expect(orphanState.sale_rate1).toBe("0");
+  expect(orphanState.total_proceeds_withdrawn0).toBe("3");
+  expect(orphanState.total_proceeds_withdrawn1).toBe("0");
+  expect(orphanState.is_selling_token1).toBe(true);
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockNumber,
+      0,
+      7,
+      "8007",
+      "8107",
+      poolKeyId,
+      orphanOrder.locker,
+      orphanOrder.salt,
+      "0",
+      "12",
+      orphanOrder.start,
+      orphanOrder.end,
+      true,
+    ]
+  );
+
+  orphanState = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker: orphanOrder.locker,
+    salt: orphanOrder.salt,
+    startTime: orphanOrder.start,
+    endTime: orphanOrder.end,
+    isSellingToken1: true,
+  });
+  expect(orphanState.sale_rate1).toBe("12");
+  expect(orphanState.total_proceeds_withdrawn0).toBe("3");
+  expect(orphanState.is_selling_token1).toBe(true);
+
+  await client.query(
+    `DELETE FROM twamm_proceeds_withdrawals WHERE chain_id = $1 AND event_id = $2`,
+    [chainId, orphanWithdrawalId]
+  );
+
+  orphanState = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker: orphanOrder.locker,
+    salt: orphanOrder.salt,
+    startTime: orphanOrder.start,
+    endTime: orphanOrder.end,
+    isSellingToken1: true,
+  });
+  expect(orphanState.total_proceeds_withdrawn0).toBe("0");
+  expect(orphanState.total_proceeds_withdrawn1).toBe("0");
+  expect(orphanState.sale_rate1).toBe("12");
+  expect(orphanState.is_selling_token1).toBe(true);
+});
+
+test("order_current_sale_rate tracks amount sold and recomputes on reorgs", async () => {
+  const chainId = 2260;
+  const blockOne = 150;
+  const blockTwo = 151;
+  const startTime = new Date("2024-02-02T16:00:00Z");
+  const secondTime = new Date(startTime.getTime() + 30_000);
+  await seedBlock({ chainId, blockNumber: blockOne, blockTime: startTime });
+  await seedBlock({ chainId, blockNumber: blockTwo, blockTime: secondTime });
+
+  const poolKeyId = await insertPoolKey(chainId);
+
+  const baseLocker = "9900";
+  const baseSalt = "9910";
+  const endTime = new Date(startTime.getTime() + 60 * 60 * 1000);
+  const onePerSecond = (1n << 32n).toString();
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockOne,
+      0,
+      0,
+      "9100",
+      "9200",
+      poolKeyId,
+      baseLocker,
+      baseSalt,
+      onePerSecond,
+      "0",
+      startTime,
+      endTime,
+      false,
+    ]
+  );
+
+  let state = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker: baseLocker,
+    salt: baseSalt,
+    startTime,
+    endTime,
+    isSellingToken1: false,
+  });
+  expect(state.amount0_sold_last).toBe("0");
+  expect(state.amount1_sold_last).toBe("0");
+  expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
+    startTime.toISOString()
+  );
+
+  const {
+    rows: [{ event_id: closeEventId }],
+  } = await client.query<{ event_id: bigint }>(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+     RETURNING event_id`,
+    [
+      chainId,
+      blockTwo,
+      0,
+      1,
+      "9101",
+      "9201",
+      poolKeyId,
+      baseLocker,
+      baseSalt,
+      (-BigInt(onePerSecond)).toString(),
+      "0",
+      startTime,
+      endTime,
+      false,
+    ]
+  );
+
+  state = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker: baseLocker,
+    salt: baseSalt,
+    startTime,
+    endTime,
+    isSellingToken1: false,
+  });
+
+  const elapsedSeconds = Math.floor(
+    (secondTime.getTime() - startTime.getTime()) / 1000
+  ).toString();
+  expect(state.amount0_sold_last).toBe(elapsedSeconds);
+  expect(state.amount1_sold_last).toBe("0");
+  expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
+    secondTime.toISOString()
+  );
+
+  await client.query(
+    `DELETE FROM twamm_order_updates WHERE chain_id = $1 AND event_id = $2`,
+    [chainId, closeEventId]
+  );
+
+  state = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker: baseLocker,
+    salt: baseSalt,
+    startTime,
+    endTime,
+    isSellingToken1: false,
+  });
+  expect(state.amount0_sold_last).toBe("0");
+  expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
+    startTime.toISOString()
+  );
+});
+
+test("order_current_sale_rate clamps last block time to the order start when updates arrive early", async () => {
+  const chainId = 2270;
+  const blockBeforeStart = 152;
+  const blockDuring = 153;
+  const blockBeforeTime = new Date("2024-02-03T10:00:00Z");
+  const startTime = new Date("2024-02-03T10:30:00Z");
+  const blockDuringTime = new Date("2024-02-03T10:45:00Z");
+  const endTime = new Date("2024-02-03T11:30:00Z");
+  await seedBlock({
+    chainId,
+    blockNumber: blockBeforeStart,
+    blockTime: blockBeforeTime,
+  });
+  await seedBlock({
+    chainId,
+    blockNumber: blockDuring,
+    blockTime: blockDuringTime,
+  });
+
+  const poolKeyId = await insertPoolKey(chainId);
+  const locker = "10100";
+  const salt = "10110";
+  const onePerSecond = (1n << 32n).toString();
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockBeforeStart,
+      0,
+      0,
+      "9300",
+      "9301",
+      poolKeyId,
+      locker,
+      salt,
+      onePerSecond,
+      "0",
+      startTime,
+      endTime,
+      false,
+    ]
+  );
+
+  let state = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker,
+    salt,
+    startTime,
+    endTime,
+    isSellingToken1: false,
+  });
+  expect(state.amount0_sold_last).toBe("0");
+  expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
+    startTime.toISOString()
+  );
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockDuring,
+      0,
+      1,
+      "9302",
+      "9303",
+      poolKeyId,
+      locker,
+      salt,
+      "0",
+      "0",
+      startTime,
+      endTime,
+      false,
+    ]
+  );
+
+  state = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker,
+    salt,
+    startTime,
+    endTime,
+    isSellingToken1: false,
+  });
+  const elapsedSinceStart = Math.floor(
+    (blockDuringTime.getTime() - startTime.getTime()) / 1000
+  ).toString();
+  expect(state.amount0_sold_last).toBe(elapsedSinceStart);
+  expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
+    blockDuringTime.toISOString()
+  );
+});
+
+test("order_current_sale_rate clamps last block time to the order end when updates arrive late", async () => {
+  const chainId = 2280;
+  const blockStart = 154;
+  const blockAfterEnd = 155;
+  const startTime = new Date("2024-02-04T08:00:00Z");
+  const endTime = new Date("2024-02-04T09:00:00Z");
+  const blockAfterEndTime = new Date(endTime.getTime() + 15 * 60 * 1000);
+  await seedBlock({
+    chainId,
+    blockNumber: blockStart,
+    blockTime: startTime,
+  });
+  await seedBlock({
+    chainId,
+    blockNumber: blockAfterEnd,
+    blockTime: blockAfterEndTime,
+  });
+
+  const poolKeyId = await insertPoolKey(chainId);
+  const locker = "10200";
+  const salt = "10210";
+  const onePerSecond = (1n << 32n).toString();
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockStart,
+      0,
+      0,
+      "9400",
+      "9401",
+      poolKeyId,
+      locker,
+      salt,
+      onePerSecond,
+      "0",
+      startTime,
+      endTime,
+      false,
+    ]
+  );
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockAfterEnd,
+      0,
+      1,
+      "9402",
+      "9403",
+      poolKeyId,
+      locker,
+      salt,
+      (-BigInt(onePerSecond)).toString(),
+      "0",
+      startTime,
+      endTime,
+      false,
+    ]
+  );
+
+  const state = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker,
+    salt,
+    startTime,
+    endTime,
+    isSellingToken1: false,
+  });
+  const totalWindowSeconds = Math.floor(
+    (endTime.getTime() - startTime.getTime()) / 1000
+  ).toString();
+  expect(state.amount0_sold_last).toBe(totalWindowSeconds);
+  expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
+    endTime.toISOString()
+  );
+});
+
+test("order_current_sale_rate skips accumulation when an order is entirely in the past", async () => {
+  const chainId = 2290;
+  const blockAfterEndOne = 156;
+  const blockAfterEndTwo = 157;
+  const startTime = new Date("2024-02-05T12:00:00Z");
+  const endTime = new Date("2024-02-05T13:00:00Z");
+  const firstLateBlock = new Date(endTime.getTime() + 10 * 60 * 1000);
+  const secondLateBlock = new Date(endTime.getTime() + 20 * 60 * 1000);
+  await seedBlock({
+    chainId,
+    blockNumber: blockAfterEndOne,
+    blockTime: firstLateBlock,
+  });
+  await seedBlock({
+    chainId,
+    blockNumber: blockAfterEndTwo,
+    blockTime: secondLateBlock,
+  });
+
+  const poolKeyId = await insertPoolKey(chainId);
+  const locker = "10300";
+  const salt = "10310";
+  const onePerSecond = (1n << 32n).toString();
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockAfterEndOne,
+      0,
+      0,
+      "9500",
+      "9501",
+      poolKeyId,
+      locker,
+      salt,
+      onePerSecond,
+      "0",
+      startTime,
+      endTime,
+      false,
+    ]
+  );
+
+  let state = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker,
+    salt,
+    startTime,
+    endTime,
+    isSellingToken1: false,
+  });
+  expect(state.amount0_sold_last).toBe("0");
+  expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
+    endTime.toISOString()
+  );
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockAfterEndTwo,
+      0,
+      1,
+      "9502",
+      "9503",
+      poolKeyId,
+      locker,
+      salt,
+      "0",
+      "0",
+      startTime,
+      endTime,
+      false,
+    ]
+  );
+
+  state = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker,
+    salt,
+    startTime,
+    endTime,
+    isSellingToken1: false,
+  });
+  expect(state.amount0_sold_last).toBe("0");
+  expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
+    endTime.toISOString()
+  );
+});
+
+test("order_current_sale_rate accumulates token0 amounts across sequential updates", async () => {
+  const chainId = 2320;
+  const blockStart = 158;
+  const blockMid = 159;
+  const blockClose = 160;
+  const startTime = new Date("2024-02-06T00:00:00Z");
+  const midTime = new Date(startTime.getTime() + 2 * 60 * 1000);
+  const closeTime = new Date(startTime.getTime() + 5 * 60 * 1000);
+  const endTime = new Date(startTime.getTime() + 60 * 60 * 1000);
+  await seedBlock({ chainId, blockNumber: blockStart, blockTime: startTime });
+  await seedBlock({ chainId, blockNumber: blockMid, blockTime: midTime });
+  await seedBlock({ chainId, blockNumber: blockClose, blockTime: closeTime });
+
+  const poolKeyId = await insertPoolKey(chainId);
+  const locker = "10400";
+  const salt = "10410";
+  const onePerSecond = (1n << 32n).toString();
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockStart,
+      0,
+      0,
+      "9600",
+      "9601",
+      poolKeyId,
+      locker,
+      salt,
+      onePerSecond,
+      "0",
+      startTime,
+      endTime,
+      false,
+    ]
+  );
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockMid,
+      0,
+      1,
+      "9602",
+      "9603",
+      poolKeyId,
+      locker,
+      salt,
+      "0",
+      "0",
+      startTime,
+      endTime,
+      false,
+    ]
+  );
+
+  let state = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker,
+    salt,
+    startTime,
+    endTime,
+    isSellingToken1: false,
+  });
+  const secondsToMid = Math.floor(
+    (midTime.getTime() - startTime.getTime()) / 1000
+  ).toString();
+  expect(state.amount0_sold_last).toBe(secondsToMid);
+  expect(state.sale_rate0).toBe(onePerSecond);
+  expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
+    midTime.toISOString()
+  );
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockClose,
+      0,
+      2,
+      "9604",
+      "9605",
+      poolKeyId,
+      locker,
+      salt,
+      (-BigInt(onePerSecond)).toString(),
+      "0",
+      startTime,
+      endTime,
+      false,
+    ]
+  );
+
+  state = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker,
+    salt,
+    startTime,
+    endTime,
+    isSellingToken1: false,
+  });
+  const secondsToClose = Math.floor(
+    (closeTime.getTime() - startTime.getTime()) / 1000
+  ).toString();
+  expect(state.amount0_sold_last).toBe(secondsToClose);
+  expect(state.sale_rate0).toBe("0");
+  expect(state.amount1_sold_last).toBe("0");
+  expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
+    closeTime.toISOString()
+  );
+});
+
+test("order_current_sale_rate accumulates token1 amounts and recompute matches incremental path", async () => {
+  const chainId = 2330;
+  const blockStart = 161;
+  const blockMid = 162;
+  const blockClose = 163;
+  const startTime = new Date("2024-02-06T12:00:00Z");
+  const midTime = new Date(startTime.getTime() + 90 * 1000);
+  const closeTime = new Date(startTime.getTime() + 180 * 1000);
+  const endTime = new Date(startTime.getTime() + 60 * 60 * 1000);
+  await seedBlock({ chainId, blockNumber: blockStart, blockTime: startTime });
+  await seedBlock({ chainId, blockNumber: blockMid, blockTime: midTime });
+  await seedBlock({ chainId, blockNumber: blockClose, blockTime: closeTime });
+
+  const poolKeyId = await insertPoolKey(chainId);
+  const locker = "10500";
+  const salt = "10510";
+  const twoPerSecond = (2n << 32n).toString();
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockStart,
+      0,
+      0,
+      "9700",
+      "9701",
+      poolKeyId,
+      locker,
+      salt,
+      "0",
+      twoPerSecond,
+      startTime,
+      endTime,
+      true,
+    ]
+  );
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockMid,
+      0,
+      1,
+      "9702",
+      "9703",
+      poolKeyId,
+      locker,
+      salt,
+      "0",
+      "0",
+      startTime,
+      endTime,
+      true,
+    ]
+  );
+
+  let state = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker,
+    salt,
+    startTime,
+    endTime,
+    isSellingToken1: true,
+  });
+  const secondsToMid = Math.floor(
+    (midTime.getTime() - startTime.getTime()) / 1000
+  );
+  expect(state.amount1_sold_last).toBe((secondsToMid * 2).toString());
+  expect(state.amount0_sold_last).toBe("0");
+  expect(state.sale_rate1).toBe(twoPerSecond);
+
+  await client.query(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+    [
+      chainId,
+      blockClose,
+      0,
+      2,
+      "9704",
+      "9705",
+      poolKeyId,
+      locker,
+      salt,
+      "0",
+      (-BigInt(twoPerSecond)).toString(),
+      startTime,
+      endTime,
+      true,
+    ]
+  );
+
+  state = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker,
+    salt,
+    startTime,
+    endTime,
+    isSellingToken1: true,
+  });
+  const secondsToClose = Math.floor(
+    (closeTime.getTime() - startTime.getTime()) / 1000
+  );
+  expect(state.amount1_sold_last).toBe((secondsToClose * 2).toString());
+  expect(state.sale_rate1).toBe("0");
+  expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
+    closeTime.toISOString()
+  );
+
+  await client.query(
+    `SELECT order_current_sale_rate_recompute_amounts($1,$2,$3,$4,$5,$6)`,
+    [poolKeyId, locker, salt, startTime, endTime, true]
+  );
+
+  state = await getOrderCurrentSaleRate({
+    poolKeyId,
+    locker,
+    salt,
+    startTime,
+    endTime,
+    isSellingToken1: true,
+  });
+  expect(state.amount1_sold_last).toBe((secondsToClose * 2).toString());
+  expect(state.sale_rate1).toBe("0");
 });
 
 type TwammPoolStateRow = {
@@ -480,7 +1824,7 @@ test("twamm pool states stay in sync with VOE and order update events", async ()
   const delta1 = "-20";
 
   const {
-    rows: [{ event_id: orderUpdateEventId }],
+    rows: [{ event_id: orderUpdateEventId0 }],
   } = await client.query<{ event_id: bigint }>(
     `INSERT INTO twamm_order_updates (
         chain_id,
@@ -495,8 +1839,9 @@ test("twamm pool states stay in sync with VOE and order update events", async ()
         sale_rate_delta0,
         sale_rate_delta1,
         start_time,
-        end_time
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      RETURNING event_id`,
     [
       chainId,
@@ -509,11 +1854,52 @@ test("twamm pool states stay in sync with VOE and order update events", async ()
       "9200",
       "9300",
       delta0,
+      "0",
+      orderStartTime,
+      orderEndTime,
+      false,
+    ]
+  );
+
+  const {
+    rows: [{ event_id: orderUpdateEventId1 }],
+  } = await client.query<{ event_id: bigint }>(
+    `INSERT INTO twamm_order_updates (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        sale_rate_delta0,
+        sale_rate_delta1,
+        start_time,
+        end_time,
+        is_selling_token1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+     RETURNING event_id`,
+    [
+      chainId,
+      ouBlockNumber,
+      0,
+      3,
+      "9003",
+      "9103",
+      poolKeyId,
+      "9200",
+      "9300",
+      "0",
       delta1,
       orderStartTime,
       orderEndTime,
+      true,
     ]
   );
+
+  const orderUpdateEventId = orderUpdateEventId1;
 
   const updatedState = await getTwammPoolState(poolKeyId);
   expect(updatedState.token0_sale_rate).toBe(
@@ -533,7 +1919,11 @@ test("twamm pool states stay in sync with VOE and order update events", async ()
 
   await client.query(
     `DELETE FROM twamm_order_updates WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, orderUpdateEventId]
+    [chainId, orderUpdateEventId0]
+  );
+  await client.query(
+    `DELETE FROM twamm_order_updates WHERE chain_id = $1 AND event_id = $2`,
+    [chainId, orderUpdateEventId1]
   );
 
   const stateAfterDelete = await getTwammPoolState(poolKeyId);

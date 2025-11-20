@@ -311,6 +311,9 @@ export function createLogProcessors({
                   extension: key.emitter,
                 }),
               }),
+              is_selling_token1:
+                BigInt(parsed.orderKey.sellToken) >
+                BigInt(parsed.orderKey.buyToken),
             },
             key
           );
@@ -334,6 +337,9 @@ export function createLogProcessors({
                   extension: key.emitter,
                 }),
               }),
+              is_selling_token1:
+                BigInt(parsed.orderKey.sellToken) >
+                BigInt(parsed.orderKey.buyToken),
             },
             key
           );
@@ -582,6 +588,7 @@ export function createV2LogProcessors({
               owner: parsed.owner,
               salt: parsed.salt,
               saleRateDelta: parsed.saleRateDelta,
+              is_selling_token1: isToken1,
             },
             key
           );
@@ -616,6 +623,7 @@ export function createV2LogProcessors({
               owner: parsed.owner,
               salt: parsed.salt,
               amount: parsed.amount,
+              is_selling_token1: isToken1,
             },
             key
           );

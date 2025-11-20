@@ -1,4 +1,4 @@
-export function msToHumanShort(ms: number): string {
+export function msToHumanShort(ms: number, numParts: number = 3): string {
   const units = [
     { label: "d", ms: 86400000 },
     { label: "h", ms: 3600000 },
@@ -14,10 +14,9 @@ export function msToHumanShort(ms: number): string {
       const count = Math.floor(ms / unitMs);
       ms %= unitMs;
       parts.push(`${count}${label}`);
-      if (parts.length === 3) break; // Limit to three components
+      if (parts.length === numParts) break; // Limit to three components
     }
   }
 
   return parts.join(", ") || "0ms";
 }
-

@@ -434,6 +434,8 @@ export function createEventProcessors({
               startTime: parsed.order_key.start_time,
               endTime: parsed.order_key.end_time,
             },
+            is_selling_token1:
+              parsed.order_key.sell_token > parsed.order_key.buy_token,
           },
           key
         );
@@ -474,6 +476,8 @@ export function createEventProcessors({
               startTime: parsed.order_key.start_time,
               endTime: parsed.order_key.end_time,
             },
+            is_selling_token1:
+              parsed.order_key.sell_token > parsed.order_key.buy_token,
           },
           key
         );
