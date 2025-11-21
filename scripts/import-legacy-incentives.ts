@@ -58,99 +58,17 @@ type LegacyDeployedAirdropContract = {
   drop_id: bigint;
 };
 
+type LegacyRewardsComputedAt = {
+  campaign_reward_period_id: bigint;
+  locker: string;
+  salt: string;
+  reward_amount: string;
+};
+
 type ChainSource = {
   chainId: bigint;
   connectionString: string;
 };
-
-function decodeCopyField(value: string): string | null {
-  if (value === "\\N") return null;
-  let result = "";
-  for (let i = 0; i < value.length; i++) {
-    const char = value[i];
-    if (char !== "\\") {
-      result += char;
-      continue;
-    }
-    i += 1;
-    if (i >= value.length) {
-      throw new Error("Unexpected end of copy field escape sequence");
-    }
-    const next = value[i];
-    switch (next) {
-      case "b":
-        result += "\b";
-        break;
-      case "f":
-        result += "\f";
-        break;
-      case "n":
-        result += "\n";
-        break;
-      case "r":
-        result += "\r";
-        break;
-      case "t":
-        result += "\t";
-        break;
-      case "v":
-        result += "\v";
-        break;
-      case "\\":
-        result += "\\";
-        break;
-      case "0":
-      case "1":
-      case "2":
-      case "3":
-      case "4":
-      case "5":
-      case "6":
-      case "7": {
-        let octal = next;
-        for (let j = 0; j < 2; j++) {
-          const peek = value[i + 1];
-          if (peek && /[0-7]/.test(peek)) {
-            octal += peek;
-            i += 1;
-          } else {
-            break;
-          }
-        }
-        result += String.fromCharCode(parseInt(octal, 8));
-        break;
-      }
-      default:
-        result += next;
-    }
-  }
-  return result;
-}
-
-async function* iterateCopyRows(
-  readable: AsyncIterable<Buffer>
-): AsyncGenerator<(string | null)[]> {
-  let buffer = "";
-  for await (const chunk of readable) {
-    buffer += chunk.toString("utf8");
-    let newlineIndex = buffer.indexOf("\n");
-    while (newlineIndex !== -1) {
-      const line = buffer.slice(0, newlineIndex);
-      buffer = buffer.slice(newlineIndex + 1);
-      if (line === "\\.") {
-        newlineIndex = buffer.indexOf("\n");
-        continue;
-      }
-      const fields = line.split("\t").map(decodeCopyField);
-      yield fields;
-      newlineIndex = buffer.indexOf("\n");
-    }
-  }
-  const trimmed = buffer.trim();
-  if (trimmed.length && trimmed !== "\\.") {
-    throw new Error("Unexpected trailing data in COPY stream");
-  }
-}
 
 const LEGACY_ARG = "--chain";
 
@@ -225,13 +143,15 @@ async function withStepProgress<T>(
   }
 }
 
-async function fetchLegacySnapshots(sql: Sql) {
+async function fetchAllLegacyData(sql: Sql<{ bigint: bigint }>) {
   const [
     campaigns,
     generatedDrops,
     generatedDropRewardPeriods,
     generatedDropProofs,
     deployedContracts,
+    rewardsComputedAt,
+    campaignRewardPeriods,
   ] = await sql.begin((sql) => [
     sql<LegacyCampaign[]>`
       SELECT
@@ -262,7 +182,7 @@ async function fetchLegacySnapshots(sql: Sql) {
       ORDER BY drop_id, campaign_reward_period_id;
     `,
     sql<LegacyGeneratedDropProof[]>`
-      SELECT drop_id, id, address, amount, proof
+      SELECT drop_id::int8, id, address, amount, proof
       FROM incentives.generated_drop_proof
       ORDER BY drop_id, id;
     `,
@@ -270,6 +190,28 @@ async function fetchLegacySnapshots(sql: Sql) {
       SELECT address, token, drop_id
       FROM incentives.deployed_airdrop_contracts
       ORDER BY address;
+    `,
+    sql<LegacyRewardsComputedAt[]>`
+      SELECT campaign_reward_period_id, locker, salt, reward_amount
+      FROM incentives.computed_rewards
+      ORDER BY campaign_reward_period_id, locker, salt;
+    `,
+    sql<LegacyCampaignRewardPeriod[]>`
+      SELECT
+        id,
+        campaign_id::int8,
+        token0,
+        token1,
+        start_time,
+        end_time,
+        realized_volatility,
+        token0_reward_amount,
+        token1_reward_amount,
+        rewards_last_computed_at,
+        percent_step,
+        max_coverage,
+        fee_denominator
+      FROM incentives.campaign_reward_periods;
     `,
   ]);
 
@@ -279,6 +221,8 @@ async function fetchLegacySnapshots(sql: Sql) {
     generatedDropRewardPeriods,
     generatedDropProofs,
     deployedContracts,
+    rewardsComputedAt,
+    campaignRewardPeriods,
   };
 }
 
@@ -291,7 +235,7 @@ async function importCampaigns({
   chainId: bigint;
   campaigns: LegacyCampaign[];
 }) {
-  const map = new Map<string, bigint>();
+  const map = new Map<bigint, bigint>();
 
   for (const campaign of campaigns) {
     const [inserted] = await sql<{ id: bigint }[]>`
@@ -327,7 +271,7 @@ async function importCampaigns({
       )
       RETURNING id;
     `;
-    map.set(String(campaign.id), inserted.id);
+    map.set(campaign.id, inserted.id);
   }
 
   return map;
@@ -335,22 +279,24 @@ async function importCampaigns({
 
 async function importCampaignRewardPeriods({
   sql,
-  legacySql,
+  rewardPeriods,
   campaignIdMap,
 }: {
   sql: Sql<{ bigint: bigint }>;
-  legacySql: Sql<{ bigint: bigint }>;
-  campaignIdMap: Map<string, bigint>;
+  campaignIdMap: Map<bigint, bigint>;
+  rewardPeriods: LegacyCampaignRewardPeriod[];
 }) {
-  const map = new Map<string, bigint>();
+  const map = new Map<bigint, bigint>();
 
-  const insertPageSize = Math.floor(65535 / 14);
-  const buffer: LegacyCampaignRewardPeriod[] = [];
+  for (const period of rewardPeriods) {
+    const newCampaignId = campaignIdMap.get(period.campaign_id);
+    if (!newCampaignId) {
+      console.log(campaignIdMap.entries(), period.campaign_id, newCampaignId);
+      throw new Error(`Missing campaign mapping for id ${period.campaign_id}`);
+    }
 
-  const readableStream = await legacySql`
-    COPY (
-      SELECT
-        id,
+    const [inserted] = await sql<{ id: bigint }[]>`
+      INSERT INTO incentives.campaign_reward_periods (
         campaign_id,
         token0,
         token1,
@@ -363,83 +309,29 @@ async function importCampaignRewardPeriods({
         percent_step,
         max_coverage,
         fee_denominator
-      FROM incentives.campaign_reward_periods
-      ORDER BY id
-    )
-    TO STDOUT WITH (FORMAT text)
-  `.readable();
-
-  let totalRows = 0;
-
-  const flushBuffer = async () => {
-    if (!buffer.length) return;
-    const slice = buffer.splice(0, buffer.length);
-    const inserted = await sql<{ id: bigint }[]>`
-      INSERT INTO incentives.campaign_reward_periods ${sql(slice)} RETURNING id;
+      )
+      VALUES (
+        ${newCampaignId},
+        ${period.token0 ?? ""},
+        ${period.token1 ?? ""},
+        ${period.start_time},
+        ${period.end_time},
+        ${period.realized_volatility ?? 0},
+        ${period.token0_reward_amount ?? "0"},
+        ${period.token1_reward_amount ?? "0"},
+        ${period.rewards_last_computed_at ?? null},
+        ${period.percent_step ?? null},
+        ${period.max_coverage ?? null},
+        ${period.fee_denominator ?? null}
+      )
+      RETURNING id;
     `;
-    inserted.forEach(({ id }, ix) => {
-      map.set(String(slice[ix].id), id);
-    });
-  };
 
-  for await (const row of iterateCopyRows(readableStream)) {
-    const [
-      id,
-      campaignId,
-      token0,
-      token1,
-      startTime,
-      endTime,
-      realizedVolatility,
-      token0RewardAmount,
-      token1RewardAmount,
-      rewardsLastComputedAt,
-      percentStep,
-      maxCoverage,
-      feeDenominator,
-    ] = row;
-
-    if (!id || !campaignId) {
-      throw new Error("Reward period row missing id or campaign_id");
-    }
-
-    const newCampaignId = campaignIdMap.get(campaignId);
-    if (!newCampaignId) {
-      throw new Error(`Missing campaign mapping for id ${campaignId}`);
-    }
-
-    if (!startTime || !endTime) {
-      throw new Error("Reward period row missing start_time or end_time");
-    }
-
-    buffer.push({
-      id: BigInt(id),
-      campaign_id: newCampaignId,
-      token0: token0 ?? "",
-      token1: token1 ?? "",
-      start_time: new Date(startTime ?? ""),
-      end_time: new Date(endTime ?? ""),
-      realized_volatility: realizedVolatility ? Number(realizedVolatility) : 0,
-      token0_reward_amount: token0RewardAmount ?? "0",
-      token1_reward_amount: token1RewardAmount ?? "0",
-      rewards_last_computed_at: rewardsLastComputedAt
-        ? new Date(rewardsLastComputedAt)
-        : null,
-      percent_step: percentStep ? Number(percentStep) : null,
-      max_coverage: maxCoverage ? Number(maxCoverage) : null,
-      fee_denominator: feeDenominator ?? null,
-    });
-
-    totalRows += 1;
-    if (buffer.length >= insertPageSize) {
-      await flushBuffer();
-    }
+    map.set(period.id, inserted.id);
   }
 
-  await flushBuffer();
-
   console.log(
-    `\tInserted ${totalRows.toLocaleString()} campaign reward periods via streaming`
+    `\tInserted ${rewardPeriods.length.toLocaleString()} campaign reward periods via sequential inserts`
   );
 
   return map;
@@ -447,66 +339,27 @@ async function importCampaignRewardPeriods({
 
 async function importComputedRewards({
   sql,
-  legacySql,
   rewardPeriodMap,
+  computedRewards,
 }: {
   sql: Sql<{ bigint: bigint }>;
-  legacySql: Sql<{ bigint: bigint }>;
-  rewardPeriodMap: Map<string, bigint>;
+  rewardPeriodMap: Map<bigint, bigint>;
+  computedRewards: LegacyRewardsComputedAt[];
 }) {
-  if (rewardPeriodMap.size === 0) {
+  if (rewardPeriodMap.size === 0 || computedRewards.length === 0) {
     return 0;
   }
 
-  console.log(
-    `	Fetching all computed rewards rows (legacy set: ${rewardPeriodMap.size.toLocaleString()} periods)`
-  );
-
-  const startTime = Date.now();
-  const rows = await legacySql<
-    {
-      campaign_reward_period_id: bigint;
-      locker: string;
-      salt: string;
-      reward_amount: string;
-    }[]
-  >`
-    SELECT
-      campaign_reward_period_id,
-      locker,
-      salt,
-      reward_amount
-    FROM incentives.computed_rewards
-    limit 100
-  `;
-
-  console.log(
-    `	Fetched ${rows.length.toLocaleString()} computed reward rows from legacy database`
-  );
-
   let processedRows = 0;
   let skippedRows = 0;
-  let processedPeriods = 0;
-  let previousLegacyPeriod: string | null = null;
+  const startTime = Date.now();
+  const progressInterval = 50_000;
 
-  for (const row of rows) {
-    const legacyPeriodId = row.campaign_reward_period_id?.toString();
-    if (!legacyPeriodId) {
-      throw new Error("Computed reward row missing campaign_reward_period_id");
-    }
-
-    const mappedPeriodId = rewardPeriodMap.get(legacyPeriodId);
+  for (const row of computedRewards) {
+    const mappedPeriodId = rewardPeriodMap.get(row.campaign_reward_period_id);
     if (!mappedPeriodId) {
       skippedRows += 1;
       continue;
-    }
-
-    if (legacyPeriodId !== previousLegacyPeriod) {
-      processedPeriods += 1;
-      previousLegacyPeriod = legacyPeriodId;
-      console.log(
-        `		Processing computed rewards period ${processedPeriods.toLocaleString()}/${rewardPeriodMap.size.toLocaleString()} (legacy id ${legacyPeriodId})`
-      );
     }
 
     await sql`
@@ -527,29 +380,28 @@ async function importComputedRewards({
     `;
 
     processedRows += 1;
-    if (processedRows % 50_000 === 0) {
+    if (processedRows % progressInterval === 0) {
       const elapsedSeconds = Math.max((Date.now() - startTime) / 1000, 1);
       const rate = Math.round(processedRows / elapsedSeconds);
       console.log(
-        `		Inserted ${processedRows.toLocaleString()} computed rewards (~${rate.toLocaleString()} rows/s)`
+        `\t\tInserted ${processedRows.toLocaleString()} computed rewards (~${rate.toLocaleString()} rows/s)`
       );
     }
   }
 
   const elapsedSeconds = Math.max((Date.now() - startTime) / 1000, 1);
-  const finalRate = Math.round(
-    processedRows === 0 ? 0 : processedRows / elapsedSeconds
-  );
+  const finalRate =
+    processedRows === 0 ? 0 : Math.round(processedRows / elapsedSeconds);
 
   console.log(
-    `	Finished inserting ${processedRows.toLocaleString()} computed rewards in ${elapsedSeconds.toFixed(
+    `\tFinished inserting ${processedRows.toLocaleString()} computed rewards in ${elapsedSeconds.toFixed(
       1
     )}s (~${finalRate.toLocaleString()} rows/s)`
   );
 
   if (skippedRows > 0) {
     console.log(
-      `		Skipped ${skippedRows.toLocaleString()} legacy computed reward rows that did not map to current chain`
+      `\t\tSkipped ${skippedRows.toLocaleString()} legacy computed reward rows that did not map to current chain`
     );
   }
 
@@ -560,10 +412,10 @@ async function importDrops({
   sql,
   generatedDrops,
 }: {
-  sql: Sql;
+  sql: Sql<{ bigint: bigint }>;
   generatedDrops: LegacyGeneratedDrop[];
 }) {
-  const map = new Map<string, bigint>();
+  const map = new Map<bigint, bigint>();
 
   for (const drop of generatedDrops) {
     const [inserted] = await sql<{ id: bigint }[]>`
@@ -572,7 +424,7 @@ async function importDrops({
       RETURNING id;
     `;
 
-    map.set(String(drop.id), inserted.id);
+    map.set(drop.id, inserted.id);
   }
 
   return map;
@@ -586,16 +438,14 @@ async function importDropRewardPeriods({
 }: {
   sql: Sql<{ bigint: bigint }>;
   records: LegacyGeneratedDropRewardPeriod[];
-  dropIdMap: Map<string, bigint>;
-  rewardPeriodMap: Map<string, bigint>;
+  dropIdMap: Map<bigint, bigint>;
+  rewardPeriodMap: Map<bigint, bigint>;
 }) {
   if (!records.length) return 0;
 
   const rows = records.map((record) => {
-    const dropId = dropIdMap.get(String(record.drop_id));
-    const periodId = rewardPeriodMap.get(
-      String(record.campaign_reward_period_id)
-    );
+    const dropId = dropIdMap.get(record.drop_id);
+    const periodId = rewardPeriodMap.get(record.campaign_reward_period_id);
     if (!dropId || !periodId) {
       throw new Error(
         `Missing drop (${record.drop_id.toString()}) or period (${record.campaign_reward_period_id.toString()}) mapping`
@@ -624,12 +474,12 @@ async function importDropProofs({
 }: {
   sql: Sql<{ bigint: bigint }>;
   proofs: LegacyGeneratedDropProof[];
-  dropIdMap: Map<string, bigint>;
+  dropIdMap: Map<bigint, bigint>;
 }) {
   if (!proofs.length) return 0;
 
   const rows = proofs.map((proof) => {
-    const dropId = dropIdMap.get(String(proof.drop_id));
+    const dropId = dropIdMap.get(proof.drop_id);
     if (!dropId) {
       throw new Error(
         `Missing drop mapping for proof ${proof.drop_id.toString()}`
@@ -660,12 +510,12 @@ async function importDeployedContracts({
 }: {
   sql: Sql<{ bigint: bigint }>;
   contracts: LegacyDeployedAirdropContract[];
-  dropIdMap: Map<string, bigint>;
+  dropIdMap: Map<bigint, bigint>;
 }) {
   if (!contracts.length) return 0;
 
   const rows = contracts.map((contract) => {
-    const dropId = dropIdMap.get(String(contract.drop_id));
+    const dropId = dropIdMap.get(contract.drop_id);
     if (!dropId) {
       throw new Error(
         `Missing drop mapping for deployed contract ${contract.address}`
@@ -700,6 +550,7 @@ async function importLegacyChain({
   const legacySql = postgres(legacyConnectionString, {
     connect_timeout: 5,
     types: { bigint: postgres.BigInt },
+    max: 1,
   });
 
   console.log(
@@ -709,11 +560,15 @@ async function importLegacyChain({
   try {
     const snapshots = await withStepProgress(
       `\tFetching legacy snapshots for chain ${chainId.toString()}`,
-      () => fetchLegacySnapshots(legacySql)
+      () => fetchAllLegacyData(legacySql)
     );
 
-    await targetSql.begin(async (tx) => {
-      const [{ count }] = await tx<{ count: bigint }[]>`
+    console.log(
+      `\tLegacy snapshots - campaigns: ${snapshots.campaigns.length}, drops: ${snapshots.generatedDrops.length}, drop proofs: ${snapshots.generatedDropProofs.length}`
+    );
+
+    await targetSql.begin(async (sql) => {
+      const [{ count }] = await sql<{ count: bigint }[]>`
         SELECT COUNT(1) AS count
         FROM incentives.campaigns
         WHERE chain_id = ${chainId};
@@ -725,15 +580,11 @@ async function importLegacyChain({
         );
       }
 
-      console.log(
-        `\tLegacy snapshots - campaigns: ${snapshots.campaigns.length}, drops: ${snapshots.generatedDrops.length}, drop proofs: ${snapshots.generatedDropProofs.length}`
-      );
-
       const campaignIdMap = await withStepProgress(
         `\tImporting ${snapshots.campaigns.length.toLocaleString()} campaigns`,
         () =>
           importCampaigns({
-            sql: tx,
+            sql,
             chainId,
             campaigns: snapshots.campaigns,
           })
@@ -743,19 +594,19 @@ async function importLegacyChain({
         "\tImporting campaign reward periods",
         () =>
           importCampaignRewardPeriods({
-            sql: tx,
-            legacySql,
+            sql,
             campaignIdMap,
+            rewardPeriods: snapshots.campaignRewardPeriods,
           })
       );
 
       const totalComputedRewards = await withStepProgress(
-        `\tImporting computed rewards for ${rewardPeriodMap.size.toLocaleString()} periods`,
+        `\tImporting computed rewards for ${rewardPeriodMap.size.toLocaleString()} periods (${snapshots.rewardsComputedAt.length.toLocaleString()} rows)`,
         () =>
           importComputedRewards({
-            sql: tx,
-            legacySql,
+            sql,
             rewardPeriodMap,
+            computedRewards: snapshots.rewardsComputedAt,
           })
       );
 
@@ -763,7 +614,7 @@ async function importLegacyChain({
         `\tImporting ${snapshots.generatedDrops.length.toLocaleString()} drops`,
         () =>
           importDrops({
-            sql: tx,
+            sql,
             generatedDrops: snapshots.generatedDrops,
           })
       );
@@ -772,7 +623,7 @@ async function importLegacyChain({
         `\tLinking ${snapshots.generatedDropRewardPeriods.length.toLocaleString()} drop reward periods`,
         () =>
           importDropRewardPeriods({
-            sql: tx,
+            sql,
             records: snapshots.generatedDropRewardPeriods,
             dropIdMap,
             rewardPeriodMap,
@@ -783,7 +634,7 @@ async function importLegacyChain({
         `\tImporting ${snapshots.generatedDropProofs.length.toLocaleString()} drop proofs`,
         () =>
           importDropProofs({
-            sql: tx,
+            sql,
             proofs: snapshots.generatedDropProofs,
             dropIdMap,
           })
@@ -793,7 +644,7 @@ async function importLegacyChain({
         `\tImporting ${snapshots.deployedContracts.length.toLocaleString()} deployed contracts`,
         () =>
           importDeployedContracts({
-            sql: tx,
+            sql: sql,
             contracts: snapshots.deployedContracts,
             dropIdMap,
           })
