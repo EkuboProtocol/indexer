@@ -187,7 +187,7 @@ async function fetchAllLegacyData(sql: Sql<{ bigint: bigint }>) {
       ORDER BY drop_id, id;
     `,
     sql<LegacyDeployedAirdropContract[]>`
-      SELECT address, token, drop_id
+      SELECT address, token, drop_id::int8
       FROM incentives.deployed_airdrop_contracts
       ORDER BY address;
     `,
