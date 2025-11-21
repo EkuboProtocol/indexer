@@ -39,7 +39,7 @@ workers:
     run_command: bun src/index.ts
   - name: starknet-mainnet
     image: *indexer-image
-    instance_size_slug: apps-d-4vcpu-16gb
+    instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
       - key: NETWORK_TYPE
