@@ -374,9 +374,7 @@ async function importComputedRewards({
         ${row.locker ?? ""},
         ${row.salt ?? ""},
         ${row.reward_amount ?? "0"}
-      )
-      ON CONFLICT (campaign_reward_period_id, locker, salt)
-      DO NOTHING;
+      );
     `;
 
     processedRows += 1;
@@ -443,7 +441,11 @@ async function importDropRewardPeriods({
 }) {
   if (!records.length) return 0;
 
-  const rows = records.map((record) => {
+  let inserted = 0;
+  const startTime = Date.now();
+  const progressInterval = 50_000;
+
+  for (const record of records) {
     const dropId = dropIdMap.get(record.drop_id);
     const periodId = rewardPeriodMap.get(record.campaign_reward_period_id);
     if (!dropId || !periodId) {
@@ -452,19 +454,25 @@ async function importDropRewardPeriods({
       );
     }
 
-    return {
-      drop_id: dropId,
-      campaign_reward_period_id: periodId,
-    };
-  });
+    await sql`
+      INSERT INTO incentives.generated_drop_reward_periods (
+        drop_id,
+        campaign_reward_period_id
+      )
+      VALUES (${dropId}, ${periodId});
+    `;
 
-  await sql`
-    INSERT INTO incentives.generated_drop_reward_periods ${sql(rows)}
-    ON CONFLICT (drop_id, campaign_reward_period_id)
-    DO NOTHING;
-  `;
+    inserted += 1;
+    if (inserted % progressInterval === 0) {
+      const elapsedSeconds = Math.max((Date.now() - startTime) / 1000, 1);
+      const rate = Math.round(inserted / elapsedSeconds);
+      console.log(
+        `\t\tLinked ${inserted.toLocaleString()} drop reward periods (~${rate.toLocaleString()} rows/s)`
+      );
+    }
+  }
 
-  return rows.length;
+  return inserted;
 }
 
 async function importDropProofs({
@@ -478,29 +486,40 @@ async function importDropProofs({
 }) {
   if (!proofs.length) return 0;
 
-  const rows = proofs.map((proof) => {
+  let inserted = 0;
+  const startTime = Date.now();
+  const progressInterval = 50_000;
+
+  for (const proof of proofs) {
     const dropId = dropIdMap.get(proof.drop_id);
     if (!dropId) {
       throw new Error(
         `Missing drop mapping for proof ${proof.drop_id.toString()}`
       );
     }
-    return {
-      drop_id: dropId,
-      id: proof.id,
-      address: proof.address,
-      amount: proof.amount,
-      proof: proof.proof,
-    };
-  });
 
-  await sql`
-    INSERT INTO incentives.generated_drop_proof ${sql(rows)}
-    ON CONFLICT (drop_id, id)
-    DO NOTHING;
-  `;
+    await sql`
+      INSERT INTO incentives.generated_drop_proof (
+        drop_id,
+        id,
+        address,
+        amount,
+        proof
+      )
+      VALUES (${dropId}, ${proof.id}, ${proof.address}, ${proof.amount}, ${proof.proof});
+    `;
 
-  return rows.length;
+    inserted += 1;
+    if (inserted % progressInterval === 0) {
+      const elapsedSeconds = Math.max((Date.now() - startTime) / 1000, 1);
+      const rate = Math.round(inserted / elapsedSeconds);
+      console.log(
+        `\t\tInserted ${inserted.toLocaleString()} drop proofs (~${rate.toLocaleString()} rows/s)`
+      );
+    }
+  }
+
+  return inserted;
 }
 
 async function importDeployedContracts({
@@ -514,7 +533,9 @@ async function importDeployedContracts({
 }) {
   if (!contracts.length) return 0;
 
-  const rows = contracts.map((contract) => {
+  let inserted = 0;
+
+  for (const contract of contracts) {
     const dropId = dropIdMap.get(contract.drop_id);
     if (!dropId) {
       throw new Error(
@@ -522,20 +543,19 @@ async function importDeployedContracts({
       );
     }
 
-    return {
-      address: contract.address,
-      token: contract.token,
-      drop_id: dropId,
-    };
-  });
+    await sql`
+      INSERT INTO incentives.deployed_airdrop_contracts (
+        address,
+        token,
+        drop_id
+      )
+      VALUES (${contract.address}, ${contract.token}, ${dropId});
+    `;
 
-  await sql`
-    INSERT INTO incentives.deployed_airdrop_contracts ${sql(rows)}
-    ON CONFLICT (address)
-    DO NOTHING;
-  `;
+    inserted += 1;
+  }
 
-  return rows.length;
+  return inserted;
 }
 
 async function importLegacyChain({
