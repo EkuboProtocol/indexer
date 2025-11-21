@@ -9,6 +9,9 @@ envs:
   - key: NODE_TLS_REJECT_UNAUTHORIZED
     scope: RUN_TIME
     value: "0"
+  - key: NO_BLOCKS_TIMEOUT_MS
+    scope: RUN_TIME
+    value: "300000"
   - key: PG_CONNECTION_STRING
     scope: RUN_TIME
     type: SECRET
