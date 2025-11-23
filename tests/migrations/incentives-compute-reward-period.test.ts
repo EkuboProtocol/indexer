@@ -8,7 +8,7 @@ test("compute reward period function is registered", async () => {
     const {
       rows: [{ exists }],
     } = await client.query<{ exists: boolean }>(
-      `SELECT to_regprocedure('incentives.compute_reward_period(bigint)') IS NOT NULL AS exists`
+      `SELECT to_regprocedure('incentives.compute_rewards_for_period_v1(bigint)') IS NOT NULL AS exists`
     );
 
     expect(exists).toBe(true);
@@ -29,7 +29,7 @@ test("compute reward period distributes rewards across lockers", async () => {
     const {
       rows: [{ rows_inserted }],
     } = await client.query<{ rows_inserted: string }>(
-      `SELECT incentives.compute_reward_period($1)::bigint AS rows_inserted`,
+      `SELECT incentives.compute_rewards_for_period_v1($1)::bigint AS rows_inserted`,
       [rewardPeriodId]
     );
 
@@ -67,7 +67,7 @@ test("compute reward period distributes rewards across lockers", async () => {
     const {
       rows: [{ recomputed }],
     } = await client.query<{ recomputed: string }>(
-      `SELECT incentives.compute_reward_period($1)::bigint AS recomputed`,
+      `SELECT incentives.compute_rewards_for_period_v1($1)::bigint AS recomputed`,
       [rewardPeriodId]
     );
     expect(Number(recomputed)).toBe(2);
