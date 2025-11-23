@@ -522,6 +522,8 @@ async function importDropProofs({
   return inserted;
 }
 
+const STARKNET_MAIN_CHAIN_ID = 23448594291968334n;
+
 async function importDeployedContracts({
   sql,
   contracts,
@@ -545,11 +547,12 @@ async function importDeployedContracts({
 
     await sql`
       INSERT INTO incentives.deployed_airdrop_contracts (
+        chain_id,
         address,
         token,
         drop_id
       )
-      VALUES (${contract.address}, ${contract.token}, ${dropId});
+      VALUES (${STARKNET_MAIN_CHAIN_ID}, ${contract.address}, ${contract.token}, ${dropId});
     `;
 
     inserted += 1;
