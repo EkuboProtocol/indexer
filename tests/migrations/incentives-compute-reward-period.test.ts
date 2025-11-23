@@ -86,6 +86,50 @@ test("compute reward period distributes rewards across lockers", async () => {
   }
 });
 
+test("compute pending reward periods processes outstanding rows", async () => {
+  const client = await createClient();
+  try {
+    await seedBlocks(client);
+    await client.query(`
+      INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
+      VALUES (1, 103, 1003, '2024-01-01T02:00:00Z')
+    `);
+    const poolKeyId = await seedPoolKey(client);
+    await seedSwaps(client, poolKeyId);
+    await seedPositions(client, poolKeyId);
+    const { rewardPeriodId } = await seedCampaign(client);
+
+    const {
+      rows: [{ computed_rows }],
+    } = await client.query<{ computed_rows: string }>(
+      `SELECT incentives.compute_pending_reward_periods()::bigint AS computed_rows`
+    );
+    expect(Number(computed_rows)).toBe(2);
+
+    const {
+      rows: [{ pending_count }],
+    } = await client.query<{ pending_count: string }>(
+      `SELECT COUNT(*)::bigint AS pending_count
+       FROM incentives.pending_reward_periods
+       WHERE reward_period_id = $1`,
+      [rewardPeriodId]
+    );
+    expect(Number(pending_count)).toBe(0);
+
+    const {
+      rows: [{ lastComputed }],
+    } = await client.query<{ lastComputed: string | null }>(
+      `SELECT rewards_last_computed_at::text AS lastComputed
+       FROM incentives.campaign_reward_periods
+       WHERE id = $1`,
+      [rewardPeriodId]
+    );
+    expect(lastComputed).not.toBeNull();
+  } finally {
+    await client.close();
+  }
+});
+
 async function seedBlocks(client: PGlite) {
   await client.query(`
     INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
