@@ -332,6 +332,10 @@ export class DAO {
         bigint: postgres.BigInt,
         numeric: NumericIntegerType,
       },
+      onclose(connId) {
+        console.error("Connection closed unexpectedly: ", connId);
+        process.exit(1);
+      },
     });
     return new DAO(sql, chainId);
   }

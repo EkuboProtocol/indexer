@@ -86,6 +86,157 @@ test("compute reward period distributes rewards across lockers", async () => {
   }
 });
 
+test("compute pending reward periods processes outstanding rows", async () => {
+  const client = await createClient();
+  try {
+    await seedBlocks(client);
+    await client.query(`
+      INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
+      VALUES (1, 103, 1003, '2024-01-01T02:00:00Z')
+    `);
+    const poolKeyId = await seedPoolKey(client);
+    await seedSwaps(client, poolKeyId);
+    await seedPositions(client, poolKeyId);
+    const { rewardPeriodId } = await seedCampaign(client);
+
+    const {
+      rows: [{ computed_rows }],
+    } = await client.query<{ computed_rows: string }>(
+      `SELECT incentives.compute_pending_reward_periods()::bigint AS computed_rows`
+    );
+    expect(Number(computed_rows)).toBe(2);
+
+    const {
+      rows: [{ pending_count }],
+    } = await client.query<{ pending_count: string }>(
+      `SELECT COUNT(*)::bigint AS pending_count
+       FROM incentives.pending_reward_periods
+       WHERE reward_period_id = $1`,
+      [rewardPeriodId]
+    );
+    expect(Number(pending_count)).toBe(0);
+
+    const {
+      rows: [{ lastComputed }],
+    } = await client.query<{ lastComputed: string | null }>(
+      `SELECT rewards_last_computed_at::text AS lastComputed
+       FROM incentives.campaign_reward_periods
+       WHERE id = $1`,
+      [rewardPeriodId]
+    );
+    expect(lastComputed).not.toBeNull();
+  } finally {
+    await client.close();
+  }
+});
+
+test("computed rewards materialized view aggregates totals and pending amounts", async () => {
+  const client = await createClient();
+  try {
+    await seedBlocks(client);
+    const poolKeyId = await seedPoolKey(client);
+    await seedSwaps(client, poolKeyId);
+    await seedPositions(client, poolKeyId);
+    const { campaignId, rewardPeriodId } = await seedCampaign(client);
+
+    await client.query(`SELECT incentives.compute_rewards_for_period_v1($1)`, [
+      rewardPeriodId,
+    ]);
+    await client.query(
+      `REFRESH MATERIALIZED VIEW incentives.computed_rewards_by_position_materialized`
+    );
+
+    const { rows: initialRows } = await client.query<{
+      campaign_id: string;
+      locker: string;
+      salt: string;
+      total: string;
+      pending: string;
+    }>(
+      `SELECT campaign_id::text,
+              locker::text,
+              salt::text,
+              total_reward_amount::text AS total,
+              pending_reward_amount::text AS pending
+       FROM incentives.computed_rewards_by_position_materialized
+       WHERE campaign_id = $1
+       ORDER BY locker`,
+      [campaignId]
+    );
+
+    expect(initialRows).toEqual([
+      {
+        campaign_id: campaignId.toString(),
+        locker: "2000",
+        pending: "500",
+        salt: "1",
+        total: "500",
+      },
+      {
+        campaign_id: campaignId.toString(),
+        locker: "3000",
+        pending: "500",
+        salt: "2",
+        total: "500",
+      },
+    ]);
+
+    const {
+      rows: [{ id: dropId }],
+    } = await client.query<{ id: number }>(
+      `INSERT INTO incentives.generated_drop (root)
+       VALUES (123456)
+       RETURNING id`
+    );
+    await client.query(
+      `INSERT INTO incentives.generated_drop_reward_periods (drop_id, campaign_reward_period_id)
+       VALUES ($1, $2)`,
+      [dropId, rewardPeriodId]
+    );
+
+    await client.query(
+      `REFRESH MATERIALIZED VIEW incentives.computed_rewards_by_position_materialized`
+    );
+
+    const { rows: refreshedRows } = await client.query<{
+      campaign_id: string;
+      locker: string;
+      salt: string;
+      total: string;
+      pending: string;
+    }>(
+      `SELECT campaign_id::text,
+              locker::text,
+              salt::text,
+              total_reward_amount::text AS total,
+              pending_reward_amount::text AS pending
+       FROM incentives.computed_rewards_by_position_materialized
+       WHERE campaign_id = $1
+       ORDER BY locker`,
+      [campaignId]
+    );
+
+    expect(refreshedRows).toEqual([
+      {
+        campaign_id: campaignId.toString(),
+        locker: "2000",
+        pending: "0",
+        salt: "1",
+        total: "500",
+      },
+      {
+        campaign_id: campaignId.toString(),
+        locker: "3000",
+        pending: "0",
+        salt: "2",
+        total: "500",
+      },
+    ]);
+  } finally {
+    await client.close();
+  }
+});
+
 async function seedBlocks(client: PGlite) {
   await client.query(`
     INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
