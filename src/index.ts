@@ -4,12 +4,16 @@ import { logger } from "./_shared/logger";
 import { DAO, type IndexerCursor } from "./_shared/dao";
 import { Block as EvmBlock, EvmStream } from "@apibara/evm";
 import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
-import { createLogProcessors } from "./evm/logProcessors";
+import {
+  createLogProcessors,
+  createV2LogProcessors,
+} from "./evm/logProcessors";
 import { createEventProcessors } from "./starknet/eventProcessors";
-import { Bytes, createClient, Metadata } from "@apibara/protocol";
+import { createClient, Metadata } from "@apibara/protocol";
 import { msToHumanShort } from "./_shared/msToHumanShort";
+import { loadHexAddresses } from "./_shared/loadHexAddresses";
 
-if (!["starknet", "evm"].includes(process.env.NETWORK_TYPE)) {
+if (!["starknet", "evm"].includes(process.env.NETWORK_TYPE!)) {
   throw new Error(`Invalid NETWORK_TYPE: "${process.env.NETWORK_TYPE}"`);
 }
 
@@ -17,7 +21,7 @@ if (!process.env.NETWORK) {
   throw new Error(`Missing NETWORK`);
 }
 
-const chainId = BigInt(process.env.CHAIN_ID);
+const chainId = BigInt(process.env.CHAIN_ID!);
 
 const hexChainId = `0x${chainId.toString(16)}`;
 
@@ -25,7 +29,7 @@ if (!chainId) {
   throw new Error("Missing CHAIN_ID");
 }
 
-const dao = DAO.create(process.env.PG_CONNECTION_STRING, chainId);
+const dao = DAO.create(process.env.PG_CONNECTION_STRING!, chainId);
 
 // Timer for exiting if no blocks are received within the configured time
 const NO_BLOCKS_TIMEOUT_MS = parseInt(process.env.NO_BLOCKS_TIMEOUT_MS || "0");
@@ -84,7 +88,7 @@ function resetNoBlocksTimer() {
       } else {
         currentCursor = await dao.writeCursor(
           {
-            orderKey: BigInt(process.env.STARTING_CURSOR_BLOCK_NUMBER),
+            orderKey: BigInt(process.env.STARTING_CURSOR_BLOCK_NUMBER!),
           },
           // should never happen but so this will cause it to revert if there's a race condition
           { orderKey: 0n }
@@ -101,36 +105,78 @@ function resetNoBlocksTimer() {
   // Start the no-blocks timer when application starts
   resetNoBlocksTimer();
 
+  const evmV1AddressConfig =
+    process.env.NETWORK_TYPE === "evm"
+      ? loadHexAddresses({
+          mevCaptureAddress: "MEV_CAPTURE_ADDRESS",
+          coreAddress: "CORE_ADDRESS",
+          positionsAddress: "POSITIONS_ADDRESS",
+          oracleAddress: "ORACLE_ADDRESS",
+          twammAddress: "TWAMM_ADDRESS",
+          ordersAddress: "ORDERS_ADDRESS",
+          incentivesAddress: "INCENTIVES_ADDRESS",
+          tokenWrapperFactoryAddress: "TOKEN_WRAPPER_FACTORY_ADDRESS",
+        })
+      : undefined;
+
+  const evmV2AddressConfig =
+    process.env.NETWORK_TYPE === "evm"
+      ? loadHexAddresses({
+          mevCaptureAddress: "MEV_CAPTURE_V2_ADDRESS",
+          coreAddress: "CORE_V2_ADDRESS",
+          positionsAddress: "POSITIONS_V2_ADDRESS",
+          oracleAddress: "ORACLE_V2_ADDRESS",
+          twammAddress: "TWAMM_V2_ADDRESS",
+          ordersAddress: "ORDERS_V2_ADDRESS",
+          incentivesAddress: "INCENTIVES_V2_ADDRESS",
+          tokenWrapperFactoryAddress: "TOKEN_WRAPPER_FACTORY_V2_ADDRESS",
+        })
+      : undefined;
+
+  if (
+    process.env.NETWORK_TYPE === "evm" &&
+    !evmV1AddressConfig &&
+    !evmV2AddressConfig
+  ) {
+    throw new Error("Missing or invalid EVM contract addresses (v1 or v2)");
+  }
+
+  const starknetAddressConfig =
+    process.env.NETWORK_TYPE === "starknet"
+      ? loadHexAddresses({
+          nftAddress: "NFT_ADDRESS",
+          coreAddress: "CORE_ADDRESS",
+          tokenRegistryAddress: "TOKEN_REGISTRY_ADDRESS",
+          tokenRegistryV2Address: "TOKEN_REGISTRY_V2_ADDRESS",
+          tokenRegistryV3Address: "TOKEN_REGISTRY_V3_ADDRESS",
+          twammAddress: "TWAMM_ADDRESS",
+          stakerAddress: "STAKER_ADDRESS",
+          governorAddress: "GOVERNOR_ADDRESS",
+          oracleAddress: "ORACLE_ADDRESS",
+          limitOrdersAddress: "LIMIT_ORDERS_ADDRESS",
+          splineLiquidityProviderAddress: "SPLINE_LIQUIDITY_PROVIDER_ADDRESS",
+        })
+      : undefined;
+
+  if (process.env.NETWORK_TYPE === "starknet" && !starknetAddressConfig) {
+    throw new Error("Missing or invalid Starknet contract addresses");
+  }
+
   const evmProcessors =
     process.env.NETWORK_TYPE === "evm"
-      ? createLogProcessors({
-          mevCaptureAddress: process.env.MEV_CAPTURE_ADDRESS,
-          coreAddress: process.env.CORE_ADDRESS,
-          positionsAddress: process.env.POSITIONS_ADDRESS,
-          oracleAddress: process.env.ORACLE_ADDRESS,
-          twammAddress: process.env.TWAMM_ADDRESS,
-          ordersAddress: process.env.ORDERS_ADDRESS,
-          incentivesAddress: process.env.INCENTIVES_ADDRESS,
-          tokenWrapperFactoryAddress: process.env.TOKEN_WRAPPER_FACTORY_ADDRESS,
-        })
+      ? ([
+          ...(evmV1AddressConfig
+            ? createLogProcessors(evmV1AddressConfig)
+            : []),
+          ...(evmV2AddressConfig
+            ? createV2LogProcessors(evmV2AddressConfig)
+            : []),
+        ] as ReturnType<typeof createLogProcessors>)
       : ([] as ReturnType<typeof createLogProcessors>);
 
   const starknetProcessors =
-    process.env.NETWORK_TYPE === "starknet"
-      ? createEventProcessors({
-          nftAddress: process.env.NFT_ADDRESS,
-          coreAddress: process.env.CORE_ADDRESS,
-          tokenRegistryAddress: process.env.TOKEN_REGISTRY_ADDRESS,
-          tokenRegistryV2Address: process.env.TOKEN_REGISTRY_V2_ADDRESS,
-          tokenRegistryV3Address: process.env.TOKEN_REGISTRY_V3_ADDRESS,
-          twammAddress: process.env.TWAMM_ADDRESS,
-          stakerAddress: process.env.STAKER_ADDRESS,
-          governorAddress: process.env.GOVERNOR_ADDRESS,
-          oracleAddress: process.env.ORACLE_ADDRESS,
-          limitOrdersAddress: process.env.LIMIT_ORDERS_ADDRESS,
-          splineLiquidityProviderAddress:
-            process.env.SPLINE_LIQUIDITY_PROVIDER_ADDRESS,
-        })
+    process.env.NETWORK_TYPE === "starknet" && starknetAddressConfig
+      ? createEventProcessors(starknetAddressConfig)
       : ([] as ReturnType<typeof createEventProcessors>);
 
   const filterConfig =
@@ -157,7 +203,7 @@ function resetNoBlocksTimer() {
 
   const streamClient =
     process.env.NETWORK_TYPE === "evm"
-      ? createClient(EvmStream, process.env.APIBARA_URL, {
+      ? createClient(EvmStream, process.env.APIBARA_URL!, {
           defaultCallOptions: {
             "*": {
               metadata: Metadata({
@@ -166,7 +212,7 @@ function resetNoBlocksTimer() {
             },
           },
         })
-      : createClient(StarknetStream, process.env.APIBARA_URL, {
+      : createClient(StarknetStream, process.env.APIBARA_URL!, {
           defaultCallOptions: {
             "*": {
               metadata: Metadata({

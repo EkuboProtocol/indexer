@@ -25,6 +25,15 @@ interface EvmConfig extends CommonConfiguration {
   INCENTIVES_ADDRESS: `0x${string}`;
   MEV_CAPTURE_ADDRESS: `0x${string}`;
   TOKEN_WRAPPER_FACTORY_ADDRESS: `0x${string}`;
+
+  CORE_V2_ADDRESS: `0x${string}`;
+  POSITIONS_V2_ADDRESS: `0x${string}`;
+  ORACLE_V2_ADDRESS: `0x${string}`;
+  TWAMM_V2_ADDRESS: `0x${string}`;
+  ORDERS_V2_ADDRESS: `0x${string}`;
+  INCENTIVES_V2_ADDRESS: `0x${string}`;
+  MEV_CAPTURE_V2_ADDRESS: `0x${string}`;
+  TOKEN_WRAPPER_FACTORY_V2_ADDRESS: `0x${string}`;
 }
 
 interface StarknetConfig extends CommonConfiguration {
