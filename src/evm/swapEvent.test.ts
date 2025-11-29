@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { parseSwapEvent } from "./swapEvent";
+import { checksumAddress } from "viem";
+import {
+  floatSqrtRatioToFixed,
+  parseSwapEvent,
+  parseSwapEventV2,
+} from "./swapEvent";
 
 describe(parseSwapEvent, () => {
   it("works for example", () => {
@@ -52,5 +57,91 @@ describe(parseSwapEvent, () => {
         "tickAfter": 324,
       }
     `);
+  });
+});
+
+describe(parseSwapEventV2, () => {
+  function makeSwapEventData({
+    locker,
+    poolId,
+    delta0,
+    delta1,
+    liquidityAfter,
+    sqrtRatioCompact,
+    tickAfter,
+  }: {
+    locker: `0x${string}`;
+    poolId: `0x${string}`;
+    delta0: bigint;
+    delta1: bigint;
+    liquidityAfter: bigint;
+    sqrtRatioCompact: bigint;
+    tickAfter: number;
+  }): `0x${string}` {
+    const toBytes = (value: bigint, width: number) =>
+      value.toString(16).padStart(width * 2, "0");
+
+    const lockerChunk = locker.toLowerCase().slice(2).padStart(40, "0");
+    const poolIdChunk = poolId.toLowerCase().slice(2).padStart(64, "0");
+
+    const encodeInt128 = (value: bigint) =>
+      BigInt.asUintN(128, value);
+
+    const balanceUpdateValue =
+      (encodeInt128(delta0) << 128n) | encodeInt128(delta1);
+    const balanceUpdateChunk = toBytes(balanceUpdateValue, 32);
+
+    const liquidityChunk = BigInt.asUintN(128, liquidityAfter);
+    const tickChunk = BigInt.asUintN(32, BigInt(tickAfter));
+    const sqrtChunk = BigInt.asUintN(96, sqrtRatioCompact);
+    const stateAfterValue =
+      (sqrtChunk << 160n) | (tickChunk << 128n) | liquidityChunk;
+    const stateAfterChunk = toBytes(stateAfterValue, 32);
+
+    const data = `0x${lockerChunk}${poolIdChunk}${balanceUpdateChunk}${stateAfterChunk}`;
+    if (data.length !== 2 + 116 * 2) {
+      throw new Error("invalid encoded swap data length");
+    }
+    return data as `0x${string}`;
+  }
+
+  it("decodes packed fields", () => {
+    const locker = "0x1111111111111111111111111111111111111111";
+    const poolId =
+      "0x2222222222222222222222222222222222222222222222222222222222222222";
+    const delta0 = 50000000000000000n;
+    const delta1 = -126983565n;
+    const liquidityAfter = 4472135213867n;
+    const sqrtRatioCompact = 0x0123456789abcdef012345n;
+    const sqrtRatioAfter = floatSqrtRatioToFixed(sqrtRatioCompact);
+    const tickAfter = -20346843;
+
+    const data = makeSwapEventData({
+      locker,
+      poolId,
+      delta0,
+      delta1,
+      liquidityAfter,
+      sqrtRatioCompact,
+      tickAfter,
+    });
+
+    expect(parseSwapEventV2(data)).toEqual({
+      locker: checksumAddress(locker),
+      poolId,
+      delta0,
+      delta1,
+      liquidityAfter,
+      sqrtRatioAfter,
+      tickAfter,
+    });
+  });
+
+  it("rejects malformed payload sizes", () => {
+    expect(() =>
+      parseSwapEventV2("0x1234")
+    ).toThrowErrorMatchingInlineSnapshot(
+      `"Unexpected swap event length: expected 232 hex chars, received 4"`
+    );
   });
 });

@@ -63,8 +63,12 @@ export interface PoolKeyInsert {
   token0: AddressValue;
   token1: AddressValue;
   fee: NumericValue;
-  tickSpacing: number;
+  tickSpacing: number | null;
   extension: AddressValue;
+  poolConfig?: bigint | null;
+  poolConfigType?: "concentrated" | "stableswap";
+  stableswapCenterTick?: number | null;
+  stableswapAmplification?: number | null;
 }
 
 export interface PoolInitializedInsert {
@@ -659,17 +663,29 @@ export class DAO {
     key: EventKey
   ) {
     const {
-      poolKey: { token0, token1, fee, tickSpacing, extension },
+      poolKey: {
+        token0,
+        token1,
+        fee,
+        tickSpacing,
+        extension,
+        poolConfig,
+        poolConfigType,
+        stableswapAmplification,
+        stableswapCenterTick,
+      },
       poolId,
       tick,
       sqrtRatio,
       feeDenominator,
     } = newPool;
+    const configType = poolConfigType ?? "concentrated";
 
     await this.sql`
       WITH inserted_pool_key AS (
         INSERT INTO pool_keys
-          (chain_id, core_address, pool_id, token0, token1, fee, tick_spacing, pool_extension, fee_denominator)
+          (chain_id, core_address, pool_id, token0, token1, fee, tick_spacing, pool_extension, fee_denominator,
+           pool_config, pool_config_type, stableswap_center_tick, stableswap_amplification)
         VALUES (
           ${this.chainId},
           ${this.numeric(key.emitter)},
@@ -679,7 +695,11 @@ export class DAO {
           ${this.numeric(fee)},
           ${tickSpacing},
           ${this.numeric(extension)},
-          ${this.numeric(feeDenominator)}
+          ${this.numeric(feeDenominator)},
+          ${this.numeric(poolConfig ?? null)},
+          ${configType},
+          ${stableswapCenterTick ?? null},
+          ${stableswapAmplification ?? null}
         ) ON CONFLICT (chain_id, core_address, pool_id) DO NOTHING
         RETURNING pool_key_id
       )

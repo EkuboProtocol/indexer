@@ -5,6 +5,7 @@ import { createClient } from "../helpers/db.js";
 const MIGRATION_FILES = [
   "00001_chain_tables",
   "00002_core_tables",
+  "00060_pool_config_v2",
 ] as const;
 
 let client: PGlite;

@@ -6,6 +6,7 @@ const MIGRATION_FILES = [
   "00001_chain_tables",
   "00002_core_tables",
   "00003_nonfungible_tokens",
+  "00060_pool_config_v2",
 ] as const;
 
 let client: PGlite;

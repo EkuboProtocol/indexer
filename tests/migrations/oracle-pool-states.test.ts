@@ -7,6 +7,7 @@ const MIGRATION_FILES = [
   "00002_core_tables",
   "00009_oracle_tables",
   "00010_oracle_pool_states",
+  "00060_pool_config_v2",
 ] as const;
 
 let client: PGlite;

@@ -202,6 +202,7 @@ export function createLogProcessors({
           const { fee, tickSpacing, extension } = parsePoolKeyConfig(
             parsed.poolKey.config
           );
+          const poolConfigWord = BigInt(parsed.poolKey.config);
           const poolInitialized: PoolInitializedInsert = {
             feeDenominator: EVM_POOL_FEE_DENOMINATOR,
             poolKey: {
@@ -210,6 +211,8 @@ export function createLogProcessors({
               fee,
               tickSpacing,
               extension,
+              poolConfig: poolConfigWord,
+              poolConfigType: "concentrated",
             },
             poolId: parsed.poolId,
             tick:
@@ -439,8 +442,8 @@ export function createV2LogProcessors({
       handlers: {
         async PoolInitialized(dao, key, parsed) {
           const parsedConfig = parseV2PoolKeyConfig(parsed.poolKey.config);
-
-          if (!("tickSpacing" in parsedConfig)) throw new Error("todo");
+          const poolConfigWord = BigInt(parsed.poolKey.config);
+          const isConcentrated = "tickSpacing" in parsedConfig;
 
           const poolInitialized: PoolInitializedInsert = {
             feeDenominator: EVM_POOL_FEE_DENOMINATOR,
@@ -448,8 +451,16 @@ export function createV2LogProcessors({
               token0: parsed.poolKey.token0,
               token1: parsed.poolKey.token1,
               fee: parsedConfig.fee,
-              tickSpacing: parsedConfig.tickSpacing,
+              tickSpacing: isConcentrated ? parsedConfig.tickSpacing : null,
               extension: parsedConfig.extension,
+              poolConfig: poolConfigWord,
+              poolConfigType: isConcentrated ? "concentrated" : "stableswap",
+              stableswapCenterTick: isConcentrated
+                ? null
+                : parsedConfig.centerTick,
+              stableswapAmplification: isConcentrated
+                ? null
+                : parsedConfig.amplificationFactor,
             },
             poolId: parsed.poolId,
             tick:
