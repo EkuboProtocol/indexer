@@ -133,12 +133,13 @@ function resetNoBlocksTimer() {
         })
       : undefined;
 
-  if (
-    process.env.NETWORK_TYPE === "evm" &&
-    !evmV1AddressConfig &&
-    !evmV2AddressConfig
-  ) {
-    throw new Error("Missing or invalid EVM contract addresses (v1 or v2)");
+  if (process.env.NETWORK_TYPE === "evm") {
+    if (!evmV1AddressConfig && !evmV2AddressConfig)
+      throw new Error("Missing or invalid EVM contract addresses (v1 or v2)");
+    if (evmV1AddressConfig)
+      logger.info(`Indexing V1 EVM contracts`, { evmV1AddressConfig });
+    if (evmV2AddressConfig)
+      logger.info(`Indexing V2 EVM contracts`, { evmV2AddressConfig });
   }
 
   const starknetAddressConfig =
@@ -158,8 +159,10 @@ function resetNoBlocksTimer() {
         })
       : undefined;
 
-  if (process.env.NETWORK_TYPE === "starknet" && !starknetAddressConfig) {
-    throw new Error("Missing or invalid Starknet contract addresses");
+  if (process.env.NETWORK_TYPE === "starknet") {
+    if (!starknetAddressConfig)
+      throw new Error("Missing or invalid Starknet contract addresses");
+    logger.info(`Indexing Starknet contracts`, { starknetAddressConfig });
   }
 
   const evmProcessors =
