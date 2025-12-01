@@ -307,10 +307,23 @@ function resetNoBlocksTimer() {
 
           await dao.begin(async (dao) => {
             await dao.deleteOldBlockNumbers(blockNumber);
+
+            let baseFeePerGas: bigint | null = null;
+
+            if ("baseFeePerGas" in block.header && block.header.baseFeePerGas) {
+              baseFeePerGas = BigInt(block.header.baseFeePerGas);
+            } else if (
+              "l1GasPrice" in block.header &&
+              block.header.l1GasPrice.priceInFri
+            ) {
+              baseFeePerGas = BigInt(block.header.l1GasPrice.priceInFri);
+            }
+
             await dao.insertBlock({
               number: block.header.blockNumber,
               hash: BigInt(blockHashHex),
               time: blockTime,
+              baseFeePerGas,
             });
 
             if (process.env.NETWORK_TYPE === "evm") {

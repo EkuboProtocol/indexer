@@ -448,14 +448,18 @@ export class DAO {
     number,
     hash,
     time,
+    baseFeePerGas,
   }: {
     number: bigint;
     hash: bigint;
     time: Date;
+    baseFeePerGas: bigint | null;
   }) {
     await this.sql`
-      INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
-      VALUES (${this.chainId}, ${number}, ${this.numeric(hash)}, ${time});
+      INSERT INTO blocks (chain_id, block_number, block_hash, block_time, base_fee_per_gas)
+      VALUES (${this.chainId}, ${number}, ${this.numeric(
+      hash
+    )}, ${time}, ${this.numeric(baseFeePerGas)});
     `;
   }
 
