@@ -122,6 +122,33 @@ function createContractEventProcessor<
   };
 }
 
+export function normalizeV2PoolKey(
+  poolKey: PoolInitializedInsert["poolKey"]
+): PoolInitializedInsert["poolKey"] {
+  const poolConfigType = poolKey.poolConfigType ?? "concentrated";
+
+  if (poolConfigType !== "concentrated" || poolKey.tickSpacing !== 0) {
+    return {
+      ...poolKey,
+      poolConfigType,
+    };
+  }
+
+  if (poolKey.poolConfig == null) {
+    throw new Error(
+      "pool_config must be present when converting zero tick spacing pools"
+    );
+  }
+
+  return {
+    ...poolKey,
+    poolConfigType: "stableswap",
+    tickSpacing: null,
+    stableswapCenterTick: 0,
+    stableswapAmplification: 0,
+  };
+}
+
 type HandlerMap<T extends Abi> = {
   [eventName in ContractEventName<T>]?: Parameters<
     typeof createContractEventProcessor<T, eventName>
@@ -444,24 +471,25 @@ export function createV2LogProcessors({
           const parsedConfig = parseV2PoolKeyConfig(parsed.poolKey.config);
           const poolConfigWord = BigInt(parsed.poolKey.config);
           const isConcentrated = "tickSpacing" in parsedConfig;
+          const poolKey = normalizeV2PoolKey({
+            token0: parsed.poolKey.token0,
+            token1: parsed.poolKey.token1,
+            fee: parsedConfig.fee,
+            tickSpacing: isConcentrated ? parsedConfig.tickSpacing : null,
+            extension: parsedConfig.extension,
+            poolConfig: poolConfigWord,
+            poolConfigType: isConcentrated ? "concentrated" : "stableswap",
+            stableswapCenterTick: isConcentrated
+              ? null
+              : parsedConfig.centerTick,
+            stableswapAmplification: isConcentrated
+              ? null
+              : parsedConfig.amplificationFactor,
+          });
 
           const poolInitialized: PoolInitializedInsert = {
             feeDenominator: EVM_POOL_FEE_DENOMINATOR,
-            poolKey: {
-              token0: parsed.poolKey.token0,
-              token1: parsed.poolKey.token1,
-              fee: parsedConfig.fee,
-              tickSpacing: isConcentrated ? parsedConfig.tickSpacing : null,
-              extension: parsedConfig.extension,
-              poolConfig: poolConfigWord,
-              poolConfigType: isConcentrated ? "concentrated" : "stableswap",
-              stableswapCenterTick: isConcentrated
-                ? null
-                : parsedConfig.centerTick,
-              stableswapAmplification: isConcentrated
-                ? null
-                : parsedConfig.amplificationFactor,
-            },
+            poolKey,
             poolId: parsed.poolId,
             tick:
               typeof parsed.tick === "bigint"
