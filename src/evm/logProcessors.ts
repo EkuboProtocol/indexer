@@ -122,30 +122,33 @@ function createContractEventProcessor<
   };
 }
 
-export function normalizeV2PoolKey(
-  poolKey: PoolInitializedInsert["poolKey"]
-): PoolInitializedInsert["poolKey"] {
-  const poolConfigType = poolKey.poolConfigType ?? "concentrated";
-
-  if (poolConfigType !== "concentrated" || poolKey.tickSpacing !== 0) {
-    return {
-      ...poolKey,
-      poolConfigType,
-    };
-  }
-
-  if (poolKey.poolConfig == null) {
-    throw new Error(
-      "pool_config must be present when converting zero tick spacing pools"
-    );
-  }
+export function normalizeV1PoolKey({
+  token0,
+  token1,
+  fee,
+  tickSpacing,
+  extension,
+  poolConfig,
+}: {
+  token0: `0x${string}`;
+  token1: `0x${string}`;
+  fee: bigint;
+  tickSpacing: number;
+  extension: `0x${string}`;
+  poolConfig: bigint;
+}): PoolInitializedInsert["poolKey"] {
+  const isLegacyStableswap = tickSpacing === 0;
 
   return {
-    ...poolKey,
-    poolConfigType: "stableswap",
-    tickSpacing: null,
-    stableswapCenterTick: 0,
-    stableswapAmplification: 0,
+    token0,
+    token1,
+    fee,
+    tickSpacing: isLegacyStableswap ? null : tickSpacing,
+    extension,
+    poolConfig,
+    poolConfigType: isLegacyStableswap ? "stableswap" : "concentrated",
+    stableswapCenterTick: isLegacyStableswap ? 0 : null,
+    stableswapAmplification: isLegacyStableswap ? 0 : null,
   };
 }
 
@@ -232,15 +235,14 @@ export function createLogProcessors({
           const poolConfigWord = BigInt(parsed.poolKey.config);
           const poolInitialized: PoolInitializedInsert = {
             feeDenominator: EVM_POOL_FEE_DENOMINATOR,
-            poolKey: {
+            poolKey: normalizeV1PoolKey({
               token0: parsed.poolKey.token0,
               token1: parsed.poolKey.token1,
               fee,
               tickSpacing,
               extension,
               poolConfig: poolConfigWord,
-              poolConfigType: "concentrated",
-            },
+            }),
             poolId: parsed.poolId,
             tick:
               typeof parsed.tick === "bigint"
@@ -471,25 +473,23 @@ export function createV2LogProcessors({
           const parsedConfig = parseV2PoolKeyConfig(parsed.poolKey.config);
           const poolConfigWord = BigInt(parsed.poolKey.config);
           const isConcentrated = "tickSpacing" in parsedConfig;
-          const poolKey = normalizeV2PoolKey({
-            token0: parsed.poolKey.token0,
-            token1: parsed.poolKey.token1,
-            fee: parsedConfig.fee,
-            tickSpacing: isConcentrated ? parsedConfig.tickSpacing : null,
-            extension: parsedConfig.extension,
-            poolConfig: poolConfigWord,
-            poolConfigType: isConcentrated ? "concentrated" : "stableswap",
-            stableswapCenterTick: isConcentrated
-              ? null
-              : parsedConfig.centerTick,
-            stableswapAmplification: isConcentrated
-              ? null
-              : parsedConfig.amplificationFactor,
-          });
-
           const poolInitialized: PoolInitializedInsert = {
             feeDenominator: EVM_POOL_FEE_DENOMINATOR,
-            poolKey,
+            poolKey: {
+              token0: parsed.poolKey.token0,
+              token1: parsed.poolKey.token1,
+              fee: parsedConfig.fee,
+              tickSpacing: isConcentrated ? parsedConfig.tickSpacing : null,
+              extension: parsedConfig.extension,
+              poolConfig: poolConfigWord,
+              poolConfigType: isConcentrated ? "concentrated" : "stableswap",
+              stableswapCenterTick: isConcentrated
+                ? null
+                : parsedConfig.centerTick,
+              stableswapAmplification: isConcentrated
+                ? null
+                : parsedConfig.amplificationFactor,
+            },
             poolId: parsed.poolId,
             tick:
               typeof parsed.tick === "bigint"
