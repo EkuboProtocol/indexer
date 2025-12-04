@@ -310,6 +310,26 @@
     "sort_order": 3
   },
   {
+    "chain_id": "1",
+    "token_address": "0x4956b52ae2ff65d74ca2d61207523288e4528f96",
+    "token_name": "Resolv Liquidity Provider Token",
+    "token_symbol": "RLP",
+    "token_decimals": 18,
+    "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/76ea9c11-de76-4398-2115-65099634ce00/logo",
+    "visibility_priority": 0,
+    "sort_order": 3
+  },
+  {
+    "chain_id": "1",
+    "token_address": "0x6dea81c8171d0ba574754ef6f8b412f2ed88c54d",
+    "token_name": "Liquity",
+    "token_symbol": "LQTY",
+    "token_decimals": 18,
+    "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/ec2d3e2c-af96-43b2-bbcb-997e855a2b00/logo",
+    "visibility_priority": 1,
+    "sort_order": 3
+  },
+  {
     "chain_id": "11155111",
     "token_address": "0x0000000000000000000000000000000000000000",
     "token_name": "Ether",
@@ -1322,8 +1342,18 @@
   {
     "chain_id": "0x534e5f4d41494e",
     "token_address": "0x035f581b050a39958b7188ab5c75daaa1f9d3571a0c032203038c898663f31f8",
-    "token_name": "Dungeon Ticket",
+    "token_name": "Deprecated Dungeon Ticket",
     "token_symbol": "TICKET",
+    "token_decimals": 18,
+    "logo_url": null,
+    "visibility_priority": -1,
+    "sort_order": 1
+  },
+  {
+    "chain_id": "0x534e5f4d41494e",
+    "token_address": "0x0452810188C4Cb3AEbD63711a3b445755BC0D6C4f27B923fDd99B1A118858136",
+    "token_name": "Dungeon Ticket",
+    "token_symbol": "DTICKET",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/f96b51e2-e978-42e2-c67a-e84159015000/logo",
     "visibility_priority": 1,
