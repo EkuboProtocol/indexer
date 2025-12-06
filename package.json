@@ -18,17 +18,17 @@
     "bun": ">=1.3"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.3.11",
-    "@types/bun": "^1.3.2"
+    "@electric-sql/pglite": "^0.3.14",
+    "@types/bun": "^1.3.3"
   },
   "dependencies": {
-    "@apibara/evm": "^2.1.0-beta.40",
-    "@apibara/protocol": "^2.1.0-beta.40",
-    "@apibara/starknet": "^2.1.0-beta.40",
-    "dotenv": "^16.4.7",
+    "@apibara/evm": "^2.1.0-beta.46",
+    "@apibara/protocol": "^2.1.0-beta.46",
+    "@apibara/starknet": "^2.1.0-beta.46",
+    "dotenv": "^16.6.1",
     "postgres": "^3.4.7",
     "postgres-shift": "^0.1.0",
-    "viem": "^2.22.9",
-    "winston": "^3.17.0"
+    "viem": "^2.41.2",
+    "winston": "^3.18.3"
   }
 }
