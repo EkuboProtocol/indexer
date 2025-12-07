@@ -115,7 +115,9 @@ export function parseOrderConfig(_config: `0x${string}`): {
   };
 }
 
-export function toPoolConfig({
+const MAX_FEE: bigint = 2n ** 64n - 1n;
+
+export function toPoolConfigV1({
   fee,
   tickSpacing,
   extension,
@@ -124,7 +126,7 @@ export function toPoolConfig({
   tickSpacing: number;
   extension: `0x${string}`;
 }): `0x${string}` {
-  if (fee > 2n ** 64n - 1n) throw new Error("Invalid fee");
+  if (fee > MAX_FEE) throw new Error("Invalid fee");
   return numberToHex(
     BigInt(tickSpacing) + (fee << 32n) + (BigInt(extension) << 96n),
     { size: 32 }

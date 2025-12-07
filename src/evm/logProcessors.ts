@@ -43,7 +43,7 @@ import {
   parsePoolKeyConfig,
   parsePositionId,
   parseV2PoolKeyConfig,
-  toPoolConfig,
+  toPoolConfigV1,
   toPoolId,
 } from "./poolKey";
 
@@ -337,7 +337,7 @@ export function createLogProcessors({
               poolId: toPoolId({
                 token0,
                 token1,
-                config: toPoolConfig({
+                config: toPoolConfigV1({
                   fee: BigInt(parsed.orderKey.fee),
                   tickSpacing: 0,
                   extension: key.emitter,
@@ -363,7 +363,7 @@ export function createLogProcessors({
               poolId: toPoolId({
                 token0,
                 token1,
-                config: toPoolConfig({
+                config: toPoolConfigV1({
                   fee: BigInt(parsed.orderKey.fee),
                   tickSpacing: 0,
                   extension: key.emitter,
@@ -618,7 +618,8 @@ export function createV2LogProcessors({
               poolId: toPoolId({
                 token0: parsed.orderKey.token0,
                 token1: parsed.orderKey.token1,
-                config: toPoolConfig({
+                // v1 and v2 behavior match as long as tickSpacing == 0n
+                config: toPoolConfigV1({
                   fee,
                   tickSpacing: 0,
                   extension: key.emitter,
@@ -653,7 +654,8 @@ export function createV2LogProcessors({
               poolId: toPoolId({
                 token0: parsed.orderKey.token0,
                 token1: parsed.orderKey.token1,
-                config: toPoolConfig({
+                // v1 and v2 behavior match as long as tickSpacing == 0n
+                config: toPoolConfigV1({
                   fee,
                   tickSpacing: 0,
                   extension: key.emitter,
