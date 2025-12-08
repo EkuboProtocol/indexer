@@ -616,7 +616,7 @@
     "token_symbol": "xSPEPE",
     "token_decimals": 18,
     "logo_url": null,
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 1
   },
   {
@@ -636,7 +636,7 @@
     "token_symbol": "xSBANANA",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/516c435e-f89a-4a88-aff0-fdcc6e218900/logo",
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 1
   },
   {
