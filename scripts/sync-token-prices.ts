@@ -6,6 +6,8 @@ const sql = postgres(process.env.PG_CONNECTION_STRING, {
   types: { bigint: postgres.BigInt },
 });
 
+const DEFAULT_SYNC_INTERVAL_MS = 60_000;
+
 type AddressPriceMap = Record<`0x${string}` | string, number>;
 
 interface PriceFetcher {
@@ -136,7 +138,22 @@ function normalizeMapKeys(apm: AddressPriceMap): AddressPriceMap {
   );
 }
 
-async function main() {
+function getSyncInterval(): number {
+  const envValue = process.env.TOKEN_PRICE_SYNC_INTERVAL_MS;
+  if (envValue === undefined) return DEFAULT_SYNC_INTERVAL_MS;
+
+  const parsed = Number(envValue);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(
+      `Invalid TOKEN_PRICE_SYNC_INTERVAL_MS value "${envValue}", expected a positive integer (milliseconds)`
+    );
+  }
+
+  return parsed;
+}
+
+async function syncTokenPrices(sql: Sql<{ bigint: bigint }>) {
   await sql.begin(async (sql) => {
     for (const [chainId, fetchers] of Object.entries(FETCHER_BY_CHAIN_ID)) {
       const priceRows: [
@@ -199,9 +216,61 @@ async function main() {
   });
 }
 
-main()
-  .catch((error) => {
-    console.error("Token price sync failed", error);
+async function main() {
+  const intervalMs = getSyncInterval();
+  let isRunning = false;
+
+  console.log(
+    `Starting token price sync worker (interval ${intervalMs.toLocaleString()} ms)`
+  );
+
+  const runSync = async () => {
+    if (isRunning) {
+      console.warn(
+        "Previous token price sync still running; skipping this interval"
+      );
+      return;
+    }
+
+    isRunning = true;
+    const startedAt = Date.now();
+
+    try {
+      await syncTokenPrices(sql);
+      console.log(
+        `Token price sync completed in ${Math.round(Date.now() - startedAt)} ms`
+      );
+    } catch (error) {
+      console.error("Token price sync failed", error);
+    } finally {
+      isRunning = false;
+    }
+  };
+
+  const interval = setInterval(runSync, intervalMs);
+
+  const shutdown = async () => {
+    clearInterval(interval);
+    try {
+      await sql.end({ timeout: 5 });
+    } catch (error) {
+      console.warn("Failed to close SQL pool cleanly", error);
+    } finally {
+      process.exit(0);
+    }
+  };
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+
+  await runSync();
+}
+
+main().catch(async (error) => {
+  console.error("Token price sync worker failed to start", error);
+  try {
+    await sql.end({ timeout: 5 });
+  } finally {
     process.exit(1);
-  })
-  .finally(() => sql.end({ timeout: 5 }));
+  }
+});
