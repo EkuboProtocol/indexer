@@ -78,6 +78,57 @@ export function parseSwapEvent(data: `0x${string}`): CoreSwapped {
   };
 }
 
-export function parseSwapEventV2(_data: `0x${string}`): CoreSwapped {
-  throw new Error("todo");
+const LOG_DATA_LENGTH_V2 = 116; // bytes
+
+function sliceHex(
+  hex: string,
+  startBytes: number,
+  lengthBytes: number
+): string {
+  const start = startBytes * 2;
+  return hex.slice(start, start + lengthBytes * 2);
+}
+
+export function parseSwapEventV2(data: `0x${string}`): CoreSwapped {
+  if (!data.startsWith("0x")) {
+    throw new Error("Swap event data must be hex-prefixed");
+  }
+  const hex = data.slice(2);
+
+  if (hex.length !== LOG_DATA_LENGTH_V2 * 2) {
+    throw new Error(
+      `Unexpected swap event length: expected ${LOG_DATA_LENGTH_V2 * 2} hex chars, received ${hex.length}`
+    );
+  }
+
+  const lockerChunk = sliceHex(hex, 0, 20).padStart(40, "0");
+  const poolIdChunk = sliceHex(hex, 20, 32);
+  const balanceUpdateChunk = sliceHex(hex, 52, 32);
+  const stateAfterChunk = sliceHex(hex, 84, 32);
+
+  const locker = checksumAddress(`0x${lockerChunk}` as `0x${string}`);
+  const poolId = `0x${poolIdChunk}` as `0x${string}`;
+
+  const balanceUpdate = BigInt(`0x${balanceUpdateChunk}`);
+  const delta1Raw = balanceUpdate & MAX_UINT128;
+  const delta0Raw = balanceUpdate >> 128n;
+  const delta0 = toSigned(delta0Raw, 128);
+  const delta1 = toSigned(delta1Raw, 128);
+
+  const stateAfter = BigInt(`0x${stateAfterChunk}`);
+  const liquidityAfter = stateAfter & MAX_UINT128;
+  const tickRaw = (stateAfter >> 128n) & MAX_UINT32;
+  const tickAfter = Number(toSigned(tickRaw, 32));
+  const sqrtRatioAfterCompact = stateAfter >> 160n;
+  const sqrtRatioAfter = floatSqrtRatioToFixed(sqrtRatioAfterCompact);
+
+  return {
+    locker,
+    poolId,
+    delta0,
+    delta1,
+    liquidityAfter,
+    sqrtRatioAfter,
+    tickAfter,
+  };
 }

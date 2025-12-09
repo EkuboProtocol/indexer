@@ -17,6 +17,7 @@ const MIGRATION_FILES = [
   "00044_order_current_sale_rate_is_selling_token1",
   "00046_add_locker_to_nonfungible_token_views",
   "00048_order_amount_sold_tracking",
+  "00060_pool_config_v2",
 ] as const;
 
 let client: PGlite;

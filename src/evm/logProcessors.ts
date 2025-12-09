@@ -43,7 +43,7 @@ import {
   parsePoolKeyConfig,
   parsePositionId,
   parseV2PoolKeyConfig,
-  toPoolConfig,
+  toPoolConfigV1,
   toPoolId,
 } from "./poolKey";
 
@@ -119,6 +119,36 @@ function createContractEventProcessor<
       });
       await wrappedHandler(dao, key, result.args as any);
     },
+  };
+}
+
+export function normalizeV1PoolKey({
+  token0,
+  token1,
+  fee,
+  tickSpacing,
+  extension,
+  poolConfig,
+}: {
+  token0: `0x${string}`;
+  token1: `0x${string}`;
+  fee: bigint;
+  tickSpacing: number;
+  extension: `0x${string}`;
+  poolConfig: bigint;
+}): PoolInitializedInsert["poolKey"] {
+  const isLegacyStableswap = tickSpacing === 0;
+
+  return {
+    token0,
+    token1,
+    fee,
+    tickSpacing: isLegacyStableswap ? null : tickSpacing,
+    extension,
+    poolConfig,
+    poolConfigType: isLegacyStableswap ? "stableswap" : "concentrated",
+    stableswapCenterTick: isLegacyStableswap ? 0 : null,
+    stableswapAmplification: isLegacyStableswap ? 0 : null,
   };
 }
 
@@ -202,15 +232,17 @@ export function createLogProcessors({
           const { fee, tickSpacing, extension } = parsePoolKeyConfig(
             parsed.poolKey.config
           );
+          const poolConfigWord = BigInt(parsed.poolKey.config);
           const poolInitialized: PoolInitializedInsert = {
             feeDenominator: EVM_POOL_FEE_DENOMINATOR,
-            poolKey: {
+            poolKey: normalizeV1PoolKey({
               token0: parsed.poolKey.token0,
               token1: parsed.poolKey.token1,
               fee,
               tickSpacing,
               extension,
-            },
+              poolConfig: poolConfigWord,
+            }),
             poolId: parsed.poolId,
             tick:
               typeof parsed.tick === "bigint"
@@ -305,7 +337,7 @@ export function createLogProcessors({
               poolId: toPoolId({
                 token0,
                 token1,
-                config: toPoolConfig({
+                config: toPoolConfigV1({
                   fee: BigInt(parsed.orderKey.fee),
                   tickSpacing: 0,
                   extension: key.emitter,
@@ -331,7 +363,7 @@ export function createLogProcessors({
               poolId: toPoolId({
                 token0,
                 token1,
-                config: toPoolConfig({
+                config: toPoolConfigV1({
                   fee: BigInt(parsed.orderKey.fee),
                   tickSpacing: 0,
                   extension: key.emitter,
@@ -439,17 +471,24 @@ export function createV2LogProcessors({
       handlers: {
         async PoolInitialized(dao, key, parsed) {
           const parsedConfig = parseV2PoolKeyConfig(parsed.poolKey.config);
-
-          if (!("tickSpacing" in parsedConfig)) throw new Error("todo");
-
+          const poolConfigWord = BigInt(parsed.poolKey.config);
+          const isConcentrated = "tickSpacing" in parsedConfig;
           const poolInitialized: PoolInitializedInsert = {
             feeDenominator: EVM_POOL_FEE_DENOMINATOR,
             poolKey: {
               token0: parsed.poolKey.token0,
               token1: parsed.poolKey.token1,
               fee: parsedConfig.fee,
-              tickSpacing: parsedConfig.tickSpacing,
+              tickSpacing: isConcentrated ? parsedConfig.tickSpacing : null,
               extension: parsedConfig.extension,
+              poolConfig: poolConfigWord,
+              poolConfigType: isConcentrated ? "concentrated" : "stableswap",
+              stableswapCenterTick: isConcentrated
+                ? null
+                : parsedConfig.centerTick,
+              stableswapAmplification: isConcentrated
+                ? null
+                : parsedConfig.amplificationFactor,
             },
             poolId: parsed.poolId,
             tick:
@@ -579,7 +618,8 @@ export function createV2LogProcessors({
               poolId: toPoolId({
                 token0: parsed.orderKey.token0,
                 token1: parsed.orderKey.token1,
-                config: toPoolConfig({
+                // v1 and v2 behavior match as long as tickSpacing == 0n
+                config: toPoolConfigV1({
                   fee,
                   tickSpacing: 0,
                   extension: key.emitter,
@@ -614,7 +654,8 @@ export function createV2LogProcessors({
               poolId: toPoolId({
                 token0: parsed.orderKey.token0,
                 token1: parsed.orderKey.token1,
-                config: toPoolConfig({
+                // v1 and v2 behavior match as long as tickSpacing == 0n
+                config: toPoolConfigV1({
                   fee,
                   tickSpacing: 0,
                   extension: key.emitter,

@@ -11,6 +11,7 @@ const MIGRATION_FILES = [
   "00019_hourly_tables",
   "00026_hourly_tables_block_time",
   "00042_oracle_twap_function",
+  "00060_pool_config_v2",
 ] as const;
 
 let client: PGlite;

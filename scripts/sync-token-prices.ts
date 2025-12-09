@@ -14,6 +14,11 @@ interface PriceFetcher {
     | Promise<AddressPriceMap>;
 }
 
+interface PriceFetcherConfig {
+  source: string;
+  fetch: PriceFetcher;
+}
+
 const sushiswapApiPriceFetcher: PriceFetcher = async (
   _sql,
   chainId: bigint
@@ -101,15 +106,25 @@ const ekuboUsdOraclePriceFetcher: PriceFetcher = async (sql, chainId) => {
   }, {});
 };
 
-const FETCHER_BY_CHAIN_ID: { [chainId: string]: PriceFetcher[] } = {
+const oracleV1PriceFetcher: PriceFetcherConfig = {
+  source: "ov1",
+  fetch: ekuboUsdOraclePriceFetcher,
+};
+
+const sushiswapPriceFetcher: PriceFetcherConfig = {
+  source: "ss1",
+  fetch: sushiswapApiPriceFetcher,
+};
+
+const FETCHER_BY_CHAIN_ID: { [chainId: string]: PriceFetcherConfig[] } = {
   // eth mainnet
-  ["1"]: [ekuboUsdOraclePriceFetcher, sushiswapApiPriceFetcher],
+  ["1"]: [oracleV1PriceFetcher, sushiswapPriceFetcher],
   // eth sepolia
-  ["11155111"]: [ekuboUsdOraclePriceFetcher, sushiswapApiPriceFetcher],
+  ["11155111"]: [oracleV1PriceFetcher, sushiswapPriceFetcher],
   // starknet mainnet
-  ["23448594291968334"]: [ekuboUsdOraclePriceFetcher],
+  ["23448594291968334"]: [oracleV1PriceFetcher],
   // starknet sepolia
-  ["23448594291968335"]: [ekuboUsdOraclePriceFetcher],
+  ["23448594291968335"]: [oracleV1PriceFetcher],
 };
 
 function normalizeMapKeys(apm: AddressPriceMap): AddressPriceMap {
@@ -123,52 +138,63 @@ function normalizeMapKeys(apm: AddressPriceMap): AddressPriceMap {
 
 async function main() {
   await sql.begin(async (sql) => {
-    for (const chainId of Object.keys(FETCHER_BY_CHAIN_ID)) {
-      const fetchers = FETCHER_BY_CHAIN_ID[chainId];
-
-      const updates: [
+    for (const [chainId, fetchers] of Object.entries(FETCHER_BY_CHAIN_ID)) {
+      const priceRows: [
         chain_id: string,
         token_address: string,
+        source: string,
         usd_price: number
       ][] = [];
 
       try {
-        const prices = (
-          await Promise.all(
-            fetchers.map((fetcher) => fetcher(sql, BigInt(chainId)))
-          )
-        ).reduce<AddressPriceMap>(
-          (memo, value) => ({
-            ...normalizeMapKeys(value),
-            ...memo,
-          }),
-          {}
+        const priceSnapshots = await Promise.all(
+          fetchers.map(async (fetcher) => ({
+            source: fetcher.source,
+            prices: await fetcher.fetch(sql, BigInt(chainId)),
+          }))
         );
 
-        for (const [tokenAddress, usdPrice] of Object.entries(prices)) {
-          updates.push([String(chainId), tokenAddress, usdPrice]);
+        for (const snapshot of priceSnapshots) {
+          for (const [tokenAddress, usdPrice] of Object.entries(
+            normalizeMapKeys(snapshot.prices)
+          )) {
+            priceRows.push([
+              String(chainId),
+              tokenAddress,
+              snapshot.source,
+              usdPrice,
+            ]);
+          }
         }
       } catch (e) {
         console.warn(`Failed to fetch prices for chain ID ${chainId}`, e);
         continue;
       }
 
-      if (updates.length === 0) {
-        console.log(`No token prices to update for chain ID ${chainId}`);
+      if (priceRows.length === 0) {
+        console.log(`No token prices to insert for chain ID ${chainId}`);
         continue;
       }
 
-      const { count } = await sql`
-        UPDATE erc20_tokens AS t
-        SET usd_price = data.usd_price::double precision
+      let total: number = 0;
+      for (let i = 0; i < priceRows.length; i += 1000) {
+        const { count } = await sql`
+        INSERT INTO erc20_tokens_usd_prices (chain_id, token_address, source, value)
+        SELECT data.chain_id::int8,
+               data.token_address::numeric,
+               data.source,
+               data.usd_price::double precision
         FROM (values ${sql(
-          updates
-        )}) as data (chain_id, token_address, usd_price)
-        WHERE t.chain_id = data.chain_id::int8
-            AND t.token_address = data.token_address::numeric;
+          priceRows.slice(i, i + 1000)
+        )}) as data (chain_id, token_address, source, usd_price)
+        JOIN erc20_tokens AS t
+          ON t.chain_id = data.chain_id::int8
+         AND t.token_address = data.token_address::numeric;
       `;
+        total += count;
+      }
 
-      console.log(`Updated ${count} token prices for chain ID ${chainId}`);
+      console.log(`Inserted ${total} token price rows for chain ID ${chainId}`);
     }
   });
 }

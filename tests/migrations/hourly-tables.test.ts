@@ -8,6 +8,7 @@ const MIGRATION_FILES = [
   "00019_hourly_tables",
   "00026_hourly_tables_block_time",
   "00028_fees_accumulated_block_time",
+  "00060_pool_config_v2",
 ] as const;
 
 let client: PGlite;
