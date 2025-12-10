@@ -1,6 +1,5 @@
 import "../src/config";
 import postgres, { type Sql } from "postgres";
-import DEFAULT_TOKENS from "./tokens/default-tokens.json";
 
 const sql = postgres(process.env.PG_CONNECTION_STRING!, {
   connect_timeout: 5,
@@ -149,18 +148,38 @@ async function main() {
         .join("\n")}`
     );
 
-    const numDefaultTokensUpserted = await addTokens({
-      sql,
-      tokens: DEFAULT_TOKENS.map((t) => ({
-        ...t,
-        total_supply: null,
-      })) satisfies Parameters<typeof addTokens>[0]["tokens"],
-      upsert: true,
-    });
-
-    console.log(
-      `Upserted ${numDefaultTokensUpserted} rows from default token list`
+    const defaultTokensResponse = await fetch(
+      "https://raw.githubusercontent.com/EkuboProtocol/default-tokens/refs/heads/main/tokens.json"
     );
+    if (!defaultTokensResponse.ok) {
+      console.warn(
+        `Failed to fetch default tokens (${defaultTokensResponse.status}): ${defaultTokensResponse.statusText}`
+      );
+    } else {
+      const defaultTokens = (await defaultTokensResponse.json()) as {
+        chain_id: string;
+        token_address: string;
+        token_name: string;
+        token_symbol: string;
+        token_decimals: number;
+        logo_url: string;
+        visibility_priority: number;
+        sort_order: number;
+      }[];
+
+      const numDefaultTokensUpserted = await addTokens({
+        sql,
+        tokens: defaultTokens.map((t) => ({
+          ...t,
+          total_supply: null,
+        })) satisfies Parameters<typeof addTokens>[0]["tokens"],
+        upsert: true,
+      });
+
+      console.log(
+        `Upserted ${numDefaultTokensUpserted} rows from default token list`
+      );
+    }
 
     const registeredTokens = await sql<
       {
