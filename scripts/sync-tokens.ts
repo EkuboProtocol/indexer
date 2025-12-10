@@ -2,7 +2,7 @@ import "../src/config";
 import postgres, { type Sql } from "postgres";
 import DEFAULT_TOKENS from "./tokens/default-tokens.json";
 
-const sql = postgres(process.env.PG_CONNECTION_STRING, {
+const sql = postgres(process.env.PG_CONNECTION_STRING!, {
   connect_timeout: 5,
 });
 

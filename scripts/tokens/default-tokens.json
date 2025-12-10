@@ -391,6 +391,16 @@
   },
   {
     "chain_id": "0x534e5f4d41494e",
+    "token_address": "0x02342f9d4eb0d47cb3f9de41fa1dbac6d154824d63e66b363eeb256683fea3bc",
+    "token_name": "eBTC",
+    "token_symbol": "eBTC",
+    "token_decimals": 10,
+    "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/c73ec0fd-b569-4865-dd12-f63981cf2700/logo",
+    "visibility_priority": 0,
+    "sort_order": 0
+  },
+  {
+    "chain_id": "0x534e5f4d41494e",
     "token_address": "0x03fe2b97c1fd336e750087d68b9b867997fd64a2661ff3ca5a7c771641e8e7ac",
     "token_name": "Wrapped BTC",
     "token_symbol": "WBTC",
