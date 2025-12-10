@@ -656,7 +656,7 @@
     "token_symbol": "ZEND",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/95515b0e-1230-4158-10f1-56888f613c00/logo",
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 1
   },
   {
@@ -726,7 +726,7 @@
     "token_symbol": "nsDAI",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/a016d9ab-a7b5-4f31-3656-f41fa27cc300/logo",
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 2
   },
   {
@@ -736,7 +736,7 @@
     "token_symbol": "npeETH",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/f1f900d0-da29-49f6-271b-d1a3754aa200/logo",
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 1
   },
   {
@@ -746,7 +746,7 @@
     "token_symbol": "nppETH",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/d37fbc14-daa9-45e8-d523-c656704e7d00/logo",
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 1
   },
   {
@@ -756,7 +756,7 @@
     "token_symbol": "npfUSDC",
     "token_decimals": 6,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/af942cb7-aae8-41dc-5cc9-4aedc5c06000/logo",
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 3
   },
   {
@@ -766,7 +766,7 @@
     "token_symbol": "npaUSDT",
     "token_decimals": 6,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/f376f6d9-bcf3-41b0-c0d3-6ef2f606d200/logo",
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 3
   },
   {
@@ -816,7 +816,7 @@
     "token_symbol": "sSTRK",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/e28697ac-a8ba-462f-0d40-ad33b285c200/logo",
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 1
   },
   {
@@ -826,7 +826,7 @@
     "token_symbol": "kSTRK",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/585854e8-3656-4bfc-412b-9cd8b8ae2900/logo",
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 1
   },
   {
