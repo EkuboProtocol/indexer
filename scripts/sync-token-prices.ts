@@ -153,15 +153,25 @@ function quoteAmountInUnits(decimals: number): bigint {
   return QUOTE_USD_AMOUNT * 10n ** BigInt(decimals);
 }
 
-async function fetchVisibleTokens(
+async function fetchTokensWithTvl(
   sql: Sql<{ bigint: bigint }>,
   chainId: bigint
 ): Promise<TokenRow[]> {
   return sql<TokenRow[]>`
-    SELECT token_address::text, token_decimals, token_symbol
-    FROM erc20_tokens
-    WHERE chain_id = ${chainId}
-      AND visibility_priority >= 1
+    SELECT t.token_address::text, t.token_decimals, t.token_symbol
+    FROM erc20_tokens t
+    WHERE t.chain_id = ${chainId}
+      AND t.visibility_priority >= 0
+      AND EXISTS (
+        SELECT 1
+        FROM pool_keys pk
+        JOIN pool_tvl pt ON pt.pool_key_id = pk.pool_key_id
+        WHERE pk.chain_id = t.chain_id
+          AND (
+            (pk.token0 = t.token_address AND pt.balance0 > 0)
+            OR (pk.token1 = t.token_address AND pt.balance1 > 0)
+          )
+      )
   `;
 }
 
@@ -236,7 +246,7 @@ const ekuboQuoterPriceFetcher: PriceFetcher = async (sql, chainId) => {
   const quoteToken = QUOTE_TOKEN_BY_CHAIN_ID[chainKey];
   if (!quoteToken) return {};
 
-  const tokens = await fetchVisibleTokens(sql, chainId);
+  const tokens = await fetchTokensWithTvl(sql, chainId);
 
   const result: AddressPriceMap = {};
 
