@@ -466,7 +466,7 @@
     "token_symbol": "DAIv0",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/919e761b-56f7-4f53-32aa-5e066f7f6200/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 5
   },
   {
@@ -486,7 +486,7 @@
     "token_symbol": "wstETH-legacy",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/26162dcc-29c2-4f5e-3acd-5e6be1f07a00/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 1
   },
   {
@@ -596,7 +596,7 @@
     "token_symbol": "PAPER",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/811f019a-0461-4cff-6c1e-442102863f00/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 1
   },
   {
@@ -686,7 +686,7 @@
     "token_symbol": "NSTR",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/a45c2224-17a7-4269-ea7e-3924e9755800/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 1
   },
   {
@@ -836,7 +836,7 @@
     "token_symbol": "SCHIZODIO",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/741c76d8-6a9c-49ea-da66-6cee3216c200/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 1
   },
   {
@@ -1136,7 +1136,7 @@
     "token_symbol": "rUSDC-stark",
     "token_decimals": 6,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/7b6dc659-f9c3-4f95-0943-1976a7354a00/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 4
   },
   {
@@ -1166,7 +1166,7 @@
     "token_symbol": "PUPS",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/9af521eb-16e2-4d8b-50cd-c9f847563100/logo",
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 2
   },
   {
@@ -1216,7 +1216,7 @@
     "token_symbol": "USN",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/1c13351a-bb95-4ce3-2303-9793617fd200/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 5
   },
   {
@@ -1226,7 +1226,7 @@
     "token_symbol": "sUSN",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/57c7fd1e-f278-4cd1-dddc-122a8fb98000/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 4
   },
   {
@@ -1236,7 +1236,7 @@
     "token_symbol": "fyWBTC",
     "token_decimals": 8,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/8b917d7a-60bd-4788-9336-e6781d222700/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 1
   },
   {
@@ -1296,7 +1296,7 @@
     "token_symbol": "uniBTC",
     "token_decimals": 8,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/27f11c5f-544e-4d95-b0e5-7300eddc1900/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 0
   },
   {
@@ -1316,7 +1316,7 @@
     "token_symbol": "pumpBTC",
     "token_decimals": 8,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/c075b9c2-7d88-447d-bdb8-567b0e060600/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 0
   },
   {
