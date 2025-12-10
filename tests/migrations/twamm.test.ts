@@ -18,6 +18,8 @@ const MIGRATION_FILES = [
   "00046_add_locker_to_nonfungible_token_views",
   "00048_order_amount_sold_tracking",
   "00060_pool_config_v2",
+  "00067_nft_token_salt_function",
+  "00068_nft_locker_salt_transform",
 ] as const;
 
 let client: PGlite;

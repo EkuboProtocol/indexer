@@ -80,6 +80,81 @@ test("pending drop cadences and drop allocations helpers", async () => {
   }
 });
 
+test("drop allocations uses salt transform when locker mapping enabled", async () => {
+  const client: PGlite = await createClient();
+  try {
+    await seedBlocks(client);
+    const campaignId = await insertCampaign(client, {
+      chainId: 1,
+      slug: "campaign-transform",
+      start: "2024-01-01T00:00:00Z",
+      end: "2024-01-05T00:00:00Z",
+      minAllocation: 0,
+      cadence: "1 day",
+    });
+
+    const [periodId] = await insertRewardPeriods(
+      client,
+      campaignId,
+      [
+        {
+          start: "2024-01-01T00:00:00Z",
+          end: "2024-01-03T00:00:00Z",
+        },
+      ]
+    );
+
+    const tokenId = (2n ** 200n + 1234n).toString();
+    const saltModulo = (BigInt(tokenId) % (2n ** 192n)).toString();
+    const positionsLocker = "7000";
+    const nftEmitter = "8000000000000000001";
+    const tokenOwner = "9000";
+
+    const bitMod = 192;
+    await client.query(
+      `INSERT INTO nft_locker_mappings (chain_id, nft_address, locker, token_id_transform)
+       VALUES ($1, $2, $3, jsonb_build_object('bit_mod', $4::numeric))
+       ON CONFLICT (chain_id, nft_address)
+           DO UPDATE SET locker = EXCLUDED.locker,
+                         token_id_transform = EXCLUDED.token_id_transform`,
+      [1, nftEmitter, positionsLocker, bitMod]
+    );
+
+    await client.query(
+      `INSERT INTO incentives.computed_rewards (
+          campaign_reward_period_id,
+          locker,
+          salt,
+          reward_amount
+       ) VALUES ($1,$2,$3,$4)`,
+      [periodId, positionsLocker, saltModulo, "500"]
+    );
+
+    await insertPositionTransfers(client, {
+      positionsLocker,
+      tokenOwner,
+      tokenId,
+      nftEmitter,
+    });
+
+    const periodArrayParam = `{${periodId}}`;
+    const { rows } = await client.query<{
+      recipient: string;
+      amount: string;
+    }>(
+      `SELECT recipient::text, amount::text
+       FROM incentives.drop_allocations($1::bigint[])`,
+      [periodArrayParam]
+    );
+
+    expect(rows.length).toBe(1);
+    expect(rows[0].recipient).toBe(tokenOwner);
+    expect(rows[0].amount).toBe("500");
+  } finally {
+    await client.close();
+  }
+});
+
 test("pending reward periods view surfaces uncomputed periods", async () => {
   const client = await createClient();
   try {
