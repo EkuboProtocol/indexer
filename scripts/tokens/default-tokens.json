@@ -536,7 +536,7 @@
     "token_symbol": "FRAX",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/eeaf0779-e492-474c-ef19-b27843525600/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 1
   },
   {
@@ -546,7 +546,7 @@
     "token_symbol": "FXS",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/98bea621-1e4f-4d63-9689-bdaef0d56500/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 1
   },
   {
@@ -556,7 +556,7 @@
     "token_symbol": "sfrxETH",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/cd6fe18a-25db-4de9-758a-daf3b364ea00/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 1
   },
   {
@@ -566,7 +566,7 @@
     "token_symbol": "ANB",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/ef8a0a50-7c12-4b9b-e937-1bea5bdd3500/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 1
   },
   {
@@ -576,7 +576,7 @@
     "token_symbol": "UNI",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/361b018e-bd53-4019-27c8-7cf8d9031b00/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 1
   },
   {
@@ -586,7 +586,7 @@
     "token_symbol": "OWL",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/30622111-3d69-4d47-37fd-2beac1c53400/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 1
   },
   {
@@ -606,7 +606,7 @@
     "token_symbol": "STRAK-meme",
     "token_decimals": 18,
     "logo_url": null,
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 1
   },
   {
@@ -626,7 +626,7 @@
     "token_symbol": "xGARY",
     "token_decimals": 18,
     "logo_url": null,
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 1
   },
   {
@@ -666,7 +666,7 @@
     "token_symbol": "EKUBO",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/634d9c36-2f0b-4781-93e6-72d701b5af00/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 3,
     "sort_order": 1
   },
   {
@@ -676,7 +676,7 @@
     "token_symbol": "SOCKS",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/2db5a2a6-c98e-4b80-35e0-31b489132100/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 1
   },
   {
@@ -706,7 +706,7 @@
     "token_symbol": "ZKX",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/bfc2ef55-3dd4-43ef-66a7-9a0e228b5900/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 1
   },
   {
@@ -716,7 +716,7 @@
     "token_symbol": "CRM",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/6ab817f1-8075-4a94-6e14-f112f1f89d00/logo",
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 1
   },
   {
@@ -786,7 +786,7 @@
     "token_symbol": "FLIP",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/275f0fa8-a691-471c-ace6-0eb0315dde00/logo",
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 1
   },
   {
@@ -796,7 +796,7 @@
     "token_symbol": "ALF",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/5864e60d-8432-42d3-1ad4-fced31d43a00/logo",
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 1
   },
   {
@@ -1196,7 +1196,7 @@
     "token_symbol": "PUMP",
     "token_decimals": 6,
     "logo_url": null,
-    "visibility_priority": 1,
+    "visibility_priority": 0,
     "sort_order": 2
   },
   {
