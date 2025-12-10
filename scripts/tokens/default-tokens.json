@@ -586,7 +586,7 @@
     "token_symbol": "OWL",
     "token_decimals": 18,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/30622111-3d69-4d47-37fd-2beac1c53400/logo",
-    "visibility_priority": 0,
+    "visibility_priority": -1,
     "sort_order": 1
   },
   {
@@ -1156,7 +1156,7 @@
     "token_symbol": "MIM",
     "token_decimals": 0,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/27e0f7b9-ca5d-4af6-7d2e-ed3f72826700/logo",
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 2
   },
   {
@@ -1176,7 +1176,7 @@
     "token_symbol": "BDC",
     "token_decimals": 0,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/68e9d7a7-8289-4ed8-f47f-4947ff152000/logo",
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 2
   },
   {
@@ -1186,7 +1186,7 @@
     "token_symbol": "UCG",
     "token_decimals": 0,
     "logo_url": "https://imagedelivery.net/0xPAQaDtnQhBs8IzYRIlNg/1604eb09-60d6-4433-d0ba-012b5b0c4700/logo",
-    "visibility_priority": 1,
+    "visibility_priority": -1,
     "sort_order": 2
   },
   {
