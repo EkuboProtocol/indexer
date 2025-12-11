@@ -45,6 +45,10 @@ workers:
       - key: NETWORK_TYPE
         scope: RUN_TIME
         value: starknet
+      - key: APIBARA_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: ${STARKNET_MAINNET_APIBARA_URL}
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet
