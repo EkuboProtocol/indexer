@@ -82,8 +82,8 @@ async function addTokens({
           SET token_name = EXCLUDED.token_name,
               token_symbol = EXCLUDED.token_symbol,
               token_decimals = EXCLUDED.token_decimals,
-              logo_url = EXCLUDED.logo_url,
-              visibility_priority = EXCLUDED.visibility_priority,
+              logo_url = COALESCE(erc20_tokens.logo_url, EXCLUDED.logo_url),
+              visibility_priority = GREATEST(erc20_tokens.visibility_priority, EXCLUDED.visibility_priority),
               sort_order = EXCLUDED.sort_order,
               total_supply = EXCLUDED.total_supply
           WHERE
@@ -189,6 +189,7 @@ async function main() {
         token_symbol: string;
         token_decimals: number;
         total_supply: string;
+        symbol_registration_index: bigint;
       }[]
     >`
       SELECT chain_id,
@@ -216,7 +217,7 @@ async function main() {
     });
 
     console.log(
-      `Upserted ${userRegistrationTokensCount} from user token registration events`
+      `Inserted ${userRegistrationTokensCount} from user token registration events`
     );
 
     const ADDRESS_REGEX = /^0x[a-fA-F0-9]+$/;
