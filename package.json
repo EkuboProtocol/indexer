@@ -26,7 +26,6 @@
     "@apibara/protocol": "^2.1.0-beta.46",
     "@apibara/starknet": "^2.1.0-beta.46",
     "dotenv": "^16.6.1",
-    "ky": "^1.14.1",
     "postgres": "^3.4.7",
     "postgres-shift": "^0.1.0",
     "viem": "^2.41.2",

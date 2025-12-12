@@ -9,7 +9,6 @@
         "@apibara/protocol": "^2.1.0-beta.46",
         "@apibara/starknet": "^2.1.0-beta.46",
         "dotenv": "^16.6.1",
-        "ky": "^1.14.1",
         "postgres": "^3.4.7",
         "postgres-shift": "^0.1.0",
         "viem": "^2.41.2",
@@ -147,8 +146,6 @@
     "jsonfile": ["jsonfile@6.2.0", "", { "dependencies": { "universalify": "^2.0.0" }, "optionalDependencies": { "graceful-fs": "^4.1.6" } }, "sha512-FGuPw30AdOIUTRMC2OMRtQV+jkVj2cfPqSeWXv1NEAJ1qZ5zb1X6z1mFhbfOB/iy3ssJCD+3KuZ8r8C3uVFlAg=="],
 
     "kuler": ["kuler@2.0.0", "", {}, ""],
-
-    "ky": ["ky@1.14.1", "", {}, "sha512-hYje4L9JCmpEQBtudo+v52X5X8tgWXUYyPcxKSuxQNboqufecl9VMWjGiucAFH060AwPXHZuH+WB2rrqfkmafw=="],
 
     "lodash.camelcase": ["lodash.camelcase@4.3.0", "", {}, "sha512-TwuEnCnxbc3rAvhf/LbG7tJUDzhqXyFnv3dtzLOPgCG/hODL7WFnsbwktkD7yUV0RrreP/l1PALq/YSg6VvjlA=="],
 

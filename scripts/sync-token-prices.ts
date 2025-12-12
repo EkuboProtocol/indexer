@@ -191,15 +191,11 @@ async function fetchEkuboQuoterPrice({
   }${-amountOut}/${quoteToken.address}/${tokenAddressHex}`;
 
   try {
-    const response = await ky.get(url, {
+    const response = await fetch(url, {
       method: "GET",
       credentials: "omit",
       headers: { Accept: "application/json" },
       referrer: "https://ekubo.org/",
-      retry: {
-        jitter: true,
-        limit: 5,
-      },
     });
 
     if (!response.ok) {
