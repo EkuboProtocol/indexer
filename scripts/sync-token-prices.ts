@@ -2,7 +2,7 @@ import "../src/config";
 import postgres, { type Sql } from "postgres";
 import ky from "ky";
 
-const sql = postgres(process.env.PG_CONNECTION_STRING, {
+const sql = postgres(process.env.PG_CONNECTION_STRING!, {
   connect_timeout: 5,
   types: { bigint: postgres.BigInt },
 });
@@ -235,7 +235,7 @@ async function fetchEkuboQuoterPrice({
     return [tokenAddressHex, adjustedPrice];
   } catch (error) {
     console.debug(
-      `Failed to quote price for ${token.token_symbol} on chain ${chainId}: ${error.message}`
+      `Failed to quote price for ${token.token_symbol} on chain ${chainId}`
     );
     return null;
   }
@@ -402,6 +402,7 @@ async function main() {
       );
     } catch (error) {
       console.error("Token price sync failed", error);
+      process.exit(1);
     } finally {
       isRunning = false;
     }
