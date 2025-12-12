@@ -1,0 +1,1 @@
+CREATE INDEX ON position_updates (pool_key_id, event_id DESC);
