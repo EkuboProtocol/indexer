@@ -332,6 +332,9 @@ export class DAO {
       idle_timeout: 0,
       max_lifetime: null,
       max: 1,
+      connection: {
+        application_name: `indexer-${chainId}`,
+      },
       types: {
         bigint: postgres.BigInt,
         numeric: NumericIntegerType,
