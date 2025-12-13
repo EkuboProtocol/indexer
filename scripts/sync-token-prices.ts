@@ -239,6 +239,10 @@ async function fetchEkuboQuoterPrice({
   }
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 const ekuboQuoterPriceFetcher: PriceFetcher = async (sql, chainId) => {
   const chainKey = chainId.toString();
   const quoteToken = QUOTE_TOKEN_BY_CHAIN_ID[chainKey];
@@ -254,6 +258,8 @@ const ekuboQuoterPriceFetcher: PriceFetcher = async (sql, chainId) => {
       token,
       quoteToken,
     });
+
+    await sleep(1_000);
     if (!priced) continue;
     const [address, price] = priced;
     result[address] = price;
@@ -278,11 +284,11 @@ const sushiswapPriceFetcher: PriceFetcherConfig = {
 
 const FETCHER_BY_CHAIN_ID: { [chainId: string]: PriceFetcherConfig[] } = {
   // eth mainnet
-  ["1"]: [quoterPriceFetcher, oracleV1PriceFetcher, sushiswapPriceFetcher],
+  ["1"]: [quoterPriceFetcher, /*oracleV1PriceFetcher,*/ sushiswapPriceFetcher],
   // eth sepolia
   ["11155111"]: [sushiswapPriceFetcher],
   // starknet mainnet
-  ["23448594291968334"]: [quoterPriceFetcher, oracleV1PriceFetcher],
+  ["23448594291968334"]: [quoterPriceFetcher /*,oracleV1PriceFetcher*/],
   // starknet sepolia
   ["23448594291968335"]: [],
 };
