@@ -1,10 +1,12 @@
 import "../src/config";
 import postgres, { type Sql } from "postgres";
-import ky from "ky";
 
 const sql = postgres(process.env.PG_CONNECTION_STRING!, {
   connect_timeout: 5,
   types: { bigint: postgres.BigInt },
+  connection: {
+    application_name: `sync-token-prices.ts`,
+  },
 });
 
 const DEFAULT_SYNC_INTERVAL_MS = 60_000;
