@@ -82,8 +82,8 @@ async function addTokens({
           SET token_name = EXCLUDED.token_name,
               token_symbol = EXCLUDED.token_symbol,
               token_decimals = EXCLUDED.token_decimals,
-              logo_url = COALESCE(erc20_tokens.logo_url, EXCLUDED.logo_url),
-              visibility_priority = GREATEST(erc20_tokens.visibility_priority, EXCLUDED.visibility_priority),
+              logo_url = EXCLUDED.logo_url,
+              visibility_priority = EXCLUDED.visibility_priority,
               sort_order = EXCLUDED.sort_order,
               total_supply = EXCLUDED.total_supply
           WHERE
