@@ -73,6 +73,10 @@ workers:
       - key: NETWORK_TYPE
         scope: RUN_TIME
         value: evm
+      - key: APIBARA_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: ${ETH_MAINNET_APIBARA_URL}
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet
