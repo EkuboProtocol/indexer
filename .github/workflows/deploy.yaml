@@ -64,4 +64,5 @@ jobs:
           PG_CONNECTION_STRING: ${{ secrets.PRIVATE_PG_CONNECTION_STRING }}
           VPC_ID: ${{ secrets.VPC_ID }}
           STARKNET_MAINNET_APIBARA_URL: ${{ secrets.STARKNET_MAINNET_APIBARA_URL }}
+          ETH_MAINNET_APIBARA_URL: ${{ secrets.ETH_MAINNET_APIBARA_URL }}
         run: envsubst < .do/app.yaml | doctl apps create --spec - --upsert
