@@ -3,6 +3,7 @@ import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
 import { DAO, type IndexerCursor } from "./_shared/dao";
 import { Block as EvmBlock, EvmStream } from "@apibara/evm";
+import { EvmRpcStream, rateLimitedHttp } from "@apibara/evm-rpc";
 import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
 import {
   createLogProcessors,
@@ -12,6 +13,8 @@ import { createEventProcessors } from "./starknet/eventProcessors";
 import { createClient, Metadata } from "@apibara/protocol";
 import { msToHumanShort } from "./_shared/msToHumanShort";
 import { loadHexAddresses } from "./_shared/loadHexAddresses";
+import { createRpcClient } from "@apibara/protocol/rpc";
+import { createPublicClient } from "viem";
 
 if (!["starknet", "evm"].includes(process.env.NETWORK_TYPE!)) {
   throw new Error(`Invalid NETWORK_TYPE: "${process.env.NETWORK_TYPE}"`);
@@ -206,15 +209,33 @@ function resetNoBlocksTimer() {
 
   const streamClient =
     process.env.NETWORK_TYPE === "evm"
-      ? createClient(EvmStream, process.env.APIBARA_URL!, {
-          defaultCallOptions: {
-            "*": {
-              metadata: Metadata({
-                Authorization: `Bearer ${process.env.DNA_TOKEN}`,
+      ? process.env.EVM_RPC_URL
+        ? createRpcClient(
+            new EvmRpcStream(
+              createPublicClient({
+                transport: rateLimitedHttp(process.env.EVM_RPC_URL, {
+                  rps: 1,
+                  retryCount: 3,
+                  retryDelay: 1_000,
+                  batch: { wait: 10 },
+                }),
               }),
+              {
+                // This parameter changes based on the rpc provider.
+                // The stream automatically shrinks the batch size when the provider returns an error.
+                getLogsRangeSize: 1_000n,
+              }
+            )
+          )
+        : createClient(EvmStream, process.env.APIBARA_URL!, {
+            defaultCallOptions: {
+              "*": {
+                metadata: Metadata({
+                  Authorization: `Bearer ${process.env.DNA_TOKEN}`,
+                }),
+              },
             },
-          },
-        })
+          })
       : createClient(StarknetStream, process.env.APIBARA_URL!, {
           defaultCallOptions: {
             "*": {
@@ -224,6 +245,11 @@ function resetNoBlocksTimer() {
             },
           },
         });
+
+  const status = await streamClient.status();
+  console.info("Connected to node");
+  console.info("Current head:", status.currentHead?.orderKey);
+  console.info("Finalized:", status.finalized?.orderKey);
 
   for await (const message of streamClient.streamData({
     filter: filterConfig,
