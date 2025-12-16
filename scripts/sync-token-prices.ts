@@ -160,20 +160,18 @@ async function fetchTokensWithTvl(
   chainId: bigint
 ): Promise<TokenRow[]> {
   return sql<TokenRow[]>`
-    SELECT t.token_address::text, t.token_decimals, t.token_symbol
-    FROM erc20_tokens t
-    WHERE t.chain_id = ${chainId}
-      AND t.visibility_priority >= 0
-      AND EXISTS (
-        SELECT 1
-        FROM pool_keys pk
-        JOIN pool_tvl pt ON pt.pool_key_id = pk.pool_key_id
-        WHERE pk.chain_id = t.chain_id
-          AND (
-            (pk.token0 = t.token_address AND pt.balance0 > 0)
-            OR (pk.token1 = t.token_address AND pt.balance1 > 0)
-          )
-      )
+SELECT t.token_address::TEXT, t.token_decimals, t.token_symbol
+FROM erc20_tokens t
+WHERE t.chain_id = ${chainId}
+  AND t.visibility_priority >= 0
+  AND EXISTS (SELECT 1
+              FROM pool_keys pk
+                       JOIN pool_tvl pt USING (pool_key_id)
+              WHERE pk.chain_id = t.chain_id
+                AND (
+                  (pk.token0 = t.token_address AND pt.balance0 > 0)
+                      OR (pk.token1 = t.token_address AND pt.balance1 > 0)
+                  ))
   `;
 }
 
@@ -181,10 +179,12 @@ async function fetchEkuboQuoterPrice({
   chainId,
   token,
   quoteToken,
+  maxImpact = 0.2,
 }: {
   chainId: bigint;
   token: TokenRow;
   quoteToken: { address: `0x${string}`; decimals: number };
+  maxImpact?: number;
 }): Promise<[`0x${string}`, number] | null> {
   const amountOut = quoteAmountInUnits(quoteToken.decimals);
   const tokenAddressHex = toHexAddress(token.token_address);
@@ -201,39 +201,35 @@ async function fetchEkuboQuoterPrice({
     });
 
     if (!response.ok) {
-      try {
-        const result = await response.json();
-        console.warn(`Quoter request failed for ${token.token_symbol}: ${url}`);
-      } catch (e) {
-        console.warn(
-          `Quoter request failed for ${token.token_symbol} ${response.status} (${response.statusText}): ${url}`
-        );
-      }
+      const result = await response.text();
+      console.warn(
+        `Quoter request failed for ${token.token_symbol}: ${response.status} (${response.statusText}): ${url}; ${result}`
+      );
       return null;
     }
 
     const quote = (await response.json()) as EkuboQuoteResponse;
-    const amountInRaw = BigInt(quote.total_calculated);
-    const tokenAmountIn = amountInRaw >= 0 ? amountInRaw : amountInRaw * -1n;
 
-    if (tokenAmountIn === 0n) return null;
+    const priceImpact = Math.max(0, quote.price_impact ?? Infinity);
+
+    if (maxImpact && priceImpact >= maxImpact) {
+      console.warn(
+        `Skipping result for ${token.token_symbol} because price impact ${priceImpact} was g.t.e. max ${maxImpact}: ${url}`
+      );
+      return null;
+    }
 
     const tokenAmount =
-      Number(tokenAmountIn) / 10 ** Number(token.token_decimals);
-    const priceImpact = Math.max(0, quote.price_impact ?? 0);
-
-    if (!Number.isFinite(tokenAmount) || tokenAmount === 0) return null;
-    if (!Number.isFinite(priceImpact)) return null;
+      (Number(quote.total_calculated) * -1) /
+      10 ** Number(token.token_decimals);
 
     const basePrice = Number(QUOTE_USD_AMOUNT) / tokenAmount;
-    const adjustedPrice = basePrice * (1 - priceImpact);
-
-    if (!Number.isFinite(adjustedPrice) || adjustedPrice <= 0) return null;
+    const adjustedPrice = basePrice * (1 + priceImpact);
 
     return [tokenAddressHex, adjustedPrice];
   } catch (error) {
-    console.debug(
-      `Failed to quote price for ${token.token_symbol} on chain ${chainId}`
+    console.error(
+      `JS error while quoting price of ${token.token_symbol} on chain ${chainId}`
     );
     return null;
   }
@@ -252,6 +248,12 @@ const ekuboQuoterPriceFetcher: PriceFetcher = async (sql, chainId) => {
 
   const result: AddressPriceMap = {};
 
+  console.log(
+    `Fetching quoter prices for chain ID ${chainId} tokens: ${tokens
+      .map((t) => t.token_symbol)
+      .join(", ")}`
+  );
+
   for (const token of tokens) {
     const priced = await fetchEkuboQuoterPrice({
       chainId,
@@ -259,9 +261,14 @@ const ekuboQuoterPriceFetcher: PriceFetcher = async (sql, chainId) => {
       quoteToken,
     });
 
+    // max 60 requests per minute
     await sleep(1_000);
     if (!priced) continue;
+
     const [address, price] = priced;
+    console.log(
+      `Found price ${price} for ${token.token_symbol} (${chainId}:${address})`
+    );
     result[address] = price;
   }
 
