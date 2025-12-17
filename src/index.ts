@@ -16,8 +16,15 @@ import { loadHexAddresses } from "./_shared/loadHexAddresses";
 import { createRpcClient } from "@apibara/protocol/rpc";
 import { createPublicClient } from "viem";
 
-if (!["starknet", "evm"].includes(process.env.NETWORK_TYPE!)) {
-  throw new Error(`Invalid NETWORK_TYPE: "${process.env.NETWORK_TYPE}"`);
+const NETWORK_TYPE = process.env.NETWORK_TYPE;
+function isNetworkTypeValid(
+  networkType: string | undefined
+): networkType is "starknet" | "evm" {
+  return Boolean(NETWORK_TYPE && ["starknet", "evm"].includes(NETWORK_TYPE));
+}
+
+if (!isNetworkTypeValid(NETWORK_TYPE)) {
+  throw new Error(`Invalid NETWORK_TYPE: "${NETWORK_TYPE}"`);
 }
 
 if (!process.env.NETWORK) {
@@ -25,8 +32,6 @@ if (!process.env.NETWORK) {
 }
 
 const chainId = BigInt(process.env.CHAIN_ID!);
-
-const hexChainId = `0x${chainId.toString(16)}`;
 
 if (!chainId) {
   throw new Error("Missing CHAIN_ID");
@@ -109,7 +114,7 @@ function resetNoBlocksTimer() {
   resetNoBlocksTimer();
 
   const evmV1AddressConfig =
-    process.env.NETWORK_TYPE === "evm"
+    NETWORK_TYPE === "evm"
       ? loadHexAddresses({
           mevCaptureAddress: "MEV_CAPTURE_ADDRESS",
           coreAddress: "CORE_ADDRESS",
@@ -123,7 +128,7 @@ function resetNoBlocksTimer() {
       : undefined;
 
   const evmV2AddressConfig =
-    process.env.NETWORK_TYPE === "evm"
+    NETWORK_TYPE === "evm"
       ? loadHexAddresses({
           mevCaptureAddress: "MEV_CAPTURE_V2_ADDRESS",
           coreAddress: "CORE_V2_ADDRESS",
@@ -136,7 +141,7 @@ function resetNoBlocksTimer() {
         })
       : undefined;
 
-  if (process.env.NETWORK_TYPE === "evm") {
+  if (NETWORK_TYPE === "evm") {
     if (!evmV1AddressConfig && !evmV2AddressConfig)
       throw new Error("Missing or invalid EVM contract addresses (v1 or v2)");
     if (evmV1AddressConfig)
@@ -146,7 +151,7 @@ function resetNoBlocksTimer() {
   }
 
   const starknetAddressConfig =
-    process.env.NETWORK_TYPE === "starknet"
+    NETWORK_TYPE === "starknet"
       ? loadHexAddresses({
           nftAddress: "NFT_ADDRESS",
           coreAddress: "CORE_ADDRESS",
@@ -162,14 +167,14 @@ function resetNoBlocksTimer() {
         })
       : undefined;
 
-  if (process.env.NETWORK_TYPE === "starknet") {
+  if (NETWORK_TYPE === "starknet") {
     if (!starknetAddressConfig)
       throw new Error("Missing or invalid Starknet contract addresses");
     logger.info(`Indexing Starknet contracts`, { starknetAddressConfig });
   }
 
   const evmProcessors =
-    process.env.NETWORK_TYPE === "evm"
+    NETWORK_TYPE === "evm"
       ? ([
           ...(evmV1AddressConfig
             ? createLogProcessors(evmV1AddressConfig)
@@ -181,34 +186,21 @@ function resetNoBlocksTimer() {
       : ([] as ReturnType<typeof createLogProcessors>);
 
   const starknetProcessors =
-    process.env.NETWORK_TYPE === "starknet" && starknetAddressConfig
+    NETWORK_TYPE === "starknet" && starknetAddressConfig
       ? createEventProcessors(starknetAddressConfig)
       : ([] as ReturnType<typeof createEventProcessors>);
 
-  const filterConfig =
-    process.env.NETWORK_TYPE === "evm"
-      ? [
-          {
-            logs: evmProcessors.map((lp, ix) => ({
-              id: ix + 1,
-              address: lp.address,
-              topics: lp.filter.topics,
-              strict: lp.filter.strict,
-            })),
-          },
-        ]
-      : [
-          {
-            events: starknetProcessors.map((processor, ix) => ({
-              id: ix + 1,
-              address: processor.filter.fromAddress,
-              keys: processor.filter.keys,
-            })),
-          },
-        ];
+  const streamOptions = {
+    finality: "accepted",
+    startingCursor: currentCursor!,
+    heartbeatInterval: {
+      seconds: 10n,
+      nanos: 0,
+    },
+  } as const;
 
-  const streamClient =
-    process.env.NETWORK_TYPE === "evm"
+  const stream =
+    NETWORK_TYPE === "evm"
       ? process.env.EVM_RPC_URL
         ? createRpcClient(
             new EvmRpcStream(
@@ -226,7 +218,19 @@ function resetNoBlocksTimer() {
                 getLogsRangeSize: 1_000n,
               }
             )
-          )
+          ).streamData({
+            ...streamOptions,
+            filter: [
+              {
+                logs: evmProcessors.map((lp, ix) => ({
+                  id: ix + 1,
+                  address: lp.address,
+                  topics: lp.filter.topics,
+                  strict: lp.filter.strict,
+                })),
+              },
+            ],
+          })
         : createClient(EvmStream, process.env.APIBARA_URL!, {
             defaultCallOptions: {
               "*": {
@@ -235,6 +239,18 @@ function resetNoBlocksTimer() {
                 }),
               },
             },
+          }).streamData({
+            ...streamOptions,
+            filter: [
+              {
+                logs: evmProcessors.map((lp, ix) => ({
+                  id: ix + 1,
+                  address: lp.address,
+                  topics: lp.filter.topics,
+                  strict: lp.filter.strict,
+                })),
+              },
+            ],
           })
       : createClient(StarknetStream, process.env.APIBARA_URL!, {
           defaultCallOptions: {
@@ -244,22 +260,20 @@ function resetNoBlocksTimer() {
               }),
             },
           },
+        }).streamData({
+          ...streamOptions,
+          filter: [
+            {
+              events: starknetProcessors.map((processor, ix) => ({
+                id: ix + 1,
+                address: processor.filter.fromAddress,
+                keys: processor.filter.keys,
+              })),
+            },
+          ],
         });
 
-  const status = await streamClient.status();
-  console.info("Connected to node");
-  console.info("Current head:", status.currentHead?.orderKey);
-  console.info("Finalized:", status.finalized?.orderKey);
-
-  for await (const message of streamClient.streamData({
-    filter: filterConfig,
-    finality: "accepted",
-    startingCursor: currentCursor!,
-    heartbeatInterval: {
-      seconds: 10n,
-      nanos: 0,
-    },
-  })) {
+  for await (const message of stream) {
     switch (message._tag) {
       case "heartbeat": {
         logger.debug(`Heartbeat`);
@@ -352,13 +366,15 @@ function resetNoBlocksTimer() {
               baseFeePerGas,
             });
 
-            if (process.env.NETWORK_TYPE === "evm") {
+            if (NETWORK_TYPE === "evm") {
               const logs = (block as EvmBlock).logs;
-              for (const log of logs) {
+              for (let i = 0; i < logs.length; i++) {
+                const log = logs[i];
+
                 const eventKey: EventKey = {
                   blockNumber,
-                  transactionIndex: log.transactionIndex,
-                  eventIndex: log.logIndexInTransaction,
+                  transactionIndex: log.transactionIndex ?? 0,
+                  eventIndex: log.logIndexInTransaction ?? log.logIndex ?? i,
                   emitter: log.address,
                   transactionHash: log.transactionHash,
                 };
