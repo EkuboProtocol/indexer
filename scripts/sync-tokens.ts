@@ -127,8 +127,12 @@ async function addBridgeRelationships({
 
   const { count } = await sql`
     INSERT INTO erc20_tokens_bridge_relationships ${sql(relationships)}
-    ON CONFLICT (source_chain_id, source_token_address, source_bridge_address)
-    DO NOTHING;
+    ON CONFLICT (source_chain_id, source_token_address, dest_chain_id)
+    DO UPDATE
+        SET dest_token_address = EXCLUDED.dest_token_address,
+            source_bridge_address = EXCLUDED.source_bridge_address
+        WHERE erc20_tokens_bridge_relationships.dest_token_address IS DISTINCT FROM EXCLUDED.dest_token_address
+           OR erc20_tokens_bridge_relationships.source_bridge_address IS DISTINCT FROM EXCLUDED.source_bridge_address;
   `;
   return count;
 }
