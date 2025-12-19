@@ -199,24 +199,36 @@ function resetNoBlocksTimer() {
     },
   } as const;
 
+  const publicClient =
+    NETWORK_TYPE === "evm" && process.env.EVM_RPC_URL
+      ? createPublicClient({
+          transport: process.env.EVM_RPC_URL.startsWith("wss://")
+            ? webSocket(process.env.EVM_RPC_URL)
+            : http(process.env.EVM_RPC_URL),
+        })
+      : null;
+
+  if (publicClient) {
+    const clientChainId = await publicClient.getChainId();
+
+    if (BigInt(clientChainId) !== chainId) {
+      throw new Error(
+        `EVM_RPC_URL client returns a chain ID of ${clientChainId} conflicts with environment chain ID of ${chainId}`
+      );
+    }
+  }
+
   const stream =
     NETWORK_TYPE === "evm"
-      ? process.env.EVM_RPC_URL
+      ? publicClient
         ? createRpcClient(
-            new EvmRpcStream(
-              createPublicClient({
-                transport: process.env.EVM_RPC_URL.startsWith("wss://")
-                  ? webSocket(process.env.EVM_RPC_URL)
-                  : http(process.env.EVM_RPC_URL),
-              }),
-              {
-                // how often we look for a new head
-                headRefreshIntervalMs: 2000,
-                // This parameter changes based on the rpc provider.
-                // The stream automatically shrinks the batch size when the provider returns an error.
-                getLogsRangeSize: 1_000n,
-              }
-            )
+            new EvmRpcStream(publicClient, {
+              // how often we look for a new head
+              headRefreshIntervalMs: 2000,
+              // This parameter changes based on the rpc provider.
+              // The stream automatically shrinks the batch size when the provider returns an error.
+              getLogsRangeSize: 1_000_000n,
+            })
           ).streamData({
             ...streamOptions,
             filter: [
