@@ -14,7 +14,7 @@ import { createClient, Metadata } from "@apibara/protocol";
 import { msToHumanShort } from "./_shared/msToHumanShort";
 import { loadHexAddresses } from "./_shared/loadHexAddresses";
 import { createRpcClient } from "@apibara/protocol/rpc";
-import { createPublicClient } from "viem";
+import { createPublicClient, http, webSocket } from "viem";
 
 const NETWORK_TYPE = process.env.NETWORK_TYPE;
 function isNetworkTypeValid(
@@ -205,14 +205,13 @@ function resetNoBlocksTimer() {
         ? createRpcClient(
             new EvmRpcStream(
               createPublicClient({
-                transport: rateLimitedHttp(process.env.EVM_RPC_URL, {
-                  rps: 1,
-                  retryCount: 3,
-                  retryDelay: 1_000,
-                  batch: { wait: 10 },
-                }),
+                transport: process.env.EVM_RPC_URL.startsWith("wss://")
+                  ? webSocket(process.env.EVM_RPC_URL)
+                  : http(process.env.EVM_RPC_URL),
               }),
               {
+                // how often we look for a new head
+                headRefreshIntervalMs: 2000,
                 // This parameter changes based on the rpc provider.
                 // The stream automatically shrinks the batch size when the provider returns an error.
                 getLogsRangeSize: 1_000n,
