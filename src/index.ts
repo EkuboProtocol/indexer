@@ -3,7 +3,7 @@ import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
 import { DAO, type IndexerCursor } from "./_shared/dao";
 import { Block as EvmBlock, EvmStream } from "@apibara/evm";
-import { EvmRpcStream, rateLimitedHttp } from "@apibara/evm-rpc";
+import { EvmRpcStream } from "@apibara/evm-rpc";
 import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
 import {
   createLogProcessors,
@@ -101,12 +101,12 @@ function resetNoBlocksTimer() {
           // should never happen but so this will cause it to revert if there's a race condition
           { orderKey: 0n }
         );
-
-        initializeTimer.done({
-          message: "Prepared indexer state",
-          startingCursor: currentCursor,
-        });
       }
+
+      initializeTimer.done({
+        message: "Prepared indexer state",
+        startingCursor: currentCursor,
+      });
     });
   }
 
