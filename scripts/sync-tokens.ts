@@ -53,6 +53,19 @@ const REMOTE_TOKEN_LISTS = [
   },
 ];
 
+const STARKNET_BRIDGE_TOKEN_LISTS = [
+  {
+    url: "https://raw.githubusercontent.com/starknet-io/starknet-addresses/refs/heads/master/bridged_tokens/mainnet.json",
+    l1ChainId: 1n,
+    l2ChainId: 0x534e5f4d41494en,
+  },
+  {
+    url: "https://raw.githubusercontent.com/starknet-io/starknet-addresses/refs/heads/master/bridged_tokens/sepolia.json",
+    l1ChainId: 11155111n,
+    l2ChainId: 0x534e5f4d41494fn,
+  },
+];
+
 async function addTokens({
   sql,
   tokens,
@@ -114,6 +127,13 @@ type BridgeRelationship = {
   dest_token_address: string;
 };
 
+type StarknetBridgeToken = {
+  l1_token_address?: string;
+  l1_bridge_address?: string | null;
+  l2_bridge_address?: string | null;
+  l2_token_address?: string;
+};
+
 async function addBridgeRelationships({
   sql,
   relationships,
@@ -121,14 +141,16 @@ async function addBridgeRelationships({
   sql: Sql;
   relationships: BridgeRelationship[];
 }) {
-  if (relationships.length === 0) {
-    return 0;
-  }
+  if (relationships.length === 0) return 0;
 
   const { count } = await sql`
     INSERT INTO erc20_tokens_bridge_relationships ${sql(relationships)}
-    ON CONFLICT (source_chain_id, source_token_address, source_bridge_address)
-    DO NOTHING;
+    ON CONFLICT (source_chain_id, source_token_address, dest_chain_id)
+    DO UPDATE
+        SET dest_token_address = EXCLUDED.dest_token_address,
+            source_bridge_address = EXCLUDED.source_bridge_address
+        WHERE erc20_tokens_bridge_relationships.dest_token_address IS DISTINCT FROM EXCLUDED.dest_token_address
+           OR erc20_tokens_bridge_relationships.source_bridge_address IS DISTINCT FROM EXCLUDED.source_bridge_address;
   `;
   return count;
 }
@@ -295,6 +317,85 @@ async function main() {
         }
       } catch (e) {
         console.error(`Failed to import remote token list ${name}`, e);
+      }
+    }
+
+    for (const { url, l1ChainId, l2ChainId } of STARKNET_BRIDGE_TOKEN_LISTS) {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) {
+          console.warn(
+            `Failed to download Starknet bridge token list from ${url}: ${response.status}`
+          );
+          continue;
+        }
+
+        const tokens = (await response.json()) as StarknetBridgeToken[];
+        const relationships: BridgeRelationship[] = [];
+
+        for (const token of tokens) {
+          if (
+            !token.l1_token_address ||
+            !token.l2_token_address ||
+            !ADDRESS_REGEX.test(token.l1_token_address) ||
+            !ADDRESS_REGEX.test(token.l2_token_address)
+          ) {
+            continue;
+          }
+
+          relationships.push({
+            source_chain_id: l1ChainId.toString(),
+            source_token_address: token.l1_token_address,
+            source_bridge_address:
+              token.l1_bridge_address &&
+              ADDRESS_REGEX.test(token.l1_bridge_address)
+                ? token.l1_bridge_address
+                : null,
+            dest_chain_id: l2ChainId.toString(),
+            dest_token_address: token.l2_token_address,
+          });
+
+          relationships.push({
+            source_chain_id: l2ChainId.toString(),
+            source_token_address: token.l2_token_address,
+            source_bridge_address:
+              token.l2_bridge_address &&
+              ADDRESS_REGEX.test(token.l2_bridge_address)
+                ? token.l2_bridge_address
+                : null,
+            dest_chain_id: l1ChainId.toString(),
+            dest_token_address: token.l1_token_address,
+          });
+        }
+
+        if (relationships.length > 0) {
+          // dedupe any tokens
+          const dedupedRelationships = relationships.filter(
+            (r0, ix0) =>
+              !relationships
+                .slice(0, ix0)
+                .some(
+                  (r1) =>
+                    BigInt(r0.source_chain_id) === BigInt(r1.source_chain_id) &&
+                    BigInt(r0.dest_chain_id) === BigInt(r1.dest_chain_id) &&
+                    BigInt(r0.source_token_address) ===
+                      BigInt(r1.source_token_address)
+                )
+          );
+
+          const upserted = await addBridgeRelationships({
+            sql,
+            relationships: dedupedRelationships,
+          });
+          console.log(
+            `Inserted ${upserted} Starknet bridge relationships (${url})`
+          );
+        }
+      } catch (e) {
+        console.error(
+          `Failed to import Starknet bridge token list at url ${url}`,
+          e
+        );
       }
     }
   });
