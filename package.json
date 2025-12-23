@@ -4,6 +4,7 @@
   "version": "0.0.1",
   "description": "Indexes Ekubo data into a Postgres database",
   "scripts": {
+    "base:sepolia": "NETWORK_TYPE=evm NETWORK=base-sepolia bun src/index.ts",
     "eth:mainnet": "NETWORK_TYPE=evm NETWORK=mainnet bun src/index.ts",
     "eth:sepolia": "NETWORK_TYPE=evm NETWORK=sepolia bun src/index.ts",
     "starknet:mainnet": "NETWORK_TYPE=starknet NETWORK=mainnet bun src/index.ts",
@@ -19,16 +20,17 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.14",
-    "@types/bun": "^1.3.3"
+    "@types/bun": "^1.3.5"
   },
   "dependencies": {
-    "@apibara/evm": "^2.1.0-beta.46",
-    "@apibara/protocol": "^2.1.0-beta.46",
-    "@apibara/starknet": "^2.1.0-beta.46",
+    "@apibara/evm": "^2.1.0-beta.48",
+    "@apibara/evm-rpc": "^2.1.0-beta.49",
+    "@apibara/protocol": "^2.1.0-beta.49",
+    "@apibara/starknet": "^2.1.0-beta.49",
     "dotenv": "^16.6.1",
     "postgres": "^3.4.7",
     "postgres-shift": "^0.1.0",
-    "viem": "^2.41.2",
-    "winston": "^3.18.3"
+    "viem": "^2.43.3",
+    "winston": "^3.19.0"
   }
 }
