@@ -227,7 +227,8 @@ function resetNoBlocksTimer() {
               headRefreshIntervalMs: 2000,
               // This parameter changes based on the rpc provider.
               // The stream automatically shrinks the batch size when the provider returns an error.
-              getLogsRangeSize: 1_000_000n,
+              getLogsRangeSize: 1_000n,
+              alwaysSendAcceptedHeaders: true,
             })
           ).streamData({
             ...streamOptions,
