@@ -61,6 +61,7 @@ jobs:
       - name: Deploy App
         env:
           APIBARA_DNA_TOKEN: ${{ secrets.APIBARA_DNA_TOKEN }}
+          EVM_RPC_ALCHEMY_API_KEY: ${{ secrets.EVM_RPC_ALCHEMY_API_KEY }}
           PG_CONNECTION_STRING: ${{ secrets.PRIVATE_PG_CONNECTION_STRING }}
           VPC_ID: ${{ secrets.VPC_ID }}
           STARKNET_MAINNET_APIBARA_URL: ${{ secrets.STARKNET_MAINNET_APIBARA_URL }}

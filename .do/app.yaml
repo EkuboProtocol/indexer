@@ -81,6 +81,22 @@ workers:
         scope: RUN_TIME
         value: mainnet
     run_command: bun src/index.ts
+  - name: base-sepolia
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: NETWORK_TYPE
+        scope: RUN_TIME
+        value: evm
+      - key: EVM_RPC_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: https://base-sepolia.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}
+      - key: NETWORK
+        scope: RUN_TIME
+        value: base-sepolia
+    run_command: bun src/index.ts
   - name: token-price-sync
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
