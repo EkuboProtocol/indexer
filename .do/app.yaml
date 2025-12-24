@@ -92,7 +92,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: https://base-sepolia.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}
+        value: "https://sepolia.base.org,https://base-sepolia.gateway.tenderly.co,wss://base-sepolia.drpc.org,wss://base-sepolia.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: base-sepolia

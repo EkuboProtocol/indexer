@@ -14,7 +14,7 @@ import { createClient, Metadata } from "@apibara/protocol";
 import { msToHumanShort } from "./_shared/msToHumanShort";
 import { loadHexAddresses } from "./_shared/loadHexAddresses";
 import { createRpcClient } from "@apibara/protocol/rpc";
-import { createPublicClient, http, webSocket } from "viem";
+import { createPublicClient, fallback, http, webSocket } from "viem";
 
 const NETWORK_TYPE = process.env.NETWORK_TYPE;
 function isNetworkTypeValid(
@@ -199,21 +199,57 @@ function resetNoBlocksTimer() {
     },
   } as const;
 
-  const publicClient =
+  const createTransportFromUrl = (url: string) =>
+    url.startsWith("wss://") ? webSocket(url) : http(url);
+
+  const evmRpcTransports =
     NETWORK_TYPE === "evm" && process.env.EVM_RPC_URL
+      ? process.env.EVM_RPC_URL.split(",")
+          .map((url) => url.trim())
+          .filter(Boolean)
+          .map((url) => ({
+            url,
+            transport: createTransportFromUrl(url),
+          }))
+      : [];
+
+  const publicClient =
+    NETWORK_TYPE === "evm" && evmRpcTransports.length > 0
       ? createPublicClient({
-          transport: process.env.EVM_RPC_URL.startsWith("wss://")
-            ? webSocket(process.env.EVM_RPC_URL)
-            : http(process.env.EVM_RPC_URL),
+          transport:
+            evmRpcTransports.length === 1
+              ? evmRpcTransports[0]!.transport
+              : fallback(evmRpcTransports.map(({ transport }) => transport)),
         })
       : null;
 
   if (publicClient) {
-    const clientChainId = await publicClient.getChainId();
+    const [clientChainId, transportChainIds] = await Promise.all([
+      publicClient.getChainId(),
+      Promise.all(
+        evmRpcTransports.map(async ({ url, transport }) => ({
+          url,
+          chainId: BigInt(
+            await createPublicClient({
+              transport,
+            }).getChainId()
+          ),
+        }))
+      ),
+    ]);
 
-    if (BigInt(clientChainId) !== chainId) {
+    const uniqueChainIds = new Set<bigint>([
+      BigInt(clientChainId),
+      ...transportChainIds.map(({ chainId }) => chainId),
+    ]);
+
+    if (uniqueChainIds.size !== 1 || !uniqueChainIds.has(chainId)) {
+      const transportDetails = transportChainIds
+        .map(({ url, chainId }) => `${url}=${chainId}`)
+        .join(", ");
+
       throw new Error(
-        `EVM_RPC_URL client returns a chain ID of ${clientChainId} conflicts with environment chain ID of ${chainId}`
+        `EVM_RPC_URL transports return chain IDs [${transportDetails}] which conflict with environment chain ID ${chainId}`
       );
     }
   }
