@@ -294,6 +294,15 @@ const FETCHER_BY_CHAIN_ID: { [chainId: string]: PriceFetcherConfig[] } = {
   ["1"]: [quoterPriceFetcher, /*oracleV1PriceFetcher,*/ sushiswapPriceFetcher],
   // eth sepolia
   ["11155111"]: [sushiswapPriceFetcher],
+  // base
+  ["8453"]: [
+    quoterPriceFetcher,
+    /*oracleV1PriceFetcher,*/ sushiswapPriceFetcher,
+  ],
+  // arbitrum one
+  ["42161"]: [sushiswapPriceFetcher],
+  // arbitrum sepolia
+  ["421614"]: [quoterPriceFetcher],
   // starknet mainnet
   ["23448594291968334"]: [quoterPriceFetcher /*,oracleV1PriceFetcher*/],
   // starknet sepolia
