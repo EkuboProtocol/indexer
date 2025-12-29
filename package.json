@@ -5,6 +5,7 @@
   "description": "Indexes Ekubo data into a Postgres database",
   "scripts": {
     "base:sepolia": "NETWORK_TYPE=evm NETWORK=base-sepolia bun src/index.ts",
+    "arb:sepolia": "NETWORK_TYPE=evm NETWORK=arb-sepolia bun src/index.ts",
     "eth:mainnet": "NETWORK_TYPE=evm NETWORK=mainnet bun src/index.ts",
     "eth:sepolia": "NETWORK_TYPE=evm NETWORK=sepolia bun src/index.ts",
     "starknet:mainnet": "NETWORK_TYPE=starknet NETWORK=mainnet bun src/index.ts",
