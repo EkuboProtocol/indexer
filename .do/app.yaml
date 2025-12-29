@@ -108,7 +108,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "wss://arbitrum-sepolia.drpc.org,https://arbitrum-sepolia-testnet.api.pocket.network,wss://arb-sepolia.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://sepolia-rollup.arbitrum.io/rpc,https://arbitrum-sepolia.gateway.tenderly.co,wss://arbitrum-sepolia.drpc.org,https://arbitrum-sepolia-testnet.api.pocket.network,wss://arb-sepolia.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: arb-sepolia

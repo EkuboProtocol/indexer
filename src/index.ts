@@ -265,6 +265,7 @@ function resetNoBlocksTimer() {
               // The stream automatically shrinks the batch size when the provider returns an error.
               getLogsRangeSize: 1_000n,
               alwaysSendAcceptedHeaders: true,
+              mergeGetLogsFilter: "always",
             })
           ).streamData({
             ...streamOptions,

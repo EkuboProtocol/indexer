@@ -5,10 +5,10 @@
     "": {
       "name": "@ekubo/indexer",
       "dependencies": {
-        "@apibara/evm": "^2.1.0-beta.48",
-        "@apibara/evm-rpc": "^2.1.0-beta.49",
-        "@apibara/protocol": "^2.1.0-beta.49",
-        "@apibara/starknet": "^2.1.0-beta.49",
+        "@apibara/evm": "^2.1.0-beta.49",
+        "@apibara/evm-rpc": "^2.1.0-beta.50",
+        "@apibara/protocol": "^2.1.0-beta.50",
+        "@apibara/starknet": "^2.1.0-beta.50",
         "dotenv": "^16.6.1",
         "postgres": "^3.4.7",
         "postgres-shift": "^0.1.0",
