@@ -96,6 +96,9 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: base-sepolia
+      - key: MERGE_GET_LOGS_FILTER
+        scope: RUN_TIME
+        value: always
     run_command: bun src/index.ts
   - name: arb-sepolia
     image: *indexer-image
@@ -112,6 +115,9 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: arb-sepolia
+      - key: MERGE_GET_LOGS_FILTER
+        scope: RUN_TIME
+        value: always
     run_command: bun src/index.ts
   - name: token-price-sync
     image: *indexer-image

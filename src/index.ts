@@ -254,6 +254,8 @@ function resetNoBlocksTimer() {
     }
   }
 
+  const MERGE_GET_LOGS_FILTER = process.env.MERGE_GET_LOGS_FILTER;
+
   const stream =
     NETWORK_TYPE === "evm"
       ? publicClient
@@ -265,7 +267,11 @@ function resetNoBlocksTimer() {
               // The stream automatically shrinks the batch size when the provider returns an error.
               getLogsRangeSize: 1_000n,
               alwaysSendAcceptedHeaders: true,
-              mergeGetLogsFilter: false,
+              mergeGetLogsFilter:
+                MERGE_GET_LOGS_FILTER &&
+                ["always", "accepted"].includes(MERGE_GET_LOGS_FILTER)
+                  ? (MERGE_GET_LOGS_FILTER as "always" | "accepted")
+                  : false,
             })
           ).streamData({
             ...streamOptions,
