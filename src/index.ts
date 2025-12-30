@@ -266,10 +266,14 @@ function resetNoBlocksTimer() {
               // This parameter changes based on the rpc provider.
               // The stream automatically shrinks the batch size when the provider returns an error.
               getLogsRangeSize: 1_000n,
-              alwaysSendAcceptedHeaders: true,
+              alwaysSendAcceptedHeaders:
+                process.env.ALWAYS_SEND_ACCEPTED_HEADERS?.toLowerCase() ===
+                "true",
               mergeGetLogsFilter:
                 MERGE_GET_LOGS_FILTER &&
-                ["always", "accepted"].includes(MERGE_GET_LOGS_FILTER)
+                ["always", "accepted"].includes(
+                  MERGE_GET_LOGS_FILTER.toLowerCase()
+                )
                   ? (MERGE_GET_LOGS_FILTER as "always" | "accepted")
                   : false,
             })
