@@ -689,10 +689,10 @@ export class DAO {
     const configType = poolConfigType ?? "concentrated";
 
     await this.sql`
-      WITH inserted_pool_key AS (
+      WITH inserted AS (
         INSERT INTO pool_keys
           (chain_id, core_address, pool_id, token0, token1, fee, tick_spacing, pool_extension, fee_denominator,
-           pool_config, pool_config_type, stableswap_center_tick, stableswap_amplification)
+          pool_config, pool_config_type, stableswap_center_tick, stableswap_amplification)
         VALUES (
           ${this.chainId},
           ${this.numeric(key.emitter)},
@@ -709,6 +709,16 @@ export class DAO {
           ${stableswapAmplification ?? null}
         ) ON CONFLICT (chain_id, core_address, pool_id) DO NOTHING
         RETURNING pool_key_id
+      ),
+      pool_key AS (
+        SELECT pool_key_id FROM inserted
+        UNION ALL
+        SELECT pk.pool_key_id
+        FROM pool_keys pk
+        WHERE pk.chain_id = ${this.chainId}
+          AND pk.core_address = ${this.numeric(key.emitter)}
+          AND pk.pool_id = ${this.numeric(poolId)}
+        LIMIT 1
       )
       INSERT INTO pool_initializations
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, pool_key_id, tick, sqrt_ratio)
@@ -719,10 +729,10 @@ export class DAO {
         ${key.eventIndex},
         ${this.numeric(key.transactionHash)},
         ${this.numeric(key.emitter)},
-        inserted_pool_key.pool_key_id,
+        pool_key.pool_key_id,
         ${tick},
         ${this.numeric(sqrtRatio)}
-      FROM inserted_pool_key;
+      FROM pool_key;
     `;
   }
 
