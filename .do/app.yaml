@@ -99,6 +99,9 @@ workers:
       - key: MERGE_GET_LOGS_FILTER
         scope: RUN_TIME
         value: always
+      - key: SKIP_BLOCKS_WITHOUT_EVENTS
+        scope: RUN_TIME
+        value: "true"
     run_command: bun src/index.ts
   - name: arb-sepolia
     image: *indexer-image
@@ -118,6 +121,9 @@ workers:
       - key: MERGE_GET_LOGS_FILTER
         scope: RUN_TIME
         value: always
+      - key: SKIP_BLOCKS_WITHOUT_EVENTS
+        scope: RUN_TIME
+        value: "true"
     run_command: bun src/index.ts
   - name: token-price-sync
     image: *indexer-image

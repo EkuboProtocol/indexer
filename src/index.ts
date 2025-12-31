@@ -55,6 +55,9 @@ let statsEventsInserted = 0;
 let statsProcessingTimeMs = 0;
 let statsLagReducedMs = 0;
 let lastObservedLagMs: number | null = null;
+const skipBlocksWithoutEvents =
+  process.env.SKIP_BLOCKS_WITHOUT_EVENTS?.toLowerCase() === "true";
+let skippedEmptyBlockCount = 0;
 
 // Function to set or reset the no-blocks timer
 function resetNoBlocksTimer() {
@@ -266,9 +269,7 @@ function resetNoBlocksTimer() {
               // This parameter changes based on the rpc provider.
               // The stream automatically shrinks the batch size when the provider returns an error.
               getLogsRangeSize: 1_000n,
-              alwaysSendAcceptedHeaders:
-                process.env.ALWAYS_SEND_ACCEPTED_HEADERS?.toLowerCase() ===
-                "true",
+              alwaysSendAcceptedHeaders: true,
               mergeGetLogsFilter:
                 MERGE_GET_LOGS_FILTER &&
                 ["always", "accepted"].includes(
@@ -398,80 +399,106 @@ function resetNoBlocksTimer() {
           if (!block) continue;
           const blockProcessingTimer = logger.startTimer();
           const blockProcessingStartMs = Date.now();
-          let eventsProcessed = 0;
 
           const blockNumber = Number(block.header.blockNumber);
           const blockTime = block.header.timestamp;
-          const blockHashHex = block.header.blockHash ?? "0x0";
+          const eventsInBlock =
+            NETWORK_TYPE === "evm"
+              ? (block as EvmBlock).logs.reduce(
+                  (total, log) => total + log.filterIds.length,
+                  0
+                )
+              : (block as StarknetBlock).events.reduce(
+                  (total, event) => total + event.filterIds.length,
+                  0
+                );
+          const shouldStoreBlock =
+            eventsInBlock > 0 || !skipBlocksWithoutEvents;
+
+          if (!shouldStoreBlock) {
+            skippedEmptyBlockCount += 1;
+          } else {
+            skippedEmptyBlockCount = 0;
+          }
+
+          let eventsProcessed = 0;
 
           await dao.begin(async (dao) => {
             await dao.deleteOldBlockNumbers(blockNumber);
 
-            let baseFeePerGas: bigint | null = null;
+            if (shouldStoreBlock) {
+              const blockHashHex = block.header.blockHash ?? "0x0";
+              let baseFeePerGas: bigint | null = null;
 
-            if ("baseFeePerGas" in block.header && block.header.baseFeePerGas) {
-              baseFeePerGas = BigInt(block.header.baseFeePerGas);
-            } else if (
-              "l2GasPrice" in block.header &&
-              block.header.l2GasPrice?.priceInFri
-            ) {
-              baseFeePerGas = BigInt(block.header.l2GasPrice.priceInFri);
-            }
-
-            await dao.insertBlock({
-              number: block.header.blockNumber,
-              hash: BigInt(blockHashHex),
-              time: blockTime,
-              baseFeePerGas,
-            });
-
-            if (NETWORK_TYPE === "evm") {
-              const logs = (block as EvmBlock).logs;
-              for (let i = 0; i < logs.length; i++) {
-                const log = logs[i];
-
-                const eventKey: EventKey = {
-                  blockNumber,
-                  transactionIndex: log.transactionIndex ?? 0,
-                  eventIndex: log.logIndexInTransaction ?? log.logIndex ?? i,
-                  emitter: log.address,
-                  transactionHash: log.transactionHash,
-                };
-
-                await Promise.all(
-                  log.filterIds.map(async (matchingFilterId: number) => {
-                    eventsProcessed++;
-
-                    await evmProcessors[matchingFilterId - 1]!.handler(
-                      dao,
-                      eventKey,
-                      {
-                        topics: log.topics,
-                        data: log.data,
-                      }
-                    );
-                  })
-                );
+              if (
+                "baseFeePerGas" in block.header &&
+                block.header.baseFeePerGas
+              ) {
+                baseFeePerGas = BigInt(block.header.baseFeePerGas);
+              } else if (
+                "l2GasPrice" in block.header &&
+                block.header.l2GasPrice?.priceInFri
+              ) {
+                baseFeePerGas = BigInt(block.header.l2GasPrice.priceInFri);
               }
-            } else {
-              const events = (block as StarknetBlock).events;
-              for (const event of events) {
-                const eventKey: EventKey = {
-                  blockNumber,
-                  transactionIndex: event.transactionIndex,
-                  eventIndex: event.eventIndexInTransaction ?? event.eventIndex,
-                  emitter: event.address,
-                  transactionHash: event.transactionHash,
-                };
 
-                await Promise.all(
-                  event.filterIds.map(async (matchingFilterId: number) => {
-                    eventsProcessed++;
-                    const processor = starknetProcessors[matchingFilterId - 1]!;
-                    const { value: parsed } = processor.parser(event.data, 0);
-                    await processor.handle(dao, { key: eventKey, parsed });
-                  })
-                );
+              await dao.insertBlock({
+                number: block.header.blockNumber,
+                hash: BigInt(blockHashHex),
+                time: blockTime,
+                baseFeePerGas,
+              });
+
+              if (NETWORK_TYPE === "evm") {
+                const logs = (block as EvmBlock).logs;
+                for (let i = 0; i < logs.length; i++) {
+                  const log = logs[i];
+
+                  const eventKey: EventKey = {
+                    blockNumber,
+                    transactionIndex: log.transactionIndex ?? 0,
+                    eventIndex: log.logIndexInTransaction ?? log.logIndex ?? i,
+                    emitter: log.address,
+                    transactionHash: log.transactionHash,
+                  };
+
+                  await Promise.all(
+                    log.filterIds.map(async (matchingFilterId: number) => {
+                      eventsProcessed++;
+
+                      await evmProcessors[matchingFilterId - 1]!.handler(
+                        dao,
+                        eventKey,
+                        {
+                          topics: log.topics,
+                          data: log.data,
+                        }
+                      );
+                    })
+                  );
+                }
+              } else if (NETWORK_TYPE === "starknet") {
+                const events = (block as StarknetBlock).events;
+                for (const event of events) {
+                  const eventKey: EventKey = {
+                    blockNumber,
+                    transactionIndex: event.transactionIndex,
+                    eventIndex:
+                      event.eventIndexInTransaction ?? event.eventIndex,
+                    emitter: event.address,
+                    transactionHash: event.transactionHash,
+                  };
+
+                  await Promise.all(
+                    event.filterIds.map(async (matchingFilterId: number) => {
+                      eventsProcessed++;
+                      const processor =
+                        starknetProcessors[matchingFilterId - 1]!;
+                      const { value: parsed } = processor.parser(event.data, 0);
+                      await processor.handle(dao, { key: eventKey, parsed });
+                    })
+                  );
+                }
               }
             }
 
@@ -488,6 +515,7 @@ function resetNoBlocksTimer() {
             evts: eventsProcessed,
             lag: msToHumanShort(lagMs, 2),
             lagMs,
+            skipped: skippedEmptyBlockCount,
           });
 
           if (lastObservedLagMs !== null) {
