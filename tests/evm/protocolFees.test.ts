@@ -2,12 +2,20 @@ import { describe, expect, test } from "bun:test";
 import {
   calculateSwapProtocolFeeDelta,
   calculateWithdrawalProtocolFeeDelta,
-} from "../../src/evm/logProcessors";
+  divFloor,
+  EVM_POOL_FEE_DENOMINATOR,
+} from "../../src/evm/protocolFees";
 import { parsePositionsProtocolFeeConfigs } from "../../src/evm/positionsProtocolFeeConfig";
 
-const FEE_DENOMINATOR = 1n << 64n;
-
 describe("positions protocol fee helpers", () => {
+  test("performs floor division with signed operands", () => {
+    expect(divFloor(7n, 3n)).toBe(2n);
+    expect(divFloor(-7n, 3n)).toBe(-3n);
+    expect(divFloor(7n, -3n)).toBe(-3n);
+    expect(divFloor(9n, 3n)).toBe(3n);
+    expect(() => divFloor(1n, 0n)).toThrow("Division by zero");
+  });
+
   test("parses comma-delimited protocol fee configs", () => {
     const configs = parsePositionsProtocolFeeConfigs(
       [
@@ -33,14 +41,14 @@ describe("positions protocol fee helpers", () => {
   });
 
   test("calculates swap protocol fees on collected amounts", () => {
-    const halfFee = 1n << 63n;
+    const halfFee = EVM_POOL_FEE_DENOMINATOR >> 1n;
     expect(calculateSwapProtocolFeeDelta(100n, halfFee)).toBe(-50n);
     expect(calculateSwapProtocolFeeDelta(100n, 0n)).toBe(0n);
     expect(calculateSwapProtocolFeeDelta(0n, halfFee)).toBe(0n);
   });
 
   test("calculates withdrawal protocol fees with floor division", () => {
-    const tenPercentFee = FEE_DENOMINATOR / 10n;
+    const tenPercentFee = EVM_POOL_FEE_DENOMINATOR / 10n;
     // Applying a 10% protocol fee on a withdrawal should charge an extra swap equivalent
     // that is slightly more than 10% due to the denominator adjustment.
     expect(
