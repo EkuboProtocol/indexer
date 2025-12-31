@@ -214,8 +214,8 @@ export function calculateWithdrawalProtocolFeeDelta(
 
 export interface LogProcessorConfigV2 {
   mevCaptureAddress: `0x${string}`;
-  positionsAddress: `0x${string}`;
   coreAddress: `0x${string}`;
+  positionsAddress: `0x${string}`;
   oracleAddress: `0x${string}`;
   twammAddress: `0x${string}`;
   ordersAddress: `0x${string}`;
