@@ -89,7 +89,7 @@ function sliceHex(
   return hex.slice(start, start + lengthBytes * 2);
 }
 
-export function parseSwapEventV2(data: `0x${string}`): CoreSwapped {
+export function parseSwapEventV3(data: `0x${string}`): CoreSwapped {
   if (!data.startsWith("0x")) {
     throw new Error("Swap event data must be hex-prefixed");
   }
@@ -97,7 +97,9 @@ export function parseSwapEventV2(data: `0x${string}`): CoreSwapped {
 
   if (hex.length !== LOG_DATA_LENGTH_V2 * 2) {
     throw new Error(
-      `Unexpected swap event length: expected ${LOG_DATA_LENGTH_V2 * 2} hex chars, received ${hex.length}`
+      `Unexpected swap event length: expected ${
+        LOG_DATA_LENGTH_V2 * 2
+      } hex chars, received ${hex.length}`
     );
   }
 

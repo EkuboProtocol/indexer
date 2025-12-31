@@ -3,7 +3,7 @@ import { checksumAddress } from "viem";
 import {
   floatSqrtRatioToFixed,
   parseSwapEvent,
-  parseSwapEventV2,
+  parseSwapEventV3,
 } from "./swapEvent";
 
 describe(parseSwapEvent, () => {
@@ -60,7 +60,7 @@ describe(parseSwapEvent, () => {
   });
 });
 
-describe(parseSwapEventV2, () => {
+describe(parseSwapEventV3, () => {
   function makeSwapEventData({
     locker,
     poolId,
@@ -84,8 +84,7 @@ describe(parseSwapEventV2, () => {
     const lockerChunk = locker.toLowerCase().slice(2).padStart(40, "0");
     const poolIdChunk = poolId.toLowerCase().slice(2).padStart(64, "0");
 
-    const encodeInt128 = (value: bigint) =>
-      BigInt.asUintN(128, value);
+    const encodeInt128 = (value: bigint) => BigInt.asUintN(128, value);
 
     const balanceUpdateValue =
       (encodeInt128(delta0) << 128n) | encodeInt128(delta1);
@@ -126,7 +125,7 @@ describe(parseSwapEventV2, () => {
       tickAfter,
     });
 
-    expect(parseSwapEventV2(data)).toEqual({
+    expect(parseSwapEventV3(data)).toEqual({
       locker: checksumAddress(locker),
       poolId,
       delta0,
@@ -138,9 +137,7 @@ describe(parseSwapEventV2, () => {
   });
 
   it("rejects malformed payload sizes", () => {
-    expect(() =>
-      parseSwapEventV2("0x1234")
-    ).toThrowErrorMatchingInlineSnapshot(
+    expect(() => parseSwapEventV3("0x1234")).toThrowErrorMatchingInlineSnapshot(
       `"Unexpected swap event length: expected 232 hex chars, received 4"`
     );
   });

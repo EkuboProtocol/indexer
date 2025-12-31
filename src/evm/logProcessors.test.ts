@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { normalizeV1PoolKey } from "./logProcessors";
+import { normalizeV2PoolKey } from "./logProcessors";
 
 describe("normalizeV1PoolKey", () => {
   it("keeps concentrated pools when tick spacing is positive", () => {
-    const poolKey = normalizeV1PoolKey({
+    const poolKey = normalizeV2PoolKey({
       token0: "0x0000000000000000000000000000000000000001",
       token1: "0x0000000000000000000000000000000000000002",
       fee: 1n,
@@ -20,7 +20,7 @@ describe("normalizeV1PoolKey", () => {
 
   it("reinterprets zero tick spacing pools as stableswap", () => {
     const poolConfig = 0x5678n;
-    const poolKey = normalizeV1PoolKey({
+    const poolKey = normalizeV2PoolKey({
       token0: "0x0000000000000000000000000000000000000001",
       token1: "0x0000000000000000000000000000000000000002",
       fee: 1n,

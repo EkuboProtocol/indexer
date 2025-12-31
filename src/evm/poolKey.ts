@@ -117,7 +117,7 @@ export function parseOrderConfig(_config: `0x${string}`): {
 
 const MAX_FEE: bigint = 2n ** 64n - 1n;
 
-export function toPoolConfigV1({
+export function toPoolConfigV2({
   fee,
   tickSpacing,
   extension,

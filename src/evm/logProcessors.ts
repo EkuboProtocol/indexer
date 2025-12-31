@@ -10,13 +10,13 @@ import {
   TWAMM_ABI,
 } from "./abis";
 import {
-  CORE_ABI as CORE_ABI_V2,
-  INCENTIVES_ABI as INCENTIVES_ABI_V2,
-  ORACLE_ABI as ORACLE_ABI_V2,
-  ORDERS_ABI as ORDERS_ABI_V2,
-  POSITIONS_ABI as POSITIONS_ABI_V2,
-  TOKEN_WRAPPER_FACTORY_ABI as TOKEN_WRAPPER_FACTORY_ABI_V2,
-  TWAMM_ABI as TWAMM_ABI_V2,
+  CORE_ABI as CORE_ABI_V3,
+  INCENTIVES_ABI as INCENTIVES_ABI_V3,
+  ORACLE_ABI as ORACLE_ABI_V3,
+  ORDERS_ABI as ORDERS_ABI_V3,
+  POSITIONS_ABI as POSITIONS_ABI_V3,
+  TOKEN_WRAPPER_FACTORY_ABI as TOKEN_WRAPPER_FACTORY_ABI_V3,
+  TWAMM_ABI as TWAMM_ABI_V3,
 } from "./abis_v2";
 import type {
   Abi,
@@ -33,7 +33,7 @@ import { logger } from "../_shared/logger";
 import {
   floatSqrtRatioToFixed,
   parseSwapEvent,
-  parseSwapEventV2,
+  parseSwapEventV3,
 } from "./swapEvent";
 import { parseOracleEvent } from "./oracleEvent";
 import { parseTwammVirtualOrdersExecuted } from "./twammEvent";
@@ -43,9 +43,10 @@ import {
   parsePoolKeyConfig,
   parsePositionId,
   parseV2PoolKeyConfig,
-  toPoolConfigV1,
+  toPoolConfigV2,
   toPoolId,
 } from "./poolKey";
+import type { PositionsContractProtocolFeeConfig } from "./positionsProtocolFeeConfig";
 
 export type ContractEvent<
   abi extends Abi,
@@ -122,7 +123,10 @@ function createContractEventProcessor<
   };
 }
 
-export function normalizeV1PoolKey({
+/**
+ * Makes the V2 pool key match what we use for V3
+ */
+export function normalizeV2PoolKey({
   token0,
   token1,
   fee,
@@ -171,10 +175,47 @@ type ContractHandlers<T extends Abi> = {
 
 const EVM_POOL_FEE_DENOMINATOR = 1n << 64n;
 
-export interface LogProcessorConfig {
+function divFloor(numerator: bigint, denominator: bigint): bigint {
+  if (denominator === 0n) throw new Error("Division by zero");
+  const quotient = numerator / denominator;
+  const remainder = numerator % denominator;
+
+  if (remainder === 0n) return quotient;
+
+  const hasDifferentSigns =
+    (remainder > 0n && denominator < 0n) ||
+    (remainder < 0n && denominator > 0n);
+
+  return hasDifferentSigns ? quotient - 1n : quotient;
+}
+
+export function calculateSwapProtocolFeeDelta(
+  amount: bigint,
+  swapProtocolFee: bigint,
+  feeDenominator: bigint = EVM_POOL_FEE_DENOMINATOR
+): bigint {
+  if (swapProtocolFee <= 0n || swapProtocolFee >= feeDenominator) return 0n;
+
+  // note we round up
+  return -((amount * swapProtocolFee + feeDenominator - 1n) / feeDenominator);
+}
+
+export function calculateWithdrawalProtocolFeeDelta(
+  delta: bigint,
+  protocolFee: bigint,
+  feeDenominator: bigint = EVM_POOL_FEE_DENOMINATOR
+): bigint {
+  if (delta >= 0n || protocolFee <= 0n || protocolFee >= feeDenominator)
+    return 0n;
+
+  const adjustedDenominator = feeDenominator - protocolFee;
+  return divFloor(delta * feeDenominator, adjustedDenominator) - delta;
+}
+
+export interface LogProcessorConfigV2 {
   mevCaptureAddress: `0x${string}`;
-  coreAddress: `0x${string}`;
   positionsAddress: `0x${string}`;
+  coreAddress: `0x${string}`;
   oracleAddress: `0x${string}`;
   twammAddress: `0x${string}`;
   ordersAddress: `0x${string}`;
@@ -182,7 +223,12 @@ export interface LogProcessorConfig {
   tokenWrapperFactoryAddress: `0x${string}`;
 }
 
-type ProcessorDefinitions = {
+export interface LogProcessorConfigV3
+  extends Omit<LogProcessorConfigV2, "positionsAddress"> {
+  positionsContracts: PositionsContractProtocolFeeConfig[];
+}
+
+type ProcessorDefinitionsV2 = {
   Core: ContractHandlers<typeof CORE_ABI>;
   Positions: ContractHandlers<typeof POSITIONS_ABI>;
   Oracle: ContractHandlers<typeof ORACLE_ABI>;
@@ -192,17 +238,16 @@ type ProcessorDefinitions = {
   TokenWrapperFactory: ContractHandlers<typeof TOKEN_WRAPPER_FACTORY_ABI>;
 };
 
-type ProcessorDefinitionsV2 = {
-  Core: ContractHandlers<typeof CORE_ABI_V2>;
-  Positions: ContractHandlers<typeof POSITIONS_ABI_V2>;
-  Oracle: ContractHandlers<typeof ORACLE_ABI_V2>;
-  TWAMM: ContractHandlers<typeof TWAMM_ABI_V2>;
-  Orders: ContractHandlers<typeof ORDERS_ABI_V2>;
-  Incentives: ContractHandlers<typeof INCENTIVES_ABI_V2>;
-  TokenWrapperFactory: ContractHandlers<typeof TOKEN_WRAPPER_FACTORY_ABI_V2>;
+type ProcessorDefinitionsV3 = {
+  Core: ContractHandlers<typeof CORE_ABI_V3>;
+  Oracle: ContractHandlers<typeof ORACLE_ABI_V3>;
+  TWAMM: ContractHandlers<typeof TWAMM_ABI_V3>;
+  Orders: ContractHandlers<typeof ORDERS_ABI_V3>;
+  Incentives: ContractHandlers<typeof INCENTIVES_ABI_V3>;
+  TokenWrapperFactory: ContractHandlers<typeof TOKEN_WRAPPER_FACTORY_ABI_V3>;
 };
 
-export function createLogProcessors({
+export function createLogProcessorsV2({
   mevCaptureAddress,
   coreAddress,
   positionsAddress,
@@ -211,10 +256,10 @@ export function createLogProcessors({
   ordersAddress,
   incentivesAddress,
   tokenWrapperFactoryAddress,
-}: LogProcessorConfig): EvmLogProcessor[] {
+}: LogProcessorConfigV2): EvmLogProcessor[] {
   const mevCaptureAddressBigInt = BigInt(mevCaptureAddress);
 
-  const processors: ProcessorDefinitions = {
+  const processors: ProcessorDefinitionsV2 = {
     Core: {
       address: coreAddress,
       abi: CORE_ABI,
@@ -235,7 +280,7 @@ export function createLogProcessors({
           const poolConfigWord = BigInt(parsed.poolKey.config);
           const poolInitialized: PoolInitializedInsert = {
             feeDenominator: EVM_POOL_FEE_DENOMINATOR,
-            poolKey: normalizeV1PoolKey({
+            poolKey: normalizeV2PoolKey({
               token0: parsed.poolKey.token0,
               token1: parsed.poolKey.token1,
               fee,
@@ -257,10 +302,7 @@ export function createLogProcessors({
           }
         },
         async PositionUpdated(dao, key, parsed) {
-          await dao.insertPositionUpdatedEventWithSyntheticProtocolFeesPaidEvent(
-            parsed,
-            key
-          );
+          await dao.insertPositionUpdatedEventV2(parsed, key);
         },
         async PositionFeesCollected(dao, key, parsed) {
           await dao.insertPositionFeesCollectedEvent(parsed, key);
@@ -337,7 +379,7 @@ export function createLogProcessors({
               poolId: toPoolId({
                 token0,
                 token1,
-                config: toPoolConfigV1({
+                config: toPoolConfigV2({
                   fee: BigInt(parsed.orderKey.fee),
                   tickSpacing: 0,
                   extension: key.emitter,
@@ -363,7 +405,7 @@ export function createLogProcessors({
               poolId: toPoolId({
                 token0,
                 token1,
-                config: toPoolConfigV1({
+                config: toPoolConfigV2({
                   fee: BigInt(parsed.orderKey.fee),
                   tickSpacing: 0,
                   extension: key.emitter,
@@ -410,7 +452,7 @@ export function createLogProcessors({
     },
   };
 
-  return Object.entries(processors).flatMap(
+  const processorsList = Object.entries(processors).flatMap(
     ([contractName, { address, abi, handlers, noTopics }]) =>
       (noTopics
         ? [
@@ -441,27 +483,38 @@ export function createLogProcessors({
           : []
       )
   ) as EvmLogProcessor[];
+
+  return processorsList;
 }
 
-export function createV2LogProcessors({
+export function createLogProcessorsV3({
   mevCaptureAddress,
   coreAddress,
-  positionsAddress,
   oracleAddress,
   twammAddress,
   ordersAddress,
   incentivesAddress,
   tokenWrapperFactoryAddress,
-}: LogProcessorConfig): EvmLogProcessor[] {
+  positionsContracts,
+}: LogProcessorConfigV3): EvmLogProcessor[] {
   const mevCaptureAddressBigInt = BigInt(mevCaptureAddress);
 
-  const processors: ProcessorDefinitionsV2 = {
+  const positionsConfigMap = new Map<
+    bigint,
+    PositionsContractProtocolFeeConfig
+  >();
+
+  for (const config of positionsContracts ?? []) {
+    positionsConfigMap.set(BigInt(config.address), config);
+  }
+
+  const processors: ProcessorDefinitionsV3 = {
     Core: {
       address: coreAddress,
-      abi: CORE_ABI_V2,
+      abi: CORE_ABI_V3,
       async noTopics(dao, key, data) {
         if (!data) throw new Error("Event with no data from core");
-        const event = parseSwapEventV2(data);
+        const event = parseSwapEventV3(data);
         logger.debug(`Parsed Swapped Event`, {
           event,
           rawData: data,
@@ -508,23 +561,70 @@ export function createV2LogProcessors({
           const { delta0, delta1 } = parsePoolBalanceUpdate(
             parsed.balanceUpdate
           );
-          await dao.insertPositionUpdatedEventWithSyntheticProtocolFeesPaidEvent(
-            {
-              params: {
-                bounds: {
-                  lower: params.lower,
-                  upper: params.upper,
-                },
-                liquidityDelta: parsed.liquidityDelta,
-                salt: params.salt,
+          const positionUpdate = {
+            params: {
+              bounds: {
+                lower: params.lower,
+                upper: params.upper,
               },
-              delta0,
-              delta1,
-              locker: parsed.locker,
-              poolId: parsed.poolId,
+              liquidityDelta: parsed.liquidityDelta,
+              salt: params.salt,
             },
-            key
-          );
+            delta0,
+            delta1,
+            locker: parsed.locker,
+            poolId: parsed.poolId,
+          };
+
+          await dao.insertPositionUpdatedEvent(positionUpdate, key);
+
+          const lockerConfig = positionsConfigMap.get(BigInt(parsed.locker));
+          const liquidityDelta = BigInt(parsed.liquidityDelta);
+          const withdrawalProtocolFee =
+            lockerConfig &&
+            lockerConfig.swapProtocolFee > 0n &&
+            lockerConfig.withdrawalProtocolFeeDivisor > 0n
+              ? lockerConfig.swapProtocolFee /
+                lockerConfig.withdrawalProtocolFeeDivisor
+              : 0n;
+
+          if (
+            liquidityDelta < 0n &&
+            withdrawalProtocolFee > 0n &&
+            withdrawalProtocolFee < EVM_POOL_FEE_DENOMINATOR
+          ) {
+            const protocolDelta0 = calculateWithdrawalProtocolFeeDelta(
+              delta0,
+              withdrawalProtocolFee
+            );
+            const protocolDelta1 = calculateWithdrawalProtocolFeeDelta(
+              delta1,
+              withdrawalProtocolFee
+            );
+
+            if (protocolDelta0 !== 0n || protocolDelta1 !== 0n) {
+              await dao.insertProtocolFeesPaid(
+                {
+                  locker: parsed.locker,
+                  poolId: parsed.poolId,
+                  salt: params.salt,
+                  bounds: { lower: params.lower, upper: params.upper },
+                  delta0: protocolDelta0,
+                  delta1: protocolDelta1,
+                },
+                key
+              );
+            }
+          } else if (
+            liquidityDelta < 0n &&
+            withdrawalProtocolFee >= EVM_POOL_FEE_DENOMINATOR &&
+            lockerConfig
+          ) {
+            logger.warn("Skipping withdrawal protocol fee >= denominator", {
+              locker: lockerConfig.address,
+              withdrawalProtocolFee,
+            });
+          }
         },
         async PositionFeesCollected(dao, key, parsed) {
           const params = parsePositionId(parsed.positionId);
@@ -541,6 +641,38 @@ export function createV2LogProcessors({
             },
             key
           );
+
+          const lockerProtocolFeeConfig = positionsConfigMap.get(
+            BigInt(parsed.locker)
+          );
+
+          if (
+            lockerProtocolFeeConfig &&
+            lockerProtocolFeeConfig.swapProtocolFee > 0n
+          ) {
+            const protocolDelta0 = calculateSwapProtocolFeeDelta(
+              parsed.amount0,
+              lockerProtocolFeeConfig.swapProtocolFee
+            );
+            const protocolDelta1 = calculateSwapProtocolFeeDelta(
+              parsed.amount1,
+              lockerProtocolFeeConfig.swapProtocolFee
+            );
+
+            if (protocolDelta0 !== 0n || protocolDelta1 !== 0n) {
+              await dao.insertProtocolFeesPaid(
+                {
+                  locker: parsed.locker,
+                  poolId: parsed.poolId,
+                  salt: params.salt,
+                  bounds: { lower: params.lower, upper: params.upper },
+                  delta0: protocolDelta0,
+                  delta1: protocolDelta1,
+                },
+                key
+              );
+            }
+          }
         },
         async FeesAccumulated(dao, key, parsed) {
           await dao.insertFeesAccumulatedEvent(parsed, key);
@@ -550,18 +682,9 @@ export function createV2LogProcessors({
         },
       },
     },
-    Positions: {
-      address: positionsAddress,
-      abi: POSITIONS_ABI_V2,
-      handlers: {
-        async Transfer(dao, key, parsed) {
-          await dao.insertNonfungibleTokenTransferEvent(parsed, key);
-        },
-      },
-    },
     Oracle: {
       address: oracleAddress,
-      abi: ORACLE_ABI_V2,
+      abi: ORACLE_ABI_V3,
       async noTopics(dao, key, data) {
         if (!data) throw new Error("Event with no data from Oracle");
         const event = parseOracleEvent(data);
@@ -584,7 +707,7 @@ export function createV2LogProcessors({
     },
     TWAMM: {
       address: twammAddress,
-      abi: TWAMM_ABI_V2,
+      abi: TWAMM_ABI_V3,
       async noTopics(dao, key, data) {
         if (!data) throw new Error("Event with no data from TWAMM");
         const event = parseTwammVirtualOrdersExecuted(data);
@@ -618,8 +741,8 @@ export function createV2LogProcessors({
               poolId: toPoolId({
                 token0: parsed.orderKey.token0,
                 token1: parsed.orderKey.token1,
-                // v1 and v2 behavior match as long as tickSpacing == 0n
-                config: toPoolConfigV1({
+                // v2 and v3 behavior match as long as tickSpacing == 0n
+                config: toPoolConfigV2({
                   fee,
                   tickSpacing: 0,
                   extension: key.emitter,
@@ -654,8 +777,8 @@ export function createV2LogProcessors({
               poolId: toPoolId({
                 token0: parsed.orderKey.token0,
                 token1: parsed.orderKey.token1,
-                // v1 and v2 behavior match as long as tickSpacing == 0n
-                config: toPoolConfigV1({
+                // v2 and v3 behavior match as long as tickSpacing == 0n
+                config: toPoolConfigV2({
                   fee,
                   tickSpacing: 0,
                   extension: key.emitter,
@@ -673,7 +796,7 @@ export function createV2LogProcessors({
     },
     Orders: {
       address: ordersAddress,
-      abi: ORDERS_ABI_V2,
+      abi: ORDERS_ABI_V3,
       handlers: {
         async Transfer(dao, key, parsed) {
           await dao.insertNonfungibleTokenTransferEvent(parsed, key);
@@ -682,7 +805,7 @@ export function createV2LogProcessors({
     },
     Incentives: {
       address: incentivesAddress,
-      abi: INCENTIVES_ABI_V2,
+      abi: INCENTIVES_ABI_V3,
       handlers: {
         async Funded(dao, key, event) {
           await dao.insertIncentivesFundedEvent(key, event);
@@ -694,7 +817,7 @@ export function createV2LogProcessors({
     },
     TokenWrapperFactory: {
       address: tokenWrapperFactoryAddress,
-      abi: TOKEN_WRAPPER_FACTORY_ABI_V2,
+      abi: TOKEN_WRAPPER_FACTORY_ABI_V3,
       handlers: {
         async TokenWrapperDeployed(dao, key, event) {
           await dao.insertTokenWrapperDeployed(key, event);

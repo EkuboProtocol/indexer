@@ -549,7 +549,7 @@ export class DAO {
     `;
   }
 
-  public async insertPositionUpdatedEventWithSyntheticProtocolFeesPaidEvent(
+  public async insertPositionUpdatedEventV2(
     event: PositionUpdatedInsert,
     key: EventKey
   ) {
