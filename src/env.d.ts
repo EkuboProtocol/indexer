@@ -56,7 +56,3 @@ interface StarknetConfig extends CommonConfiguration {
   TOKEN_REGISTRY_V2_ADDRESS: `0x${string}`;
   TOKEN_REGISTRY_V3_ADDRESS: `0x${string}`;
 }
-
-declare namespace NodeJS {
-  export type ProcessEnv = EvmConfig | StarknetConfig;
-}

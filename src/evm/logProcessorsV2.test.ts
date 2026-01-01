@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { normalizeV2PoolKey } from "./logProcessors";
+import { normalizeV2PoolKey } from "./logProcessorsV2";
 
-describe("normalizeV1PoolKey", () => {
+describe("normalizeV2PoolKey", () => {
   it("keeps concentrated pools when tick spacing is positive", () => {
     const poolKey = normalizeV2PoolKey({
       token0: "0x0000000000000000000000000000000000000001",

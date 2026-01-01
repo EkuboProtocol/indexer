@@ -560,8 +560,8 @@ test("positions protocol fees aggregate revenue without changing tvl", async () 
         salt,
         lower_bound,
         upper_bound,
-        delta0,
-        delta1
+        amount0,
+        amount1
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       RETURNING event_id`,
     [

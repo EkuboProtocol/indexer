@@ -1,5 +1,16 @@
 export const CORE_ABI = [
   {
+    type: "constructor",
+    inputs: [
+      {
+        name: "owner",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
     type: "receive",
     stateMutability: "payable",
   },
@@ -25,21 +36,28 @@ export const CORE_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
-        name: "_amount0",
+        name: "amount0",
         type: "uint128",
         internalType: "uint128",
       },
       {
-        name: "_amount1",
+        name: "amount1",
         type: "uint128",
         internalType: "uint128",
       },
     ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "cancelOwnershipHandover",
+    inputs: [],
     outputs: [],
     stateMutability: "payable",
   },
@@ -65,14 +83,31 @@ export const CORE_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
-        name: "positionId",
+        name: "salt",
         type: "bytes32",
-        internalType: "PositionId",
+        internalType: "bytes32",
+      },
+      {
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
       },
     ],
     outputs: [
@@ -91,10 +126,16 @@ export const CORE_ABI = [
   },
   {
     type: "function",
-    name: "completePayments",
-    inputs: [],
+    name: "completeOwnershipHandover",
+    inputs: [
+      {
+        name: "pendingOwner",
+        type: "address",
+        internalType: "address",
+      },
+    ],
     outputs: [],
-    stateMutability: "nonpayable",
+    stateMutability: "payable",
   },
   {
     type: "function",
@@ -114,19 +155,43 @@ export const CORE_ABI = [
     name: "getPoolFeesPerLiquidityInside",
     inputs: [
       {
-        name: "poolId",
-        type: "bytes32",
-        internalType: "PoolId",
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
+          },
+        ],
       },
       {
-        name: "tickLower",
-        type: "int32",
-        internalType: "int32",
-      },
-      {
-        name: "tickUpper",
-        type: "int32",
-        internalType: "int32",
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
       },
     ],
     outputs: [
@@ -172,7 +237,7 @@ export const CORE_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
@@ -193,6 +258,39 @@ export const CORE_ABI = [
   },
   {
     type: "function",
+    name: "load",
+    inputs: [
+      {
+        name: "token0",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "token1",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "salt",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
     name: "lock",
     inputs: [],
     outputs: [],
@@ -205,7 +303,7 @@ export const CORE_ABI = [
       {
         name: "poolId",
         type: "bytes32",
-        internalType: "PoolId",
+        internalType: "bytes32",
       },
       {
         name: "fromTick",
@@ -239,12 +337,63 @@ export const CORE_ABI = [
   },
   {
     type: "function",
+    name: "owner",
+    inputs: [],
+    outputs: [
+      {
+        name: "result",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "ownershipHandoverExpiresAt",
+    inputs: [
+      {
+        name: "pendingOwner",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [
+      {
+        name: "result",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "pay",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [
+      {
+        name: "payment",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
     name: "prevInitializedTick",
     inputs: [
       {
         name: "poolId",
         type: "bytes32",
-        internalType: "PoolId",
+        internalType: "bytes32",
       },
       {
         name: "fromTick",
@@ -333,61 +482,167 @@ export const CORE_ABI = [
   },
   {
     type: "function",
-    name: "setExtraData",
-    inputs: [
-      {
-        name: "poolId",
-        type: "bytes32",
-        internalType: "PoolId",
-      },
-      {
-        name: "positionId",
-        type: "bytes32",
-        internalType: "PositionId",
-      },
-      {
-        name: "_extraData",
-        type: "bytes16",
-        internalType: "bytes16",
-      },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "sload",
-    inputs: [],
-    outputs: [],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "startPayments",
-    inputs: [],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "swap_6269342730",
+    name: "renounceOwnership",
     inputs: [],
     outputs: [],
     stateMutability: "payable",
   },
   {
     type: "function",
-    name: "tload",
+    name: "requestOwnershipHandover",
     inputs: [],
     outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "save",
+    inputs: [
+      {
+        name: "owner",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "token0",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "token1",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "salt",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "sload",
+    inputs: [
+      {
+        name: "slot",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
     stateMutability: "view",
   },
   {
     type: "function",
-    name: "updateDebt",
-    inputs: [],
+    name: "swap_611415377",
+    inputs: [
+      {
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
+          },
+        ],
+      },
+      {
+        name: "amount",
+        type: "int128",
+        internalType: "int128",
+      },
+      {
+        name: "isToken1",
+        type: "bool",
+        internalType: "bool",
+      },
+      {
+        name: "sqrtRatioLimit",
+        type: "uint96",
+        internalType: "SqrtRatio",
+      },
+      {
+        name: "skipAhead",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "delta0",
+        type: "int128",
+        internalType: "int128",
+      },
+      {
+        name: "delta1",
+        type: "int128",
+        internalType: "int128",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "tload",
+    inputs: [
+      {
+        name: "slot",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "transferOwnership",
+    inputs: [
+      {
+        name: "newOwner",
+        type: "address",
+        internalType: "address",
+      },
+    ],
     outputs: [],
-    stateMutability: "nonpayable",
+    stateMutability: "payable",
   },
   {
     type: "function",
@@ -411,67 +666,102 @@ export const CORE_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
-        name: "positionId",
-        type: "bytes32",
-        internalType: "PositionId",
-      },
-      {
-        name: "liquidityDelta",
-        type: "int128",
-        internalType: "int128",
+        name: "params",
+        type: "tuple",
+        internalType: "struct UpdatePositionParameters",
+        components: [
+          {
+            name: "salt",
+            type: "bytes32",
+            internalType: "bytes32",
+          },
+          {
+            name: "bounds",
+            type: "tuple",
+            internalType: "struct Bounds",
+            components: [
+              {
+                name: "lower",
+                type: "int32",
+                internalType: "int32",
+              },
+              {
+                name: "upper",
+                type: "int32",
+                internalType: "int32",
+              },
+            ],
+          },
+          {
+            name: "liquidityDelta",
+            type: "int128",
+            internalType: "int128",
+          },
+        ],
       },
     ],
     outputs: [
       {
-        name: "balanceUpdate",
-        type: "bytes32",
-        internalType: "PoolBalanceUpdate",
-      },
-    ],
-    stateMutability: "payable",
-  },
-  {
-    type: "function",
-    name: "updateSavedBalances",
-    inputs: [
-      {
-        name: "token0",
-        type: "address",
-        internalType: "address",
-      },
-      {
-        name: "token1",
-        type: "address",
-        internalType: "address",
-      },
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "bytes32",
-      },
-      {
         name: "delta0",
-        type: "int256",
-        internalType: "int256",
+        type: "int128",
+        internalType: "int128",
       },
       {
         name: "delta1",
-        type: "int256",
-        internalType: "int256",
+        type: "int128",
+        internalType: "int128",
       },
     ],
-    outputs: [],
     stateMutability: "payable",
   },
   {
     type: "function",
     name: "withdraw",
-    inputs: [],
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "recipient",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "amount",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "withdrawProtocolFees",
+    inputs: [
+      {
+        name: "recipient",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
     outputs: [],
     stateMutability: "nonpayable",
   },
@@ -496,7 +786,7 @@ export const CORE_ABI = [
         name: "poolId",
         type: "bytes32",
         indexed: false,
-        internalType: "PoolId",
+        internalType: "bytes32",
       },
       {
         name: "amount0",
@@ -515,13 +805,58 @@ export const CORE_ABI = [
   },
   {
     type: "event",
+    name: "OwnershipHandoverCanceled",
+    inputs: [
+      {
+        name: "pendingOwner",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "OwnershipHandoverRequested",
+    inputs: [
+      {
+        name: "pendingOwner",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "OwnershipTransferred",
+    inputs: [
+      {
+        name: "oldOwner",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "newOwner",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
     name: "PoolInitialized",
     inputs: [
       {
         name: "poolId",
         type: "bytes32",
         indexed: false,
-        internalType: "PoolId",
+        internalType: "bytes32",
       },
       {
         name: "poolKey",
@@ -542,7 +877,7 @@ export const CORE_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
@@ -566,22 +901,45 @@ export const CORE_ABI = [
     name: "PositionFeesCollected",
     inputs: [
       {
-        name: "locker",
-        type: "address",
-        indexed: false,
-        internalType: "address",
-      },
-      {
         name: "poolId",
         type: "bytes32",
         indexed: false,
-        internalType: "PoolId",
+        internalType: "bytes32",
       },
       {
-        name: "positionId",
-        type: "bytes32",
+        name: "positionKey",
+        type: "tuple",
         indexed: false,
-        internalType: "PositionId",
+        internalType: "struct PositionKey",
+        components: [
+          {
+            name: "salt",
+            type: "bytes32",
+            internalType: "bytes32",
+          },
+          {
+            name: "owner",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "bounds",
+            type: "tuple",
+            internalType: "struct Bounds",
+            components: [
+              {
+                name: "lower",
+                type: "int32",
+                internalType: "int32",
+              },
+              {
+                name: "upper",
+                type: "int32",
+                internalType: "int32",
+              },
+            ],
+          },
+        ],
       },
       {
         name: "amount0",
@@ -612,34 +970,102 @@ export const CORE_ABI = [
         name: "poolId",
         type: "bytes32",
         indexed: false,
-        internalType: "PoolId",
+        internalType: "bytes32",
       },
       {
-        name: "positionId",
-        type: "bytes32",
+        name: "params",
+        type: "tuple",
         indexed: false,
-        internalType: "PositionId",
+        internalType: "struct UpdatePositionParameters",
+        components: [
+          {
+            name: "salt",
+            type: "bytes32",
+            internalType: "bytes32",
+          },
+          {
+            name: "bounds",
+            type: "tuple",
+            internalType: "struct Bounds",
+            components: [
+              {
+                name: "lower",
+                type: "int32",
+                internalType: "int32",
+              },
+              {
+                name: "upper",
+                type: "int32",
+                internalType: "int32",
+              },
+            ],
+          },
+          {
+            name: "liquidityDelta",
+            type: "int128",
+            internalType: "int128",
+          },
+        ],
       },
       {
-        name: "liquidityDelta",
+        name: "delta0",
         type: "int128",
         indexed: false,
         internalType: "int128",
       },
       {
-        name: "balanceUpdate",
-        type: "bytes32",
+        name: "delta1",
+        type: "int128",
         indexed: false,
-        internalType: "PoolBalanceUpdate",
-      },
-      {
-        name: "stateAfter",
-        type: "bytes32",
-        indexed: false,
-        internalType: "PoolState",
+        internalType: "int128",
       },
     ],
     anonymous: false,
+  },
+  {
+    type: "event",
+    name: "ProtocolFeesWithdrawn",
+    inputs: [
+      {
+        name: "recipient",
+        type: "address",
+        indexed: false,
+        internalType: "address",
+      },
+      {
+        name: "token",
+        type: "address",
+        indexed: false,
+        internalType: "address",
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "error",
+    name: "AlreadyInitialized",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "Amount0DeltaOverflow",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "Amount1DeltaOverflow",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "AmountBeforeFeeOverflow",
+    inputs: [],
   },
   {
     type: "error",
@@ -679,17 +1105,17 @@ export const CORE_ABI = [
   },
   {
     type: "error",
-    name: "InvalidCenterTick",
+    name: "FullRangeOnlyPool",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "InsufficientSavedBalance",
     inputs: [],
   },
   {
     type: "error",
     name: "InvalidSqrtRatioLimit",
-    inputs: [],
-  },
-  {
-    type: "error",
-    name: "InvalidStableswapAmplification",
     inputs: [],
   },
   {
@@ -715,33 +1141,37 @@ export const CORE_ABI = [
   },
   {
     type: "error",
-    name: "MaxLiquidityPerTickExceeded",
-    inputs: [
-      {
-        name: "tick",
-        type: "int32",
-        internalType: "int32",
-      },
-      {
-        name: "liquidityNet",
-        type: "uint128",
-        internalType: "uint128",
-      },
-      {
-        name: "maxLiquidityPerTick",
-        type: "uint128",
-        internalType: "uint128",
-      },
-    ],
-  },
-  {
-    type: "error",
     name: "MinMaxBounds",
     inputs: [],
   },
   {
     type: "error",
+    name: "MustCollectFeesBeforeWithdrawingAllLiquidity",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "NewOwnerIsZeroAddress",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "NoHandoverRequest",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "NoPaymentMade",
+    inputs: [],
+  },
+  {
+    type: "error",
     name: "NotLocked",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "PayReentrance",
     inputs: [],
   },
   {
@@ -761,11 +1191,6 @@ export const CORE_ABI = [
   },
   {
     type: "error",
-    name: "SavedBalanceOverflow",
-    inputs: [],
-  },
-  {
-    type: "error",
     name: "SavedBalanceTokensNotSorted",
     inputs: [],
   },
@@ -781,17 +1206,22 @@ export const CORE_ABI = [
   },
   {
     type: "error",
-    name: "StableswapMustBeFullRange",
-    inputs: [],
-  },
-  {
-    type: "error",
     name: "TokensMustBeSorted",
     inputs: [],
   },
   {
     type: "error",
-    name: "UpdateDebtMessageLength",
+    name: "Unauthorized",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "ZeroLiquidityNextSqrtRatioFromAmount0",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "ZeroLiquidityNextSqrtRatioFromAmount1",
     inputs: [],
   },
 ] as const;
@@ -806,48 +1236,12 @@ export const POSITIONS_ABI = [
         internalType: "contract ICore",
       },
       {
-        name: "owner",
+        name: "tokenURIGenerator",
         type: "address",
-        internalType: "address",
-      },
-      {
-        name: "_swapProtocolFeeX64",
-        type: "uint64",
-        internalType: "uint64",
-      },
-      {
-        name: "_withdrawalProtocolFeeDenominator",
-        type: "uint64",
-        internalType: "uint64",
+        internalType: "contract ITokenURIGenerator",
       },
     ],
     stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "SWAP_PROTOCOL_FEE_X64",
-    inputs: [],
-    outputs: [
-      {
-        name: "",
-        type: "uint64",
-        internalType: "uint64",
-      },
-    ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR",
-    inputs: [],
-    outputs: [
-      {
-        name: "",
-        type: "uint64",
-        internalType: "uint64",
-      },
-    ],
-    stateMutability: "view",
   },
   {
     type: "function",
@@ -888,19 +1282,6 @@ export const POSITIONS_ABI = [
   },
   {
     type: "function",
-    name: "baseUrl",
-    inputs: [],
-    outputs: [
-      {
-        name: "",
-        type: "string",
-        internalType: "string",
-      },
-    ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
     name: "burn",
     inputs: [
       {
@@ -914,8 +1295,50 @@ export const POSITIONS_ABI = [
   },
   {
     type: "function",
-    name: "cancelOwnershipHandover",
-    inputs: [],
+    name: "checkDeadline",
+    inputs: [
+      {
+        name: "deadline",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "checkMaximumInputNotExceeded",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "maximumInput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "checkMinimumOutputReceived",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "minimumOutput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
     outputs: [],
     stateMutability: "payable",
   },
@@ -946,19 +1369,89 @@ export const POSITIONS_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
-        name: "tickLower",
-        type: "int32",
-        internalType: "int32",
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
+      },
+    ],
+    outputs: [
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
       },
       {
-        name: "tickUpper",
-        type: "int32",
-        internalType: "int32",
+        name: "amount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "collectFees",
+    inputs: [
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "Config",
+          },
+        ],
+      },
+      {
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
       },
       {
         name: "recipient",
@@ -978,75 +1471,6 @@ export const POSITIONS_ABI = [
         internalType: "uint128",
       },
     ],
-    stateMutability: "payable",
-  },
-  {
-    type: "function",
-    name: "collectFees",
-    inputs: [
-      {
-        name: "id",
-        type: "uint256",
-        internalType: "uint256",
-      },
-      {
-        name: "poolKey",
-        type: "tuple",
-        internalType: "struct PoolKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "config",
-            type: "bytes32",
-            internalType: "PoolConfig",
-          },
-        ],
-      },
-      {
-        name: "tickLower",
-        type: "int32",
-        internalType: "int32",
-      },
-      {
-        name: "tickUpper",
-        type: "int32",
-        internalType: "int32",
-      },
-    ],
-    outputs: [
-      {
-        name: "amount0",
-        type: "uint128",
-        internalType: "uint128",
-      },
-      {
-        name: "amount1",
-        type: "uint128",
-        internalType: "uint128",
-      },
-    ],
-    stateMutability: "payable",
-  },
-  {
-    type: "function",
-    name: "completeOwnershipHandover",
-    inputs: [
-      {
-        name: "pendingOwner",
-        type: "address",
-        internalType: "address",
-      },
-    ],
-    outputs: [],
     stateMutability: "payable",
   },
   {
@@ -1076,19 +1500,26 @@ export const POSITIONS_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
-        name: "tickLower",
-        type: "int32",
-        internalType: "int32",
-      },
-      {
-        name: "tickUpper",
-        type: "int32",
-        internalType: "int32",
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
       },
       {
         name: "maxAmount0",
@@ -1171,19 +1602,26 @@ export const POSITIONS_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
-        name: "tickLower",
-        type: "int32",
-        internalType: "int32",
-      },
-      {
-        name: "tickUpper",
-        type: "int32",
-        internalType: "int32",
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
       },
     ],
     outputs: [
@@ -1217,35 +1655,6 @@ export const POSITIONS_ABI = [
   },
   {
     type: "function",
-    name: "getProtocolFees",
-    inputs: [
-      {
-        name: "token0",
-        type: "address",
-        internalType: "address",
-      },
-      {
-        name: "token1",
-        type: "address",
-        internalType: "address",
-      },
-    ],
-    outputs: [
-      {
-        name: "amount0",
-        type: "uint128",
-        internalType: "uint128",
-      },
-      {
-        name: "amount1",
-        type: "uint128",
-        internalType: "uint128",
-      },
-    ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
     name: "isApprovedForAll",
     inputs: [
       {
@@ -1270,7 +1679,7 @@ export const POSITIONS_ABI = [
   },
   {
     type: "function",
-    name: "locked_6416899205",
+    name: "locked",
     inputs: [
       {
         name: "id",
@@ -1303,7 +1712,7 @@ export const POSITIONS_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
@@ -1381,19 +1790,26 @@ export const POSITIONS_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
-        name: "tickLower",
-        type: "int32",
-        internalType: "int32",
-      },
-      {
-        name: "tickUpper",
-        type: "int32",
-        internalType: "int32",
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
       },
       {
         name: "maxAmount0",
@@ -1462,19 +1878,26 @@ export const POSITIONS_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
-        name: "tickLower",
-        type: "int32",
-        internalType: "int32",
-      },
-      {
-        name: "tickUpper",
-        type: "int32",
-        internalType: "int32",
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
       },
       {
         name: "maxAmount0",
@@ -1546,20 +1969,7 @@ export const POSITIONS_ABI = [
         internalType: "string",
       },
     ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "owner",
-    inputs: [],
-    outputs: [
-      {
-        name: "result",
-        type: "address",
-        internalType: "address",
-      },
-    ],
-    stateMutability: "view",
+    stateMutability: "pure",
   },
   {
     type: "function",
@@ -1582,40 +1992,76 @@ export const POSITIONS_ABI = [
   },
   {
     type: "function",
-    name: "ownershipHandoverExpiresAt",
+    name: "payCallback",
     inputs: [
       {
-        name: "pendingOwner",
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "token",
         type: "address",
         internalType: "address",
       },
     ],
-    outputs: [
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "permit",
+    inputs: [
       {
-        name: "result",
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "amount",
         type: "uint256",
         internalType: "uint256",
       },
+      {
+        name: "deadline",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "v",
+        type: "uint8",
+        internalType: "uint8",
+      },
+      {
+        name: "r",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+      {
+        name: "s",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
     ],
-    stateMutability: "view",
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "recordBalanceForSlippageCheck",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
   },
   {
     type: "function",
     name: "refundNativeToken",
-    inputs: [],
-    outputs: [],
-    stateMutability: "payable",
-  },
-  {
-    type: "function",
-    name: "renounceOwnership",
-    inputs: [],
-    outputs: [],
-    stateMutability: "payable",
-  },
-  {
-    type: "function",
-    name: "requestOwnershipHandover",
     inputs: [],
     outputs: [],
     stateMutability: "payable",
@@ -1715,29 +2161,6 @@ export const POSITIONS_ABI = [
   },
   {
     type: "function",
-    name: "setMetadata",
-    inputs: [
-      {
-        name: "newName",
-        type: "string",
-        internalType: "string",
-      },
-      {
-        name: "newSymbol",
-        type: "string",
-        internalType: "string",
-      },
-      {
-        name: "newBaseUrl",
-        type: "string",
-        internalType: "string",
-      },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
     name: "supportsInterface",
     inputs: [
       {
@@ -1766,7 +2189,7 @@ export const POSITIONS_ABI = [
         internalType: "string",
       },
     ],
-    stateMutability: "view",
+    stateMutability: "pure",
   },
   {
     type: "function",
@@ -1783,6 +2206,19 @@ export const POSITIONS_ABI = [
         name: "",
         type: "string",
         internalType: "string",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "tokenURIGenerator",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "contract ITokenURIGenerator",
       },
     ],
     stateMutability: "view",
@@ -1812,19 +2248,6 @@ export const POSITIONS_ABI = [
   },
   {
     type: "function",
-    name: "transferOwnership",
-    inputs: [
-      {
-        name: "newOwner",
-        type: "address",
-        internalType: "address",
-      },
-    ],
-    outputs: [],
-    stateMutability: "payable",
-  },
-  {
-    type: "function",
     name: "withdraw",
     inputs: [
       {
@@ -1850,19 +2273,26 @@ export const POSITIONS_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
-        name: "tickLower",
-        type: "int32",
-        internalType: "int32",
-      },
-      {
-        name: "tickUpper",
-        type: "int32",
-        internalType: "int32",
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
       },
       {
         name: "liquidity",
@@ -1911,19 +2341,26 @@ export const POSITIONS_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
-        name: "tickLower",
-        type: "int32",
-        internalType: "int32",
-      },
-      {
-        name: "tickUpper",
-        type: "int32",
-        internalType: "int32",
+        name: "bounds",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
       },
       {
         name: "liquidity",
@@ -1953,39 +2390,6 @@ export const POSITIONS_ABI = [
         internalType: "uint128",
       },
     ],
-    stateMutability: "payable",
-  },
-  {
-    type: "function",
-    name: "withdrawProtocolFees",
-    inputs: [
-      {
-        name: "token0",
-        type: "address",
-        internalType: "address",
-      },
-      {
-        name: "token1",
-        type: "address",
-        internalType: "address",
-      },
-      {
-        name: "amount0",
-        type: "uint128",
-        internalType: "uint128",
-      },
-      {
-        name: "amount1",
-        type: "uint128",
-        internalType: "uint128",
-      },
-      {
-        name: "recipient",
-        type: "address",
-        internalType: "address",
-      },
-    ],
-    outputs: [],
     stateMutability: "payable",
   },
   {
@@ -2040,51 +2444,6 @@ export const POSITIONS_ABI = [
   },
   {
     type: "event",
-    name: "OwnershipHandoverCanceled",
-    inputs: [
-      {
-        name: "pendingOwner",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-    ],
-    anonymous: false,
-  },
-  {
-    type: "event",
-    name: "OwnershipHandoverRequested",
-    inputs: [
-      {
-        name: "pendingOwner",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-    ],
-    anonymous: false,
-  },
-  {
-    type: "event",
-    name: "OwnershipTransferred",
-    inputs: [
-      {
-        name: "oldOwner",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-      {
-        name: "newOwner",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-    ],
-    anonymous: false,
-  },
-  {
-    type: "event",
     name: "Transfer",
     inputs: [
       {
@@ -2115,7 +2474,12 @@ export const POSITIONS_ABI = [
   },
   {
     type: "error",
-    name: "AlreadyInitialized",
+    name: "Amount0DeltaOverflow",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "Amount1DeltaOverflow",
     inputs: [],
   },
   {
@@ -2172,34 +2536,40 @@ export const POSITIONS_ABI = [
   },
   {
     type: "error",
-    name: "NewOwnerIsZeroAddress",
-    inputs: [],
+    name: "MaximumInputExceeded",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "maximumInput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
   },
   {
     type: "error",
-    name: "NoHandoverRequest",
-    inputs: [],
+    name: "MinimumOutputNotReceived",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "minimumOutput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
   },
   {
     type: "error",
     name: "NotOwnerNorApproved",
     inputs: [],
-  },
-  {
-    type: "error",
-    name: "NotUnauthorizedForToken",
-    inputs: [
-      {
-        name: "caller",
-        type: "address",
-        internalType: "address",
-      },
-      {
-        name: "id",
-        type: "uint256",
-        internalType: "uint256",
-      },
-    ],
   },
   {
     type: "error",
@@ -2210,6 +2580,17 @@ export const POSITIONS_ABI = [
     type: "error",
     name: "TokenDoesNotExist",
     inputs: [],
+  },
+  {
+    type: "error",
+    name: "TransactionExpired",
+    inputs: [
+      {
+        name: "deadline",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
   },
   {
     type: "error",
@@ -2229,12 +2610,29 @@ export const POSITIONS_ABI = [
   {
     type: "error",
     name: "Unauthorized",
-    inputs: [],
+    inputs: [
+      {
+        name: "caller",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
   },
   {
     type: "error",
-    name: "WithdrawOverflow",
-    inputs: [],
+    name: "UnexpectedCallTypeByte",
+    inputs: [
+      {
+        name: "b",
+        type: "bytes1",
+        internalType: "bytes1",
+      },
+    ],
   },
 ] as const;
 
@@ -2256,8 +2654,8 @@ export const ORACLE_ABI = [
     inputs: [
       {
         name: "",
-        type: "bytes32",
-        internalType: "Locker",
+        type: "address",
+        internalType: "address",
       },
       {
         name: "",
@@ -2277,14 +2675,31 @@ export const ORACLE_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
         name: "",
         type: "bytes32",
-        internalType: "PositionId",
+        internalType: "bytes32",
+      },
+      {
+        name: "",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
       },
       {
         name: "",
@@ -2327,7 +2742,7 @@ export const ORACLE_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
@@ -2351,8 +2766,8 @@ export const ORACLE_ABI = [
     inputs: [
       {
         name: "",
-        type: "bytes32",
-        internalType: "Locker",
+        type: "address",
+        internalType: "address",
       },
       {
         name: "",
@@ -2372,24 +2787,39 @@ export const ORACLE_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
         name: "",
-        type: "bytes32",
-        internalType: "SwapParameters",
+        type: "int128",
+        internalType: "int128",
       },
       {
         name: "",
-        type: "bytes32",
-        internalType: "PoolBalanceUpdate",
+        type: "bool",
+        internalType: "bool",
       },
       {
         name: "",
-        type: "bytes32",
-        internalType: "PoolState",
+        type: "uint96",
+        internalType: "SqrtRatio",
+      },
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "",
+        type: "int128",
+        internalType: "int128",
+      },
+      {
+        name: "",
+        type: "int128",
+        internalType: "int128",
       },
     ],
     outputs: [],
@@ -2401,8 +2831,8 @@ export const ORACLE_ABI = [
     inputs: [
       {
         name: "",
-        type: "bytes32",
-        internalType: "Locker",
+        type: "address",
+        internalType: "address",
       },
       {
         name: "",
@@ -2422,14 +2852,43 @@ export const ORACLE_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
         name: "",
-        type: "bytes32",
-        internalType: "PositionId",
+        type: "tuple",
+        internalType: "struct UpdatePositionParameters",
+        components: [
+          {
+            name: "salt",
+            type: "bytes32",
+            internalType: "bytes32",
+          },
+          {
+            name: "bounds",
+            type: "tuple",
+            internalType: "struct Bounds",
+            components: [
+              {
+                name: "lower",
+                type: "int32",
+                internalType: "int32",
+              },
+              {
+                name: "upper",
+                type: "int32",
+                internalType: "int32",
+              },
+            ],
+          },
+          {
+            name: "liquidityDelta",
+            type: "int128",
+            internalType: "int128",
+          },
+        ],
       },
       {
         name: "",
@@ -2438,13 +2897,8 @@ export const ORACLE_ABI = [
       },
       {
         name: "",
-        type: "bytes32",
-        internalType: "PoolBalanceUpdate",
-      },
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "PoolState",
+        type: "int128",
+        internalType: "int128",
       },
     ],
     outputs: [],
@@ -2456,8 +2910,8 @@ export const ORACLE_ABI = [
     inputs: [
       {
         name: "",
-        type: "bytes32",
-        internalType: "Locker",
+        type: "address",
+        internalType: "address",
       },
       {
         name: "",
@@ -2477,14 +2931,31 @@ export const ORACLE_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
         name: "",
         type: "bytes32",
-        internalType: "PositionId",
+        internalType: "bytes32",
+      },
+      {
+        name: "",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
       },
     ],
     outputs: [],
@@ -2517,7 +2988,7 @@ export const ORACLE_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
@@ -2536,8 +3007,8 @@ export const ORACLE_ABI = [
     inputs: [
       {
         name: "",
-        type: "bytes32",
-        internalType: "Locker",
+        type: "address",
+        internalType: "address",
       },
       {
         name: "poolKey",
@@ -2557,14 +3028,29 @@ export const ORACLE_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
-        name: "params",
-        type: "bytes32",
-        internalType: "SwapParameters",
+        name: "amount",
+        type: "int128",
+        internalType: "int128",
+      },
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool",
+      },
+      {
+        name: "",
+        type: "uint96",
+        internalType: "SqrtRatio",
+      },
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
       },
     ],
     outputs: [],
@@ -2576,8 +3062,8 @@ export const ORACLE_ABI = [
     inputs: [
       {
         name: "",
-        type: "bytes32",
-        internalType: "Locker",
+        type: "address",
+        internalType: "address",
       },
       {
         name: "poolKey",
@@ -2597,23 +3083,76 @@ export const ORACLE_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
-        name: "",
-        type: "bytes32",
-        internalType: "PositionId",
-      },
-      {
-        name: "liquidityDelta",
-        type: "int128",
-        internalType: "int128",
+        name: "params",
+        type: "tuple",
+        internalType: "struct UpdatePositionParameters",
+        components: [
+          {
+            name: "salt",
+            type: "bytes32",
+            internalType: "bytes32",
+          },
+          {
+            name: "bounds",
+            type: "tuple",
+            internalType: "struct Bounds",
+            components: [
+              {
+                name: "lower",
+                type: "int32",
+                internalType: "int32",
+              },
+              {
+                name: "upper",
+                type: "int32",
+                internalType: "int32",
+              },
+            ],
+          },
+          {
+            name: "liquidityDelta",
+            type: "int128",
+            internalType: "int128",
+          },
+        ],
       },
     ],
     outputs: [],
     stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "counts",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [
+      {
+        name: "index",
+        type: "uint64",
+        internalType: "uint64",
+      },
+      {
+        name: "count",
+        type: "uint64",
+        internalType: "uint64",
+      },
+      {
+        name: "capacity",
+        type: "uint64",
+        internalType: "uint64",
+      },
+    ],
+    stateMutability: "view",
   },
   {
     type: "function",
@@ -2626,15 +3165,15 @@ export const ORACLE_ABI = [
       },
       {
         name: "minCapacity",
-        type: "uint32",
-        internalType: "uint32",
+        type: "uint64",
+        internalType: "uint64",
       },
     ],
     outputs: [
       {
         name: "capacity",
-        type: "uint32",
-        internalType: "uint32",
+        type: "uint64",
+        internalType: "uint64",
       },
     ],
     stateMutability: "nonpayable",
@@ -2650,8 +3189,8 @@ export const ORACLE_ABI = [
       },
       {
         name: "atTime",
-        type: "uint256",
-        internalType: "uint256",
+        type: "uint64",
+        internalType: "uint64",
       },
     ],
     outputs: [
@@ -2679,8 +3218,8 @@ export const ORACLE_ABI = [
       },
       {
         name: "time",
-        type: "uint256",
-        internalType: "uint256",
+        type: "uint64",
+        internalType: "uint64",
       },
     ],
     outputs: [
@@ -2696,8 +3235,25 @@ export const ORACLE_ABI = [
       },
       {
         name: "snapshot",
-        type: "bytes32",
-        internalType: "Snapshot",
+        type: "tuple",
+        internalType: "struct Oracle.Snapshot",
+        components: [
+          {
+            name: "secondsSinceOffset",
+            type: "uint32",
+            internalType: "uint32",
+          },
+          {
+            name: "secondsPerLiquidityCumulative",
+            type: "uint160",
+            internalType: "uint160",
+          },
+          {
+            name: "tickCumulative",
+            type: "int64",
+            internalType: "int64",
+          },
+        ],
       },
     ],
     stateMutability: "view",
@@ -2713,15 +3269,27 @@ export const ORACLE_ABI = [
       },
       {
         name: "timestamps",
-        type: "uint256[]",
-        internalType: "uint256[]",
+        type: "uint64[]",
+        internalType: "uint64[]",
       },
     ],
     outputs: [
       {
         name: "observations",
-        type: "bytes32[]",
-        internalType: "Observation[]",
+        type: "tuple[]",
+        internalType: "struct Oracle.Observation[]",
+        components: [
+          {
+            name: "secondsPerLiquidityCumulative",
+            type: "uint160",
+            internalType: "uint160",
+          },
+          {
+            name: "tickCumulative",
+            type: "int64",
+            internalType: "int64",
+          },
+        ],
       },
     ],
     stateMutability: "view",
@@ -2755,7 +3323,7 @@ export const ORACLE_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
@@ -2764,16 +3332,119 @@ export const ORACLE_ABI = [
   },
   {
     type: "function",
-    name: "sload",
+    name: "secondsSinceOffset",
     inputs: [],
-    outputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint32",
+        internalType: "uint32",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "secondsSinceOffsetToTimestamp",
+    inputs: [
+      {
+        name: "sso",
+        type: "uint32",
+        internalType: "uint32",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "uint64",
+        internalType: "uint64",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "sload",
+    inputs: [
+      {
+        name: "slot",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "snapshots",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "index",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "secondsSinceOffset",
+        type: "uint32",
+        internalType: "uint32",
+      },
+      {
+        name: "secondsPerLiquidityCumulative",
+        type: "uint160",
+        internalType: "uint160",
+      },
+      {
+        name: "tickCumulative",
+        type: "int64",
+        internalType: "int64",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "timestampOffset",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "uint64",
+        internalType: "uint64",
+      },
+    ],
     stateMutability: "view",
   },
   {
     type: "function",
     name: "tload",
-    inputs: [],
-    outputs: [],
+    inputs: [
+      {
+        name: "slot",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
     stateMutability: "view",
   },
   {
@@ -2798,11 +3469,6 @@ export const ORACLE_ABI = [
   },
   {
     type: "error",
-    name: "FullRangePoolOnly",
-    inputs: [],
-  },
-  {
-    type: "error",
     name: "FutureTime",
     inputs: [],
   },
@@ -2817,14 +3483,19 @@ export const ORACLE_ABI = [
       },
       {
         name: "time",
-        type: "uint256",
-        internalType: "uint256",
+        type: "uint64",
+        internalType: "uint64",
       },
     ],
   },
   {
     type: "error",
     name: "PairsWithNativeTokenOnly",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TickSpacingMustBeMaximum",
     inputs: [],
   },
   {
@@ -2857,8 +3528,8 @@ export const TWAMM_ABI = [
     inputs: [
       {
         name: "",
-        type: "bytes32",
-        internalType: "Locker",
+        type: "address",
+        internalType: "address",
       },
       {
         name: "",
@@ -2878,14 +3549,31 @@ export const TWAMM_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
         name: "",
         type: "bytes32",
-        internalType: "PositionId",
+        internalType: "bytes32",
+      },
+      {
+        name: "",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
       },
       {
         name: "",
@@ -2928,7 +3616,7 @@ export const TWAMM_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
@@ -2952,8 +3640,8 @@ export const TWAMM_ABI = [
     inputs: [
       {
         name: "",
-        type: "bytes32",
-        internalType: "Locker",
+        type: "address",
+        internalType: "address",
       },
       {
         name: "",
@@ -2973,24 +3661,39 @@ export const TWAMM_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
         name: "",
-        type: "bytes32",
-        internalType: "SwapParameters",
+        type: "int128",
+        internalType: "int128",
       },
       {
         name: "",
-        type: "bytes32",
-        internalType: "PoolBalanceUpdate",
+        type: "bool",
+        internalType: "bool",
       },
       {
         name: "",
-        type: "bytes32",
-        internalType: "PoolState",
+        type: "uint96",
+        internalType: "SqrtRatio",
+      },
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "",
+        type: "int128",
+        internalType: "int128",
+      },
+      {
+        name: "",
+        type: "int128",
+        internalType: "int128",
       },
     ],
     outputs: [],
@@ -3002,8 +3705,8 @@ export const TWAMM_ABI = [
     inputs: [
       {
         name: "",
-        type: "bytes32",
-        internalType: "Locker",
+        type: "address",
+        internalType: "address",
       },
       {
         name: "",
@@ -3023,14 +3726,43 @@ export const TWAMM_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
         name: "",
-        type: "bytes32",
-        internalType: "PositionId",
+        type: "tuple",
+        internalType: "struct UpdatePositionParameters",
+        components: [
+          {
+            name: "salt",
+            type: "bytes32",
+            internalType: "bytes32",
+          },
+          {
+            name: "bounds",
+            type: "tuple",
+            internalType: "struct Bounds",
+            components: [
+              {
+                name: "lower",
+                type: "int32",
+                internalType: "int32",
+              },
+              {
+                name: "upper",
+                type: "int32",
+                internalType: "int32",
+              },
+            ],
+          },
+          {
+            name: "liquidityDelta",
+            type: "int128",
+            internalType: "int128",
+          },
+        ],
       },
       {
         name: "",
@@ -3039,13 +3771,8 @@ export const TWAMM_ABI = [
       },
       {
         name: "",
-        type: "bytes32",
-        internalType: "PoolBalanceUpdate",
-      },
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "PoolState",
+        type: "int128",
+        internalType: "int128",
       },
     ],
     outputs: [],
@@ -3057,11 +3784,11 @@ export const TWAMM_ABI = [
     inputs: [
       {
         name: "",
-        type: "bytes32",
-        internalType: "Locker",
+        type: "address",
+        internalType: "address",
       },
       {
-        name: "poolKey",
+        name: "",
         type: "tuple",
         internalType: "struct PoolKey",
         components: [
@@ -3078,14 +3805,31 @@ export const TWAMM_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
         name: "",
         type: "bytes32",
-        internalType: "PositionId",
+        internalType: "bytes32",
+      },
+      {
+        name: "",
+        type: "tuple",
+        internalType: "struct Bounds",
+        components: [
+          {
+            name: "lower",
+            type: "int32",
+            internalType: "int32",
+          },
+          {
+            name: "upper",
+            type: "int32",
+            internalType: "int32",
+          },
+        ],
       },
     ],
     outputs: [],
@@ -3118,7 +3862,7 @@ export const TWAMM_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
@@ -3137,8 +3881,8 @@ export const TWAMM_ABI = [
     inputs: [
       {
         name: "",
-        type: "bytes32",
-        internalType: "Locker",
+        type: "address",
+        internalType: "address",
       },
       {
         name: "poolKey",
@@ -3158,14 +3902,29 @@ export const TWAMM_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
         name: "",
-        type: "bytes32",
-        internalType: "SwapParameters",
+        type: "int128",
+        internalType: "int128",
+      },
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool",
+      },
+      {
+        name: "",
+        type: "uint96",
+        internalType: "SqrtRatio",
+      },
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
       },
     ],
     outputs: [],
@@ -3177,8 +3936,8 @@ export const TWAMM_ABI = [
     inputs: [
       {
         name: "",
-        type: "bytes32",
-        internalType: "Locker",
+        type: "address",
+        internalType: "address",
       },
       {
         name: "poolKey",
@@ -3198,19 +3957,43 @@ export const TWAMM_ABI = [
           {
             name: "config",
             type: "bytes32",
-            internalType: "PoolConfig",
+            internalType: "Config",
           },
         ],
       },
       {
         name: "",
-        type: "bytes32",
-        internalType: "PositionId",
-      },
-      {
-        name: "",
-        type: "int128",
-        internalType: "int128",
+        type: "tuple",
+        internalType: "struct UpdatePositionParameters",
+        components: [
+          {
+            name: "salt",
+            type: "bytes32",
+            internalType: "bytes32",
+          },
+          {
+            name: "bounds",
+            type: "tuple",
+            internalType: "struct Bounds",
+            components: [
+              {
+                name: "lower",
+                type: "int32",
+                internalType: "int32",
+              },
+              {
+                name: "upper",
+                type: "int32",
+                internalType: "int32",
+              },
+            ],
+          },
+          {
+            name: "liquidityDelta",
+            type: "int128",
+            internalType: "int128",
+          },
+        ],
       },
     ],
     outputs: [],
@@ -3218,66 +4001,17 @@ export const TWAMM_ABI = [
   },
   {
     type: "function",
-    name: "forwarded_2374103877",
+    name: "forwarded",
     inputs: [
       {
-        name: "original",
-        type: "bytes32",
-        internalType: "Locker",
-      },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "getRewardRateInside",
-    inputs: [
-      {
-        name: "poolId",
-        type: "bytes32",
-        internalType: "PoolId",
-      },
-      {
-        name: "config",
-        type: "bytes32",
-        internalType: "OrderConfig",
-      },
-    ],
-    outputs: [
-      {
-        name: "result",
+        name: "id",
         type: "uint256",
         internalType: "uint256",
       },
-    ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "lockAndExecuteVirtualOrders",
-    inputs: [
       {
-        name: "poolKey",
-        type: "tuple",
-        internalType: "struct PoolKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "config",
-            type: "bytes32",
-            internalType: "PoolConfig",
-          },
-        ],
+        name: "originalLocker",
+        type: "address",
+        internalType: "address",
       },
     ],
     outputs: [],
@@ -3285,7 +4019,7 @@ export const TWAMM_ABI = [
   },
   {
     type: "function",
-    name: "locked_6416899205",
+    name: "locked",
     inputs: [
       {
         name: "",
@@ -3299,15 +4033,39 @@ export const TWAMM_ABI = [
   {
     type: "function",
     name: "sload",
-    inputs: [],
-    outputs: [],
+    inputs: [
+      {
+        name: "slot",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
     stateMutability: "view",
   },
   {
     type: "function",
     name: "tload",
-    inputs: [],
-    outputs: [],
+    inputs: [
+      {
+        name: "slot",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
     stateMutability: "view",
   },
   {
@@ -3333,19 +4091,29 @@ export const TWAMM_ABI = [
         internalType: "struct OrderKey",
         components: [
           {
-            name: "token0",
+            name: "sellToken",
             type: "address",
             internalType: "address",
           },
           {
-            name: "token1",
+            name: "buyToken",
             type: "address",
             internalType: "address",
           },
           {
-            name: "config",
-            type: "bytes32",
-            internalType: "OrderConfig",
+            name: "fee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+          {
+            name: "startTime",
+            type: "uint256",
+            internalType: "uint256",
+          },
+          {
+            name: "endTime",
+            type: "uint256",
+            internalType: "uint256",
           },
         ],
       },
@@ -3381,19 +4149,29 @@ export const TWAMM_ABI = [
         internalType: "struct OrderKey",
         components: [
           {
-            name: "token0",
+            name: "sellToken",
             type: "address",
             internalType: "address",
           },
           {
-            name: "token1",
+            name: "buyToken",
             type: "address",
             internalType: "address",
           },
           {
-            name: "config",
-            type: "bytes32",
-            internalType: "OrderConfig",
+            name: "fee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+          {
+            name: "startTime",
+            type: "uint256",
+            internalType: "uint256",
+          },
+          {
+            name: "endTime",
+            type: "uint256",
+            internalType: "uint256",
           },
         ],
       },
@@ -3423,17 +4201,17 @@ export const TWAMM_ABI = [
   },
   {
     type: "error",
-    name: "FullRangePoolOnly",
-    inputs: [],
-  },
-  {
-    type: "error",
     name: "InvalidTimestamps",
     inputs: [],
   },
   {
     type: "error",
-    name: "MaxSaleRateDeltaPerTime",
+    name: "MaxSaleRateDeltaPerTick",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "MustCollectProceedsBeforeCanceling",
     inputs: [],
   },
   {
@@ -3443,7 +4221,7 @@ export const TWAMM_ABI = [
   },
   {
     type: "error",
-    name: "PoolNotInitialized",
+    name: "TickSpacingMustBeMaximum",
     inputs: [],
   },
   {
@@ -3465,28 +4243,15 @@ export const ORDERS_ABI = [
       {
         name: "_twamm",
         type: "address",
-        internalType: "contract ITWAMM",
+        internalType: "contract TWAMM",
       },
       {
-        name: "owner",
+        name: "tokenURIGenerator",
         type: "address",
-        internalType: "address",
+        internalType: "contract ITokenURIGenerator",
       },
     ],
     stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "TWAMM_EXTENSION",
-    inputs: [],
-    outputs: [
-      {
-        name: "",
-        type: "address",
-        internalType: "contract ITWAMM",
-      },
-    ],
-    stateMutability: "view",
   },
   {
     type: "function",
@@ -3527,19 +4292,6 @@ export const ORDERS_ABI = [
   },
   {
     type: "function",
-    name: "baseUrl",
-    inputs: [],
-    outputs: [
-      {
-        name: "",
-        type: "string",
-        internalType: "string",
-      },
-    ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
     name: "burn",
     inputs: [
       {
@@ -3553,8 +4305,50 @@ export const ORDERS_ABI = [
   },
   {
     type: "function",
-    name: "cancelOwnershipHandover",
-    inputs: [],
+    name: "checkDeadline",
+    inputs: [
+      {
+        name: "deadline",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "checkMaximumInputNotExceeded",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "maximumInput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "checkMinimumOutputReceived",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "minimumOutput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
     outputs: [],
     stateMutability: "payable",
   },
@@ -3573,19 +4367,29 @@ export const ORDERS_ABI = [
         internalType: "struct OrderKey",
         components: [
           {
-            name: "token0",
+            name: "sellToken",
             type: "address",
             internalType: "address",
           },
           {
-            name: "token1",
+            name: "buyToken",
             type: "address",
             internalType: "address",
           },
           {
-            name: "config",
-            type: "bytes32",
-            internalType: "OrderConfig",
+            name: "fee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+          {
+            name: "startTime",
+            type: "uint256",
+            internalType: "uint256",
+          },
+          {
+            name: "endTime",
+            type: "uint256",
+            internalType: "uint256",
           },
         ],
       },
@@ -3606,60 +4410,6 @@ export const ORDERS_ABI = [
   },
   {
     type: "function",
-    name: "collectProceeds",
-    inputs: [
-      {
-        name: "id",
-        type: "uint256",
-        internalType: "uint256",
-      },
-      {
-        name: "orderKey",
-        type: "tuple",
-        internalType: "struct OrderKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "config",
-            type: "bytes32",
-            internalType: "OrderConfig",
-          },
-        ],
-      },
-    ],
-    outputs: [
-      {
-        name: "proceeds",
-        type: "uint128",
-        internalType: "uint128",
-      },
-    ],
-    stateMutability: "payable",
-  },
-  {
-    type: "function",
-    name: "completeOwnershipHandover",
-    inputs: [
-      {
-        name: "pendingOwner",
-        type: "address",
-        internalType: "address",
-      },
-    ],
-    outputs: [],
-    stateMutability: "payable",
-  },
-  {
-    type: "function",
     name: "decreaseSaleRate",
     inputs: [
       {
@@ -3673,24 +4423,39 @@ export const ORDERS_ABI = [
         internalType: "struct OrderKey",
         components: [
           {
-            name: "token0",
+            name: "sellToken",
             type: "address",
             internalType: "address",
           },
           {
-            name: "token1",
+            name: "buyToken",
             type: "address",
             internalType: "address",
           },
           {
-            name: "config",
-            type: "bytes32",
-            internalType: "OrderConfig",
+            name: "fee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+          {
+            name: "startTime",
+            type: "uint256",
+            internalType: "uint256",
+          },
+          {
+            name: "endTime",
+            type: "uint256",
+            internalType: "uint256",
           },
         ],
       },
       {
         name: "saleRateDecrease",
+        type: "uint112",
+        internalType: "uint112",
+      },
+      {
+        name: "minRefund",
         type: "uint112",
         internalType: "uint112",
       },
@@ -3708,108 +4473,6 @@ export const ORDERS_ABI = [
       },
     ],
     stateMutability: "payable",
-  },
-  {
-    type: "function",
-    name: "decreaseSaleRate",
-    inputs: [
-      {
-        name: "id",
-        type: "uint256",
-        internalType: "uint256",
-      },
-      {
-        name: "orderKey",
-        type: "tuple",
-        internalType: "struct OrderKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "config",
-            type: "bytes32",
-            internalType: "OrderConfig",
-          },
-        ],
-      },
-      {
-        name: "saleRateDecrease",
-        type: "uint112",
-        internalType: "uint112",
-      },
-    ],
-    outputs: [
-      {
-        name: "refund",
-        type: "uint112",
-        internalType: "uint112",
-      },
-    ],
-    stateMutability: "payable",
-  },
-  {
-    type: "function",
-    name: "executeVirtualOrdersAndGetCurrentOrderInfo",
-    inputs: [
-      {
-        name: "id",
-        type: "uint256",
-        internalType: "uint256",
-      },
-      {
-        name: "orderKey",
-        type: "tuple",
-        internalType: "struct OrderKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "config",
-            type: "bytes32",
-            internalType: "OrderConfig",
-          },
-        ],
-      },
-    ],
-    outputs: [
-      {
-        name: "saleRate",
-        type: "uint112",
-        internalType: "uint112",
-      },
-      {
-        name: "amountSold",
-        type: "uint256",
-        internalType: "uint256",
-      },
-      {
-        name: "remainingSellAmount",
-        type: "uint256",
-        internalType: "uint256",
-      },
-      {
-        name: "purchasedAmount",
-        type: "uint128",
-        internalType: "uint128",
-      },
-    ],
-    stateMutability: "nonpayable",
   },
   {
     type: "function",
@@ -3845,26 +4508,36 @@ export const ORDERS_ABI = [
         internalType: "struct OrderKey",
         components: [
           {
-            name: "token0",
+            name: "sellToken",
             type: "address",
             internalType: "address",
           },
           {
-            name: "token1",
+            name: "buyToken",
             type: "address",
             internalType: "address",
           },
           {
-            name: "config",
-            type: "bytes32",
-            internalType: "OrderConfig",
+            name: "fee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+          {
+            name: "startTime",
+            type: "uint256",
+            internalType: "uint256",
+          },
+          {
+            name: "endTime",
+            type: "uint256",
+            internalType: "uint256",
           },
         ],
       },
       {
         name: "amount",
-        type: "uint128",
-        internalType: "uint128",
+        type: "uint112",
+        internalType: "uint112",
       },
       {
         name: "maxSaleRate",
@@ -3907,7 +4580,7 @@ export const ORDERS_ABI = [
   },
   {
     type: "function",
-    name: "locked_6416899205",
+    name: "locked",
     inputs: [
       {
         name: "id",
@@ -3960,19 +4633,29 @@ export const ORDERS_ABI = [
         internalType: "struct OrderKey",
         components: [
           {
-            name: "token0",
+            name: "sellToken",
             type: "address",
             internalType: "address",
           },
           {
-            name: "token1",
+            name: "buyToken",
             type: "address",
             internalType: "address",
           },
           {
-            name: "config",
-            type: "bytes32",
-            internalType: "OrderConfig",
+            name: "fee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+          {
+            name: "startTime",
+            type: "uint256",
+            internalType: "uint256",
+          },
+          {
+            name: "endTime",
+            type: "uint256",
+            internalType: "uint256",
           },
         ],
       },
@@ -4031,20 +4714,7 @@ export const ORDERS_ABI = [
         internalType: "string",
       },
     ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "owner",
-    inputs: [],
-    outputs: [
-      {
-        name: "result",
-        type: "address",
-        internalType: "address",
-      },
-    ],
-    stateMutability: "view",
+    stateMutability: "pure",
   },
   {
     type: "function",
@@ -4067,40 +4737,76 @@ export const ORDERS_ABI = [
   },
   {
     type: "function",
-    name: "ownershipHandoverExpiresAt",
+    name: "payCallback",
     inputs: [
       {
-        name: "pendingOwner",
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "token",
         type: "address",
         internalType: "address",
       },
     ],
-    outputs: [
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "permit",
+    inputs: [
       {
-        name: "result",
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "amount",
         type: "uint256",
         internalType: "uint256",
       },
+      {
+        name: "deadline",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "v",
+        type: "uint8",
+        internalType: "uint8",
+      },
+      {
+        name: "r",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+      {
+        name: "s",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
     ],
-    stateMutability: "view",
+    outputs: [],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
+    name: "recordBalanceForSlippageCheck",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [],
+    stateMutability: "payable",
   },
   {
     type: "function",
     name: "refundNativeToken",
-    inputs: [],
-    outputs: [],
-    stateMutability: "payable",
-  },
-  {
-    type: "function",
-    name: "renounceOwnership",
-    inputs: [],
-    outputs: [],
-    stateMutability: "payable",
-  },
-  {
-    type: "function",
-    name: "requestOwnershipHandover",
     inputs: [],
     outputs: [],
     stateMutability: "payable",
@@ -4200,29 +4906,6 @@ export const ORDERS_ABI = [
   },
   {
     type: "function",
-    name: "setMetadata",
-    inputs: [
-      {
-        name: "newName",
-        type: "string",
-        internalType: "string",
-      },
-      {
-        name: "newSymbol",
-        type: "string",
-        internalType: "string",
-      },
-      {
-        name: "newBaseUrl",
-        type: "string",
-        internalType: "string",
-      },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
     name: "supportsInterface",
     inputs: [
       {
@@ -4251,7 +4934,7 @@ export const ORDERS_ABI = [
         internalType: "string",
       },
     ],
-    stateMutability: "view",
+    stateMutability: "pure",
   },
   {
     type: "function",
@@ -4268,6 +4951,19 @@ export const ORDERS_ABI = [
         name: "",
         type: "string",
         internalType: "string",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "tokenURIGenerator",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "contract ITokenURIGenerator",
       },
     ],
     stateMutability: "view",
@@ -4297,16 +4993,16 @@ export const ORDERS_ABI = [
   },
   {
     type: "function",
-    name: "transferOwnership",
-    inputs: [
+    name: "twamm",
+    inputs: [],
+    outputs: [
       {
-        name: "newOwner",
+        name: "",
         type: "address",
-        internalType: "address",
+        internalType: "contract TWAMM",
       },
     ],
-    outputs: [],
-    stateMutability: "payable",
+    stateMutability: "view",
   },
   {
     type: "event",
@@ -4360,51 +5056,6 @@ export const ORDERS_ABI = [
   },
   {
     type: "event",
-    name: "OwnershipHandoverCanceled",
-    inputs: [
-      {
-        name: "pendingOwner",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-    ],
-    anonymous: false,
-  },
-  {
-    type: "event",
-    name: "OwnershipHandoverRequested",
-    inputs: [
-      {
-        name: "pendingOwner",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-    ],
-    anonymous: false,
-  },
-  {
-    type: "event",
-    name: "OwnershipTransferred",
-    inputs: [
-      {
-        name: "oldOwner",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-      {
-        name: "newOwner",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-    ],
-    anonymous: false,
-  },
-  {
-    type: "event",
     name: "Transfer",
     inputs: [
       {
@@ -4435,11 +5086,6 @@ export const ORDERS_ABI = [
   },
   {
     type: "error",
-    name: "AlreadyInitialized",
-    inputs: [],
-  },
-  {
-    type: "error",
     name: "BalanceQueryForZeroAddress",
     inputs: [],
   },
@@ -4460,17 +5106,49 @@ export const ORDERS_ABI = [
   },
   {
     type: "error",
+    name: "InvalidDuration",
+    inputs: [],
+  },
+  {
+    type: "error",
     name: "MaxSaleRateExceeded",
     inputs: [],
   },
   {
     type: "error",
-    name: "NewOwnerIsZeroAddress",
-    inputs: [],
+    name: "MaximumInputExceeded",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "maximumInput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
   },
   {
     type: "error",
-    name: "NoHandoverRequest",
+    name: "MinimumOutputNotReceived",
+    inputs: [
+      {
+        name: "token",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "minimumOutput",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "MinimumRefund",
     inputs: [],
   },
   {
@@ -4480,23 +5158,12 @@ export const ORDERS_ABI = [
   },
   {
     type: "error",
-    name: "NotUnauthorizedForToken",
-    inputs: [
-      {
-        name: "caller",
-        type: "address",
-        internalType: "address",
-      },
-      {
-        name: "id",
-        type: "uint256",
-        internalType: "uint256",
-      },
-    ],
+    name: "OrderAlreadyEnded",
+    inputs: [],
   },
   {
     type: "error",
-    name: "OrderAlreadyEnded",
+    name: "SaleRateOverflow",
     inputs: [],
   },
   {
@@ -4508,6 +5175,17 @@ export const ORDERS_ABI = [
     type: "error",
     name: "TokenDoesNotExist",
     inputs: [],
+  },
+  {
+    type: "error",
+    name: "TransactionExpired",
+    inputs: [
+      {
+        name: "deadline",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
   },
   {
     type: "error",
@@ -4527,7 +5205,29 @@ export const ORDERS_ABI = [
   {
     type: "error",
     name: "Unauthorized",
-    inputs: [],
+    inputs: [
+      {
+        name: "caller",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "id",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+  },
+  {
+    type: "error",
+    name: "UnexpectedCallTypeByte",
+    inputs: [
+      {
+        name: "b",
+        type: "bytes1",
+        internalType: "bytes1",
+      },
+    ],
   },
 ] as const;
 
@@ -4561,7 +5261,7 @@ export const INCENTIVES_ABI = [
       {
         name: "c",
         type: "tuple",
-        internalType: "struct ClaimKey",
+        internalType: "struct Claim",
         components: [
           {
             name: "index",
@@ -4588,6 +5288,30 @@ export const INCENTIVES_ABI = [
     ],
     outputs: [],
     stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "claimed",
+    inputs: [
+      {
+        name: "id",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "Bitmap",
+      },
+    ],
+    stateMutability: "view",
   },
   {
     type: "function",
@@ -4629,6 +5353,129 @@ export const INCENTIVES_ABI = [
       },
     ],
     stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "getRemaining",
+    inputs: [
+      {
+        name: "key",
+        type: "tuple",
+        internalType: "struct DropKey",
+        components: [
+          {
+            name: "owner",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "root",
+            type: "bytes32",
+            internalType: "bytes32",
+          },
+        ],
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "isAvailable",
+    inputs: [
+      {
+        name: "key",
+        type: "tuple",
+        internalType: "struct DropKey",
+        components: [
+          {
+            name: "owner",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "root",
+            type: "bytes32",
+            internalType: "bytes32",
+          },
+        ],
+      },
+      {
+        name: "index",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "amount",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "isClaimed",
+    inputs: [
+      {
+        name: "key",
+        type: "tuple",
+        internalType: "struct DropKey",
+        components: [
+          {
+            name: "owner",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "root",
+            type: "bytes32",
+            internalType: "bytes32",
+          },
+        ],
+      },
+      {
+        name: "index",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool",
+      },
+    ],
+    stateMutability: "view",
   },
   {
     type: "function",
@@ -4684,20 +5531,6 @@ export const INCENTIVES_ABI = [
       },
     ],
     stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "sload",
-    inputs: [],
-    outputs: [],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "tload",
-    inputs: [],
-    outputs: [],
-    stateMutability: "view",
   },
   {
     type: "event",
@@ -4807,7 +5640,7 @@ export const TOKEN_WRAPPER_FACTORY_ABI = [
   },
   {
     type: "function",
-    name: "CORE",
+    name: "core",
     inputs: [],
     outputs: [
       {

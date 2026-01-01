@@ -5,10 +5,8 @@ import { DAO, type IndexerCursor } from "./_shared/dao";
 import { Block as EvmBlock, EvmStream } from "@apibara/evm";
 import { EvmRpcStream } from "@apibara/evm-rpc";
 import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
-import {
-  createLogProcessorsV2,
-  createLogProcessorsV3,
-} from "./evm/logProcessors";
+import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
+import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
 import { parsePositionsProtocolFeeConfigs } from "./evm/positionsProtocolFeeConfig";
 import { createEventProcessors } from "./starknet/eventProcessors";
 import { createClient, Metadata } from "@apibara/protocol";
