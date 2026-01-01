@@ -854,12 +854,15 @@ export class DAO {
       amount1,
     } = event;
 
+    if (amount0 < 0n || amount1 < 0n) {
+      throw new Error("position_fees_withheld amounts must be non-negative");
+    }
     if (amount0 === 0n && amount1 === 0n) return;
 
     await this.sql`
       INSERT INTO position_fees_withheld
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-         pool_key_id, locker, salt, lower_bound, upper_bound, delta0, delta1)
+         pool_key_id, locker, salt, lower_bound, upper_bound, amount0, amount1)
       VALUES (
         ${this.chainId},
         ${key.blockNumber},
@@ -933,7 +936,7 @@ export class DAO {
       )
       INSERT INTO position_fees_withheld
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-         pool_key_id, locker, salt, lower_bound, upper_bound, delta0, delta1)
+         pool_key_id, locker, salt, lower_bound, upper_bound, amount0, amount1)
       SELECT
         ${this.chainId},
         ${key.blockNumber},

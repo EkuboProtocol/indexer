@@ -13,8 +13,9 @@ CREATE TABLE position_fees_withheld
     salt              NUMERIC     NOT NULL,
     lower_bound       int4        NOT NULL,
     upper_bound       int4        NOT NULL,
-    delta0            NUMERIC     NOT NULL,
-    delta1            NUMERIC     NOT NULL,
+    amount0           NUMERIC     NOT NULL,
+    amount1           NUMERIC     NOT NULL,
+    CHECK (amount0 >= 0 AND amount1 >= 0 AND (amount0 > 0 OR amount1 > 0)),
     PRIMARY KEY (chain_id, event_id),
     FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
@@ -37,9 +38,9 @@ CREATE FUNCTION upsert_hourly_revenue_from_withheld_protocol_fee_insert()
     RETURNS TRIGGER AS
 $$
 DECLARE
-    v_hour     timestamptz;
-    v_token0   NUMERIC;
-    v_token1   NUMERIC;
+    v_hour   timestamptz;
+    v_token0 NUMERIC;
+    v_token1 NUMERIC;
 BEGIN
     SELECT pk.token0,
            pk.token1
@@ -51,16 +52,16 @@ BEGIN
     v_hour := DATE_TRUNC('hour', new.block_time);
 
 
-    IF new.delta0 <> 0 THEN
+    IF new.amount0 <> 0 THEN
         INSERT INTO hourly_revenue_by_token (pool_key_id, hour, token, revenue)
-        VALUES (new.pool_key_id, v_hour, v_token0, new.delta0)
+        VALUES (new.pool_key_id, v_hour, v_token0, new.amount0)
         ON CONFLICT (pool_key_id, hour, token) DO UPDATE
             SET revenue = hourly_revenue_by_token.revenue + excluded.revenue;
     END IF;
 
-    IF new.delta1 <> 0 THEN
+    IF new.amount1 <> 0 THEN
         INSERT INTO hourly_revenue_by_token (pool_key_id, hour, token, revenue)
-        VALUES (new.pool_key_id, v_hour, v_token1, new.delta1)
+        VALUES (new.pool_key_id, v_hour, v_token1, new.amount1)
         ON CONFLICT (pool_key_id, hour, token) DO UPDATE
             SET revenue = hourly_revenue_by_token.revenue + excluded.revenue;
     END IF;
@@ -73,9 +74,9 @@ CREATE FUNCTION upsert_hourly_revenue_from_withheld_protocol_fee_delete()
     RETURNS TRIGGER AS
 $$
 DECLARE
-    v_hour     timestamptz;
-    v_token0   NUMERIC;
-    v_token1   NUMERIC;
+    v_hour   timestamptz;
+    v_token0 NUMERIC;
+    v_token1 NUMERIC;
 BEGIN
     SELECT pk.token0,
            pk.token1
@@ -86,9 +87,9 @@ BEGIN
 
     v_hour := DATE_TRUNC('hour', old.block_time);
 
-    IF old.delta0 <> 0 THEN
+    IF old.amount0 <> 0 THEN
         INSERT INTO hourly_revenue_by_token (pool_key_id, hour, token, revenue)
-        VALUES (old.pool_key_id, v_hour, v_token0, -old.delta0)
+        VALUES (old.pool_key_id, v_hour, v_token0, -old.amount0)
         ON CONFLICT (pool_key_id, hour, token) DO UPDATE
             SET revenue = hourly_revenue_by_token.revenue + excluded.revenue;
 
@@ -100,9 +101,9 @@ BEGIN
           AND revenue = 0;
     END IF;
 
-    IF old.delta1 <> 0 THEN
+    IF old.amount1 <> 0 THEN
         INSERT INTO hourly_revenue_by_token (pool_key_id, hour, token, revenue)
-        VALUES (old.pool_key_id, v_hour, v_token1, -old.delta1)
+        VALUES (old.pool_key_id, v_hour, v_token1, -old.amount1)
         ON CONFLICT (pool_key_id, hour, token) DO UPDATE
             SET revenue = hourly_revenue_by_token.revenue + excluded.revenue;
 
