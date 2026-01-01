@@ -64,6 +64,9 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: sepolia
+      - key: SKIP_BLOCKS_WITHOUT_EVENTS
+        scope: RUN_TIME
+        value: "true"
     run_command: bun src/index.ts
   - name: eth-mainnet
     image: *indexer-image
