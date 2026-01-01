@@ -103,6 +103,28 @@ workers:
         scope: RUN_TIME
         value: "true"
     run_command: bun src/index.ts
+  - name: base-mainnet
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: NETWORK_TYPE
+        scope: RUN_TIME
+        value: evm
+      - key: EVM_RPC_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: "https://mainnet.base.org,wss://base.drpc.org,wss://base-rpc.publicnode.com,wss://base-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+      - key: NETWORK
+        scope: RUN_TIME
+        value: base-sepolia
+      - key: MERGE_GET_LOGS_FILTER
+        scope: RUN_TIME
+        value: always
+      - key: SKIP_BLOCKS_WITHOUT_EVENTS
+        scope: RUN_TIME
+        value: "true"
+    run_command: bun src/index.ts
   - name: arb-sepolia
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
@@ -118,6 +140,28 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: arb-sepolia
+      - key: MERGE_GET_LOGS_FILTER
+        scope: RUN_TIME
+        value: always
+      - key: SKIP_BLOCKS_WITHOUT_EVENTS
+        scope: RUN_TIME
+        value: "true"
+    run_command: bun src/index.ts
+  - name: arb-mainnet
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: NETWORK_TYPE
+        scope: RUN_TIME
+        value: evm
+      - key: EVM_RPC_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: "https://arb1.arbitrum.io/rpc,https://arbitrum.gateway.tenderly.co,https://api.zan.top/arb-one,wss://arbitrum.drpc.org,https://arb-one.api.pocket.network,wss://arb-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+      - key: NETWORK
+        scope: RUN_TIME
+        value: arb-mainnet
       - key: MERGE_GET_LOGS_FILTER
         scope: RUN_TIME
         value: always

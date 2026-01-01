@@ -5,10 +5,9 @@ import { DAO, type IndexerCursor } from "./_shared/dao";
 import { Block as EvmBlock, EvmStream } from "@apibara/evm";
 import { EvmRpcStream } from "@apibara/evm-rpc";
 import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
-import {
-  createLogProcessors,
-  createV2LogProcessors,
-} from "./evm/logProcessors";
+import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
+import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
+import { parsePositionsProtocolFeeConfigs } from "./evm/positionsProtocolFeeConfig";
 import { createEventProcessors } from "./starknet/eventProcessors";
 import { createClient, Metadata } from "@apibara/protocol";
 import { msToHumanShort } from "./_shared/msToHumanShort";
@@ -116,7 +115,7 @@ function resetNoBlocksTimer() {
   // Start the no-blocks timer when application starts
   resetNoBlocksTimer();
 
-  const evmV1AddressConfig =
+  const evmV2AddressConfig =
     NETWORK_TYPE === "evm"
       ? loadHexAddresses({
           mevCaptureAddress: "MEV_CAPTURE_ADDRESS",
@@ -130,27 +129,35 @@ function resetNoBlocksTimer() {
         })
       : undefined;
 
-  const evmV2AddressConfig =
+  const evmV3AddressConfig =
     NETWORK_TYPE === "evm"
       ? loadHexAddresses({
-          mevCaptureAddress: "MEV_CAPTURE_V2_ADDRESS",
-          coreAddress: "CORE_V2_ADDRESS",
-          positionsAddress: "POSITIONS_V2_ADDRESS",
-          oracleAddress: "ORACLE_V2_ADDRESS",
-          twammAddress: "TWAMM_V2_ADDRESS",
-          ordersAddress: "ORDERS_V2_ADDRESS",
-          incentivesAddress: "INCENTIVES_V2_ADDRESS",
-          tokenWrapperFactoryAddress: "TOKEN_WRAPPER_FACTORY_V2_ADDRESS",
+          mevCaptureAddress: "MEV_CAPTURE_V3_ADDRESS",
+          coreAddress: "CORE_V3_ADDRESS",
+          oracleAddress: "ORACLE_V3_ADDRESS",
+          twammAddress: "TWAMM_V3_ADDRESS",
+          ordersAddress: "ORDERS_V3_ADDRESS",
+          incentivesAddress: "INCENTIVES_V3_ADDRESS",
+          tokenWrapperFactoryAddress: "TOKEN_WRAPPER_FACTORY_V3_ADDRESS",
         })
       : undefined;
 
+  const positionsV3ProtocolFeeConfigs =
+    NETWORK_TYPE === "evm"
+      ? parsePositionsProtocolFeeConfigs(
+          process.env.POSITIONS_V3_PROTOCOL_FEE_CONFIGS
+        )
+      : undefined;
+
   if (NETWORK_TYPE === "evm") {
-    if (!evmV1AddressConfig && !evmV2AddressConfig)
-      throw new Error("Missing or invalid EVM contract addresses (v1 or v2)");
-    if (evmV1AddressConfig)
-      logger.info(`Indexing V1 EVM contracts`, { evmV1AddressConfig });
     if (evmV2AddressConfig)
       logger.info(`Indexing V2 EVM contracts`, { evmV2AddressConfig });
+    if (evmV3AddressConfig)
+      logger.info(`Indexing V3 EVM contracts`, { evmV3AddressConfig });
+    if (positionsV3ProtocolFeeConfigs?.length)
+      logger.info(`Loaded V3 positions protocol fee configs`, {
+        positionsV3ProtocolFeeConfigs,
+      });
   }
 
   const starknetAddressConfig =
@@ -179,14 +186,17 @@ function resetNoBlocksTimer() {
   const evmProcessors =
     NETWORK_TYPE === "evm"
       ? ([
-          ...(evmV1AddressConfig
-            ? createLogProcessors(evmV1AddressConfig)
-            : []),
           ...(evmV2AddressConfig
-            ? createV2LogProcessors(evmV2AddressConfig)
+            ? createLogProcessorsV2(evmV2AddressConfig)
             : []),
-        ] as ReturnType<typeof createLogProcessors>)
-      : ([] as ReturnType<typeof createLogProcessors>);
+          ...(evmV3AddressConfig
+            ? createLogProcessorsV3({
+                ...evmV3AddressConfig,
+                positionsContracts: positionsV3ProtocolFeeConfigs ?? [],
+              })
+            : []),
+        ] as ReturnType<typeof createLogProcessorsV2>)
+      : ([] as ReturnType<typeof createLogProcessorsV2>);
 
   const starknetProcessors =
     NETWORK_TYPE === "starknet" && starknetAddressConfig
@@ -203,7 +213,9 @@ function resetNoBlocksTimer() {
   } as const;
 
   const createTransportFromUrl = (url: string) =>
-    url.startsWith("wss://") ? webSocket(url) : http(url);
+    url.startsWith("wss://")
+      ? webSocket(url, { retryCount: 10, retryDelay: 1000 })
+      : http(url, { retryCount: 10, retryDelay: 1000 });
 
   const evmRpcTransports =
     NETWORK_TYPE === "evm" && process.env.EVM_RPC_URL

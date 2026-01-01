@@ -94,6 +94,22 @@ export interface ProtocolFeesPaidInsert {
   delta1: bigint;
 }
 
+export interface PositionFeesWithheldInsert {
+  poolId: `0x${string}`;
+  locker: AddressValue;
+  salt: NumericValue;
+  bounds: BoundsDescriptor;
+  amount0: bigint;
+  amount1: bigint;
+}
+
+export interface PositionWithdrawalFeesWithheldInsert
+  extends Omit<PositionFeesWithheldInsert, "amount0" | "amount1"> {
+  amount0: bigint;
+  amount1: bigint;
+  withdrawalProtocolFeeDivisor: bigint;
+}
+
 export interface ExtensionRegisteredInsert {
   extension: AddressValue;
 }
@@ -549,7 +565,9 @@ export class DAO {
     `;
   }
 
-  public async insertPositionUpdatedEventWithSyntheticProtocolFeesPaidEvent(
+  // inserts a position updated event and also a protocol fees paid event that accounts for the shortfall in delta that is due to the withdrawal fee
+  // assumes the amounts in delta0 and delta1 are after the withdrawal protocol fee is paid (not true of v3)
+  public async insertPositionUpdatedEventWithSyntheticProtocolFeesPaid(
     event: PositionUpdatedInsert,
     key: EventKey
   ) {
@@ -820,6 +838,121 @@ export class DAO {
         ${this.numeric(delta0)},
         ${this.numeric(delta1)}
       );
+    `;
+  }
+
+  public async insertPositionFeesWithheld(
+    event: PositionFeesWithheldInsert,
+    key: EventKey
+  ) {
+    const {
+      locker,
+      poolId,
+      salt,
+      bounds: { lower, upper },
+      amount0,
+      amount1,
+    } = event;
+
+    if (amount0 < 0n || amount1 < 0n) {
+      throw new Error("position_fees_withheld amounts must be non-negative");
+    }
+    if (amount0 === 0n && amount1 === 0n) return;
+
+    await this.sql`
+      INSERT INTO position_fees_withheld
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, locker, salt, lower_bound, upper_bound, amount0, amount1)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pool_key_id
+          FROM pool_keys
+          WHERE chain_id = ${this.chainId}
+            AND core_address = ${this.numeric(key.emitter)}
+            AND pool_id = ${this.numeric(poolId)}
+        ),
+        ${this.numeric(locker)},
+        ${this.numeric(salt)},
+        ${lower},
+        ${upper},
+        ${this.numeric(amount0)},
+        ${this.numeric(amount1)}
+      );
+    `;
+  }
+
+  public async insertPositionWithdrawalFeesWithheld(
+    event: PositionWithdrawalFeesWithheldInsert,
+    key: EventKey
+  ) {
+    const {
+      locker,
+      poolId,
+      salt,
+      bounds: { lower, upper },
+      amount0,
+      amount1,
+      withdrawalProtocolFeeDivisor,
+    } = event;
+
+    if (withdrawalProtocolFeeDivisor === 0n) return;
+
+    await this.sql`
+      WITH pool_key AS (
+        SELECT pool_key_id, fee, fee_denominator
+        FROM pool_keys
+        WHERE chain_id = ${this.chainId}
+          AND core_address = ${this.numeric(key.emitter)}
+          AND pool_id = ${this.numeric(poolId)}
+      ),
+      computed AS (
+        SELECT
+          pool_key_id,
+          CASE
+            WHEN ${this.numeric(amount0)} > 0
+              THEN CEIL((${this.numeric(
+                amount0
+              )} * fee) / (fee_denominator * ${this.numeric(
+                withdrawalProtocolFeeDivisor
+              )}))
+            ELSE 0
+          END AS protocol_fee0,
+          CASE
+            WHEN ${this.numeric(amount1)} > 0
+              THEN CEIL((${this.numeric(
+                amount1
+              )} * fee) / (fee_denominator * ${this.numeric(
+                withdrawalProtocolFeeDivisor
+              )}))
+            ELSE 0
+          END AS protocol_fee1
+        FROM pool_key
+      )
+      INSERT INTO position_fees_withheld
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, locker, salt, lower_bound, upper_bound, amount0, amount1)
+      SELECT
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        c.pool_key_id,
+        ${this.numeric(locker)},
+        ${this.numeric(salt)},
+        ${lower},
+        ${upper},
+        c.protocol_fee0,
+        c.protocol_fee1
+      FROM computed c
+      WHERE c.protocol_fee0 <> 0 OR c.protocol_fee1 <> 0;
     `;
   }
 
