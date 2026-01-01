@@ -9,6 +9,7 @@ const MIGRATION_FILES = [
   "00026_hourly_tables_block_time",
   "00028_fees_accumulated_block_time",
   "00060_pool_config_v2",
+  "00081_positions_protocol_fees",
 ] as const;
 
 let client: PGlite;
@@ -536,6 +537,83 @@ test("protocol fees trigger aggregates revenue and latest event id", async () =>
   );
 
   expect(revenueAfterAllDeletes.rows[0].count).toBe("0");
+});
+
+test("positions protocol fees aggregate revenue without changing tvl", async () => {
+  const { chainId, blockNumber, poolKeyId } = await seedPool(client, {
+    chainId: 106,
+    blockNumber: 1005,
+  });
+
+  const {
+    rows: [{ event_id }],
+  } = await client.query<{ event_id: bigint }>(
+    `INSERT INTO position_fees_withheld (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        locker,
+        salt,
+        lower_bound,
+        upper_bound,
+        delta0,
+        delta1
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      RETURNING event_id`,
+    [
+      chainId,
+      blockNumber,
+      0,
+      0,
+      "6400",
+      "7400",
+      poolKeyId,
+      "8400",
+      "9400",
+      -120,
+      120,
+      "6",
+      "0",
+    ]
+  );
+
+  const revenueRows = await client.query<{ revenue: string }>(
+    `SELECT revenue
+     FROM hourly_revenue_by_token
+     WHERE pool_key_id = $1 AND token = $2`,
+    [poolKeyId, "4000"]
+  );
+
+  expect(revenueRows.rows.length).toBe(1);
+  expect(revenueRows.rows[0].revenue).toBe("6");
+
+  const tvlDeltaCount = await client.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+     FROM hourly_tvl_delta_by_token
+     WHERE pool_key_id = $1`,
+    [poolKeyId]
+  );
+
+  expect(tvlDeltaCount.rows[0].count).toBe("0");
+
+  await client.query(
+    `DELETE FROM position_fees_withheld
+     WHERE chain_id = $1 AND event_id = $2`,
+    [chainId, event_id]
+  );
+
+  const revenueAfterDelete = await client.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+     FROM hourly_revenue_by_token
+     WHERE pool_key_id = $1`,
+    [poolKeyId]
+  );
+
+  expect(revenueAfterDelete.rows[0].count).toBe("0");
 });
 
 test("pool balance change trigger updates tvl delta and latest event id", async () => {

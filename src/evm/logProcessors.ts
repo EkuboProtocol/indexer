@@ -48,7 +48,6 @@ import {
 } from "./poolKey";
 import {
   computeFee,
-  calculateWithdrawalProtocolFeeDelta,
   EVM_POOL_FEE_DENOMINATOR,
 } from "./protocolFees";
 import type { PositionsContractProtocolFeeConfig } from "./positionsProtocolFeeConfig";
@@ -549,10 +548,26 @@ export function createLogProcessorsV3({
 
           await dao.insertPositionUpdatedEvent(positionUpdate, key);
 
-          if (withdrawalProtocolFee && (delta0 < 0n || delta1 < 0n)) {
-            // todo: handle tracking the withdrawal protocol fee with an additional insert
-            // note the withdrawal protocol fee needs to be computed within the insert query because it depends on the pool fee,
-            // i.e. if withdrawal protocol fee is 1 then it's the pool fee times the delta0 and delta1
+          if (
+            withdrawalProtocolFee &&
+            withdrawalProtocolFee > 0n &&
+            (delta0 < 0n || delta1 < 0n)
+          ) {
+            const withdrawalAmount0 = delta0 < 0n ? -delta0 : 0n;
+            const withdrawalAmount1 = delta1 < 0n ? -delta1 : 0n;
+
+            await dao.insertPositionWithdrawalFeesWithheld(
+              {
+                poolId: parsed.poolId,
+                locker: parsed.locker,
+                salt: params.salt,
+                bounds: { lower: params.lower, upper: params.upper },
+                amount0: withdrawalAmount0,
+                amount1: withdrawalAmount1,
+                withdrawalProtocolFeeDivisor: withdrawalProtocolFee,
+              },
+              key
+            );
           }
         },
         async PositionFeesCollected(dao, key, parsed) {
@@ -575,12 +590,22 @@ export function createLogProcessorsV3({
             BigInt(parsed.locker)
           )?.swapProtocolFee;
 
-          if (swapProtocolFee) {
+          if (swapProtocolFee && swapProtocolFee > 0n) {
             const protocolFee0 = computeFee(parsed.amount0, swapProtocolFee);
             const protocolFee1 = computeFee(parsed.amount1, swapProtocolFee);
 
             if (protocolFee0 !== 0n || protocolFee1 !== 0n) {
-              // todo: these are not events that affect pool deltas and should be inserted into their own table
+              await dao.insertPositionFeesWithheld(
+                {
+                  poolId: parsed.poolId,
+                  locker: parsed.locker,
+                  salt: params.salt,
+                  bounds: { lower: params.lower, upper: params.upper },
+                  amount0: protocolFee0,
+                  amount1: protocolFee1,
+                },
+                key
+              );
             }
           }
         },
