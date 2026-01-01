@@ -549,7 +549,9 @@ export class DAO {
     `;
   }
 
-  public async insertPositionUpdatedEventV2(
+  // inserts a position updated event and also a protocol fees paid event that accounts for the shortfall in delta that is due to the withdrawal fee
+  // assumes the amounts in delta0 and delta1 are after the withdrawal protocol fee is paid (not true of v3)
+  public async insertPositionUpdatedEventWithSyntheticProtocolFeesPaid(
     event: PositionUpdatedInsert,
     key: EventKey
   ) {

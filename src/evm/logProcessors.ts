@@ -47,7 +47,7 @@ import {
   toPoolId,
 } from "./poolKey";
 import {
-  calculateSwapProtocolFeeDelta,
+  computeFee,
   calculateWithdrawalProtocolFeeDelta,
   EVM_POOL_FEE_DENOMINATOR,
 } from "./protocolFees";
@@ -268,7 +268,10 @@ export function createLogProcessorsV2({
           }
         },
         async PositionUpdated(dao, key, parsed) {
-          await dao.insertPositionUpdatedEventV2(parsed, key);
+          await dao.insertPositionUpdatedEventWithSyntheticProtocolFeesPaid(
+            parsed,
+            key
+          );
         },
         async PositionFeesCollected(dao, key, parsed) {
           await dao.insertPositionFeesCollectedEvent(parsed, key);
@@ -540,54 +543,16 @@ export function createLogProcessorsV3({
             poolId: parsed.poolId,
           };
 
+          const withdrawalProtocolFee = positionsConfigMap.get(
+            BigInt(parsed.locker)
+          )?.withdrawalProtocolFeeDivisor;
+
           await dao.insertPositionUpdatedEvent(positionUpdate, key);
 
-          const lockerConfig = positionsConfigMap.get(BigInt(parsed.locker));
-          const liquidityDelta = BigInt(parsed.liquidityDelta);
-          const withdrawalProtocolFee =
-            lockerConfig &&
-            lockerConfig.swapProtocolFee > 0n &&
-            lockerConfig.withdrawalProtocolFeeDivisor > 0n
-              ? lockerConfig.swapProtocolFee /
-                lockerConfig.withdrawalProtocolFeeDivisor
-              : 0n;
-
-          if (
-            liquidityDelta < 0n &&
-            withdrawalProtocolFee > 0n &&
-            withdrawalProtocolFee < EVM_POOL_FEE_DENOMINATOR
-          ) {
-            const protocolDelta0 = calculateWithdrawalProtocolFeeDelta(
-              delta0,
-              withdrawalProtocolFee
-            );
-            const protocolDelta1 = calculateWithdrawalProtocolFeeDelta(
-              delta1,
-              withdrawalProtocolFee
-            );
-
-            if (protocolDelta0 !== 0n || protocolDelta1 !== 0n) {
-              await dao.insertProtocolFeesPaid(
-                {
-                  locker: parsed.locker,
-                  poolId: parsed.poolId,
-                  salt: params.salt,
-                  bounds: { lower: params.lower, upper: params.upper },
-                  delta0: protocolDelta0,
-                  delta1: protocolDelta1,
-                },
-                key
-              );
-            }
-          } else if (
-            liquidityDelta < 0n &&
-            withdrawalProtocolFee >= EVM_POOL_FEE_DENOMINATOR &&
-            lockerConfig
-          ) {
-            logger.warn("Skipping withdrawal protocol fee >= denominator", {
-              locker: lockerConfig.address,
-              withdrawalProtocolFee,
-            });
+          if (withdrawalProtocolFee && (delta0 < 0n || delta1 < 0n)) {
+            // todo: handle tracking the withdrawal protocol fee with an additional insert
+            // note the withdrawal protocol fee needs to be computed within the insert query because it depends on the pool fee,
+            // i.e. if withdrawal protocol fee is 1 then it's the pool fee times the delta0 and delta1
           }
         },
         async PositionFeesCollected(dao, key, parsed) {
@@ -606,35 +571,16 @@ export function createLogProcessorsV3({
             key
           );
 
-          const lockerProtocolFeeConfig = positionsConfigMap.get(
+          const swapProtocolFee = positionsConfigMap.get(
             BigInt(parsed.locker)
-          );
+          )?.swapProtocolFee;
 
-          if (
-            lockerProtocolFeeConfig &&
-            lockerProtocolFeeConfig.swapProtocolFee > 0n
-          ) {
-            const protocolDelta0 = calculateSwapProtocolFeeDelta(
-              parsed.amount0,
-              lockerProtocolFeeConfig.swapProtocolFee
-            );
-            const protocolDelta1 = calculateSwapProtocolFeeDelta(
-              parsed.amount1,
-              lockerProtocolFeeConfig.swapProtocolFee
-            );
+          if (swapProtocolFee) {
+            const protocolFee0 = computeFee(parsed.amount0, swapProtocolFee);
+            const protocolFee1 = computeFee(parsed.amount1, swapProtocolFee);
 
-            if (protocolDelta0 !== 0n || protocolDelta1 !== 0n) {
-              await dao.insertProtocolFeesPaid(
-                {
-                  locker: parsed.locker,
-                  poolId: parsed.poolId,
-                  salt: params.salt,
-                  bounds: { lower: params.lower, upper: params.upper },
-                  delta0: protocolDelta0,
-                  delta1: protocolDelta1,
-                },
-                key
-              );
+            if (protocolFee0 !== 0n || protocolFee1 !== 0n) {
+              // todo: these are not events that affect pool deltas and should be inserted into their own table
             }
           }
         },

@@ -26,7 +26,7 @@ export function parsePositionsProtocolFeeConfigs(
       .split(":")
       .map((value) => value.trim());
 
-    if (!addressRaw || !swapFeeRaw)
+    if (!addressRaw)
       throw new Error(
         `Invalid positions protocol fee config entry "${entry}". Expected "address:swapProtocolFee[:withdrawalProtocolFeeDivisor]".`
       );
@@ -36,7 +36,8 @@ export function parsePositionsProtocolFeeConfigs(
         `Invalid positions contract address "${addressRaw}" in protocol fee config "${entry}".`
       );
 
-    const swapProtocolFee = BigInt(swapFeeRaw);
+    const swapProtocolFee =
+      swapFeeRaw !== undefined && swapFeeRaw !== "" ? BigInt(swapFeeRaw) : 0n;
     if (swapProtocolFee < 0n || swapProtocolFee >= FIXED_POINT_FEE_DENOMINATOR)
       throw new Error(
         `Swap protocol fee must be between 0 and ${
@@ -48,7 +49,6 @@ export function parsePositionsProtocolFeeConfigs(
       withdrawalDivisorRaw !== undefined && withdrawalDivisorRaw !== ""
         ? BigInt(withdrawalDivisorRaw)
         : 0n;
-
     if (withdrawalProtocolFeeDivisor < 0n)
       throw new Error(
         `Withdrawal protocol fee divisor must be >= 0. Entry: "${entry}".`

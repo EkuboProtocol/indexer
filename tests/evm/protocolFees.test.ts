@@ -1,27 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
-  calculateSwapProtocolFeeDelta,
+  computeFee,
   calculateWithdrawalProtocolFeeDelta,
-  divFloor,
   EVM_POOL_FEE_DENOMINATOR,
 } from "../../src/evm/protocolFees";
 import { parsePositionsProtocolFeeConfigs } from "../../src/evm/positionsProtocolFeeConfig";
 
 describe("positions protocol fee helpers", () => {
-  test("performs floor division with signed operands", () => {
-    expect(divFloor(7n, 3n)).toBe(2n);
-    expect(divFloor(-7n, 3n)).toBe(-3n);
-    expect(divFloor(7n, -3n)).toBe(-3n);
-    expect(divFloor(9n, 3n)).toBe(3n);
-    expect(() => divFloor(1n, 0n)).toThrow("Division by zero");
-  });
-
   test("parses comma-delimited protocol fee configs", () => {
     const configs = parsePositionsProtocolFeeConfigs(
-      [
-        "0x0000000000000000000000000000000000000001:123:2",
-        "0x0000000000000000000000000000000000000002:0",
-      ].join(",")
+      "0x0000000000000000000000000000000000000001:123:2,0x0000000000000000000000000000000000000002:2,0x0000000000000000000000000000000000000003"
     );
 
     expect(configs).toEqual([
@@ -32,6 +20,11 @@ describe("positions protocol fee helpers", () => {
       },
       {
         address: "0x0000000000000000000000000000000000000002",
+        swapProtocolFee: 2n,
+        withdrawalProtocolFeeDivisor: 0n,
+      },
+      {
+        address: "0x0000000000000000000000000000000000000003",
         swapProtocolFee: 0n,
         withdrawalProtocolFeeDivisor: 0n,
       },
@@ -40,22 +33,72 @@ describe("positions protocol fee helpers", () => {
     expect(parsePositionsProtocolFeeConfigs("   ")).toBeUndefined();
   });
 
-  test("calculates swap protocol fees on collected amounts", () => {
-    const halfFee = EVM_POOL_FEE_DENOMINATOR >> 1n;
-    expect(calculateSwapProtocolFeeDelta(100n, halfFee)).toBe(-50n);
-    expect(calculateSwapProtocolFeeDelta(100n, 0n)).toBe(0n);
-    expect(calculateSwapProtocolFeeDelta(0n, halfFee)).toBe(0n);
+  describe("computeFee", () => {
+    test("zero", () => {
+      expect(computeFee(0n, 0n)).toEqual(0n);
+      expect(computeFee(1n, 0n)).toEqual(0n);
+      expect(computeFee(1n << 128n, 0n)).toEqual(0n);
+      expect(computeFee(0n, EVM_POOL_FEE_DENOMINATOR >> 1n)).toEqual(0n);
+    });
+
+    test("nonzero", () => {
+      expect(computeFee(100n, EVM_POOL_FEE_DENOMINATOR >> 1n)).toEqual(50n);
+      // rounds up
+      expect(computeFee(101n, EVM_POOL_FEE_DENOMINATOR >> 1n)).toEqual(51n);
+      // rounds up
+      expect(computeFee(1n, EVM_POOL_FEE_DENOMINATOR >> 1n)).toEqual(1n);
+    });
   });
 
-  test("calculates withdrawal protocol fees with floor division", () => {
-    const tenPercentFee = EVM_POOL_FEE_DENOMINATOR / 10n;
-    // Applying a 10% protocol fee on a withdrawal should charge an extra swap equivalent
-    // that is slightly more than 10% due to the denominator adjustment.
-    expect(
-      calculateWithdrawalProtocolFeeDelta(-100n, tenPercentFee)
-    ).toBe(-12n);
+  describe("calculateWithdrawalProtocolFeeDelta", () => {
+    test("treats zero denominator correctly", () => {
+      expect(
+        calculateWithdrawalProtocolFeeDelta(
+          100n,
+          EVM_POOL_FEE_DENOMINATOR >> 1n,
+          0n
+        )
+      ).toBe(0n);
+    });
 
-    expect(calculateWithdrawalProtocolFeeDelta(100n, tenPercentFee)).toBe(0n);
-    expect(calculateWithdrawalProtocolFeeDelta(-50n, 0n)).toBe(0n);
+    test("treats zero amount correctly", () => {
+      expect(
+        calculateWithdrawalProtocolFeeDelta(
+          0n,
+          EVM_POOL_FEE_DENOMINATOR >> 1n,
+          1n
+        )
+      ).toBe(0n);
+    });
+
+    test("treats one correctly", () => {
+      expect(
+        calculateWithdrawalProtocolFeeDelta(
+          100n,
+          EVM_POOL_FEE_DENOMINATOR >> 1n,
+          1n
+        )
+      ).toBe(50n);
+    });
+
+    test("zero fee", () => {
+      expect(calculateWithdrawalProtocolFeeDelta(100n, 0n, 1n)).toBe(0n);
+    });
+
+    test("negative amount throws", () => {
+      expect(() => calculateWithdrawalProtocolFeeDelta(-1n, 0n, 1n)).toThrow(
+        "Amount should not be negative"
+      );
+    });
+
+    test("calculates withdrawal protocol fees as fraction of swap pool fee", () => {
+      expect(
+        calculateWithdrawalProtocolFeeDelta(
+          100n,
+          EVM_POOL_FEE_DENOMINATOR >> 1n,
+          10n
+        )
+      ).toBe(5n);
+    });
   });
 });
