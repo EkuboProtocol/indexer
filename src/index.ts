@@ -152,9 +152,8 @@ function resetNoBlocksTimer() {
       : undefined;
 
   if (NETWORK_TYPE === "evm") {
-    if (!evmV2AddressConfig && !evmV3AddressConfig)
-      if (evmV2AddressConfig)
-        logger.info(`Indexing V2 EVM contracts`, { evmV2AddressConfig });
+    if (evmV2AddressConfig)
+      logger.info(`Indexing V2 EVM contracts`, { evmV2AddressConfig });
     if (evmV3AddressConfig)
       logger.info(`Indexing V3 EVM contracts`, { evmV3AddressConfig });
     if (positionsV3ProtocolFeeConfigs?.length)
@@ -216,7 +215,9 @@ function resetNoBlocksTimer() {
   } as const;
 
   const createTransportFromUrl = (url: string) =>
-    url.startsWith("wss://") ? webSocket(url) : http(url);
+    url.startsWith("wss://")
+      ? webSocket(url, { retryCount: 10, retryDelay: 1000 })
+      : http(url, { retryCount: 10, retryDelay: 1000 });
 
   const evmRpcTransports =
     NETWORK_TYPE === "evm" && process.env.EVM_RPC_URL

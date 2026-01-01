@@ -46,10 +46,7 @@ import {
   toPoolConfigV2,
   toPoolId,
 } from "./poolKey";
-import {
-  computeFee,
-  EVM_POOL_FEE_DENOMINATOR,
-} from "./protocolFees";
+import { computeFee, EVM_POOL_FEE_DENOMINATOR } from "./protocolFees";
 import type { PositionsContractProtocolFeeConfig } from "./positionsProtocolFeeConfig";
 
 export type ContractEvent<
@@ -231,10 +228,6 @@ export function createLogProcessorsV2({
       async noTopics(dao, key, data) {
         if (!data) throw new Error("Event with no data from core");
         const event = parseSwapEvent(data);
-        logger.debug(`Parsed Swapped Event`, {
-          event,
-          rawData: data,
-        });
         await dao.insertSwappedEvent(event, key);
       },
       handlers: {
@@ -301,10 +294,7 @@ export function createLogProcessorsV2({
       async noTopics(dao, key, data) {
         if (!data) throw new Error("Event with no data from Oracle");
         const event = parseOracleEvent(data);
-        logger.debug(`Parsed Oracle Event`, {
-          event,
-          rawData: data,
-        });
+
         await dao.insertOracleSnapshotEvent(
           {
             token0: "0x0000000000000000000000000000000000000000",
@@ -324,10 +314,6 @@ export function createLogProcessorsV2({
       async noTopics(dao, key, data) {
         if (!data) throw new Error("Event with no data from TWAMM");
         const event = parseTwammVirtualOrdersExecuted(data);
-        logger.debug(`Parsed TWAMM Event`, {
-          event,
-          rawData: data,
-        });
         await dao.insertTWAMMVirtualOrdersExecutedEvent(
           { ...event, coreAddress },
           key
@@ -481,10 +467,6 @@ export function createLogProcessorsV3({
       async noTopics(dao, key, data) {
         if (!data) throw new Error("Event with no data from core");
         const event = parseSwapEventV3(data);
-        logger.debug(`Parsed Swapped Event`, {
-          event,
-          rawData: data,
-        });
         await dao.insertSwappedEvent(event, key);
       },
       handlers: {
@@ -623,10 +605,6 @@ export function createLogProcessorsV3({
       async noTopics(dao, key, data) {
         if (!data) throw new Error("Event with no data from Oracle");
         const event = parseOracleEvent(data);
-        logger.debug(`Parsed Oracle Event`, {
-          event,
-          rawData: data,
-        });
         await dao.insertOracleSnapshotEvent(
           {
             token0: "0x0000000000000000000000000000000000000000",
@@ -646,10 +624,6 @@ export function createLogProcessorsV3({
       async noTopics(dao, key, data) {
         if (!data) throw new Error("Event with no data from TWAMM");
         const event = parseTwammVirtualOrdersExecuted(data);
-        logger.debug(`Parsed TWAMM Event`, {
-          event,
-          rawData: data,
-        });
         await dao.insertTWAMMVirtualOrdersExecutedEvent(
           { ...event, coreAddress },
           key
@@ -761,8 +735,8 @@ export function createLogProcessorsV3({
     },
   };
 
-  return Object.entries(processors).flatMap(
-    ([contractName, { address, abi, handlers, noTopics }]) =>
+  return Object.entries(processors)
+    .flatMap(([contractName, { address, abi, handlers, noTopics }]) =>
       (noTopics
         ? [
             <EvmLogProcessor>{
@@ -791,5 +765,18 @@ export function createLogProcessorsV3({
             )
           : []
       )
-  ) as EvmLogProcessor[];
+    )
+    .concat(
+      positionsContracts?.flatMap((p) =>
+        createContractEventProcessor({
+          contractName: "Positions",
+          address: p.address,
+          abi: POSITIONS_ABI_V3,
+          eventName: "Transfer",
+          async handler(dao, event, key) {
+            await dao.insertNonfungibleTokenTransferEvent(key, event);
+          },
+        })
+      ) ?? []
+    ) satisfies EvmLogProcessor[];
 }
