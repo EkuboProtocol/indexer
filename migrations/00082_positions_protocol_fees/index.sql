@@ -33,87 +33,99 @@ CREATE TRIGGER set_block_time_position_fees_withheld
     FOR EACH ROW
 EXECUTE FUNCTION set_block_time_from_blocks();
 
-CREATE OR REPLACE FUNCTION upsert_hourly_revenue_from_protocol_fee()
+CREATE FUNCTION upsert_hourly_revenue_from_withheld_protocol_fee_insert()
     RETURNS TRIGGER AS
 $$
 DECLARE
-    rec           RECORD;
-    sign          INT     := 1;
-    v_hour        timestamptz;
-    v_token0      NUMERIC;
-    v_token1      NUMERIC;
-    v_revenue0    NUMERIC := 0;
-    v_revenue1    NUMERIC := 0;
-    v_is_withheld BOOLEAN := FALSE;
+    v_hour     timestamptz;
+    v_token0   NUMERIC;
+    v_token1   NUMERIC;
 BEGIN
-    IF tg_op = 'DELETE' THEN
-        rec := old;
-        sign := -1;
-    ELSE
-        rec := new;
-    END IF;
-
-    v_is_withheld := tg_table_name = 'position_fees_withheld';
-
     SELECT pk.token0,
            pk.token1
     INTO STRICT v_token0,
         v_token1
     FROM pool_keys pk
-    WHERE pk.pool_key_id = rec.pool_key_id;
+    WHERE pk.pool_key_id = new.pool_key_id;
 
-    v_hour := DATE_TRUNC('hour', rec.block_time);
+    v_hour := DATE_TRUNC('hour', new.block_time);
 
-    IF v_is_withheld THEN
-        v_revenue0 := rec.delta0;
-        v_revenue1 := rec.delta1;
-    ELSE
-        v_revenue0 := -rec.delta0;
-        v_revenue1 := -rec.delta1;
-    END IF;
 
-    IF v_revenue0 = 0 AND v_revenue1 = 0 THEN
-        RETURN NULL;
-    END IF;
-
-    IF v_revenue0 <> 0 THEN
+    IF new.delta0 <> 0 THEN
         INSERT INTO hourly_revenue_by_token (pool_key_id, hour, token, revenue)
-        VALUES (rec.pool_key_id, v_hour, v_token0, sign * v_revenue0)
+        VALUES (new.pool_key_id, v_hour, v_token0, new.delta0)
         ON CONFLICT (pool_key_id, hour, token) DO UPDATE
             SET revenue = hourly_revenue_by_token.revenue + excluded.revenue;
-
-        IF sign = -1 THEN
-            DELETE
-            FROM hourly_revenue_by_token
-            WHERE pool_key_id = rec.pool_key_id
-              AND hour = v_hour
-              AND token = v_token0
-              AND revenue = 0;
-        END IF;
     END IF;
 
-    IF v_revenue1 <> 0 THEN
+    IF new.delta1 <> 0 THEN
         INSERT INTO hourly_revenue_by_token (pool_key_id, hour, token, revenue)
-        VALUES (rec.pool_key_id, v_hour, v_token1, sign * v_revenue1)
+        VALUES (new.pool_key_id, v_hour, v_token1, new.delta1)
         ON CONFLICT (pool_key_id, hour, token) DO UPDATE
             SET revenue = hourly_revenue_by_token.revenue + excluded.revenue;
-
-        IF sign = -1 THEN
-            DELETE
-            FROM hourly_revenue_by_token
-            WHERE pool_key_id = rec.pool_key_id
-              AND hour = v_hour
-              AND token = v_token1
-              AND revenue = 0;
-        END IF;
     END IF;
 
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER hourly_position_fees_withheld_revenue
-    AFTER INSERT OR DELETE
+CREATE FUNCTION upsert_hourly_revenue_from_withheld_protocol_fee_delete()
+    RETURNS TRIGGER AS
+$$
+DECLARE
+    v_hour     timestamptz;
+    v_token0   NUMERIC;
+    v_token1   NUMERIC;
+BEGIN
+    SELECT pk.token0,
+           pk.token1
+    INTO STRICT v_token0,
+        v_token1
+    FROM pool_keys pk
+    WHERE pk.pool_key_id = old.pool_key_id;
+
+    v_hour := DATE_TRUNC('hour', old.block_time);
+
+    IF old.delta0 <> 0 THEN
+        INSERT INTO hourly_revenue_by_token (pool_key_id, hour, token, revenue)
+        VALUES (old.pool_key_id, v_hour, v_token0, -old.delta0)
+        ON CONFLICT (pool_key_id, hour, token) DO UPDATE
+            SET revenue = hourly_revenue_by_token.revenue + excluded.revenue;
+
+        DELETE
+        FROM hourly_revenue_by_token
+        WHERE pool_key_id = old.pool_key_id
+          AND hour = v_hour
+          AND token = v_token0
+          AND revenue = 0;
+    END IF;
+
+    IF old.delta1 <> 0 THEN
+        INSERT INTO hourly_revenue_by_token (pool_key_id, hour, token, revenue)
+        VALUES (old.pool_key_id, v_hour, v_token1, -old.delta1)
+        ON CONFLICT (pool_key_id, hour, token) DO UPDATE
+            SET revenue = hourly_revenue_by_token.revenue + excluded.revenue;
+
+        DELETE
+        FROM hourly_revenue_by_token
+        WHERE pool_key_id = old.pool_key_id
+          AND hour = v_hour
+          AND token = v_token1
+          AND revenue = 0;
+    END IF;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER hourly_position_fees_withheld_revenue_insert
+    AFTER INSERT
     ON position_fees_withheld
     FOR EACH ROW
-EXECUTE FUNCTION upsert_hourly_revenue_from_protocol_fee();
+EXECUTE FUNCTION upsert_hourly_revenue_from_withheld_protocol_fee_insert();
+
+CREATE TRIGGER hourly_position_fees_withheld_revenue_delete
+    AFTER DELETE
+    ON position_fees_withheld
+    FOR EACH ROW
+EXECUTE FUNCTION upsert_hourly_revenue_from_withheld_protocol_fee_delete();
