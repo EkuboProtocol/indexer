@@ -64,9 +64,10 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: sepolia
-      - key: SKIP_BLOCKS_WITHOUT_EVENTS
+      - key: EVM_RPC_URL
         scope: RUN_TIME
-        value: "true"
+        type: SECRET
+        value: "wss://sepolia.gateway.tenderly.co,wss://sepolia.drpc.org,wss://eth-sepolia.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
     run_command: bun src/index.ts
   - name: eth-mainnet
     image: *indexer-image
@@ -102,9 +103,6 @@ workers:
       - key: MERGE_GET_LOGS_FILTER
         scope: RUN_TIME
         value: always
-      - key: SKIP_BLOCKS_WITHOUT_EVENTS
-        scope: RUN_TIME
-        value: "true"
     run_command: bun src/index.ts
   - name: base-mainnet
     image: *indexer-image
@@ -124,9 +122,6 @@ workers:
       - key: MERGE_GET_LOGS_FILTER
         scope: RUN_TIME
         value: always
-      - key: SKIP_BLOCKS_WITHOUT_EVENTS
-        scope: RUN_TIME
-        value: "true"
     run_command: bun src/index.ts
   - name: arb-sepolia
     image: *indexer-image
@@ -146,9 +141,6 @@ workers:
       - key: MERGE_GET_LOGS_FILTER
         scope: RUN_TIME
         value: always
-      - key: SKIP_BLOCKS_WITHOUT_EVENTS
-        scope: RUN_TIME
-        value: "true"
     run_command: bun src/index.ts
   - name: arb-mainnet
     image: *indexer-image
@@ -168,9 +160,6 @@ workers:
       - key: MERGE_GET_LOGS_FILTER
         scope: RUN_TIME
         value: always
-      - key: SKIP_BLOCKS_WITHOUT_EVENTS
-        scope: RUN_TIME
-        value: "true"
     run_command: bun src/index.ts
   - name: token-price-sync
     image: *indexer-image

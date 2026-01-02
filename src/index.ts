@@ -3,7 +3,7 @@ import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
 import { DAO, type IndexerCursor } from "./_shared/dao";
 import { Block as EvmBlock, EvmStream } from "@apibara/evm";
-import { EvmRpcStream } from "@apibara/evm-rpc";
+import { EvmRpcStream, rateLimitedHttp } from "@apibara/evm-rpc";
 import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
 import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
 import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
@@ -14,13 +14,15 @@ import { msToHumanShort } from "./_shared/msToHumanShort";
 import { loadHexAddresses } from "./_shared/loadHexAddresses";
 import { createRpcClient } from "@apibara/protocol/rpc";
 import { createPublicClient, fallback, http, webSocket } from "viem";
+import { EvmLogProcessor } from "./evm/logProcessorsShared";
 
-const NETWORK_TYPE = process.env.NETWORK_TYPE;
 function isNetworkTypeValid(
   networkType: string | undefined
 ): networkType is "starknet" | "evm" {
-  return Boolean(NETWORK_TYPE && ["starknet", "evm"].includes(NETWORK_TYPE));
+  return Boolean(networkType && ["starknet", "evm"].includes(networkType));
 }
+
+const NETWORK_TYPE = process.env.NETWORK_TYPE;
 
 if (!isNetworkTypeValid(NETWORK_TYPE)) {
   throw new Error(`Invalid NETWORK_TYPE: "${NETWORK_TYPE}"`);
@@ -150,6 +152,9 @@ function resetNoBlocksTimer() {
       : undefined;
 
   if (NETWORK_TYPE === "evm") {
+    if (!evmV2AddressConfig && !evmV3AddressConfig) {
+      throw new Error("No config for either V2 or V3 contracts");
+    }
     if (evmV2AddressConfig)
       logger.info(`Indexing V2 EVM contracts`, { evmV2AddressConfig });
     if (evmV3AddressConfig)
@@ -183,9 +188,9 @@ function resetNoBlocksTimer() {
     logger.info(`Indexing Starknet contracts`, { starknetAddressConfig });
   }
 
-  const evmProcessors =
+  const evmProcessors: EvmLogProcessor[] =
     NETWORK_TYPE === "evm"
-      ? ([
+      ? [
           ...(evmV2AddressConfig
             ? createLogProcessorsV2(evmV2AddressConfig)
             : []),
@@ -195,8 +200,8 @@ function resetNoBlocksTimer() {
                 positionsContracts: positionsV3ProtocolFeeConfigs ?? [],
               })
             : []),
-        ] as ReturnType<typeof createLogProcessorsV2>)
-      : ([] as ReturnType<typeof createLogProcessorsV2>);
+        ]
+      : [];
 
   const starknetProcessors =
     NETWORK_TYPE === "starknet" && starknetAddressConfig
@@ -213,9 +218,7 @@ function resetNoBlocksTimer() {
   } as const;
 
   const createTransportFromUrl = (url: string) =>
-    url.startsWith("wss://")
-      ? webSocket(url, { retryCount: 10, retryDelay: 1000 })
-      : http(url, { retryCount: 10, retryDelay: 1000 });
+    url.startsWith("wss://") ? webSocket(url) : http(url);
 
   const evmRpcTransports =
     NETWORK_TYPE === "evm" && process.env.EVM_RPC_URL
@@ -231,10 +234,10 @@ function resetNoBlocksTimer() {
   const publicClient =
     NETWORK_TYPE === "evm" && evmRpcTransports.length > 0
       ? createPublicClient({
-          transport:
-            evmRpcTransports.length === 1
-              ? evmRpcTransports[0]!.transport
-              : fallback(evmRpcTransports.map(({ transport }) => transport)),
+          transport: fallback(
+            evmRpcTransports.map(({ transport }) => transport),
+            { retryCount: 10, retryDelay: 1000 }
+          ),
         })
       : null;
 
@@ -280,7 +283,9 @@ function resetNoBlocksTimer() {
               headRefreshIntervalMs: 2000,
               // This parameter changes based on the rpc provider.
               // The stream automatically shrinks the batch size when the provider returns an error.
-              getLogsRangeSize: 1_000n,
+              getLogsRangeSize: BigInt(
+                process.env.GET_LOGS_RANGE_SIZE ?? 1_000_000n
+              ),
               alwaysSendAcceptedHeaders: true,
               mergeGetLogsFilter:
                 MERGE_GET_LOGS_FILTER &&
