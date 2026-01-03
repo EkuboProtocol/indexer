@@ -11,7 +11,6 @@ interface CommonConfiguration {
   PG_CONNECTION_STRING: string;
 
   NO_BLOCKS_TIMEOUT_MS: string; // Time in milliseconds before exiting if no blocks are received
-  SKIP_BLOCKS_WITHOUT_EVENTS?: string; // Skip inserting blocks that have no matching events when true
   EVENT_STATS_BLOCK_INTERVAL?: string; // Number of blocks between ingestion stats logs (default 100)
   TOKEN_PRICE_SYNC_INTERVAL_MS?: string; // Interval for the token price worker (milliseconds)
 }

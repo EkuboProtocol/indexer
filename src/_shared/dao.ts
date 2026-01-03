@@ -451,6 +451,41 @@ export class DAO {
     return cursor;
   }
 
+  public async updateFinalizedCursor(
+    expectedCursor: IndexerCursor,
+    finalizedCursor: IndexerCursor
+  ): Promise<void> {
+    const uniqueKey =
+      typeof finalizedCursor.uniqueKey !== "string"
+        ? null
+        : BigInt(finalizedCursor.uniqueKey);
+
+    const expectedUniqueKey =
+      typeof expectedCursor.uniqueKey !== "string"
+        ? null
+        : BigInt(expectedCursor.uniqueKey);
+
+    const { count } = await this.sql`
+      UPDATE indexer_cursor
+        SET finalized_order_key = ${
+          finalizedCursor.orderKey
+        }, finalized_unique_key = ${this.numeric(
+      uniqueKey
+    )}, last_updated = NOW()
+      WHERE chain_id = ${this.chainId}
+        AND order_key = ${expectedCursor.orderKey}
+        AND unique_key IS NOT DISTINCT FROM ${this.numeric(expectedUniqueKey)};
+    `;
+
+    if (!count) {
+      throw new Error(
+        `Failed to update finalized cursor, expected cursor: ${this.describeCursor(
+          expectedCursor
+        )}, finalized: ${this.describeCursor(finalizedCursor)}`
+      );
+    }
+  }
+
   private describeCursor(cursor: IndexerCursor | null): string {
     if (!cursor) {
       return "null";
@@ -919,8 +954,8 @@ export class DAO {
               THEN CEIL((${this.numeric(
                 amount0
               )} * fee) / (fee_denominator * ${this.numeric(
-                withdrawalProtocolFeeDivisor
-              )}))
+      withdrawalProtocolFeeDivisor
+    )}))
             ELSE 0
           END AS protocol_fee0,
           CASE
@@ -928,8 +963,8 @@ export class DAO {
               THEN CEIL((${this.numeric(
                 amount1
               )} * fee) / (fee_denominator * ${this.numeric(
-                withdrawalProtocolFeeDivisor
-              )}))
+      withdrawalProtocolFeeDivisor
+    )}))
             ELSE 0
           END AS protocol_fee1
         FROM pool_key
@@ -1294,9 +1329,7 @@ export class DAO {
    */
   public async deleteOldBlockNumbers(invalidatedBlockNumber: number) {
     await this.sql`
-      DELETE
-      FROM blocks
-      WHERE chain_id = ${this.chainId} AND block_number >= ${invalidatedBlockNumber};
+      DELETE FROM blocks WHERE chain_id = ${this.chainId} AND block_number >= ${invalidatedBlockNumber};
     `;
   }
 

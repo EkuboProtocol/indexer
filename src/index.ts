@@ -3,7 +3,7 @@ import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
 import { DAO, type IndexerCursor } from "./_shared/dao";
 import { Block as EvmBlock, EvmStream } from "@apibara/evm";
-import { EvmRpcStream, rateLimitedHttp } from "@apibara/evm-rpc";
+import { EvmRpcStream } from "@apibara/evm-rpc";
 import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
 import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
 import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
@@ -56,9 +56,6 @@ let statsEventsInserted = 0;
 let statsProcessingTimeMs = 0;
 let statsLagReducedMs = 0;
 let lastObservedLagMs: number | null = null;
-const skipBlocksWithoutEvents =
-  process.env.SKIP_BLOCKS_WITHOUT_EVENTS?.toLowerCase() === "true";
-let skippedEmptyBlockCount = 0;
 
 // Function to set or reset the no-blocks timer
 function resetNoBlocksTimer() {
@@ -93,12 +90,13 @@ function resetNoBlocksTimer() {
   let currentCursor: IndexerCursor;
   {
     const initializeTimer = logger.startTimer();
-    await dao.begin(async (dao) => {
+
+    currentCursor = await dao.begin(async (dao) => {
       const databaseStartingCursor = await dao.loadCursor();
       if (databaseStartingCursor) {
-        currentCursor = databaseStartingCursor;
+        return databaseStartingCursor;
       } else {
-        currentCursor = await dao.writeCursor(
+        return dao.writeCursor(
           {
             orderKey: BigInt(process.env.STARTING_CURSOR_BLOCK_NUMBER!),
           },
@@ -106,11 +104,11 @@ function resetNoBlocksTimer() {
           { orderKey: 0n }
         );
       }
+    });
 
-      initializeTimer.done({
-        message: "Prepared indexer state",
-        startingCursor: currentCursor,
-      });
+    initializeTimer.done({
+      message: "Prepared indexer state",
+      startingCursor: currentCursor,
     });
   }
 
@@ -372,12 +370,18 @@ function resetNoBlocksTimer() {
       }
 
       case "finalize": {
-        logger.info({
-          evt: "finalize",
-          chainId,
-          cursorOrderKey: message.finalize.cursor?.orderKey?.toString(),
-          cursorUniqueKey: message.finalize.cursor?.uniqueKey?.toString(),
-        });
+        const finalizedCursor = message.finalize.cursor;
+
+        if (finalizedCursor) {
+          logger.info({
+            evt: "finalize",
+            chainId,
+            finalizedCursor,
+          });
+
+          await dao.updateFinalizedCursor(currentCursor, finalizedCursor);
+        }
+
         break;
       }
 
@@ -419,103 +423,78 @@ function resetNoBlocksTimer() {
 
           const blockNumber = Number(block.header.blockNumber);
           const blockTime = block.header.timestamp;
-          const eventsInBlock =
-            NETWORK_TYPE === "evm"
-              ? (block as EvmBlock).logs.reduce(
-                  (total, log) => total + log.filterIds.length,
-                  0
-                )
-              : (block as StarknetBlock).events.reduce(
-                  (total, event) => total + event.filterIds.length,
-                  0
-                );
-          const shouldStoreBlock =
-            eventsInBlock > 0 || !skipBlocksWithoutEvents;
-
-          if (!shouldStoreBlock) {
-            skippedEmptyBlockCount += 1;
-          } else {
-            skippedEmptyBlockCount = 0;
-          }
 
           let eventsProcessed = 0;
 
           await dao.begin(async (dao) => {
             await dao.deleteOldBlockNumbers(blockNumber);
 
-            if (shouldStoreBlock) {
-              const blockHashHex = block.header.blockHash ?? "0x0";
-              let baseFeePerGas: bigint | null = null;
+            const blockHashHex = block.header.blockHash ?? "0x0";
+            let baseFeePerGas: bigint | null = null;
 
-              if (
-                "baseFeePerGas" in block.header &&
-                block.header.baseFeePerGas
-              ) {
-                baseFeePerGas = BigInt(block.header.baseFeePerGas);
-              } else if (
-                "l2GasPrice" in block.header &&
-                block.header.l2GasPrice?.priceInFri
-              ) {
-                baseFeePerGas = BigInt(block.header.l2GasPrice.priceInFri);
+            if ("baseFeePerGas" in block.header && block.header.baseFeePerGas) {
+              baseFeePerGas = BigInt(block.header.baseFeePerGas);
+            } else if (
+              "l2GasPrice" in block.header &&
+              block.header.l2GasPrice?.priceInFri
+            ) {
+              baseFeePerGas = BigInt(block.header.l2GasPrice.priceInFri);
+            }
+
+            await dao.insertBlock({
+              number: block.header.blockNumber,
+              hash: BigInt(blockHashHex),
+              time: blockTime,
+              baseFeePerGas,
+            });
+
+            if (NETWORK_TYPE === "evm") {
+              const logs = (block as EvmBlock).logs;
+              for (let i = 0; i < logs.length; i++) {
+                const log = logs[i];
+
+                const eventKey: EventKey = {
+                  blockNumber,
+                  transactionIndex: log.transactionIndex ?? 0,
+                  eventIndex: log.logIndexInTransaction ?? log.logIndex ?? i,
+                  emitter: log.address,
+                  transactionHash: log.transactionHash,
+                };
+
+                await Promise.all(
+                  log.filterIds.map(async (matchingFilterId: number) => {
+                    eventsProcessed++;
+
+                    await evmProcessors[matchingFilterId - 1]!.handler(
+                      dao,
+                      eventKey,
+                      {
+                        topics: log.topics,
+                        data: log.data,
+                      }
+                    );
+                  })
+                );
               }
+            } else if (NETWORK_TYPE === "starknet") {
+              const events = (block as StarknetBlock).events;
+              for (const event of events) {
+                const eventKey: EventKey = {
+                  blockNumber,
+                  transactionIndex: event.transactionIndex,
+                  eventIndex: event.eventIndexInTransaction ?? event.eventIndex,
+                  emitter: event.address,
+                  transactionHash: event.transactionHash,
+                };
 
-              await dao.insertBlock({
-                number: block.header.blockNumber,
-                hash: BigInt(blockHashHex),
-                time: blockTime,
-                baseFeePerGas,
-              });
-
-              if (NETWORK_TYPE === "evm") {
-                const logs = (block as EvmBlock).logs;
-                for (let i = 0; i < logs.length; i++) {
-                  const log = logs[i];
-
-                  const eventKey: EventKey = {
-                    blockNumber,
-                    transactionIndex: log.transactionIndex ?? 0,
-                    eventIndex: log.logIndexInTransaction ?? log.logIndex ?? i,
-                    emitter: log.address,
-                    transactionHash: log.transactionHash,
-                  };
-
-                  await Promise.all(
-                    log.filterIds.map(async (matchingFilterId: number) => {
-                      eventsProcessed++;
-
-                      await evmProcessors[matchingFilterId - 1]!.handler(
-                        dao,
-                        eventKey,
-                        {
-                          topics: log.topics,
-                          data: log.data,
-                        }
-                      );
-                    })
-                  );
-                }
-              } else if (NETWORK_TYPE === "starknet") {
-                const events = (block as StarknetBlock).events;
-                for (const event of events) {
-                  const eventKey: EventKey = {
-                    blockNumber,
-                    transactionIndex: event.transactionIndex,
-                    eventIndex:
-                      event.eventIndexInTransaction ?? event.eventIndex,
-                    emitter: event.address,
-                    transactionHash: event.transactionHash,
-                  };
-
-                  await Promise.all(
-                    event.filterIds.map(async (matchingFilterId: number) => {
-                      eventsProcessed++;
-                      const processor =
-                        starknetProcessors[matchingFilterId - 1]!;
-                      const { value: parsed } = processor.parser(event.data, 0);
-                      await processor.handle(dao, { key: eventKey, parsed });
-                    })
-                  );
-                }
+                await Promise.all(
+                  event.filterIds.map(async (matchingFilterId: number) => {
+                    eventsProcessed++;
+                    const processor = starknetProcessors[matchingFilterId - 1]!;
+                    const { value: parsed } = processor.parser(event.data, 0);
+                    await processor.handle(dao, { key: eventKey, parsed });
+                  })
+                );
               }
             }
 
@@ -531,8 +510,6 @@ function resetNoBlocksTimer() {
             bTs: blockTime,
             evts: eventsProcessed,
             lag: msToHumanShort(lagMs, 2),
-            lagMs,
-            skipped: skippedEmptyBlockCount,
           });
 
           if (lastObservedLagMs !== null) {
@@ -563,14 +540,13 @@ function resetNoBlocksTimer() {
                   : null;
 
               logger.info({
-                evt: "event-ingest-stats",
+                evt: "ingest-stats",
                 blocks: statsBlocksProcessed,
                 events: statsEventsInserted,
                 durationMs: Math.round(statsProcessingTimeMs),
                 eps: Number(eventsPerSecond.toFixed(2)),
                 lagMs: lastObservedLagMs,
                 catchupMsPerSec: Number(catchupMsPerSec.toFixed(2)),
-                etaMs,
                 eta: etaMs !== null ? msToHumanShort(etaMs, 2) : null,
               });
 
