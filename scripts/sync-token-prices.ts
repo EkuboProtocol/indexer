@@ -79,9 +79,22 @@ const sushiswapApiPriceFetcher: PriceFetcher = async (
     );
   }
 
-  const unscaledResult = (await response.json()) as AddressPriceMap;
+  const result = (await response.json()) as AddressPriceMap;
 
-  return unscaledResult;
+  for (const [key, value] of Object.entries(result)) {
+    const numericKey = BigInt(key);
+
+    if (numericKey === 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeen) {
+      delete result[key];
+      result["0x0"] = value;
+    } else if (numericKey === 0n) {
+      // also normalize the ETH key
+      delete result[key];
+      result["0x0"] = value;
+    }
+  }
+
+  return result;
 };
 
 const ekuboUsdOraclePriceFetcher: PriceFetcher = async (sql, chainId) => {
