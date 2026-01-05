@@ -76,8 +76,8 @@ async function seedBlock({
 }) {
   const blockHash = `${chainId}${blockNumber}`;
   await client.query(
-    `INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
-     VALUES ($1, $2, $3, $4)`,
+    `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
+     VALUES ($1, $2, $3, $4, 0)`,
     [chainId, blockNumber, blockHash, blockTime]
   );
 }

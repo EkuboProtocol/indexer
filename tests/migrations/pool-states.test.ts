@@ -26,8 +26,8 @@ async function seedPool(client: PGlite, chainId: number) {
   const blockTime = new Date("2024-01-01T00:00:00Z");
 
   await client.query(
-    `INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
-     VALUES ($1, $2, $3, $4)`,
+    `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
+     VALUES ($1, $2, $3, $4, 0)`,
     [chainId, blockNumber, blockHash, blockTime]
   );
 
@@ -384,8 +384,8 @@ test("deleting blocks cascades swap and position data to refresh pool state", as
   const reorgBlock = baseBlock + 1;
 
   await client.query(
-    `INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
-     VALUES ($1, $2, $3, $4)`,
+    `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
+     VALUES ($1, $2, $3, $4, 0)`,
     [
       chainId,
       reorgBlock,

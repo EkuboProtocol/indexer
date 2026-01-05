@@ -207,12 +207,12 @@ type CampaignParams = {
 
 async function seedBlocks(client: PGlite) {
   await client.query(
-    `INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
+    `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
      VALUES
-       (1, 100, 1000, '2024-01-01T00:00:00Z'),
-       (1, 101, 1001, '2024-01-02T00:00:00Z'),
-       (1, 102, 1002, '2024-01-03T00:00:00Z'),
-       (1, 103, 1003, '2024-01-04T00:00:00Z')`
+       (1, 100, 1000, '2024-01-01T00:00:00Z', 0),
+       (1, 101, 1001, '2024-01-02T00:00:00Z', 0),
+       (1, 102, 1002, '2024-01-03T00:00:00Z', 0),
+       (1, 103, 1003, '2024-01-04T00:00:00Z', 0)`
   );
 }
 

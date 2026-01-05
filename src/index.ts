@@ -423,6 +423,17 @@ function resetNoBlocksTimer() {
           const blockNumber = Number(block.header.blockNumber);
           const blockTime = block.header.timestamp;
 
+          const plannedEvents =
+            NETWORK_TYPE === "evm"
+              ? (block as EvmBlock).logs.reduce(
+                  (total, log) => total + (log.filterIds?.length ?? 0),
+                  0
+                )
+              : (block as StarknetBlock).events.reduce(
+                  (total, event) => total + (event.filterIds?.length ?? 0),
+                  0
+                );
+
           let eventsProcessed = 0;
 
           await dao.begin(async (dao) => {
@@ -445,6 +456,7 @@ function resetNoBlocksTimer() {
               hash: BigInt(blockHashHex),
               time: blockTime,
               baseFeePerGas,
+              numEvents: plannedEvents,
             });
 
             if (NETWORK_TYPE === "evm") {

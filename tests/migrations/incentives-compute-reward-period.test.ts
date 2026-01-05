@@ -91,8 +91,8 @@ test("compute pending reward periods processes outstanding rows", async () => {
   try {
     await seedBlocks(client);
     await client.query(`
-      INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
-      VALUES (1, 103, 1003, '2024-01-01T02:00:00Z')
+      INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
+      VALUES (1, 103, 1003, '2024-01-01T02:00:00Z', 0)
     `);
     const poolKeyId = await seedPoolKey(client);
     await seedSwaps(client, poolKeyId);
@@ -239,12 +239,12 @@ test("computed rewards materialized view aggregates totals and pending amounts",
 
 async function seedBlocks(client: PGlite) {
   await client.query(`
-    INSERT INTO blocks (chain_id, block_number, block_hash, block_time)
+    INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
     VALUES
-      (1, 99, 999, '2023-12-31T23:00:00Z'),
-      (1, 100, 1000, '2024-01-01T00:00:00Z'),
-      (1, 101, 1001, '2024-01-01T00:30:00Z'),
-      (1, 102, 1002, '2024-01-01T01:00:00Z')
+      (1, 99, 999, '2023-12-31T23:00:00Z', 0),
+      (1, 100, 1000, '2024-01-01T00:00:00Z', 0),
+      (1, 101, 1001, '2024-01-01T00:30:00Z', 0),
+      (1, 102, 1002, '2024-01-01T01:00:00Z', 0)
   `);
 }
 
