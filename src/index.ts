@@ -3,7 +3,7 @@ import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
 import { DAO, type IndexerCursor } from "./_shared/dao";
 import { Block as EvmBlock, EvmStream } from "@apibara/evm";
-import { EvmRpcStream } from "@apibara/evm-rpc";
+import { EvmRpcStream, rateLimitedHttp } from "@apibara/evm-rpc";
 import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
 import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
 import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
@@ -216,7 +216,7 @@ function resetNoBlocksTimer() {
   } as const;
 
   const createTransportFromUrl = (url: string) =>
-    url.startsWith("wss://") ? webSocket(url) : http(url);
+    rateLimitedHttp(url, { rps: 100, retryCount: 0 });
 
   const evmRpcTransports =
     NETWORK_TYPE === "evm" && process.env.EVM_RPC_URL
@@ -233,8 +233,7 @@ function resetNoBlocksTimer() {
     NETWORK_TYPE === "evm" && evmRpcTransports.length > 0
       ? createPublicClient({
           transport: fallback(
-            evmRpcTransports.map(({ transport }) => transport),
-            { retryCount: 10, retryDelay: 1000 }
+            evmRpcTransports.map(({ transport }) => transport)
           ),
         })
       : null;
