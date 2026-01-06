@@ -8,6 +8,8 @@
     "base:mainnet": "NETWORK_TYPE=evm NETWORK=base-mainnet bun src/index.ts",
     "arb:sepolia": "NETWORK_TYPE=evm NETWORK=arb-sepolia bun src/index.ts",
     "arb:mainnet": "NETWORK_TYPE=evm NETWORK=arb-mainnet bun src/index.ts",
+    "polygon:mainnet": "NETWORK_TYPE=evm NETWORK=polygon-mainnet bun src/index.ts",
+    "bsc:mainnet": "NETWORK_TYPE=evm NETWORK=bsc-mainnet bun src/index.ts",
     "eth:mainnet": "NETWORK_TYPE=evm NETWORK=mainnet bun src/index.ts",
     "eth:sepolia": "NETWORK_TYPE=evm NETWORK=sepolia bun src/index.ts",
     "starknet:mainnet": "NETWORK_TYPE=starknet NETWORK=mainnet bun src/index.ts",
