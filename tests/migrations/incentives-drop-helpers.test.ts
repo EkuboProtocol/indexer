@@ -203,6 +203,7 @@ type CampaignParams = {
   end: string;
   minAllocation: number;
   cadence: string;
+  coreAddress?: number;
 };
 
 async function seedBlocks(client: PGlite) {
@@ -229,9 +230,9 @@ async function insertCampaign(client: PGlite, params: CampaignParams) {
         reward_token,
         allowed_extensions,
         default_fee_denominator,
-        excluded_locker_salts,
         distribution_cadence,
-        minimum_allocation
+        minimum_allocation,
+        core_address
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      RETURNING id`,
     [
@@ -243,9 +244,9 @@ async function insertCampaign(client: PGlite, params: CampaignParams) {
       "6000",
       "{0}",
       "1000",
-      "{}",
       params.cadence,
       params.minAllocation,
+      params.coreAddress ?? 111,
     ]
   );
   return Number(id);

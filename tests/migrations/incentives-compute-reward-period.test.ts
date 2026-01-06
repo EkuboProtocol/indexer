@@ -86,6 +86,107 @@ test("compute reward period distributes rewards across lockers", async () => {
   }
 });
 
+test("compute reward period filters allowed lockers", async () => {
+  const client = await createClient();
+  try {
+    await seedBlocks(client);
+    const poolKeyId = await seedPoolKey(client);
+    await seedSwaps(client, poolKeyId);
+    await seedPositions(client, poolKeyId);
+    const { rewardPeriodId } = await seedCampaign(client, {
+      allowedLockers: [2000],
+      slug: "allowed-lockers",
+    });
+
+    const {
+      rows: [{ rows_inserted }],
+    } = await client.query<{ rows_inserted: string }>(
+      `SELECT incentives.compute_rewards_for_period_v1($1)::bigint AS rows_inserted`,
+      [rewardPeriodId]
+    );
+    expect(Number(rows_inserted)).toBe(1);
+
+    const { rows: rewards } = await client.query<{
+      locker: string;
+      salt: string;
+      reward_amount: string;
+    }>(
+      `SELECT locker::text AS locker,
+              salt::text AS salt,
+              reward_amount::text AS reward_amount
+       FROM incentives.computed_rewards
+       WHERE campaign_reward_period_id = $1
+       ORDER BY locker`,
+      [rewardPeriodId]
+    );
+
+    expect(rewards).toEqual([
+      { locker: "2000", salt: "1", reward_amount: "1000" },
+    ]);
+  } finally {
+    await client.close();
+  }
+});
+
+test("compute reward period filters campaign core address", async () => {
+  const client = await createClient();
+  try {
+    await seedBlocks(client);
+    const primaryPoolKeyId = await seedPoolKey(client);
+    const secondaryPoolKeyId = await seedPoolKey(client, {
+      coreAddress: 222,
+      poolId: 333,
+    });
+    await seedSwaps(client, primaryPoolKeyId);
+    await seedSwaps(client, secondaryPoolKeyId, { eventIndexOffset: 1 });
+    await seedPositions(client, primaryPoolKeyId);
+    await seedPositions(client, secondaryPoolKeyId, {
+      eventIndexStart: 5,
+      positions: [
+        {
+          locker: 4000,
+          salt: 3,
+          liquidityDelta: 150000,
+          lowerBound: -120,
+          upperBound: 120,
+        },
+      ],
+    });
+    const { rewardPeriodId } = await seedCampaign(client, {
+      coreAddress: 222,
+      slug: "core-filter",
+    });
+
+    const {
+      rows: [{ rows_inserted }],
+    } = await client.query<{ rows_inserted: string }>(
+      `SELECT incentives.compute_rewards_for_period_v1($1)::bigint AS rows_inserted`,
+      [rewardPeriodId]
+    );
+    expect(Number(rows_inserted)).toBe(1);
+
+    const { rows: rewards } = await client.query<{
+      locker: string;
+      salt: string;
+      reward_amount: string;
+    }>(
+      `SELECT locker::text AS locker,
+              salt::text AS salt,
+              reward_amount::text AS reward_amount
+       FROM incentives.computed_rewards
+       WHERE campaign_reward_period_id = $1
+       ORDER BY locker`,
+      [rewardPeriodId]
+    );
+
+    expect(rewards).toEqual([
+      { locker: "4000", salt: "3", reward_amount: "1000" },
+    ]);
+  } finally {
+    await client.close();
+  }
+});
+
 test("compute pending reward periods processes outstanding rows", async () => {
   const client = await createClient();
   try {
@@ -148,12 +249,14 @@ test("computed rewards materialized view aggregates totals and pending amounts",
 
     const { rows: initialRows } = await client.query<{
       campaign_id: string;
+      core_address: string;
       locker: string;
       salt: string;
       total: string;
       pending: string;
     }>(
       `SELECT campaign_id::text,
+              core_address::text AS core_address,
               locker::text,
               salt::text,
               total_reward_amount::text AS total,
@@ -171,9 +274,11 @@ test("computed rewards materialized view aggregates totals and pending amounts",
         pending: "500",
         salt: "1",
         total: "500",
+        core_address: "111",
       },
       {
         campaign_id: campaignId.toString(),
+        core_address: "111",
         locker: "3000",
         pending: "500",
         salt: "2",
@@ -200,12 +305,14 @@ test("computed rewards materialized view aggregates totals and pending amounts",
 
     const { rows: refreshedRows } = await client.query<{
       campaign_id: string;
+      core_address: string;
       locker: string;
       salt: string;
       total: string;
       pending: string;
     }>(
       `SELECT campaign_id::text,
+              core_address::text AS core_address,
               locker::text,
               salt::text,
               total_reward_amount::text AS total,
@@ -223,9 +330,11 @@ test("computed rewards materialized view aggregates totals and pending amounts",
         pending: "0",
         salt: "1",
         total: "500",
+        core_address: "111",
       },
       {
         campaign_id: campaignId.toString(),
+        core_address: "111",
         locker: "3000",
         pending: "0",
         salt: "2",
@@ -248,7 +357,24 @@ async function seedBlocks(client: PGlite) {
   `);
 }
 
-async function seedPoolKey(client: PGlite) {
+type PoolKeyOptions = {
+  coreAddress?: number;
+  poolId?: number;
+  extension?: number;
+  fee?: number;
+  feeDenominator?: number;
+  tickSpacing?: number | null;
+};
+
+async function seedPoolKey(client: PGlite, options: PoolKeyOptions = {}) {
+  const {
+    coreAddress = 111,
+    poolId = 222,
+    extension = 0,
+    fee = 100,
+    feeDenominator = 1000000,
+    tickSpacing = 1,
+  } = options;
   const {
     rows: [{ pool_key_id }],
   } = await client.query<{ pool_key_id: number }>(
@@ -262,14 +388,20 @@ async function seedPoolKey(client: PGlite) {
         fee_denominator,
         tick_spacing,
         pool_extension
-     ) VALUES (1, 111, 222, 10, 11, 100, 1000000, 1, 0)
-     RETURNING pool_key_id`
+     ) VALUES (1, $1, $2, 10, 11, $3, $4, $5, $6)
+     RETURNING pool_key_id`,
+    [coreAddress, poolId, fee, feeDenominator, tickSpacing, extension]
   );
 
   return pool_key_id;
 }
 
-async function seedSwaps(client: PGlite, poolKeyId: number) {
+async function seedSwaps(
+  client: PGlite,
+  poolKeyId: number,
+  options: { eventIndexOffset?: number } = {}
+) {
+  const { eventIndexOffset = 0 } = options;
   await client.query(
     `INSERT INTO swaps (
         chain_id,
@@ -286,38 +418,103 @@ async function seedSwaps(client: PGlite, poolKeyId: number) {
         tick_after,
         liquidity_after
      ) VALUES
-        (1,  99, 0, 0, 6000, 7000, $1, 0, 0, 0, 1, 0, 100000),
-        (1, 100, 0, 0, 6001, 7000, $1, 0, 0, 0, 1, 1, 100000),
-        (1, 101, 0, 0, 6002, 7000, $1, 0, 0, 0, 1, -1, 100000)`,
-    [poolKeyId]
+        (1,  99, 0, $2, 6000, 7000, $1, 0, 0, 0, 1, 0, 100000),
+        (1, 100, 0, $2, 6001, 7000, $1, 0, 0, 0, 1, 1, 100000),
+        (1, 101, 0, $2, 6002, 7000, $1, 0, 0, 0, 1, -1, 100000)`,
+    [poolKeyId, eventIndexOffset]
   );
 }
 
-async function seedPositions(client: PGlite, poolKeyId: number) {
-  await client.query(
-    `INSERT INTO position_updates (
-        chain_id,
-        block_number,
-        transaction_index,
-        event_index,
-        transaction_hash,
-        emitter,
-        pool_key_id,
-        locker,
-        salt,
-        lower_bound,
-        upper_bound,
-        liquidity_delta,
-        delta0,
-        delta1
-     ) VALUES
-        (1, 99, 0, 0, 7001, 8000, $1, 2000, 1, -120, 120, 100000, 0, 0),
-        (1, 99, 0, 1, 7002, 8000, $1, 3000, 2, -120, 120, 100000, 0, 0)`,
-    [poolKeyId]
-  );
+type PositionSeed = {
+  locker: number;
+  salt: number;
+  lowerBound?: number;
+  upperBound?: number;
+  liquidityDelta?: number;
+  delta0?: number;
+  delta1?: number;
+  blockNumber?: number;
+};
+
+async function seedPositions(
+  client: PGlite,
+  poolKeyId: number,
+  options: { positions?: PositionSeed[]; eventIndexStart?: number } = {}
+) {
+  const {
+    positions = [
+      { locker: 2000, salt: 1, liquidityDelta: 100000, lowerBound: -120, upperBound: 120 },
+      { locker: 3000, salt: 2, liquidityDelta: 100000, lowerBound: -120, upperBound: 120 },
+    ],
+    eventIndexStart = 0,
+  } = options;
+
+  for (const [index, position] of positions.entries()) {
+    const blockNumber = position.blockNumber ?? 99;
+    const eventIndex = eventIndexStart + index;
+    const transactionHash = 7001 + eventIndex;
+    await client.query(
+      `INSERT INTO position_updates (
+          chain_id,
+          block_number,
+          transaction_index,
+          event_index,
+          transaction_hash,
+          emitter,
+          pool_key_id,
+          locker,
+          salt,
+          lower_bound,
+          upper_bound,
+          liquidity_delta,
+          delta0,
+          delta1
+       ) VALUES (
+          1,
+          $1,
+          0,
+          $2,
+          $3,
+          8000,
+          $4,
+          $5,
+          $6,
+          $7,
+          $8,
+          $9,
+          $10,
+          $11
+       )`,
+      [
+        blockNumber,
+        eventIndex,
+        transactionHash,
+        poolKeyId,
+        position.locker,
+        position.salt,
+        position.lowerBound ?? -120,
+        position.upperBound ?? 120,
+        position.liquidityDelta ?? 100000,
+        position.delta0 ?? 0,
+        position.delta1 ?? 0,
+      ]
+    );
+  }
 }
 
-async function seedCampaign(client: PGlite) {
+async function seedCampaign(
+  client: PGlite,
+  options: {
+    allowedLockers?: number[] | null;
+    coreAddress?: number;
+    slug?: string;
+  } = {}
+) {
+  const {
+    allowedLockers = null,
+    coreAddress = 111,
+    slug = "test-campaign",
+  } = options;
   const {
     rows: [{ id: campaignId }],
   } = await client.query<{ id: number }>(
@@ -332,25 +529,28 @@ async function seedCampaign(client: PGlite) {
         default_percent_step,
         default_max_coverage,
         default_fee_denominator,
-        excluded_locker_salts,
         distribution_cadence,
-        minimum_allocation
+        minimum_allocation,
+        core_address,
+        allowed_lockers
      ) VALUES (
         1,
         '2023-12-31T23:00:00Z',
         '2024-01-02T00:00:00Z',
         'Test Campaign',
-        'test-campaign',
+        $1,
         555,
         '{0}',
         0.025,
         0.9975,
         1000000,
-        '{}'::incentives.locker_salt_pair[],
         '1 hour',
-        0
+        0,
+        $2,
+        $3::numeric[]
      )
-     RETURNING id`
+     RETURNING id`,
+    [slug, coreAddress, allowedLockers]
   );
 
   const {
