@@ -1,5 +1,6 @@
--- Create a campaign distributing 30,940 EKUBO over 91 days with daily pair budgets.
--- Uses the EKUBO reward token for incentives. Migration fails fast if any referenced token is missing on chain_id = 1.
+UPDATE incentives.campaigns
+SET end_time = '2026-01-14T00:00:00Z'::timestamptz
+WHERE slug = 'liquity_bold_usdc';
 
 DO
 $$
