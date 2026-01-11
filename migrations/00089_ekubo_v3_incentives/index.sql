@@ -9,7 +9,7 @@ $$
         v_name                    CONSTANT TEXT        := 'Ekubo V3 Incentives';
         v_start                   CONSTANT timestamptz := TO_TIMESTAMP(1768348800); -- 2026-01-14 00:00:00 UTC
         v_days                    CONSTANT INTEGER     := 91;
-        v_interval                CONSTANT INTERVAL    := '1 day';
+        v_interval                CONSTANT INTERVAL    := '4 hours';
         v_end                     CONSTANT timestamptz := v_start + (INTERVAL '1 days' * v_days);
         v_reward                  CONSTANT NUMERIC     := 709712129419725063431057716743722218468728283107; -- 0x7c5097b11b7bc856f603fb60287833cf9a829fe3
         v_reward_dp               CONSTANT INTEGER     := 18; -- assumed
