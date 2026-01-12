@@ -193,17 +193,18 @@ async function fetchEkuboQuoterPrice({
   token,
   quoteToken,
   maxImpact = 0.2,
+  baseUrl,
 }: {
   chainId: bigint;
   token: TokenRow;
   quoteToken: { address: `0x${string}`; decimals: number };
   maxImpact?: number;
-}): Promise<[`0x${string}`, number] | null> {
+  baseUrl: string;
+}): Promise<number | null> {
   const amountOut = quoteAmountInUnits(quoteToken.decimals);
-  const tokenAddressHex = toHexAddress(token.token_address);
-  const url = `${EKUBO_QUOTER_BASE_URL}/${chainId.toString()}/${
-    chainId === 1n ? "v2/" : ""
-  }${-amountOut}/${quoteToken.address}/${tokenAddressHex}`;
+  const url = `${baseUrl}${-amountOut}/${quoteToken.address}/${toHexAddress(
+    token.token_address
+  )}`;
 
   try {
     const response = await fetch(url, {
@@ -239,7 +240,7 @@ async function fetchEkuboQuoterPrice({
     const basePrice = Number(QUOTE_USD_AMOUNT) / tokenAmount;
     const adjustedPrice = basePrice * (1 + priceImpact);
 
-    return [tokenAddressHex, adjustedPrice];
+    return adjustedPrice;
   } catch (error) {
     console.error(
       `JS error while quoting price of ${token.token_symbol} on chain ${chainId}`
@@ -268,21 +269,42 @@ const ekuboQuoterPriceFetcher: PriceFetcher = async (sql, chainId) => {
   );
 
   for (const token of tokens) {
-    const priced = await fetchEkuboQuoterPrice({
-      chainId,
-      token,
-      quoteToken,
-    });
+    let price: number | null;
+    if (chainId === 1n) {
+      const priceOptions = await Promise.all([
+        fetchEkuboQuoterPrice({
+          chainId,
+          token,
+          quoteToken,
+          baseUrl: `${EKUBO_QUOTER_BASE_URL}/1/`,
+        }),
+        fetchEkuboQuoterPrice({
+          chainId,
+          token,
+          quoteToken,
+          baseUrl: `${EKUBO_QUOTER_BASE_URL}/1/v2/`,
+        }),
+      ]);
+      price = priceOptions.find((p) => !!p) ?? null;
+    } else {
+      price = await fetchEkuboQuoterPrice({
+        chainId,
+        token,
+        quoteToken,
+        baseUrl: `${EKUBO_QUOTER_BASE_URL}/${chainId}/`,
+      });
+    }
 
     // max 60 requests per minute
     await sleep(1_000);
-    if (!priced) continue;
+    if (!price) continue;
 
-    const [address, price] = priced;
     console.log(
-      `Found price ${price} for ${token.token_symbol} (${chainId}:${address})`
+      `Found price ${price} for ${
+        token.token_symbol
+      } (${chainId}:${toHexAddress(token.token_address)})`
     );
-    result[address] = price;
+    result[toHexAddress(token.token_address)] = price;
   }
 
   return result;
