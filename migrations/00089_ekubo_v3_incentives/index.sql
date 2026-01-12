@@ -33,10 +33,6 @@ $$
         v_twamm                   CONSTANT NUMERIC     = 0xd4F1060cB9c1A13e1d2d20379b8aa2cF7541eD9b::NUMERIC;
         v_positions               CONSTANT NUMERIC     = 0x02D9876A21AF7545f8632C3af76eC90b5ad4b66D::NUMERIC;
     BEGIN
-        IF EXISTS (SELECT 1 FROM incentives.campaigns WHERE slug = v_slug) THEN
-            RAISE EXCEPTION 'Campaign with slug % already exists', v_slug;
-        END IF;
-
         PERFORM incentives.create_campaign(
                 v_chain_id,
                 v_name,
