@@ -181,10 +181,8 @@ WHERE t.chain_id = ${chainId}
               FROM pool_keys pk
                        JOIN pool_tvl pt USING (pool_key_id)
               WHERE pk.chain_id = t.chain_id
-                AND (
-                  (pk.token0 = t.token_address AND pt.balance0 > 0)
-                      OR (pk.token1 = t.token_address AND pt.balance1 > 0)
-                  ))
+                AND (pk.token0 = t.token_address OR pk.token1 = t.token_address)
+                AND (pt.balance0 > 0 OR pt.balance1 > 0))
   `;
 }
 
