@@ -28,6 +28,18 @@ type TokenList = {
   tokens: TokenListToken[];
 };
 
+type AvnuToken = {
+  name: string;
+  address: string;
+  symbol: string;
+  decimals: number;
+  logoUri?: string;
+};
+
+type AvnuTokenResponse = {
+  content?: AvnuToken[];
+};
+
 const REMOTE_TOKEN_LISTS = [
   {
     name: "Uniswap Default Token List",
@@ -63,6 +75,24 @@ const STARKNET_BRIDGE_TOKEN_LISTS = [
     url: "https://raw.githubusercontent.com/starknet-io/starknet-addresses/refs/heads/master/bridged_tokens/sepolia.json",
     l1ChainId: 11155111n,
     l2ChainId: 0x534e5f4d41494fn,
+  },
+];
+
+const STARKNET_MAINNET_CHAIN_ID = 0x534e5f4d41494en;
+const STARKNET_MAINNET_CHAIN_ID_STRING = STARKNET_MAINNET_CHAIN_ID.toString();
+
+const STARKNET_AVNU_TOKEN_SOURCES = [
+  {
+    name: "Avnu Starknet tokens",
+    url: "https://starknet.api.avnu.fi/v1/starknet/tokens?page=0&size=200&tag=AVNU",
+    visibility_priority: 1,
+    skipIfTracked: false,
+  },
+  {
+    name: "Avnu Verified Starknet tokens",
+    url: "https://starknet.api.avnu.fi/v1/starknet/tokens?page=0&size=200&tag=Verified",
+    visibility_priority: 0,
+    skipIfTracked: true,
   },
 ];
 
@@ -243,6 +273,7 @@ async function main() {
     );
 
     const ADDRESS_REGEX = /^0x[a-fA-F0-9]+$/;
+    const starknetAvnuTokenAddresses = new Set<string>();
 
     for (const { url, name, visibility_priority = -1 } of REMOTE_TOKEN_LISTS) {
       try {
@@ -317,6 +348,70 @@ async function main() {
         }
       } catch (e) {
         console.error(`Failed to import remote token list ${name}`, e);
+      }
+    }
+
+    for (const {
+      name,
+      url,
+      visibility_priority,
+      skipIfTracked,
+    } of STARKNET_AVNU_TOKEN_SOURCES) {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) {
+          console.warn(
+            `Failed to download Starknet token list ${name} from ${url}: ${response.status}`
+          );
+          continue;
+        }
+
+        const data = (await response.json()) as AvnuTokenResponse;
+        const avnuTokens = (data.content ?? []).filter((token) => {
+          if (
+            !token.name ||
+            !token.symbol ||
+            typeof token.decimals !== "number" ||
+            !ADDRESS_REGEX.test(token.address)
+          ) {
+            return false;
+          }
+
+          const normalizedAddress = token.address.toLowerCase();
+          if (
+            skipIfTracked &&
+            starknetAvnuTokenAddresses.has(normalizedAddress)
+          ) {
+            return false;
+          }
+
+          starknetAvnuTokenAddresses.add(normalizedAddress);
+          return true;
+        });
+
+        const importedCount = await addTokens({
+          sql,
+          tokens: avnuTokens.map((token) => ({
+            chain_id: STARKNET_MAINNET_CHAIN_ID_STRING,
+            token_address: token.address,
+            token_name: token.name,
+            token_symbol: token.symbol,
+            token_decimals: token.decimals,
+            logo_url: token.logoUri ?? null,
+            visibility_priority,
+            sort_order: 0,
+            total_supply: null,
+          })),
+        });
+
+        console.log(
+          `Inserted ${importedCount} Starknet tokens from ${name} at url ${url}`
+        );
+      } catch (e) {
+        console.error(
+          `Failed to import Starknet tokens from ${name} at url ${url}`,
+          e
+        );
       }
     }
 
