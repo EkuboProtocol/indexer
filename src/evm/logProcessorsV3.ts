@@ -26,10 +26,12 @@ import {
   POSITIONS_ABI as POSITIONS_ABI_V3,
   TOKEN_WRAPPER_FACTORY_ABI as TOKEN_WRAPPER_FACTORY_ABI_V3,
   TWAMM_ABI as TWAMM_ABI_V3,
+  BOOSTED_FEES_ABI as BOOSTED_FEES_ABI_V3,
 } from "./abis_v3";
 
 export interface LogProcessorConfigV3 {
   mevCaptureAddress: `0x${string}`;
+  boostedFeesAddress: `0x${string}`;
   coreAddress: `0x${string}`;
   oracleAddress: `0x${string}`;
   twammAddress: `0x${string}`;
@@ -46,10 +48,12 @@ type ProcessorDefinitionsV3 = {
   Orders: ContractHandlers<typeof ORDERS_ABI_V3>;
   Incentives: ContractHandlers<typeof INCENTIVES_ABI_V3>;
   TokenWrapperFactory: ContractHandlers<typeof TOKEN_WRAPPER_FACTORY_ABI_V3>;
+  BoostedFees: ContractHandlers<typeof BOOSTED_FEES_ABI_V3>;
 };
 
 export function createLogProcessorsV3({
   mevCaptureAddress,
+  boostedFeesAddress,
   coreAddress,
   oracleAddress,
   twammAddress,
@@ -339,6 +343,38 @@ export function createLogProcessorsV3({
       handlers: {
         async TokenWrapperDeployed(dao, key, event) {
           await dao.insertTokenWrapperDeployed(key, event);
+        },
+      },
+    },
+    BoostedFees: {
+      address: boostedFeesAddress,
+      abi: BOOSTED_FEES_ABI_V3,
+      async noTopics(dao, key, data) {
+        if (!data) throw new Error("Event with no data from BoostedFees");
+        const event = parseTwammVirtualOrdersExecuted(data);
+        await dao.insertBoostedFeesDonatedEvent(
+          {
+            coreAddress,
+            poolId: event.poolId,
+            donateRate0: event.saleRateToken0,
+            donateRate1: event.saleRateToken1,
+          },
+          key
+        );
+      },
+      handlers: {
+        async PoolBoosted(dao, key, parsed) {
+          await dao.insertBoostedFeesPoolBoostedEvent(
+            {
+              coreAddress,
+              poolId: parsed.poolId,
+              startTime: parsed.startTime,
+              endTime: parsed.endTime,
+              rate0: parsed.rate0,
+              rate1: parsed.rate1,
+            },
+            key
+          );
         },
       },
     },
