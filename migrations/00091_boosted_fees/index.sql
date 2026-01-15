@@ -1,4 +1,5 @@
-CREATE TABLE boosted_fees_events (
+CREATE TABLE boosted_fees_events
+(
     chain_id          int8        NOT NULL,
     block_number      int8        NOT NULL,
     transaction_index int4        NOT NULL,
@@ -22,7 +23,7 @@ CREATE TRIGGER no_updates_boosted_fees_events
     BEFORE UPDATE
     ON boosted_fees_events
     FOR EACH ROW
-    EXECUTE function block_updates();
+EXECUTE FUNCTION block_updates();
 
 DROP TRIGGER IF EXISTS set_block_time_boosted_fees_events ON boosted_fees_events;
 
@@ -54,36 +55,38 @@ CREATE TRIGGER no_updates_boosted_fees_donated
     BEFORE UPDATE
     ON boosted_fees_donated
     FOR EACH ROW
-    EXECUTE function block_updates();
+EXECUTE FUNCTION block_updates();
 
-CREATE TABLE boosted_fees_pool_states (
-    pool_key_id            int8        NOT NULL PRIMARY KEY REFERENCES pool_keys (pool_key_id),
-    donate_rate0           numeric     NOT NULL,
-    donate_rate1           numeric     NOT NULL,
-    last_donated_time      timestamptz NOT NULL,
-    last_donated_event_id  int8        NOT NULL,
-    last_event_id          int8        NOT NULL
+CREATE TABLE boosted_fees_pool_states
+(
+    pool_key_id           int8        NOT NULL PRIMARY KEY REFERENCES pool_keys (pool_key_id),
+    donate_rate0          NUMERIC     NOT NULL,
+    donate_rate1          NUMERIC     NOT NULL,
+    last_donated_time     timestamptz NOT NULL,
+    last_donated_event_id int8        NOT NULL,
+    last_event_id         int8        NOT NULL
 );
 
 CREATE FUNCTION recompute_boosted_fees_pool_state(p_pool_key_id int8)
-RETURNS void
-LANGUAGE plpgsql AS $$
+    RETURNS VOID
+    LANGUAGE plpgsql AS
+$$
 DECLARE
     v_last_donated_event_id int8;
-    v_donate_rate0 numeric;
-    v_donate_rate1 numeric;
-    v_last_donated_time timestamptz;
-    v_pool_last_event_id int8;
-    v_last_event_id int8;
+    v_donate_rate0          NUMERIC;
+    v_donate_rate1          NUMERIC;
+    v_last_donated_time     timestamptz;
+    v_pool_last_event_id    int8;
+    v_last_event_id         int8;
 BEGIN
     SELECT bfd.event_id,
            bfd.donate_rate0,
            bfd.donate_rate1,
            b.block_time
     INTO v_last_donated_event_id,
-         v_donate_rate0,
-         v_donate_rate1,
-         v_last_donated_time
+        v_donate_rate0,
+        v_donate_rate1,
+        v_last_donated_time
     FROM boosted_fees_donated bfd
              JOIN blocks b
                   ON b.chain_id = bfd.chain_id AND b.block_number = bfd.block_number
@@ -103,162 +106,159 @@ BEGIN
 
     v_last_event_id := GREATEST(COALESCE(v_pool_last_event_id, v_last_donated_event_id), v_last_donated_event_id);
 
-    INSERT INTO boosted_fees_pool_states AS s (
-        pool_key_id,
-        donate_rate0,
-        donate_rate1,
-        last_donated_time,
-        last_donated_event_id,
-        last_event_id
-    )
-    VALUES (
-        p_pool_key_id,
-        v_donate_rate0,
-        v_donate_rate1,
-        v_last_donated_time,
-        v_last_donated_event_id,
-        v_last_event_id
-    )
+    INSERT INTO boosted_fees_pool_states AS s (pool_key_id,
+                                               donate_rate0,
+                                               donate_rate1,
+                                               last_donated_time,
+                                               last_donated_event_id,
+                                               last_event_id)
+    VALUES (p_pool_key_id,
+            v_donate_rate0,
+            v_donate_rate1,
+            v_last_donated_time,
+            v_last_donated_event_id,
+            v_last_event_id)
     ON CONFLICT (pool_key_id) DO UPDATE
-        SET donate_rate0          = EXCLUDED.donate_rate0,
-            donate_rate1          = EXCLUDED.donate_rate1,
-            last_donated_time     = EXCLUDED.last_donated_time,
-            last_donated_event_id = EXCLUDED.last_donated_event_id,
-            last_event_id         = EXCLUDED.last_event_id;
+        SET donate_rate0          = excluded.donate_rate0,
+            donate_rate1          = excluded.donate_rate1,
+            last_donated_time     = excluded.last_donated_time,
+            last_donated_event_id = excluded.last_donated_event_id,
+            last_event_id         = excluded.last_event_id;
 END
 $$;
 
-CREATE FUNCTION trg_boosted_fees_donated_recompute_state()
-RETURNS trigger
-LANGUAGE plpgsql AS $$
+CREATE FUNCTION trg_boosted_fees_donated_on_insert()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql AS
+$$
 BEGIN
-    IF TG_OP = 'INSERT' THEN
-        PERFORM recompute_boosted_fees_pool_state(NEW.pool_key_id);
-    ELSE
-        PERFORM recompute_boosted_fees_pool_state(OLD.pool_key_id);
-    END IF;
+    INSERT INTO boosted_fees_pool_states AS s (pool_key_id,
+                                               donate_rate0,
+                                               donate_rate1,
+                                               last_donated_time,
+                                               last_donated_event_id,
+                                               last_event_id)
+    VALUES (new.pool_key_id,
+            new.donate_rate0,
+            new.donate_rate1,
+            (SELECT b.block_time
+             FROM blocks b
+             WHERE b.chain_id = new.chain_id
+               AND b.block_number = new.block_number),
+            new.event_id,
+            GREATEST(
+                    COALESCE(
+                            (SELECT ps.last_event_id
+                             FROM pool_states ps
+                             WHERE ps.pool_key_id = new.pool_key_id),
+                            new.event_id
+                    ),
+                    new.event_id
+            ))
+    ON CONFLICT (pool_key_id) DO UPDATE
+        SET donate_rate0          = excluded.donate_rate0,
+            donate_rate1          = excluded.donate_rate1,
+            last_donated_time     = excluded.last_donated_time,
+            last_donated_event_id = excluded.last_donated_event_id,
+            last_event_id         = excluded.last_event_id;
     RETURN NULL;
 END
 $$;
 
-CREATE TRIGGER trg_boosted_fees_donated_recompute_state
-    AFTER INSERT OR DELETE ON boosted_fees_donated
-    FOR EACH ROW
-EXECUTE FUNCTION trg_boosted_fees_donated_recompute_state();
+CREATE FUNCTION trg_boosted_fees_donated_on_delete()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql AS
+$$
+BEGIN
+    PERFORM recompute_boosted_fees_pool_state(old.pool_key_id);
+    RETURN NULL;
+END
+$$;
 
-CREATE TABLE boosted_fees_donate_rate_deltas (
-    pool_key_id                   int8        NOT NULL REFERENCES pool_keys (pool_key_id),
-    "time"                        timestamptz NOT NULL,
-    net_stored_donate_rate_delta0 numeric     NOT NULL,
-    net_stored_donate_rate_delta1 numeric     NOT NULL,
-    net_actual_donate_rate_delta0 numeric     NOT NULL,
-    net_actual_donate_rate_delta1 numeric     NOT NULL,
+CREATE TRIGGER trg_boosted_fees_donated_on_insert
+    AFTER INSERT
+    ON boosted_fees_donated
+    FOR EACH ROW
+EXECUTE FUNCTION trg_boosted_fees_donated_on_insert();
+
+CREATE TRIGGER trg_boosted_fees_donated_on_delete
+    AFTER DELETE
+    ON boosted_fees_donated
+    FOR EACH ROW
+EXECUTE FUNCTION trg_boosted_fees_donated_on_delete();
+
+CREATE TABLE boosted_fees_donate_rate_deltas
+(
+    pool_key_id            int8        NOT NULL REFERENCES pool_keys (pool_key_id),
+    "time"                 timestamptz NOT NULL,
+    net_donate_rate_delta0 NUMERIC     NOT NULL,
+    net_donate_rate_delta1 NUMERIC     NOT NULL,
     PRIMARY KEY (pool_key_id, "time")
 );
 
 CREATE FUNCTION apply_boosted_fees_donate_rate_delta(
     p_pool_key_id int8,
     p_time timestamptz,
-    p_stored_delta0 numeric,
-    p_stored_delta1 numeric,
-    p_actual_delta0 numeric,
-    p_actual_delta1 numeric
-) RETURNS void LANGUAGE plpgsql AS $$
+    p_delta0 NUMERIC,
+    p_delta1 NUMERIC
+) RETURNS VOID
+    LANGUAGE plpgsql AS
+$$
 BEGIN
-    INSERT INTO boosted_fees_donate_rate_deltas AS t (
-        pool_key_id,
-        "time",
-        net_stored_donate_rate_delta0,
-        net_stored_donate_rate_delta1,
-        net_actual_donate_rate_delta0,
-        net_actual_donate_rate_delta1
-    )
-    VALUES (
-        p_pool_key_id,
-        p_time,
-        p_stored_delta0,
-        p_stored_delta1,
-        p_actual_delta0,
-        p_actual_delta1
-    )
+    INSERT INTO boosted_fees_donate_rate_deltas AS t (pool_key_id,
+                                                      "time",
+                                                      net_donate_rate_delta0,
+                                                      net_donate_rate_delta1)
+    VALUES (p_pool_key_id,
+            p_time,
+            p_delta0,
+            p_delta1)
     ON CONFLICT (pool_key_id, "time") DO UPDATE
-    SET net_stored_donate_rate_delta0 = t.net_stored_donate_rate_delta0 + EXCLUDED.net_stored_donate_rate_delta0,
-        net_stored_donate_rate_delta1 = t.net_stored_donate_rate_delta1 + EXCLUDED.net_stored_donate_rate_delta1,
-        net_actual_donate_rate_delta0 = t.net_actual_donate_rate_delta0 + EXCLUDED.net_actual_donate_rate_delta0,
-        net_actual_donate_rate_delta1 = t.net_actual_donate_rate_delta1 + EXCLUDED.net_actual_donate_rate_delta1;
+        SET net_donate_rate_delta0 = t.net_donate_rate_delta0 + excluded.net_donate_rate_delta0,
+            net_donate_rate_delta1 = t.net_donate_rate_delta1 + excluded.net_donate_rate_delta1;
 
-    DELETE FROM boosted_fees_donate_rate_deltas
+    DELETE
+    FROM boosted_fees_donate_rate_deltas
     WHERE pool_key_id = p_pool_key_id
       AND "time" = p_time
-      AND net_stored_donate_rate_delta0 = 0
-      AND net_stored_donate_rate_delta1 = 0
-      AND net_actual_donate_rate_delta0 = 0
-      AND net_actual_donate_rate_delta1 = 0;
+      AND net_donate_rate_delta0 = 0
+      AND net_donate_rate_delta1 = 0;
 END
 $$;
 
-CREATE FUNCTION trg_boosted_fees_events_to_deltas()
-    RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE
-    o_pool int8;
-    o_start timestamptz;
-    o_end timestamptz;
-    o_rate0 numeric;
-    o_rate1 numeric;
-    o_block_time timestamptz;
-    o_actual_start timestamptz;
-    n_pool int8;
-    n_start timestamptz;
-    n_end timestamptz;
-    n_rate0 numeric;
-    n_rate1 numeric;
-    n_block_time timestamptz;
-    n_actual_start timestamptz;
+CREATE FUNCTION trg_boosted_fees_events_on_insert()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql AS
+$$
 BEGIN
-    IF TG_OP = 'INSERT' THEN
-        n_pool := NEW.pool_key_id;
-        n_start := NEW.start_time;
-        n_end := NEW.end_time;
-        n_rate0 := NEW.rate0;
-        n_rate1 := NEW.rate1;
-        n_block_time := NEW.block_time;
-
-        PERFORM apply_boosted_fees_donate_rate_delta(n_pool, n_start, n_rate0, n_rate1, 0, 0);
-        PERFORM apply_boosted_fees_donate_rate_delta(n_pool, n_end, -n_rate0, -n_rate1, 0, 0);
-
-        n_actual_start := GREATEST(n_start, n_block_time);
-        IF n_actual_start < n_end THEN
-            PERFORM apply_boosted_fees_donate_rate_delta(n_pool, n_actual_start, 0, 0, n_rate0, n_rate1);
-            PERFORM apply_boosted_fees_donate_rate_delta(n_pool, n_end, 0, 0, -n_rate0, -n_rate1);
-        END IF;
-
-        RETURN NEW;
-    ELSE
-        o_pool := OLD.pool_key_id;
-        o_start := OLD.start_time;
-        o_end := OLD.end_time;
-        o_rate0 := OLD.rate0;
-        o_rate1 := OLD.rate1;
-        o_block_time := OLD.block_time;
-
-        PERFORM apply_boosted_fees_donate_rate_delta(o_pool, o_start, -o_rate0, -o_rate1, 0, 0);
-        PERFORM apply_boosted_fees_donate_rate_delta(o_pool, o_end, o_rate0, o_rate1, 0, 0);
-
-        o_actual_start := GREATEST(o_start, o_block_time);
-        IF o_actual_start < o_end THEN
-            PERFORM apply_boosted_fees_donate_rate_delta(o_pool, o_actual_start, 0, 0, -o_rate0, -o_rate1);
-            PERFORM apply_boosted_fees_donate_rate_delta(o_pool, o_end, 0, 0, o_rate0, o_rate1);
-        END IF;
-
-        RETURN OLD;
-    END IF;
+    PERFORM apply_boosted_fees_donate_rate_delta(new.pool_key_id, new.start_time, new.rate0, new.rate1);
+    PERFORM apply_boosted_fees_donate_rate_delta(new.pool_key_id, new.end_time, -new.rate0, -new.rate1);
+    RETURN new;
 END
 $$;
 
-CREATE TRIGGER trg_boosted_fees_events_to_deltas
-    AFTER INSERT OR DELETE ON boosted_fees_events
+CREATE FUNCTION trg_boosted_fees_events_on_delete()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql AS
+$$
+BEGIN
+    PERFORM apply_boosted_fees_donate_rate_delta(old.pool_key_id, old.start_time, -old.rate0, -old.rate1);
+    PERFORM apply_boosted_fees_donate_rate_delta(old.pool_key_id, old.end_time, old.rate0, old.rate1);
+    RETURN old;
+END
+$$;
+
+CREATE TRIGGER trg_boosted_fees_events_on_insert
+    AFTER INSERT
+    ON boosted_fees_events
     FOR EACH ROW
-EXECUTE FUNCTION trg_boosted_fees_events_to_deltas();
+EXECUTE FUNCTION trg_boosted_fees_events_on_insert();
+
+CREATE TRIGGER trg_boosted_fees_events_on_delete
+    AFTER DELETE
+    ON boosted_fees_events
+    FOR EACH ROW
+EXECUTE FUNCTION trg_boosted_fees_events_on_delete();
 
 DROP VIEW IF EXISTS all_pool_states_view;
 
@@ -301,9 +301,9 @@ SELECT pk.pool_key_id,
        bps.donate_rate0                                          AS boosted_fees_donate_rate0,
        bps.donate_rate1                                          AS boosted_fees_donate_rate1,
        (SELECT JSONB_AGG(JSONB_BUILD_OBJECT('t', EXTRACT(EPOCH FROM bfrd.time)::int8, 's0',
-                                            bfrd.net_actual_donate_rate_delta0::TEXT,
+                                            bfrd.net_donate_rate_delta0::TEXT,
                                             's1',
-                                            bfrd.net_actual_donate_rate_delta1::TEXT) ORDER BY bfrd.time)
+                                            bfrd.net_donate_rate_delta1::TEXT) ORDER BY bfrd.time)
         FROM boosted_fees_donate_rate_deltas bfrd
         WHERE bfrd.pool_key_id = pk.pool_key_id
           AND bfrd.time > bps.last_donated_time)                 AS boosted_fees_donations,

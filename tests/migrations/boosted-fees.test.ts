@@ -137,49 +137,31 @@ test("boosted fee deltas track stored and actual rates", async () => {
 
   const { rows } = await client.query<{
     time: string;
-    net_stored_donate_rate_delta0: string;
-    net_stored_donate_rate_delta1: string;
-    net_actual_donate_rate_delta0: string;
-    net_actual_donate_rate_delta1: string;
+    net_donate_rate_delta0: string;
+    net_donate_rate_delta1: string;
   }>(
     `SELECT "time",
-            net_stored_donate_rate_delta0,
-            net_stored_donate_rate_delta1,
-            net_actual_donate_rate_delta0,
-            net_actual_donate_rate_delta1
+            net_donate_rate_delta0,
+            net_donate_rate_delta1
      FROM boosted_fees_donate_rate_deltas
      WHERE pool_key_id = $1
      ORDER BY "time"`,
     [poolKeyId]
   );
 
-  const expectedTimes = [
-    startTime.toISOString(),
-    blockTime.toISOString(),
-    endTime.toISOString(),
-  ];
+  const expectedTimes = [startTime.toISOString(), endTime.toISOString()];
 
-  expect(rows).toHaveLength(3);
+  expect(rows).toHaveLength(2);
   rows.forEach((row, index) => {
     expect(new Date(row.time).toISOString()).toBe(expectedTimes[index]);
   });
   expect(rows[0]).toMatchObject({
-    net_stored_donate_rate_delta0: "100",
-    net_stored_donate_rate_delta1: "200",
-    net_actual_donate_rate_delta0: "0",
-    net_actual_donate_rate_delta1: "0",
+    net_donate_rate_delta0: "100",
+    net_donate_rate_delta1: "200",
   });
   expect(rows[1]).toMatchObject({
-    net_stored_donate_rate_delta0: "0",
-    net_stored_donate_rate_delta1: "0",
-    net_actual_donate_rate_delta0: "100",
-    net_actual_donate_rate_delta1: "200",
-  });
-  expect(rows[2]).toMatchObject({
-    net_stored_donate_rate_delta0: "-100",
-    net_stored_donate_rate_delta1: "-200",
-    net_actual_donate_rate_delta0: "-100",
-    net_actual_donate_rate_delta1: "-200",
+    net_donate_rate_delta0: "-100",
+    net_donate_rate_delta1: "-200",
   });
 
   await client.query(
@@ -279,16 +261,12 @@ test("actual boosted fee deltas skip boosts entirely in the past", async () => {
 
   const { rows } = await client.query<{
     time: string;
-    net_stored_donate_rate_delta0: string;
-    net_stored_donate_rate_delta1: string;
-    net_actual_donate_rate_delta0: string;
-    net_actual_donate_rate_delta1: string;
+    net_donate_rate_delta0: string;
+    net_donate_rate_delta1: string;
   }>(
     `SELECT "time",
-            net_stored_donate_rate_delta0,
-            net_stored_donate_rate_delta1,
-            net_actual_donate_rate_delta0,
-            net_actual_donate_rate_delta1
+            net_donate_rate_delta0,
+            net_donate_rate_delta1
      FROM boosted_fees_donate_rate_deltas
      WHERE pool_key_id = $1
      ORDER BY "time"`,
@@ -297,15 +275,11 @@ test("actual boosted fee deltas skip boosts entirely in the past", async () => {
 
   expect(rows).toHaveLength(2);
   expect(rows[0]).toMatchObject({
-    net_stored_donate_rate_delta0: "50",
-    net_stored_donate_rate_delta1: "75",
-    net_actual_donate_rate_delta0: "0",
-    net_actual_donate_rate_delta1: "0",
+    net_donate_rate_delta0: "50",
+    net_donate_rate_delta1: "75",
   });
   expect(rows[1]).toMatchObject({
-    net_stored_donate_rate_delta0: "-50",
-    net_stored_donate_rate_delta1: "-75",
-    net_actual_donate_rate_delta0: "0",
-    net_actual_donate_rate_delta1: "0",
+    net_donate_rate_delta0: "-50",
+    net_donate_rate_delta1: "-75",
   });
 });
