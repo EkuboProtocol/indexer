@@ -165,6 +165,22 @@ export interface TwammVirtualOrdersExecutedInsert {
   saleRateToken1: bigint;
 }
 
+export interface BoostedFeesDonatedInsert {
+  coreAddress: `0x${string}`;
+  poolId: `0x${string}`;
+  donateRate0: bigint;
+  donateRate1: bigint;
+}
+
+export interface BoostedFeesPoolBoostedInsert {
+  coreAddress: `0x${string}`;
+  poolId: `0x${string}`;
+  startTime: bigint;
+  endTime: bigint;
+  rate0: bigint;
+  rate1: bigint;
+}
+
 export interface OracleSnapshotInsert {
   token0: AddressValue;
   token1: AddressValue;
@@ -1437,6 +1453,64 @@ export class DAO {
         ),
         ${this.numeric(event.saleRateToken0)},
         ${this.numeric(event.saleRateToken1)}
+      );
+    `;
+  }
+
+  public async insertBoostedFeesDonatedEvent(
+    event: BoostedFeesDonatedInsert,
+    key: EventKey
+  ) {
+    await this.sql`
+      INSERT INTO boosted_fees_donated
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, donate_rate0, donate_rate1)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pk.pool_key_id
+          FROM pool_keys pk
+          WHERE pk.chain_id = ${this.chainId}
+            AND pk.core_address = ${this.numeric(event.coreAddress)}
+            AND pk.pool_id = ${this.numeric(event.poolId)}
+        ),
+        ${this.numeric(event.donateRate0)},
+        ${this.numeric(event.donateRate1)}
+      );
+    `;
+  }
+
+  public async insertBoostedFeesPoolBoostedEvent(
+    event: BoostedFeesPoolBoostedInsert,
+    key: EventKey
+  ) {
+    await this.sql`
+      INSERT INTO boosted_fees_events
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, start_time, end_time, rate0, rate1)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pk.pool_key_id
+          FROM pool_keys pk
+          WHERE pk.chain_id = ${this.chainId}
+            AND pk.core_address = ${this.numeric(event.coreAddress)}
+            AND pk.pool_id = ${this.numeric(event.poolId)}
+        ),
+        ${new Date(Number(event.startTime * 1000n))},
+        ${new Date(Number(event.endTime * 1000n))},
+        ${this.numeric(event.rate0)},
+        ${this.numeric(event.rate1)}
       );
     `;
   }

@@ -93,6 +93,10 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-02-01: Boosted fees indexing and pool flags
+
+Boosted fees now write to `boosted_fees_events`, `boosted_fees_donate_rate_deltas`, and `boosted_fees_donated`, while `all_pool_states_view` now exposes the boosted fee donate rates plus the last donated time and future deltas. Run migrations before deploying any consumers that read the view or expect boosted-fee schedules.
+
 ### 2026-01-05: Incentives campaigns scoped to core/licensee
 
 Incentives campaigns now require a single `core_address` and support optional locker/licensee filters (`allowed_lockers`). Run the migrations before computing rewards, and refresh `incentives.campaign_rewards_overview_materialized` after deploy so the updated filtering is reflected in dashboards.

@@ -133,6 +133,7 @@ function resetNoBlocksTimer() {
     NETWORK_TYPE === "evm"
       ? loadHexAddresses({
           mevCaptureAddress: "MEV_CAPTURE_V3_ADDRESS",
+          boostedFeesAddress: "BOOSTED_FEES_V3_ADDRESS",
           coreAddress: "CORE_V3_ADDRESS",
           oracleAddress: "ORACLE_V3_ADDRESS",
           twammAddress: "TWAMM_V3_ADDRESS",
