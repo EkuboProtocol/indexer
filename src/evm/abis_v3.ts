@@ -4871,516 +4871,516 @@ export const TOKEN_WRAPPER_FACTORY_ABI = [
 
 export const BOOSTED_FEES_ABI = [
   {
-    "type": "constructor",
-    "inputs": [
+    type: "constructor",
+    inputs: [
       {
-        "name": "core",
-        "type": "address",
-        "internalType": "contract ICore"
-      }
+        name: "core",
+        type: "address",
+        internalType: "contract ICore",
+      },
     ],
-    "stateMutability": "nonpayable"
+    stateMutability: "nonpayable",
   },
   {
-    "type": "function",
-    "name": "afterCollectFees",
-    "inputs": [
+    type: "function",
+    name: "afterCollectFees",
+    inputs: [
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "Locker"
+        name: "",
+        type: "bytes32",
+        internalType: "Locker",
       },
       {
-        "name": "",
-        "type": "tuple",
-        "internalType": "struct PoolKey",
-        "components": [
+        name: "",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
           {
-            "name": "token0",
-            "type": "address",
-            "internalType": "address"
+            name: "token0",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "token1",
-            "type": "address",
-            "internalType": "address"
+            name: "token1",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "config",
-            "type": "bytes32",
-            "internalType": "PoolConfig"
-          }
-        ]
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
       },
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "PositionId"
+        name: "",
+        type: "bytes32",
+        internalType: "PositionId",
       },
       {
-        "name": "",
-        "type": "uint128",
-        "internalType": "uint128"
+        name: "",
+        type: "uint128",
+        internalType: "uint128",
       },
       {
-        "name": "",
-        "type": "uint128",
-        "internalType": "uint128"
-      }
+        name: "",
+        type: "uint128",
+        internalType: "uint128",
+      },
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    outputs: [],
+    stateMutability: "nonpayable",
   },
   {
-    "type": "function",
-    "name": "afterInitializePool",
-    "inputs": [
+    type: "function",
+    name: "afterInitializePool",
+    inputs: [
       {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
+        name: "",
+        type: "address",
+        internalType: "address",
       },
       {
-        "name": "poolKey",
-        "type": "tuple",
-        "internalType": "struct PoolKey",
-        "components": [
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
           {
-            "name": "token0",
-            "type": "address",
-            "internalType": "address"
+            name: "token0",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "token1",
-            "type": "address",
-            "internalType": "address"
+            name: "token1",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "config",
-            "type": "bytes32",
-            "internalType": "PoolConfig"
-          }
-        ]
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
       },
       {
-        "name": "",
-        "type": "int32",
-        "internalType": "int32"
+        name: "",
+        type: "int32",
+        internalType: "int32",
       },
       {
-        "name": "",
-        "type": "uint96",
-        "internalType": "SqrtRatio"
-      }
+        name: "",
+        type: "uint96",
+        internalType: "SqrtRatio",
+      },
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    outputs: [],
+    stateMutability: "nonpayable",
   },
   {
-    "type": "function",
-    "name": "afterSwap",
-    "inputs": [
+    type: "function",
+    name: "afterSwap",
+    inputs: [
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "Locker"
+        name: "",
+        type: "bytes32",
+        internalType: "Locker",
       },
       {
-        "name": "",
-        "type": "tuple",
-        "internalType": "struct PoolKey",
-        "components": [
+        name: "",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
           {
-            "name": "token0",
-            "type": "address",
-            "internalType": "address"
+            name: "token0",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "token1",
-            "type": "address",
-            "internalType": "address"
+            name: "token1",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "config",
-            "type": "bytes32",
-            "internalType": "PoolConfig"
-          }
-        ]
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
       },
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "SwapParameters"
+        name: "",
+        type: "bytes32",
+        internalType: "SwapParameters",
       },
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "PoolBalanceUpdate"
+        name: "",
+        type: "bytes32",
+        internalType: "PoolBalanceUpdate",
       },
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "PoolState"
-      }
+        name: "",
+        type: "bytes32",
+        internalType: "PoolState",
+      },
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    outputs: [],
+    stateMutability: "nonpayable",
   },
   {
-    "type": "function",
-    "name": "afterUpdatePosition",
-    "inputs": [
+    type: "function",
+    name: "afterUpdatePosition",
+    inputs: [
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "Locker"
+        name: "",
+        type: "bytes32",
+        internalType: "Locker",
       },
       {
-        "name": "",
-        "type": "tuple",
-        "internalType": "struct PoolKey",
-        "components": [
+        name: "",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
           {
-            "name": "token0",
-            "type": "address",
-            "internalType": "address"
+            name: "token0",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "token1",
-            "type": "address",
-            "internalType": "address"
+            name: "token1",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "config",
-            "type": "bytes32",
-            "internalType": "PoolConfig"
-          }
-        ]
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
       },
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "PositionId"
+        name: "",
+        type: "bytes32",
+        internalType: "PositionId",
       },
       {
-        "name": "",
-        "type": "int128",
-        "internalType": "int128"
+        name: "",
+        type: "int128",
+        internalType: "int128",
       },
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "PoolBalanceUpdate"
+        name: "",
+        type: "bytes32",
+        internalType: "PoolBalanceUpdate",
       },
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "PoolState"
-      }
+        name: "",
+        type: "bytes32",
+        internalType: "PoolState",
+      },
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    outputs: [],
+    stateMutability: "nonpayable",
   },
   {
-    "type": "function",
-    "name": "beforeCollectFees",
-    "inputs": [
+    type: "function",
+    name: "beforeCollectFees",
+    inputs: [
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "Locker"
+        name: "",
+        type: "bytes32",
+        internalType: "Locker",
       },
       {
-        "name": "poolKey",
-        "type": "tuple",
-        "internalType": "struct PoolKey",
-        "components": [
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
           {
-            "name": "token0",
-            "type": "address",
-            "internalType": "address"
+            name: "token0",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "token1",
-            "type": "address",
-            "internalType": "address"
+            name: "token1",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "config",
-            "type": "bytes32",
-            "internalType": "PoolConfig"
-          }
-        ]
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
       },
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "PositionId"
-      }
+        name: "",
+        type: "bytes32",
+        internalType: "PositionId",
+      },
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    outputs: [],
+    stateMutability: "nonpayable",
   },
   {
-    "type": "function",
-    "name": "beforeInitializePool",
-    "inputs": [
+    type: "function",
+    name: "beforeInitializePool",
+    inputs: [
       {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
+        name: "",
+        type: "address",
+        internalType: "address",
       },
       {
-        "name": "",
-        "type": "tuple",
-        "internalType": "struct PoolKey",
-        "components": [
+        name: "",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
           {
-            "name": "token0",
-            "type": "address",
-            "internalType": "address"
+            name: "token0",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "token1",
-            "type": "address",
-            "internalType": "address"
+            name: "token1",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "config",
-            "type": "bytes32",
-            "internalType": "PoolConfig"
-          }
-        ]
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
       },
       {
-        "name": "",
-        "type": "int32",
-        "internalType": "int32"
-      }
+        name: "",
+        type: "int32",
+        internalType: "int32",
+      },
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    outputs: [],
+    stateMutability: "nonpayable",
   },
   {
-    "type": "function",
-    "name": "beforeSwap",
-    "inputs": [
+    type: "function",
+    name: "beforeSwap",
+    inputs: [
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "Locker"
+        name: "",
+        type: "bytes32",
+        internalType: "Locker",
       },
       {
-        "name": "poolKey",
-        "type": "tuple",
-        "internalType": "struct PoolKey",
-        "components": [
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
           {
-            "name": "token0",
-            "type": "address",
-            "internalType": "address"
+            name: "token0",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "token1",
-            "type": "address",
-            "internalType": "address"
+            name: "token1",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "config",
-            "type": "bytes32",
-            "internalType": "PoolConfig"
-          }
-        ]
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
       },
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "SwapParameters"
-      }
+        name: "",
+        type: "bytes32",
+        internalType: "SwapParameters",
+      },
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    outputs: [],
+    stateMutability: "nonpayable",
   },
   {
-    "type": "function",
-    "name": "beforeUpdatePosition",
-    "inputs": [
+    type: "function",
+    name: "beforeUpdatePosition",
+    inputs: [
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "Locker"
+        name: "",
+        type: "bytes32",
+        internalType: "Locker",
       },
       {
-        "name": "poolKey",
-        "type": "tuple",
-        "internalType": "struct PoolKey",
-        "components": [
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
           {
-            "name": "token0",
-            "type": "address",
-            "internalType": "address"
+            name: "token0",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "token1",
-            "type": "address",
-            "internalType": "address"
+            name: "token1",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "config",
-            "type": "bytes32",
-            "internalType": "PoolConfig"
-          }
-        ]
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
       },
       {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "PositionId"
+        name: "",
+        type: "bytes32",
+        internalType: "PositionId",
       },
       {
-        "name": "",
-        "type": "int128",
-        "internalType": "int128"
-      }
+        name: "",
+        type: "int128",
+        internalType: "int128",
+      },
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    outputs: [],
+    stateMutability: "nonpayable",
   },
   {
-    "type": "function",
-    "name": "forwarded_2374103877",
-    "inputs": [
+    type: "function",
+    name: "forwarded_2374103877",
+    inputs: [
       {
-        "name": "original",
-        "type": "bytes32",
-        "internalType": "Locker"
-      }
+        name: "original",
+        type: "bytes32",
+        internalType: "Locker",
+      },
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    outputs: [],
+    stateMutability: "nonpayable",
   },
   {
-    "type": "function",
-    "name": "locked_6416899205",
-    "inputs": [
+    type: "function",
+    name: "locked_6416899205",
+    inputs: [
       {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
+      },
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    outputs: [],
+    stateMutability: "nonpayable",
   },
   {
-    "type": "function",
-    "name": "maybeAccumulateFees",
-    "inputs": [
+    type: "function",
+    name: "maybeAccumulateFees",
+    inputs: [
       {
-        "name": "poolKey",
-        "type": "tuple",
-        "internalType": "struct PoolKey",
-        "components": [
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
           {
-            "name": "token0",
-            "type": "address",
-            "internalType": "address"
+            name: "token0",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "token1",
-            "type": "address",
-            "internalType": "address"
+            name: "token1",
+            type: "address",
+            internalType: "address",
           },
           {
-            "name": "config",
-            "type": "bytes32",
-            "internalType": "PoolConfig"
-          }
-        ]
-      }
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
+      },
     ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
+    outputs: [],
+    stateMutability: "nonpayable",
   },
   {
-    "type": "function",
-    "name": "sload",
-    "inputs": [],
-    "outputs": [],
-    "stateMutability": "view"
+    type: "function",
+    name: "sload",
+    inputs: [],
+    outputs: [],
+    stateMutability: "view",
   },
   {
-    "type": "function",
-    "name": "tload",
-    "inputs": [],
-    "outputs": [],
-    "stateMutability": "view"
+    type: "function",
+    name: "tload",
+    inputs: [],
+    outputs: [],
+    stateMutability: "view",
   },
   {
-    "type": "event",
-    "name": "PoolBoosted",
-    "inputs": [
+    type: "event",
+    name: "PoolBoosted",
+    inputs: [
       {
-        "name": "poolId",
-        "type": "bytes32",
-        "indexed": false,
-        "internalType": "PoolId"
+        name: "poolId",
+        type: "bytes32",
+        indexed: false,
+        internalType: "PoolId",
       },
       {
-        "name": "startTime",
-        "type": "uint64",
-        "indexed": false,
-        "internalType": "uint64"
+        name: "startTime",
+        type: "uint64",
+        indexed: false,
+        internalType: "uint64",
       },
       {
-        "name": "endTime",
-        "type": "uint64",
-        "indexed": false,
-        "internalType": "uint64"
+        name: "endTime",
+        type: "uint64",
+        indexed: false,
+        internalType: "uint64",
       },
       {
-        "name": "rate0",
-        "type": "uint128",
-        "indexed": false,
-        "internalType": "uint128"
+        name: "rate0",
+        type: "uint112",
+        indexed: false,
+        internalType: "uint112",
       },
       {
-        "name": "rate1",
-        "type": "uint128",
-        "indexed": false,
-        "internalType": "uint128"
-      }
+        name: "rate1",
+        type: "uint112",
+        indexed: false,
+        internalType: "uint112",
+      },
     ],
-    "anonymous": false
+    anonymous: false,
   },
   {
-    "type": "error",
-    "name": "BaseForwardeeAccountantOnly",
-    "inputs": []
+    type: "error",
+    name: "BaseForwardeeAccountantOnly",
+    inputs: [],
   },
   {
-    "type": "error",
-    "name": "CallPointNotImplemented",
-    "inputs": []
+    type: "error",
+    name: "CallPointNotImplemented",
+    inputs: [],
   },
   {
-    "type": "error",
-    "name": "CoreOnly",
-    "inputs": []
+    type: "error",
+    name: "CoreOnly",
+    inputs: [],
   },
   {
-    "type": "error",
-    "name": "InvalidTimestamps",
-    "inputs": []
+    type: "error",
+    name: "InvalidTimestamps",
+    inputs: [],
   },
   {
-    "type": "error",
-    "name": "MaxRateDeltaPerTime",
-    "inputs": []
+    type: "error",
+    name: "MaxRateDeltaPerTime",
+    inputs: [],
   },
   {
-    "type": "error",
-    "name": "PoolNotInitialized",
-    "inputs": []
-  }
-]as const;
+    type: "error",
+    name: "PoolNotInitialized",
+    inputs: [],
+  },
+] as const;
