@@ -13,11 +13,11 @@ import { createClient, Metadata } from "@apibara/protocol";
 import { msToHumanShort } from "./_shared/msToHumanShort";
 import { loadHexAddresses } from "./_shared/loadHexAddresses";
 import { createRpcClient } from "@apibara/protocol/rpc";
-import { createPublicClient, fallback, http, webSocket } from "viem";
+import { createPublicClient, fallback } from "viem";
 import { EvmLogProcessor } from "./evm/logProcessorsShared";
 
 function isNetworkTypeValid(
-  networkType: string | undefined
+  networkType: string | undefined,
 ): networkType is "starknet" | "evm" {
   return Boolean(networkType && ["starknet", "evm"].includes(networkType));
 }
@@ -46,7 +46,7 @@ let noBlocksTimer: NodeJS.Timeout | null = null;
 
 const statsBlockIntervalRaw = parseInt(
   process.env.EVENT_STATS_BLOCK_INTERVAL || "100",
-  10
+  10,
 );
 const EVENT_STATS_BLOCK_INTERVAL = Number.isNaN(statsBlockIntervalRaw)
   ? 100
@@ -70,8 +70,8 @@ function resetNoBlocksTimer() {
       logger.error(
         `No blocks received in the last ${msToHumanShort(
           NO_BLOCKS_TIMEOUT_MS,
-          2
-        )}. Exiting process.`
+          2,
+        )}. Exiting process.`,
       );
       process.exit(1);
     }, NO_BLOCKS_TIMEOUT_MS);
@@ -101,7 +101,7 @@ function resetNoBlocksTimer() {
             orderKey: BigInt(process.env.STARTING_CURSOR_BLOCK_NUMBER!),
           },
           // should never happen but so this will cause it to revert if there's a race condition
-          { orderKey: 0n }
+          { orderKey: 0n },
         );
       }
     });
@@ -133,7 +133,9 @@ function resetNoBlocksTimer() {
     NETWORK_TYPE === "evm"
       ? loadHexAddresses({
           mevCaptureAddress: "MEV_CAPTURE_V3_ADDRESS",
-          boostedFeesAddress: "BOOSTED_FEES_V3_ADDRESS",
+          boostedFeesConcentratedAddress:
+            "BOOSTED_FEES_CONCENTRATED_V3_ADDRESS",
+          boostedFeesStableswapAddress: "BOOSTED_FEES_STABLESWAP_V3_ADDRESS",
           coreAddress: "CORE_V3_ADDRESS",
           oracleAddress: "ORACLE_V3_ADDRESS",
           twammAddress: "TWAMM_V3_ADDRESS",
@@ -146,7 +148,7 @@ function resetNoBlocksTimer() {
   const positionsV3ProtocolFeeConfigs =
     NETWORK_TYPE === "evm"
       ? parsePositionsProtocolFeeConfigs(
-          process.env.POSITIONS_V3_PROTOCOL_FEE_CONFIGS
+          process.env.POSITIONS_V3_PROTOCOL_FEE_CONFIGS,
         )
       : undefined;
 
@@ -234,7 +236,7 @@ function resetNoBlocksTimer() {
     NETWORK_TYPE === "evm" && evmRpcTransports.length > 0
       ? createPublicClient({
           transport: fallback(
-            evmRpcTransports.map(({ transport }) => transport)
+            evmRpcTransports.map(({ transport }) => transport),
           ),
         })
       : null;
@@ -248,9 +250,9 @@ function resetNoBlocksTimer() {
           chainId: BigInt(
             await createPublicClient({
               transport,
-            }).getChainId()
+            }).getChainId(),
           ),
-        }))
+        })),
       ),
     ]);
 
@@ -265,7 +267,7 @@ function resetNoBlocksTimer() {
         .join(", ");
 
       throw new Error(
-        `EVM_RPC_URL transports return chain IDs [${transportDetails}] which conflict with environment chain ID ${chainId}`
+        `EVM_RPC_URL transports return chain IDs [${transportDetails}] which conflict with environment chain ID ${chainId}`,
       );
     }
   }
@@ -282,17 +284,17 @@ function resetNoBlocksTimer() {
               // This parameter changes based on the rpc provider.
               // The stream automatically shrinks the batch size when the provider returns an error.
               getLogsRangeSize: BigInt(
-                process.env.GET_LOGS_RANGE_SIZE ?? 1_000_000n
+                process.env.GET_LOGS_RANGE_SIZE ?? 1_000_000n,
               ),
               alwaysSendAcceptedHeaders: true,
               mergeGetLogsFilter:
                 MERGE_GET_LOGS_FILTER &&
                 ["always", "accepted"].includes(
-                  MERGE_GET_LOGS_FILTER.toLowerCase()
+                  MERGE_GET_LOGS_FILTER.toLowerCase(),
                 )
                   ? (MERGE_GET_LOGS_FILTER as "always" | "accepted")
                   : false,
-            })
+            }),
           ).streamData({
             ...streamOptions,
             filter: [
@@ -395,11 +397,11 @@ function resetNoBlocksTimer() {
 
           await dao.begin(async (dao) => {
             await dao.deleteOldBlockNumbers(
-              Number(invalidatedCursor.orderKey) + 1
+              Number(invalidatedCursor.orderKey) + 1,
             );
             currentCursor = await dao.writeCursor(
               invalidatedCursor,
-              currentCursor
+              currentCursor,
             );
           });
         }
@@ -428,11 +430,11 @@ function resetNoBlocksTimer() {
             NETWORK_TYPE === "evm"
               ? (block as EvmBlock).logs.reduce(
                   (total, log) => total + (log.filterIds?.length ?? 0),
-                  0
+                  0,
                 )
               : (block as StarknetBlock).events.reduce(
                   (total, event) => total + (event.filterIds?.length ?? 0),
-                  0
+                  0,
                 );
 
           let eventsProcessed = 0;
@@ -483,9 +485,9 @@ function resetNoBlocksTimer() {
                       {
                         topics: log.topics,
                         data: log.data,
-                      }
+                      },
                     );
-                  })
+                  }),
                 );
               }
             } else if (NETWORK_TYPE === "starknet") {
@@ -505,7 +507,7 @@ function resetNoBlocksTimer() {
                     const processor = starknetProcessors[matchingFilterId - 1]!;
                     const { value: parsed } = processor.parser(event.data, 0);
                     await processor.handle(dao, { key: eventKey, parsed });
-                  })
+                  }),
                 );
               }
             }

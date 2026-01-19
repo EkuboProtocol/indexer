@@ -4878,6 +4878,11 @@ export const BOOSTED_FEES_ABI = [
         type: "address",
         internalType: "contract ICore",
       },
+      {
+        name: "_concentratedLiquidity",
+        type: "bool",
+        internalType: "bool",
+      },
     ],
     stateMutability: "nonpayable",
   },
@@ -5248,6 +5253,19 @@ export const BOOSTED_FEES_ABI = [
   },
   {
     type: "function",
+    name: "concentratedLiquidity",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
     name: "forwarded_2374103877",
     inputs: [
       {
@@ -5366,6 +5384,11 @@ export const BOOSTED_FEES_ABI = [
   {
     type: "error",
     name: "CoreOnly",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "IncorrectPoolType",
     inputs: [],
   },
   {

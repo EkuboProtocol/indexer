@@ -31,7 +31,8 @@ import {
 
 export interface LogProcessorConfigV3 {
   mevCaptureAddress: `0x${string}`;
-  boostedFeesAddress: `0x${string}`;
+  boostedFeesConcentratedAddress: `0x${string}`;
+  boostedFeesStableswapAddress: `0x${string}`;
   coreAddress: `0x${string}`;
   oracleAddress: `0x${string}`;
   twammAddress: `0x${string}`;
@@ -48,12 +49,14 @@ type ProcessorDefinitionsV3 = {
   Orders: ContractHandlers<typeof ORDERS_ABI_V3>;
   Incentives: ContractHandlers<typeof INCENTIVES_ABI_V3>;
   TokenWrapperFactory: ContractHandlers<typeof TOKEN_WRAPPER_FACTORY_ABI_V3>;
-  BoostedFees: ContractHandlers<typeof BOOSTED_FEES_ABI_V3>;
+  BoostedFeesConcentrated: ContractHandlers<typeof BOOSTED_FEES_ABI_V3>;
+  BoostedFeesStableswap: ContractHandlers<typeof BOOSTED_FEES_ABI_V3>;
 };
 
 export function createLogProcessorsV3({
   mevCaptureAddress,
-  boostedFeesAddress,
+  boostedFeesConcentratedAddress,
+  boostedFeesStableswapAddress,
   coreAddress,
   oracleAddress,
   twammAddress,
@@ -72,6 +75,41 @@ export function createLogProcessorsV3({
   for (const config of positionsContracts ?? []) {
     positionsConfigMap.set(BigInt(config.address), config);
   }
+
+  const boostedFeesHandler: Pick<
+    ContractHandlers<typeof BOOSTED_FEES_ABI_V3>,
+    "abi" | "handlers" | "noTopics"
+  > = {
+    abi: BOOSTED_FEES_ABI_V3,
+    async noTopics(dao, key, data) {
+      if (!data) throw new Error("Event with no data from BoostedFees");
+      const event = parseTwammVirtualOrdersExecuted(data);
+      await dao.insertBoostedFeesDonatedEvent(
+        {
+          coreAddress,
+          poolId: event.poolId,
+          donateRate0: event.saleRateToken0,
+          donateRate1: event.saleRateToken1,
+        },
+        key,
+      );
+    },
+    handlers: {
+      async PoolBoosted(dao, key, parsed) {
+        await dao.insertBoostedFeesPoolBoostedEvent(
+          {
+            coreAddress,
+            poolId: parsed.poolId,
+            startTime: parsed.startTime,
+            endTime: parsed.endTime,
+            rate0: parsed.rate0,
+            rate1: parsed.rate1,
+          },
+          key,
+        );
+      },
+    },
+  };
 
   const processors: ProcessorDefinitionsV3 = {
     Core: {
@@ -120,7 +158,7 @@ export function createLogProcessorsV3({
         async PositionUpdated(dao, key, parsed) {
           const params = parsePositionId(parsed.positionId);
           const { delta0, delta1 } = parsePoolBalanceUpdate(
-            parsed.balanceUpdate
+            parsed.balanceUpdate,
           );
           const positionUpdate = {
             params: {
@@ -138,7 +176,7 @@ export function createLogProcessorsV3({
           };
 
           const withdrawalProtocolFee = positionsConfigMap.get(
-            BigInt(parsed.locker)
+            BigInt(parsed.locker),
           )?.withdrawalProtocolFeeDivisor;
 
           await dao.insertPositionUpdatedEvent(positionUpdate, key);
@@ -161,7 +199,7 @@ export function createLogProcessorsV3({
                 amount1: withdrawalAmount1,
                 withdrawalProtocolFeeDivisor: withdrawalProtocolFee,
               },
-              key
+              key,
             );
           }
         },
@@ -178,11 +216,11 @@ export function createLogProcessorsV3({
                 salt: params.salt,
               },
             },
-            key
+            key,
           );
 
           const swapProtocolFee = positionsConfigMap.get(
-            BigInt(parsed.locker)
+            BigInt(parsed.locker),
           )?.swapProtocolFee;
 
           if (swapProtocolFee && swapProtocolFee > 0n) {
@@ -199,7 +237,7 @@ export function createLogProcessorsV3({
                   amount0: protocolFee0,
                   amount1: protocolFee1,
                 },
-                key
+                key,
               );
             }
           }
@@ -227,7 +265,7 @@ export function createLogProcessorsV3({
             tickCumulative: event.tickCumulative,
             timestamp: event.timestamp,
           },
-          key
+          key,
         );
       },
     },
@@ -239,13 +277,13 @@ export function createLogProcessorsV3({
         const event = parseTwammVirtualOrdersExecuted(data);
         await dao.insertTWAMMVirtualOrdersExecutedEvent(
           { ...event, coreAddress },
-          key
+          key,
         );
       },
       handlers: {
         async OrderUpdated(dao, key, parsed) {
           const { startTime, endTime, fee, isToken1 } = parseOrderConfig(
-            parsed.orderKey.config
+            parsed.orderKey.config,
           );
           const [buyToken, sellToken] = isToken1
             ? [parsed.orderKey.token0, parsed.orderKey.token1]
@@ -275,12 +313,12 @@ export function createLogProcessorsV3({
               saleRateDelta: parsed.saleRateDelta,
               is_selling_token1: isToken1,
             },
-            key
+            key,
           );
         },
         async OrderProceedsWithdrawn(dao, key, parsed) {
           const { startTime, endTime, fee, isToken1 } = parseOrderConfig(
-            parsed.orderKey.config
+            parsed.orderKey.config,
           );
           const [buyToken, sellToken] = isToken1
             ? [parsed.orderKey.token0, parsed.orderKey.token1]
@@ -311,7 +349,7 @@ export function createLogProcessorsV3({
               amount: parsed.amount,
               is_selling_token1: isToken1,
             },
-            key
+            key,
           );
         },
       },
@@ -346,37 +384,13 @@ export function createLogProcessorsV3({
         },
       },
     },
-    BoostedFees: {
-      address: boostedFeesAddress,
-      abi: BOOSTED_FEES_ABI_V3,
-      async noTopics(dao, key, data) {
-        if (!data) throw new Error("Event with no data from BoostedFees");
-        const event = parseTwammVirtualOrdersExecuted(data);
-        await dao.insertBoostedFeesDonatedEvent(
-          {
-            coreAddress,
-            poolId: event.poolId,
-            donateRate0: event.saleRateToken0,
-            donateRate1: event.saleRateToken1,
-          },
-          key
-        );
-      },
-      handlers: {
-        async PoolBoosted(dao, key, parsed) {
-          await dao.insertBoostedFeesPoolBoostedEvent(
-            {
-              coreAddress,
-              poolId: parsed.poolId,
-              startTime: parsed.startTime,
-              endTime: parsed.endTime,
-              rate0: parsed.rate0,
-              rate1: parsed.rate1,
-            },
-            key
-          );
-        },
-      },
+    BoostedFeesConcentrated: {
+      address: boostedFeesConcentratedAddress,
+      ...boostedFeesHandler,
+    },
+    BoostedFeesStableswap: {
+      address: boostedFeesStableswapAddress,
+      ...boostedFeesHandler,
     },
   };
 
@@ -392,7 +406,7 @@ export function createLogProcessorsV3({
         async handler(dao, event, key) {
           await dao.insertNonfungibleTokenTransferEvent(key, event);
         },
-      })
+      }),
     ) ?? [];
 
   return baseProcessors.concat(positionsProcessors);
