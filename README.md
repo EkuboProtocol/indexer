@@ -93,6 +93,10 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-01-28: Reorg detection fork counter on indexer_cursor
+
+The `indexer_cursor` table now includes a `fork_counter` column that increments whenever the indexer deletes blocks during reorg handling. Downstream services can use it to detect reorgs even when the cursor position is unchanged. Run the migrations before deploying consumers that query `indexer_cursor`.
+
 ### 2026-02-01: Boosted fees indexing and pool flags
 
 Boosted fees now write to `boosted_fees_events`, `boosted_fees_donate_rate_deltas`, and `boosted_fees_donated`, while `all_pool_states_view` now exposes the boosted fee donate rates plus the last donated time and future deltas. Run migrations before deploying any consumers that read the view or expect boosted-fee schedules.
