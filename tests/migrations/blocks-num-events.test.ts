@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createClient, runMigrations } from "../helpers/db.js";
+import { createClient, ensureIndexerCursor, runMigrations } from "../helpers/db.js";
 
 const BASE_MIGRATIONS = ["00001_chain_tables", "00002_core_tables"] as const;
 
@@ -8,6 +8,7 @@ test("migration backfills block event counts and cleans up old empty blocks", as
 
   try {
     const chainId = 1;
+    await ensureIndexerCursor(client, chainId);
 
     await client.query(
       `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)

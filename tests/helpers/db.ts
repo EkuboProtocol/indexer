@@ -90,3 +90,25 @@ export async function createClient(options: { files?: string[] } = {}) {
   }
   return client;
 }
+
+export async function ensureIndexerCursor(client: PGlite, chainId: number) {
+  const now = new Date();
+  try {
+    await client.query(
+      `INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated, fork_counter)
+       VALUES ($1, 0, NULL, $2, 0)
+       ON CONFLICT (chain_id) DO NOTHING`,
+      [chainId, now]
+    );
+  } catch (error: any) {
+    if (error?.code !== "42703") {
+      throw error;
+    }
+    await client.query(
+      `INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated)
+       VALUES ($1, 0, NULL, $2)
+       ON CONFLICT (chain_id) DO NOTHING`,
+      [chainId, now]
+    );
+  }
+}

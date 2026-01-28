@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, test, expect } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
-import { createClient } from "../helpers/db.js";
+import { createClient, ensureIndexerCursor } from "../helpers/db.js";
 
 const MIGRATION_FILES = [
   "00001_chain_tables",
@@ -21,6 +21,7 @@ afterAll(async () => {
 });
 
 async function seedPool(client: PGlite, chainId: number) {
+  await ensureIndexerCursor(client, chainId);
   const blockNumber = chainId * 100;
   const blockHash = (blockNumber + 1).toString();
   const blockTime = new Date("2024-01-01T00:00:00Z");
@@ -383,6 +384,7 @@ test("deleting blocks cascades swap and position data to refresh pool state", as
   } = await seedPool(client, 12);
   const reorgBlock = baseBlock + 1;
 
+  await ensureIndexerCursor(client, chainId);
   await client.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
      VALUES ($1, $2, $3, $4, 0)`,

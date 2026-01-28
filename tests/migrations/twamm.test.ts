@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
-import { createClient } from "../helpers/db.js";
+import { createClient, ensureIndexerCursor } from "../helpers/db.js";
 
 const MIGRATION_FILES = [
   "00001_chain_tables",
@@ -74,6 +74,7 @@ async function seedBlock({
   blockNumber: number;
   blockTime: Date;
 }) {
+  await ensureIndexerCursor(client, chainId);
   const blockHash = `${chainId}${blockNumber}`;
   await client.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)

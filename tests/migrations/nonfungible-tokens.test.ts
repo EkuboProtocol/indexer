@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
-import { createClient } from "../helpers/db.js";
+import { createClient, ensureIndexerCursor } from "../helpers/db.js";
 
 const MIGRATION_FILES = [
   "00001_chain_tables",
@@ -20,6 +20,7 @@ afterAll(async () => {
 });
 
 async function seedBlock(client: PGlite, chainId: number) {
+  await ensureIndexerCursor(client, chainId);
   const blockNumber = 500;
   const blockHash = "9001";
   const blockTime = new Date("2024-02-01T00:00:00Z");
