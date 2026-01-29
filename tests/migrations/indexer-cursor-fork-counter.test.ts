@@ -4,6 +4,7 @@ import { createClient } from "../helpers/db.js";
 const MIGRATIONS = [
   "00001_chain_tables",
   "00093_indexer_cursor_fork_counter",
+  "00094_filter_fork_counter_empty_blocks",
 ] as const;
 
 test("blocks insert fills fork_counter from indexer_cursor when null", async () => {
@@ -46,10 +47,10 @@ test("blocks delete bumps fork_counter once per statement per chain", async () =
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
      VALUES
        ($1, $2, $3, $4, $5),
-       ($1, $6, $7, $4, $5),
-       ($8, $6, $9, $4, $5),
-       ($8, $10, $11, $4, $5)`,
-    [1, 1, "1001", new Date("2024-01-01T00:00:00Z"), 0, 2, "1002", 2, "2002", 3, "2003"]
+       ($1, $6, $7, $4, $9),
+       ($8, $6, $10, $4, $5),
+       ($8, $11, $12, $4, $9)`,
+    [1, 1, "1001", new Date("2024-01-01T00:00:00Z"), 0, 2, "1002", 2, 3, "2002", 3, "2003"]
   );
 
   await client.query(`DELETE FROM blocks WHERE block_number >= 2`);
@@ -79,4 +80,35 @@ test("blocks delete bumps fork_counter once per statement per chain", async () =
   );
 
   expect(unchanged).toEqual(rows);
+});
+
+test("blocks delete skips fork_counter when only empty blocks are deleted", async () => {
+  const client = await createClient({ files: [...MIGRATIONS] });
+
+  await client.query(
+    `INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated, fork_counter)
+     VALUES ($1, 0, NULL, $2, $3)`,
+    [1, new Date(), 5]
+  );
+
+  await client.query(
+    `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
+     VALUES
+       ($1, $2, $3, $4, $5),
+       ($1, $6, $7, $4, $5)`,
+    [1, 1, "1001", new Date("2024-01-01T00:00:00Z"), 0, 2, "1002"]
+  );
+
+  await client.query(`DELETE FROM blocks WHERE block_number >= 1`);
+
+  const {
+    rows: [{ fork_counter }],
+  } = await client.query<{ fork_counter: string }>(
+    `SELECT fork_counter::text AS fork_counter
+     FROM indexer_cursor
+     WHERE chain_id = $1`,
+    [1]
+  );
+
+  expect(fork_counter).toBe("5");
 });
