@@ -10,7 +10,7 @@
         "@apibara/protocol": "^2.1.0-beta.53",
         "@apibara/starknet": "^2.1.0-beta.53",
         "dotenv": "^17.2.3",
-        "postgres": "^3.4.7",
+        "postgres": "^3.4.8",
         "postgres-shift": "^0.1.0",
         "viem": "^2.45.0",
         "winston": "^3.19.0",
@@ -166,7 +166,7 @@
 
     "ox": ["ox@0.11.3", "", { "dependencies": { "@adraffy/ens-normalize": "^1.11.0", "@noble/ciphers": "^1.3.0", "@noble/curves": "1.9.1", "@noble/hashes": "^1.8.0", "@scure/bip32": "^1.7.0", "@scure/bip39": "^1.6.0", "abitype": "^1.2.3", "eventemitter3": "5.0.1" }, "peerDependencies": { "typescript": ">=5.4.0" }, "optionalPeers": ["typescript"] }, "sha512-1bWYGk/xZel3xro3l8WGg6eq4YEKlaqvyMtVhfMFpbJzK2F6rj4EDRtqDCWVEJMkzcmEi9uW2QxsqELokOlarw=="],
 
-    "postgres": ["postgres@3.4.7", "", {}, "sha512-Jtc2612XINuBjIl/QTWsV5UvE8UHuNblcO3vVADSrKsrc6RqGX6lOW1cEo3CM2v0XG4Nat8nI+YM7/f26VxXLw=="],
+    "postgres": ["postgres@3.4.8", "", {}, "sha512-d+JFcLM17njZaOLkv6SCev7uoLaBtfK86vMUXhW1Z4glPWh4jozno9APvW/XKFJ3CCxVoC7OL38BqRydtu5nGg=="],
 
     "postgres-shift": ["postgres-shift@0.1.0", "", {}, "sha512-/375iG0Kveh1Spk3kFtaTdGT9FUxtXYDDabGw/9/Jkk3f93dYM2R8ZgQzbknCG+ZpfoR114gZ71oR+lRr6XY3A=="],
 

@@ -33,7 +33,7 @@
     "@apibara/protocol": "^2.1.0-beta.53",
     "@apibara/starknet": "^2.1.0-beta.53",
     "dotenv": "^17.2.3",
-    "postgres": "^3.4.7",
+    "postgres": "^3.4.8",
     "postgres-shift": "^0.1.0",
     "viem": "^2.45.0",
     "winston": "^3.19.0"
