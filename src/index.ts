@@ -142,6 +142,7 @@ function resetNoBlocksTimer() {
           ordersAddress: "ORDERS_V3_ADDRESS",
           incentivesAddress: "INCENTIVES_V3_ADDRESS",
           tokenWrapperFactoryAddress: "TOKEN_WRAPPER_FACTORY_V3_ADDRESS",
+          auctionsAddress: "AUCTIONS_V3_ADDRESS",
         })
       : undefined;
 

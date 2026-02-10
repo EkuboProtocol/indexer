@@ -181,6 +181,38 @@ export interface BoostedFeesPoolBoostedInsert {
   rate1: bigint;
 }
 
+export interface AuctionKeyInsert {
+  token0: AddressValue;
+  token1: AddressValue;
+  config: NumericValue;
+}
+
+export interface AuctionCompletedInsert {
+  tokenId: NumericValue;
+  auctionKey: AuctionKeyInsert;
+  creatorAmount: NumericValue;
+  boostAmount: NumericValue;
+}
+
+export interface AuctionFundsAddedInsert {
+  tokenId: NumericValue;
+  auctionKey: AuctionKeyInsert;
+  saleRate: NumericValue;
+}
+
+export interface AuctionBoostStartedInsert {
+  auctionKey: AuctionKeyInsert;
+  boostRate: NumericValue;
+  boostEndTime: NumericValue;
+}
+
+export interface CreatorProceedsCollectedInsert {
+  tokenId: NumericValue;
+  auctionKey: AuctionKeyInsert;
+  recipient: AddressValue;
+  amount: NumericValue;
+}
+
 export interface OracleSnapshotInsert {
   token0: AddressValue;
   token1: AddressValue;
@@ -1511,6 +1543,104 @@ export class DAO {
         ${new Date(Number(event.endTime * 1000n))},
         ${this.numeric(event.rate0)},
         ${this.numeric(event.rate1)}
+      );
+    `;
+  }
+
+  public async insertAuctionCompletedEvent(
+    event: AuctionCompletedInsert,
+    key: EventKey
+  ) {
+    await this.sql`
+      INSERT INTO auction_completed
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         token_id, token0, token1, config, creator_amount, boost_amount)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.tokenId)},
+        ${this.numeric(event.auctionKey.token0)},
+        ${this.numeric(event.auctionKey.token1)},
+        ${this.numeric(event.auctionKey.config)},
+        ${this.numeric(event.creatorAmount)},
+        ${this.numeric(event.boostAmount)}
+      );
+    `;
+  }
+
+  public async insertAuctionFundsAddedEvent(
+    event: AuctionFundsAddedInsert,
+    key: EventKey
+  ) {
+    await this.sql`
+      INSERT INTO auction_funds_added
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         token_id, token0, token1, config, sale_rate)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.tokenId)},
+        ${this.numeric(event.auctionKey.token0)},
+        ${this.numeric(event.auctionKey.token1)},
+        ${this.numeric(event.auctionKey.config)},
+        ${this.numeric(event.saleRate)}
+      );
+    `;
+  }
+
+  public async insertAuctionBoostStartedEvent(
+    event: AuctionBoostStartedInsert,
+    key: EventKey
+  ) {
+    await this.sql`
+      INSERT INTO auction_boost_started
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         token0, token1, config, boost_rate, boost_end_time)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.auctionKey.token0)},
+        ${this.numeric(event.auctionKey.token1)},
+        ${this.numeric(event.auctionKey.config)},
+        ${this.numeric(event.boostRate)},
+        ${new Date(Number(BigInt(event.boostEndTime) * 1000n))}
+      );
+    `;
+  }
+
+  public async insertCreatorProceedsCollectedEvent(
+    event: CreatorProceedsCollectedInsert,
+    key: EventKey
+  ) {
+    await this.sql`
+      INSERT INTO auction_creator_proceeds_collected
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         token_id, token0, token1, config, recipient, amount)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(event.tokenId)},
+        ${this.numeric(event.auctionKey.token0)},
+        ${this.numeric(event.auctionKey.token1)},
+        ${this.numeric(event.auctionKey.config)},
+        ${this.numeric(event.recipient)},
+        ${this.numeric(event.amount)}
       );
     `;
   }
