@@ -103,7 +103,7 @@ Boosted fees now write to `boosted_fees_events`, `boosted_fees_donate_rate_delta
 
 ### 2026-02-10: Auctions contract event indexing
 
-EVM V3 auction events now write to `auction_completed`, `auction_funds_added`, `auction_boost_started`, and `auction_creator_proceeds_collected`. The indexer also supports optional auctions NFT transfer ingestion via `AUCTIONS_V3_ADDRESS` (empty disables auction log ingestion). Run migrations before deploying consumers that query auction event history.
+EVM V3 auction events now write to `auction_completed`, `auction_funds_added`, `auction_boost_started`, and `auction_creator_proceeds_collected`.
 
 ### 2026-01-05: Incentives campaigns scoped to core/licensee
 
