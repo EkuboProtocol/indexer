@@ -4,6 +4,7 @@
   "version": "0.0.1",
   "description": "Indexes Ekubo data into a Postgres database",
   "scripts": {
+    "rhc:sepolia": "NETWORK_TYPE=evm NETWORK=rhc-sepolia bun src/index.ts",
     "base:sepolia": "NETWORK_TYPE=evm NETWORK=base-sepolia bun src/index.ts",
     "base:mainnet": "NETWORK_TYPE=evm NETWORK=base-mainnet bun src/index.ts",
     "arb:sepolia": "NETWORK_TYPE=evm NETWORK=arb-sepolia bun src/index.ts",
