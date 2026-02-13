@@ -40,7 +40,7 @@ export interface LogProcessorConfigV3 {
   ordersAddress: `0x${string}`;
   incentivesAddress: `0x${string}`;
   tokenWrapperFactoryAddress: `0x${string}`;
-  auctionsAddress?: `0x${string}`;
+  auctionsAddress: `0x${string}`;
   positionsContracts: PositionsContractProtocolFeeConfig[];
 }
 

@@ -5739,6 +5739,62 @@ export const AUCTIONS_ABI = [
   },
   {
     type: "function",
+    name: "completeAuctionAndStartBoost",
+    inputs: [
+      {
+        name: "tokenId",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "auctionKey",
+        type: "tuple",
+        internalType: "struct AuctionKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "AuctionConfig",
+          },
+        ],
+      },
+    ],
+    outputs: [
+      {
+        name: "creatorAmount",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "boostAmount",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "boostRate",
+        type: "uint112",
+        internalType: "uint112",
+      },
+      {
+        name: "boostEndTime",
+        type: "uint64",
+        internalType: "uint64",
+      },
+    ],
+    stateMutability: "payable",
+  },
+  {
+    type: "function",
     name: "completeOwnershipHandover",
     inputs: [
       {
@@ -6075,7 +6131,7 @@ export const AUCTIONS_ABI = [
   },
   {
     type: "function",
-    name: "sellByAuction",
+    name: "sellAmountByAuction",
     inputs: [
       {
         name: "tokenId",
@@ -6712,6 +6768,11 @@ export const AUCTIONS_ABI = [
   {
     type: "error",
     name: "ExpectedRevertWithinLock",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "InvalidBoostEndTime",
     inputs: [],
   },
   {
