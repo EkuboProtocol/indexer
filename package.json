@@ -33,7 +33,7 @@
     "@apibara/evm-rpc": "^2.1.0-beta.54",
     "@apibara/protocol": "^2.1.0-beta.54",
     "@apibara/starknet": "^2.1.0-beta.54",
-    "dotenv": "^17.2.4",
+    "dotenv": "^17.3.1",
     "postgres": "^3.4.8",
     "postgres-shift": "^0.1.0",
     "viem": "^2.45.1",
