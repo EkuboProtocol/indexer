@@ -19,6 +19,7 @@ import {
   type EvmLogProcessor,
 } from "./logProcessorsShared";
 import {
+  AUCTIONS_ABI as AUCTIONS_ABI_V3,
   CORE_ABI as CORE_ABI_V3,
   INCENTIVES_ABI as INCENTIVES_ABI_V3,
   ORACLE_ABI as ORACLE_ABI_V3,
@@ -39,6 +40,7 @@ export interface LogProcessorConfigV3 {
   ordersAddress: `0x${string}`;
   incentivesAddress: `0x${string}`;
   tokenWrapperFactoryAddress: `0x${string}`;
+  auctionsAddress: `0x${string}`;
   positionsContracts: PositionsContractProtocolFeeConfig[];
 }
 
@@ -51,6 +53,7 @@ type ProcessorDefinitionsV3 = {
   TokenWrapperFactory: ContractHandlers<typeof TOKEN_WRAPPER_FACTORY_ABI_V3>;
   BoostedFeesConcentrated: ContractHandlers<typeof BOOSTED_FEES_ABI_V3>;
   BoostedFeesStableswap: ContractHandlers<typeof BOOSTED_FEES_ABI_V3>;
+  Auctions?: ContractHandlers<typeof AUCTIONS_ABI_V3>;
 };
 
 export function createLogProcessorsV3({
@@ -63,6 +66,7 @@ export function createLogProcessorsV3({
   ordersAddress,
   incentivesAddress,
   tokenWrapperFactoryAddress,
+  auctionsAddress,
   positionsContracts,
 }: LogProcessorConfigV3): EvmLogProcessor[] {
   const mevCaptureAddressBigInt = BigInt(mevCaptureAddress);
@@ -392,6 +396,31 @@ export function createLogProcessorsV3({
       address: boostedFeesStableswapAddress,
       ...boostedFeesHandler,
     },
+    ...(auctionsAddress
+      ? {
+          Auctions: {
+            address: auctionsAddress,
+            abi: AUCTIONS_ABI_V3,
+            handlers: {
+              async Transfer(dao, key, parsed) {
+                await dao.insertNonfungibleTokenTransferEvent(parsed, key);
+              },
+              async AuctionCompleted(dao, key, parsed) {
+                await dao.insertAuctionCompletedEvent(parsed, key);
+              },
+              async AuctionFundsAdded(dao, key, parsed) {
+                await dao.insertAuctionFundsAddedEvent(parsed, key);
+              },
+              async BoostStarted(dao, key, parsed) {
+                await dao.insertAuctionBoostStartedEvent(parsed, key);
+              },
+              async CreatorProceedsCollected(dao, key, parsed) {
+                await dao.insertCreatorProceedsCollectedEvent(parsed, key);
+              },
+            },
+          },
+        }
+      : {}),
   };
 
   const baseProcessors = createProcessorsFromHandlers(processors as any);
