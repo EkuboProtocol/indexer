@@ -1,8 +1,12 @@
 #!/bin/sh
 # Runs the given command, restarting it on non-zero exit codes.
 # Exits cleanly (without restarting) if the command exits with code 0.
-# The delay between restarts can be configured via RESTART_DELAY_SECONDS (default: 5).
-RESTART_DELAY_SECONDS=${RESTART_DELAY_SECONDS:-5}
+# Set NO_RESTART=1 to disable restart behavior (e.g., for one-off scripts).
+# The delay between restarts can be configured via RESTART_DELAY_SECONDS (default: 0).
+if [ "${NO_RESTART}" = "1" ]; then
+  exec "$@"
+fi
+RESTART_DELAY_SECONDS=${RESTART_DELAY_SECONDS:-0}
 while true; do
   "$@"
   EXIT_CODE=$?
