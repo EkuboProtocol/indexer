@@ -141,7 +141,7 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: rhc-sepolia
-    run_command: bun src/index.ts
+    run_command: scripts/restart.sh bun src/index.ts
   - name: arb-mainnet
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
