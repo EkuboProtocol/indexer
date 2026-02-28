@@ -16,5 +16,7 @@ COPY scripts ./scripts
 COPY migrations ./migrations
 COPY .env* ./
 
-ENTRYPOINT ["bun"]
-CMD ["src/index.ts"]
+RUN chmod +x scripts/restart.sh
+
+ENTRYPOINT ["/app/scripts/restart.sh"]
+CMD ["bun", "src/index.ts"]

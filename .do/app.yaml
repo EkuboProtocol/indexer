@@ -173,6 +173,10 @@ jobs:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    envs:
+      - key: NO_RESTART
+        scope: RUN_TIME
+        value: "1"
     run_command: bun scripts/migrate.ts
   - name: sync-tokens
     kind: SCHEDULED
@@ -181,6 +185,10 @@ jobs:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    envs:
+      - key: NO_RESTART
+        scope: RUN_TIME
+        value: "1"
     run_command: bun scripts/sync-tokens.ts
 vpc:
   id: ${VPC_ID}
