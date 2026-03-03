@@ -23,6 +23,12 @@ const QUOTE_USD_AMOUNT = 1000n;
 const EKUBO_QUOTER_BASE_URL =
   process.env.EKUBO_QUOTER_URL ?? "https://prod-api-quoter.ekubo.org";
 
+const EVM_NATIVE_TOKEN_ALIASES = new Set<bigint>([
+  0n,
+  0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeen,
+  0x455448n,
+]);
+
 const QUOTE_TOKEN_BY_CHAIN_ID: Record<
   string,
   { address: `0x${string}`; decimals: number }
@@ -84,11 +90,8 @@ const sushiswapApiPriceFetcher: PriceFetcher = async (
   for (const [key, value] of Object.entries(result)) {
     const numericKey = BigInt(key);
 
-    if (numericKey === 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeen) {
-      delete result[key];
-      result["0x0"] = value;
-    } else if (numericKey === 0n) {
-      // also normalize the ETH key
+    if (EVM_NATIVE_TOKEN_ALIASES.has(numericKey)) {
+      // normalize all known EVM native token aliases to zero address
       delete result[key];
       result["0x0"] = value;
     }
