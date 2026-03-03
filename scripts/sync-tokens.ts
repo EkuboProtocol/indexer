@@ -1,5 +1,6 @@
 import { Address } from "@apibara/evm";
 import "../src/config";
+import { EVM_NATIVE_TOKEN_ALIASES } from "./evmNativeTokenAliases";
 import postgres, { type Sql } from "postgres";
 
 const sql = postgres(process.env.PG_CONNECTION_STRING!, {
@@ -89,12 +90,6 @@ const ADDRESS_REGEX = /^0x[a-fA-F0-9]+$/;
 const STARKNET_CHAIN_IDS = new Set([
   STARKNET_MAINNET_CHAIN_ID_STRING,
   STARKNET_SEPOLIA_CHAIN_ID_STRING,
-]);
-
-const EVM_NATIVE_TOKEN_ALIASES = new Set<bigint>([
-  0n,
-  0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeen,
-  0x455448n,
 ]);
 
 const STARKNET_AVNU_TOKEN_SOURCES = [
