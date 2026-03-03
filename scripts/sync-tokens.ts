@@ -1,4 +1,3 @@
-import { Address } from "@apibara/evm";
 import "../src/config";
 import { EVM_NATIVE_TOKEN_ALIASES } from "./evmNativeTokenAliases";
 import postgres, { type Sql } from "postgres";
