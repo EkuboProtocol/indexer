@@ -1,4 +1,5 @@
 import "../src/config";
+import { EVM_NATIVE_TOKEN_ALIASES } from "./evmNativeTokenAliases";
 import postgres, { type Sql } from "postgres";
 
 const sql = postgres(process.env.PG_CONNECTION_STRING!, {
@@ -48,9 +49,10 @@ const QUOTE_TOKEN_BY_CHAIN_ID: Record<
 };
 
 interface PriceFetcher {
-  (sql: Sql<{ bigint: bigint }>, chainId: bigint):
-    | AddressPriceMap
-    | Promise<AddressPriceMap>;
+  (
+    sql: Sql<{ bigint: bigint }>,
+    chainId: bigint,
+  ): AddressPriceMap | Promise<AddressPriceMap>;
 }
 
 interface PriceFetcherConfig {
@@ -60,7 +62,7 @@ interface PriceFetcherConfig {
 
 const sushiswapApiPriceFetcher: PriceFetcher = async (
   _sql,
-  chainId: bigint
+  chainId: bigint,
 ) => {
   const url = `https://api.sushi.com/price/v1/${chainId}`;
 
@@ -75,7 +77,7 @@ const sushiswapApiPriceFetcher: PriceFetcher = async (
 
   if (!response.ok) {
     console.error(
-      `Failed to fetch sushiswap prices for chain ${chainId}: ${response.status} ${response.statusText}`
+      `Failed to fetch sushiswap prices for chain ${chainId}: ${response.status} ${response.statusText}`,
     );
   }
 
@@ -84,11 +86,8 @@ const sushiswapApiPriceFetcher: PriceFetcher = async (
   for (const [key, value] of Object.entries(result)) {
     const numericKey = BigInt(key);
 
-    if (numericKey === 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeen) {
-      delete result[key];
-      result["0x0"] = value;
-    } else if (numericKey === 0n) {
-      // also normalize the ETH key
+    if (EVM_NATIVE_TOKEN_ALIASES.has(numericKey)) {
+      // normalize all known EVM native token aliases to zero address
       delete result[key];
       result["0x0"] = value;
     }
@@ -170,7 +169,7 @@ function quoteAmountInUnits(decimals: number): bigint {
 
 async function fetchTokensWithTvl(
   sql: Sql<{ bigint: bigint }>,
-  chainId: bigint
+  chainId: bigint,
 ): Promise<TokenRow[]> {
   return sql<TokenRow[]>`
 SELECT t.token_address::TEXT, t.token_decimals, t.token_symbol
@@ -201,7 +200,7 @@ async function fetchEkuboQuoterPrice({
 }): Promise<number | null> {
   const amountOut = quoteAmountInUnits(quoteToken.decimals);
   const url = `${baseUrl}${-amountOut}/${quoteToken.address}/${toHexAddress(
-    token.token_address
+    token.token_address,
   )}`;
 
   try {
@@ -215,7 +214,7 @@ async function fetchEkuboQuoterPrice({
     if (!response.ok) {
       const result = await response.text();
       console.warn(
-        `Quoter request failed for ${token.token_symbol}: ${response.status} (${response.statusText}): ${url}; ${result}`
+        `Quoter request failed for ${token.token_symbol}: ${response.status} (${response.statusText}): ${url}; ${result}`,
       );
       return null;
     }
@@ -226,7 +225,7 @@ async function fetchEkuboQuoterPrice({
 
     if (maxImpact && priceImpact >= maxImpact) {
       console.warn(
-        `Skipping result for ${token.token_symbol} because price impact ${priceImpact} was g.t.e. max ${maxImpact}: ${url}`
+        `Skipping result for ${token.token_symbol} because price impact ${priceImpact} was g.t.e. max ${maxImpact}: ${url}`,
       );
       return null;
     }
@@ -241,7 +240,7 @@ async function fetchEkuboQuoterPrice({
     return adjustedPrice;
   } catch (error) {
     console.error(
-      `JS error while quoting price of ${token.token_symbol} on chain ${chainId}`
+      `JS error while quoting price of ${token.token_symbol} on chain ${chainId}`,
     );
     return null;
   }
@@ -263,7 +262,7 @@ const ekuboQuoterPriceFetcher: PriceFetcher = async (sql, chainId) => {
   console.log(
     `Fetching quoter prices for chain ID ${chainId} tokens: ${tokens
       .map((t) => t.token_symbol)
-      .join(", ")}`
+      .join(", ")}`,
   );
 
   for (const token of tokens) {
@@ -300,7 +299,7 @@ const ekuboQuoterPriceFetcher: PriceFetcher = async (sql, chainId) => {
     console.log(
       `Found price ${price} for ${
         token.token_symbol
-      } (${chainId}:${toHexAddress(token.token_address)})`
+      } (${chainId}:${toHexAddress(token.token_address)})`,
     );
     result[toHexAddress(token.token_address)] = price;
   }
@@ -347,7 +346,7 @@ function normalizeMapKeys(apm: AddressPriceMap): AddressPriceMap {
     Object.entries(apm).map(([key, value]) => [
       `0x${BigInt(key).toString(16)}`,
       value,
-    ])
+    ]),
   );
 }
 
@@ -359,7 +358,7 @@ function getSyncInterval(): number {
 
   if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new Error(
-      `Invalid TOKEN_PRICE_SYNC_INTERVAL_MS value "${envValue}", expected a positive integer (milliseconds)`
+      `Invalid TOKEN_PRICE_SYNC_INTERVAL_MS value "${envValue}", expected a positive integer (milliseconds)`,
     );
   }
 
@@ -373,7 +372,7 @@ async function syncTokenPrices(sql: Sql<{ bigint: bigint }>) {
         chain_id: string,
         token_address: string,
         source: string,
-        usd_price: number
+        usd_price: number,
       ][] = [];
 
       try {
@@ -381,12 +380,12 @@ async function syncTokenPrices(sql: Sql<{ bigint: bigint }>) {
           fetchers.map(async (fetcher) => ({
             source: fetcher.source,
             prices: await fetcher.fetch(sql, BigInt(chainId)),
-          }))
+          })),
         );
 
         for (const snapshot of priceSnapshots) {
           for (const [tokenAddress, usdPrice] of Object.entries(
-            normalizeMapKeys(snapshot.prices)
+            normalizeMapKeys(snapshot.prices),
           )) {
             priceRows.push([
               String(chainId),
@@ -415,7 +414,7 @@ async function syncTokenPrices(sql: Sql<{ bigint: bigint }>) {
                data.source,
                data.usd_price::double precision
         FROM (values ${sql(
-          priceRows.slice(i, i + 1000)
+          priceRows.slice(i, i + 1000),
         )}) as data (chain_id, token_address, source, usd_price)
         JOIN erc20_tokens AS t
           ON t.chain_id = data.chain_id::int8
@@ -434,13 +433,13 @@ async function main() {
   let isRunning = false;
 
   console.log(
-    `Starting token price sync worker (interval ${intervalMs.toLocaleString()} ms)`
+    `Starting token price sync worker (interval ${intervalMs.toLocaleString()} ms)`,
   );
 
   const runSync = async () => {
     if (isRunning) {
       console.warn(
-        "Previous token price sync still running; skipping this interval"
+        "Previous token price sync still running; skipping this interval",
       );
       return;
     }
@@ -451,7 +450,7 @@ async function main() {
     try {
       await syncTokenPrices(sql);
       console.log(
-        `Token price sync completed in ${Math.round(Date.now() - startedAt)} ms`
+        `Token price sync completed in ${Math.round(Date.now() - startedAt)} ms`,
       );
     } catch (error) {
       console.error("Token price sync failed", error);

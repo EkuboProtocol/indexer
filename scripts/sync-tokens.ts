@@ -1,4 +1,5 @@
 import "../src/config";
+import { EVM_NATIVE_TOKEN_ALIASES } from "./evmNativeTokenAliases";
 import postgres, { type Sql } from "postgres";
 
 const sql = postgres(process.env.PG_CONNECTION_STRING!, {
@@ -80,6 +81,15 @@ const STARKNET_BRIDGE_TOKEN_LISTS = [
 
 const STARKNET_MAINNET_CHAIN_ID = 0x534e5f4d41494en;
 const STARKNET_MAINNET_CHAIN_ID_STRING = STARKNET_MAINNET_CHAIN_ID.toString();
+const STARKNET_SEPOLIA_CHAIN_ID = 0x534e5f4d41494fn;
+const STARKNET_SEPOLIA_CHAIN_ID_STRING = STARKNET_SEPOLIA_CHAIN_ID.toString();
+
+const ADDRESS_REGEX = /^0x[a-fA-F0-9]+$/;
+
+const STARKNET_CHAIN_IDS = new Set([
+  STARKNET_MAINNET_CHAIN_ID_STRING,
+  STARKNET_SEPOLIA_CHAIN_ID_STRING,
+]);
 
 const STARKNET_AVNU_TOKEN_SOURCES = [
   {
@@ -185,6 +195,21 @@ async function addBridgeRelationships({
   return count;
 }
 
+function normalizeTokenAddress(
+  address: string,
+  chainId: string,
+): string | null {
+  if (!ADDRESS_REGEX.test(address)) {
+    return null;
+  }
+
+  if (STARKNET_CHAIN_IDS.has(chainId)) {
+    return address;
+  }
+
+  return EVM_NATIVE_TOKEN_ALIASES.has(BigInt(address)) ? "0x0" : address;
+}
+
 async function main() {
   await sql.begin(async (sql) => {
     const existingTokensCount = await sql<
@@ -197,15 +222,15 @@ async function main() {
     console.log(
       `Database has tokens (by chain ID):\n${existingTokensCount
         .map(({ chain_id, num_tokens }) => `\t${chain_id}: ${num_tokens}`)
-        .join("\n")}`
+        .join("\n")}`,
     );
 
     const defaultTokensResponse = await fetch(
-      "https://raw.githubusercontent.com/EkuboProtocol/default-tokens/refs/heads/main/tokens.json"
+      "https://raw.githubusercontent.com/EkuboProtocol/default-tokens/refs/heads/main/tokens.json",
     );
     if (!defaultTokensResponse.ok) {
       console.warn(
-        `Failed to fetch default tokens (${defaultTokensResponse.status}): ${defaultTokensResponse.statusText}`
+        `Failed to fetch default tokens (${defaultTokensResponse.status}): ${defaultTokensResponse.statusText}`,
       );
     } else {
       const defaultTokens = (await defaultTokensResponse.json()) as {
@@ -229,7 +254,7 @@ async function main() {
       });
 
       console.log(
-        `Upserted ${numDefaultTokensUpserted} rows from default token list`
+        `Upserted ${numDefaultTokensUpserted} rows from default token list`,
       );
     }
 
@@ -269,10 +294,9 @@ async function main() {
     });
 
     console.log(
-      `Inserted ${userRegistrationTokensCount} from user token registration events`
+      `Inserted ${userRegistrationTokensCount} from user token registration events`,
     );
 
-    const ADDRESS_REGEX = /^0x[a-fA-F0-9]+$/;
     const starknetAvnuTokenAddresses = new Set<string>();
 
     for (const { url, name, visibility_priority = -1 } of REMOTE_TOKEN_LISTS) {
@@ -280,7 +304,7 @@ async function main() {
         const response = await fetch(url);
         if (!response.ok) {
           console.warn(
-            `Failed to download remote token list ${name} from ${url}: ${response.status}`
+            `Failed to download remote token list ${name} from ${url}: ${response.status}`,
           );
           continue;
         }
@@ -288,28 +312,42 @@ async function main() {
 
         const listTokensImported = await addTokens({
           sql,
-          tokens: list.tokens
-            .filter((t) => ADDRESS_REGEX.test(t.address))
-            .map((token) => ({
-              chain_id: String(token.chainId),
-              token_address: token.address,
-              token_name: token.name,
-              token_symbol: token.symbol,
-              token_decimals: token.decimals,
-              logo_url: token.logoURI ?? null,
-              visibility_priority,
-              sort_order: 0,
-              total_supply: null,
-            })),
+          tokens: list.tokens.flatMap((token) => {
+            const normalizedTokenAddress = normalizeTokenAddress(
+              token.address,
+              String(token.chainId),
+            );
+            if (!normalizedTokenAddress) {
+              return [];
+            }
+
+            return [
+              {
+                chain_id: String(token.chainId),
+                token_address: normalizedTokenAddress,
+                token_name: token.name,
+                token_symbol: token.symbol,
+                token_decimals: token.decimals,
+                logo_url: token.logoURI ?? null,
+                visibility_priority,
+                sort_order: 0,
+                total_supply: null,
+              },
+            ];
+          }),
         });
 
         console.log(
-          `Inserted ${listTokensImported} rows from remote list ${name} at url ${url}`
+          `Inserted ${listTokensImported} rows from remote list ${name} at url ${url}`,
         );
 
         const relationships: BridgeRelationship[] = [];
         for (const token of list.tokens) {
-          if (!ADDRESS_REGEX.test(token.address)) {
+          const normalizedSourceTokenAddress = normalizeTokenAddress(
+            token.address,
+            String(token.chainId),
+          );
+          if (!normalizedSourceTokenAddress) {
             continue;
           }
 
@@ -319,20 +357,23 @@ async function main() {
           }
 
           for (const [destChainId, info] of Object.entries(bridgeInfo)) {
-            if (!info?.tokenAddress || !ADDRESS_REGEX.test(info.tokenAddress)) {
+            const normalizedDestTokenAddress =
+              info?.tokenAddress &&
+              normalizeTokenAddress(info.tokenAddress, String(destChainId));
+            if (!normalizedDestTokenAddress) {
               continue;
             }
 
             relationships.push({
               source_chain_id: String(token.chainId),
-              source_token_address: token.address,
+              source_token_address: normalizedSourceTokenAddress,
               source_bridge_address:
                 info.originBridgeAddress &&
                 ADDRESS_REGEX.test(info.originBridgeAddress)
                   ? info.originBridgeAddress
                   : null,
               dest_chain_id: String(destChainId),
-              dest_token_address: info.tokenAddress,
+              dest_token_address: normalizedDestTokenAddress,
             });
           }
         }
@@ -343,7 +384,7 @@ async function main() {
             relationships,
           });
           console.log(
-            `Inserted ${bridgeRelationshipsUpserted} bridge relationships from remote list ${name}`
+            `Inserted ${bridgeRelationshipsUpserted} bridge relationships from remote list ${name}`,
           );
         }
       } catch (e) {
@@ -361,7 +402,7 @@ async function main() {
         const response = await fetch(url);
         if (!response.ok) {
           console.warn(
-            `Failed to download Starknet token list ${name} from ${url}: ${response.status}`
+            `Failed to download Starknet token list ${name} from ${url}: ${response.status}`,
           );
           continue;
         }
@@ -405,12 +446,12 @@ async function main() {
         });
 
         console.log(
-          `Inserted ${importedCount} Starknet tokens from ${name} at url ${url}`
+          `Inserted ${importedCount} Starknet tokens from ${name} at url ${url}`,
         );
       } catch (e) {
         console.error(
           `Failed to import Starknet tokens from ${name} at url ${url}`,
-          e
+          e,
         );
       }
     }
@@ -420,7 +461,7 @@ async function main() {
         const response = await fetch(url);
         if (!response.ok) {
           console.warn(
-            `Failed to download Starknet bridge token list from ${url}: ${response.status}`
+            `Failed to download Starknet bridge token list from ${url}: ${response.status}`,
           );
           continue;
         }
@@ -429,37 +470,39 @@ async function main() {
         const relationships: BridgeRelationship[] = [];
 
         for (const token of tokens) {
-          if (
-            !token.l1_token_address ||
-            !token.l2_token_address ||
-            !ADDRESS_REGEX.test(token.l1_token_address) ||
-            !ADDRESS_REGEX.test(token.l2_token_address)
-          ) {
+          const normalizedL1TokenAddress =
+            token.l1_token_address &&
+            normalizeTokenAddress(token.l1_token_address, l1ChainId.toString());
+          const normalizedL2TokenAddress =
+            token.l2_token_address &&
+            normalizeTokenAddress(token.l2_token_address, l2ChainId.toString());
+
+          if (!normalizedL1TokenAddress || !normalizedL2TokenAddress) {
             continue;
           }
 
           relationships.push({
             source_chain_id: l1ChainId.toString(),
-            source_token_address: token.l1_token_address,
+            source_token_address: normalizedL1TokenAddress,
             source_bridge_address:
               token.l1_bridge_address &&
               ADDRESS_REGEX.test(token.l1_bridge_address)
                 ? token.l1_bridge_address
                 : null,
             dest_chain_id: l2ChainId.toString(),
-            dest_token_address: token.l2_token_address,
+            dest_token_address: normalizedL2TokenAddress,
           });
 
           relationships.push({
             source_chain_id: l2ChainId.toString(),
-            source_token_address: token.l2_token_address,
+            source_token_address: normalizedL2TokenAddress,
             source_bridge_address:
               token.l2_bridge_address &&
               ADDRESS_REGEX.test(token.l2_bridge_address)
                 ? token.l2_bridge_address
                 : null,
             dest_chain_id: l1ChainId.toString(),
-            dest_token_address: token.l1_token_address,
+            dest_token_address: normalizedL1TokenAddress,
           });
         }
 
@@ -474,8 +517,8 @@ async function main() {
                     BigInt(r0.source_chain_id) === BigInt(r1.source_chain_id) &&
                     BigInt(r0.dest_chain_id) === BigInt(r1.dest_chain_id) &&
                     BigInt(r0.source_token_address) ===
-                      BigInt(r1.source_token_address)
-                )
+                      BigInt(r1.source_token_address),
+                ),
           );
 
           const upserted = await addBridgeRelationships({
@@ -483,13 +526,13 @@ async function main() {
             relationships: dedupedRelationships,
           });
           console.log(
-            `Inserted ${upserted} Starknet bridge relationships (${url})`
+            `Inserted ${upserted} Starknet bridge relationships (${url})`,
           );
         }
       } catch (e) {
         console.error(
           `Failed to import Starknet bridge token list at url ${url}`,
-          e
+          e,
         );
       }
     }
