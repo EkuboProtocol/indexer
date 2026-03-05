@@ -11,8 +11,6 @@ const sql = postgres(process.env.PG_CONNECTION_STRING!, {
   },
 });
 
-const DEFAULT_SYNC_INTERVAL_MS = 60_000;
-
 type AddressPriceMap = Record<`0x${string}` | string, number>;
 
 type TokenRow = {
@@ -168,20 +166,6 @@ function quoteAmountInUnits(decimals: number): bigint {
   return QUOTE_USD_AMOUNT * 10n ** BigInt(decimals);
 }
 
-function parseRetryAfterMs(retryAfter: string | null): number | null {
-  if (!retryAfter) return null;
-
-  const retryAfterSeconds = Number(retryAfter);
-  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
-    return Math.round(retryAfterSeconds * 1000);
-  }
-
-  const retryAfterDateMs = Date.parse(retryAfter);
-  if (Number.isNaN(retryAfterDateMs)) return null;
-
-  return Math.max(0, retryAfterDateMs - Date.now());
-}
-
 const ekuboQuoterFetchLimiter = new Bottleneck({
   // max 60 requests per minute
   minTime: 1000,
@@ -285,31 +269,12 @@ const ekuboQuoterPriceFetcher: PriceFetcher = async (sql, chainId) => {
 
   await Promise.all(
     tokens.map(async (token) => {
-      let price: number | null;
-      if (chainId === 1n) {
-        const priceOptions = await Promise.all([
-          fetchEkuboQuoterPrice({
-            chainId,
-            token,
-            quoteToken,
-            baseUrl: `${EKUBO_QUOTER_BASE_URL}/1/`,
-          }),
-          fetchEkuboQuoterPrice({
-            chainId,
-            token,
-            quoteToken,
-            baseUrl: `${EKUBO_QUOTER_BASE_URL}/1/v2/`,
-          }),
-        ]);
-        price = priceOptions.find((p) => !!p) ?? null;
-      } else {
-        price = await fetchEkuboQuoterPrice({
-          chainId,
-          token,
-          quoteToken,
-          baseUrl: `${EKUBO_QUOTER_BASE_URL}/${chainId}/`,
-        });
-      }
+      const price = await fetchEkuboQuoterPrice({
+        chainId,
+        token,
+        quoteToken,
+        baseUrl: `${EKUBO_QUOTER_BASE_URL}/${chainId}/`,
+      });
 
       if (!price) return;
 
@@ -318,7 +283,7 @@ const ekuboQuoterPriceFetcher: PriceFetcher = async (sql, chainId) => {
           token.token_symbol
         } (${chainId}:${toHexAddress(token.token_address)})`,
       );
-      result[toHexAddress(token.token_address)] = price;
+      result[token.token_address] = price;
     }),
   );
 
@@ -333,7 +298,6 @@ const oracleV1PriceFetcher: PriceFetcherConfig = {
   source: "ov1",
   fetch: ekuboUsdOraclePriceFetcher,
 };
-
 const sushiswapPriceFetcher: PriceFetcherConfig = {
   source: "ss1",
   fetch: sushiswapApiPriceFetcher,
@@ -341,7 +305,7 @@ const sushiswapPriceFetcher: PriceFetcherConfig = {
 
 const FETCHER_BY_CHAIN_ID: { [chainId: string]: PriceFetcherConfig[] } = {
   // eth mainnet
-  ["1"]: [quoterPriceFetcher, /*oracleV1PriceFetcher,*/ sushiswapPriceFetcher],
+  ["1"]: [sushiswapPriceFetcher, quoterPriceFetcher /*oracleV1PriceFetcher,*/],
   // eth sepolia
   ["11155111"]: [sushiswapPriceFetcher],
   // base
@@ -359,30 +323,6 @@ const FETCHER_BY_CHAIN_ID: { [chainId: string]: PriceFetcherConfig[] } = {
   ["23448594291968335"]: [],
 };
 
-function normalizeMapKeys(apm: AddressPriceMap): AddressPriceMap {
-  return Object.fromEntries(
-    Object.entries(apm).map(([key, value]) => [
-      `0x${BigInt(key).toString(16)}`,
-      value,
-    ]),
-  );
-}
-
-function getSyncInterval(): number {
-  const envValue = process.env.TOKEN_PRICE_SYNC_INTERVAL_MS;
-  if (envValue === undefined) return DEFAULT_SYNC_INTERVAL_MS;
-
-  const parsed = Number(envValue);
-
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(
-      `Invalid TOKEN_PRICE_SYNC_INTERVAL_MS value "${envValue}", expected a positive integer (milliseconds)`,
-    );
-  }
-
-  return parsed;
-}
-
 async function syncTokenPricesForChain(
   sql: Sql<{ bigint: bigint }>,
   chainId: string,
@@ -391,7 +331,7 @@ async function syncTokenPricesForChain(
   await sql.begin(async (sql) => {
     const priceRows: [
       chain_id: string,
-      token_address: string,
+      token_address: `0x${string}`,
       source: string,
       usd_price: number,
     ][] = [];
@@ -406,9 +346,14 @@ async function syncTokenPricesForChain(
 
       for (const snapshot of priceSnapshots) {
         for (const [tokenAddress, usdPrice] of Object.entries(
-          normalizeMapKeys(snapshot.prices),
+          snapshot.prices,
         )) {
-          priceRows.push([chainId, tokenAddress, snapshot.source, usdPrice]);
+          priceRows.push([
+            chainId,
+            `0x${BigInt(tokenAddress).toString(16)}`,
+            snapshot.source,
+            usdPrice,
+          ]);
         }
       }
     } catch (e) {
@@ -444,14 +389,6 @@ async function syncTokenPricesForChain(
 }
 
 async function main() {
-  const intervalMs = getSyncInterval();
-  const intervals = new Map<string, ReturnType<typeof setInterval>>();
-  const limitersByChainId = new Map<string, Bottleneck>();
-
-  console.log(
-    `Starting token price sync workers (interval ${intervalMs.toLocaleString()} ms)`,
-  );
-
   const runSyncForChain = async (
     chainId: string,
     fetchers: PriceFetcherConfig[],
@@ -471,76 +408,65 @@ async function main() {
     }
   };
 
-  const scheduleSyncForChain = async (
+  let isShuttingDown = false;
+
+  const runSyncLoopForChain = async (
+    scheduler: Bottleneck,
     chainId: string,
     fetchers: PriceFetcherConfig[],
   ) => {
-    const limiter = limitersByChainId.get(chainId);
-
-    if (!limiter) {
-      throw new Error(`Missing limiter for chain ID ${chainId}`);
-    }
-
-    try {
-      await limiter.schedule(() => runSyncForChain(chainId, fetchers));
-    } catch (error) {
-      if (error instanceof Bottleneck.BottleneckError) {
-        console.warn(
-          `Token price sync skipped for chain ID ${chainId} due to active backlog`,
+    while (!isShuttingDown) {
+      try {
+        await scheduler.schedule(() => runSyncForChain(chainId, fetchers));
+      } catch (error) {
+        if (error instanceof Bottleneck.BottleneckError) {
+          break;
+        }
+        console.error(
+          `Token price sync loop failed for chain ID ${chainId}`,
+          error,
         );
-        return;
       }
-      throw error;
     }
   };
 
-  for (const [chainId, fetchers] of Object.entries(FETCHER_BY_CHAIN_ID)) {
-    limitersByChainId.set(
-      chainId,
-      new Bottleneck({
-        maxConcurrent: 1,
-        minTime: intervalMs,
-        highWater: 1,
-        strategy: Bottleneck.strategy.OVERFLOW,
-      }),
-    );
-
-    const run = () => scheduleSyncForChain(chainId, fetchers);
-    intervals.set(chainId, setInterval(run, intervalMs));
-  }
+  const chainSchedulers: Bottleneck[] = [];
 
   const shutdown = async () => {
-    for (const interval of intervals.values()) {
-      clearInterval(interval);
-    }
-    await Promise.all(
-      Array.from(limitersByChainId.values()).map((limiter) =>
-        limiter.stop({ dropWaitingJobs: true }),
-      ),
-    );
+    if (isShuttingDown) return;
+    isShuttingDown = true;
     try {
-      await sql.end({ timeout: 5 });
+      await Promise.all(
+        chainSchedulers.map((l) => l.stop({ dropWaitingJobs: true })),
+      );
+      // then shutdown the sql connection
+      await sql.end({ timeout: 0 });
     } catch (error) {
-      console.warn("Failed to close SQL pool cleanly", error);
+      console.warn("Failed to shut down cleanly", error);
     } finally {
       process.exit(0);
     }
   };
 
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
 
   await Promise.all(
-    Object.entries(FETCHER_BY_CHAIN_ID).map(([chainId, fetchers]) =>
-      scheduleSyncForChain(chainId, fetchers),
-    ),
+    Object.entries(FETCHER_BY_CHAIN_ID).map(([chainId, fetchers]) => {
+      const scheduler = new Bottleneck({
+        maxConcurrent: 1,
+        minTime: 60_000,
+      });
+      chainSchedulers.push(scheduler);
+      return runSyncLoopForChain(scheduler, chainId, fetchers);
+    }),
   );
 }
 
 main().catch(async (error) => {
   console.error("Token price sync worker failed to start", error);
   try {
-    await sql.end({ timeout: 5 });
+    await sql.end({ timeout: 0 });
   } finally {
     process.exit(1);
   }
