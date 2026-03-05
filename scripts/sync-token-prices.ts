@@ -445,8 +445,8 @@ async function syncTokenPricesForChain(
 
 async function main() {
   const intervalMs = getSyncInterval();
-  const runningByChainId = new Map<string, boolean>();
   const intervals = new Map<string, ReturnType<typeof setInterval>>();
+  const limitersByChainId = new Map<string, Bottleneck>();
 
   console.log(
     `Starting token price sync workers (interval ${intervalMs.toLocaleString()} ms)`,
@@ -456,14 +456,6 @@ async function main() {
     chainId: string,
     fetchers: PriceFetcherConfig[],
   ) => {
-    if (runningByChainId.get(chainId)) {
-      console.warn(
-        `Previous token price sync still running for chain ID ${chainId}; skipping this interval`,
-      );
-      return;
-    }
-
-    runningByChainId.set(chainId, true);
     const startedAt = Date.now();
 
     try {
@@ -476,13 +468,44 @@ async function main() {
     } catch (error) {
       console.error(`Token price sync failed for chain ID ${chainId}`, error);
       process.exit(1);
-    } finally {
-      runningByChainId.set(chainId, false);
+    }
+  };
+
+  const scheduleSyncForChain = async (
+    chainId: string,
+    fetchers: PriceFetcherConfig[],
+  ) => {
+    const limiter = limitersByChainId.get(chainId);
+
+    if (!limiter) {
+      throw new Error(`Missing limiter for chain ID ${chainId}`);
+    }
+
+    try {
+      await limiter.schedule(() => runSyncForChain(chainId, fetchers));
+    } catch (error) {
+      if (error instanceof Bottleneck.BottleneckError) {
+        console.warn(
+          `Token price sync skipped for chain ID ${chainId} due to active backlog`,
+        );
+        return;
+      }
+      throw error;
     }
   };
 
   for (const [chainId, fetchers] of Object.entries(FETCHER_BY_CHAIN_ID)) {
-    const run = () => runSyncForChain(chainId, fetchers);
+    limitersByChainId.set(
+      chainId,
+      new Bottleneck({
+        maxConcurrent: 1,
+        minTime: intervalMs,
+        highWater: 1,
+        strategy: Bottleneck.strategy.OVERFLOW,
+      }),
+    );
+
+    const run = () => scheduleSyncForChain(chainId, fetchers);
     intervals.set(chainId, setInterval(run, intervalMs));
   }
 
@@ -490,6 +513,11 @@ async function main() {
     for (const interval of intervals.values()) {
       clearInterval(interval);
     }
+    await Promise.all(
+      Array.from(limitersByChainId.values()).map((limiter) =>
+        limiter.stop({ dropWaitingJobs: true }),
+      ),
+    );
     try {
       await sql.end({ timeout: 5 });
     } catch (error) {
@@ -504,7 +532,7 @@ async function main() {
 
   await Promise.all(
     Object.entries(FETCHER_BY_CHAIN_ID).map(([chainId, fetchers]) =>
-      runSyncForChain(chainId, fetchers),
+      scheduleSyncForChain(chainId, fetchers),
     ),
   );
 }
