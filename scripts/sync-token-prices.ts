@@ -1,5 +1,6 @@
 import "../src/config";
 import { EVM_NATIVE_TOKEN_ALIASES } from "./evmNativeTokenAliases";
+import Bottleneck from "bottleneck";
 import postgres, { type Sql } from "postgres";
 
 const sql = postgres(process.env.PG_CONNECTION_STRING!, {
@@ -167,6 +168,25 @@ function quoteAmountInUnits(decimals: number): bigint {
   return QUOTE_USD_AMOUNT * 10n ** BigInt(decimals);
 }
 
+function parseRetryAfterMs(retryAfter: string | null): number | null {
+  if (!retryAfter) return null;
+
+  const retryAfterSeconds = Number(retryAfter);
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0) {
+    return Math.round(retryAfterSeconds * 1000);
+  }
+
+  const retryAfterDateMs = Date.parse(retryAfter);
+  if (Number.isNaN(retryAfterDateMs)) return null;
+
+  return Math.max(0, retryAfterDateMs - Date.now());
+}
+
+const ekuboQuoterFetchLimiter = new Bottleneck({
+  // max 60 requests per minute
+  minTime: 1000,
+});
+
 async function fetchTokensWithTvl(
   sql: Sql<{ bigint: bigint }>,
   chainId: bigint,
@@ -204,12 +224,14 @@ async function fetchEkuboQuoterPrice({
   )}`;
 
   try {
-    const response = await fetch(url, {
-      method: "GET",
-      credentials: "omit",
-      headers: { Accept: "application/json" },
-      referrer: "https://ekubo.org/",
-    });
+    const response = await ekuboQuoterFetchLimiter.schedule(() =>
+      fetch(url, {
+        method: "GET",
+        credentials: "omit",
+        headers: { Accept: "application/json" },
+        referrer: "https://ekubo.org/",
+      }),
+    );
 
     if (!response.ok) {
       const result = await response.text();
@@ -246,10 +268,6 @@ async function fetchEkuboQuoterPrice({
   }
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 const ekuboQuoterPriceFetcher: PriceFetcher = async (sql, chainId) => {
   const chainKey = chainId.toString();
   const quoteToken = QUOTE_TOKEN_BY_CHAIN_ID[chainKey];
@@ -265,44 +283,44 @@ const ekuboQuoterPriceFetcher: PriceFetcher = async (sql, chainId) => {
       .join(", ")}`,
   );
 
-  for (const token of tokens) {
-    let price: number | null;
-    if (chainId === 1n) {
-      const priceOptions = await Promise.all([
-        fetchEkuboQuoterPrice({
+  await Promise.all(
+    tokens.map(async (token) => {
+      let price: number | null;
+      if (chainId === 1n) {
+        const priceOptions = await Promise.all([
+          fetchEkuboQuoterPrice({
+            chainId,
+            token,
+            quoteToken,
+            baseUrl: `${EKUBO_QUOTER_BASE_URL}/1/`,
+          }),
+          fetchEkuboQuoterPrice({
+            chainId,
+            token,
+            quoteToken,
+            baseUrl: `${EKUBO_QUOTER_BASE_URL}/1/v2/`,
+          }),
+        ]);
+        price = priceOptions.find((p) => !!p) ?? null;
+      } else {
+        price = await fetchEkuboQuoterPrice({
           chainId,
           token,
           quoteToken,
-          baseUrl: `${EKUBO_QUOTER_BASE_URL}/1/`,
-        }),
-        fetchEkuboQuoterPrice({
-          chainId,
-          token,
-          quoteToken,
-          baseUrl: `${EKUBO_QUOTER_BASE_URL}/1/v2/`,
-        }),
-      ]);
-      price = priceOptions.find((p) => !!p) ?? null;
-    } else {
-      price = await fetchEkuboQuoterPrice({
-        chainId,
-        token,
-        quoteToken,
-        baseUrl: `${EKUBO_QUOTER_BASE_URL}/${chainId}/`,
-      });
-    }
+          baseUrl: `${EKUBO_QUOTER_BASE_URL}/${chainId}/`,
+        });
+      }
 
-    // max 60 requests per minute
-    await sleep(1_000);
-    if (!price) continue;
+      if (!price) return;
 
-    console.log(
-      `Found price ${price} for ${
-        token.token_symbol
-      } (${chainId}:${toHexAddress(token.token_address)})`,
-    );
-    result[toHexAddress(token.token_address)] = price;
-  }
+      console.log(
+        `Found price ${price} for ${
+          token.token_symbol
+        } (${chainId}:${toHexAddress(token.token_address)})`,
+      );
+      result[toHexAddress(token.token_address)] = price;
+    }),
+  );
 
   return result;
 };
@@ -365,49 +383,47 @@ function getSyncInterval(): number {
   return parsed;
 }
 
-async function syncTokenPrices(sql: Sql<{ bigint: bigint }>) {
+async function syncTokenPricesForChain(
+  sql: Sql<{ bigint: bigint }>,
+  chainId: string,
+  fetchers: PriceFetcherConfig[],
+) {
   await sql.begin(async (sql) => {
-    for (const [chainId, fetchers] of Object.entries(FETCHER_BY_CHAIN_ID)) {
-      const priceRows: [
-        chain_id: string,
-        token_address: string,
-        source: string,
-        usd_price: number,
-      ][] = [];
+    const priceRows: [
+      chain_id: string,
+      token_address: string,
+      source: string,
+      usd_price: number,
+    ][] = [];
 
-      try {
-        const priceSnapshots = await Promise.all(
-          fetchers.map(async (fetcher) => ({
-            source: fetcher.source,
-            prices: await fetcher.fetch(sql, BigInt(chainId)),
-          })),
-        );
+    try {
+      const priceSnapshots = await Promise.all(
+        fetchers.map(async (fetcher) => ({
+          source: fetcher.source,
+          prices: await fetcher.fetch(sql, BigInt(chainId)),
+        })),
+      );
 
-        for (const snapshot of priceSnapshots) {
-          for (const [tokenAddress, usdPrice] of Object.entries(
-            normalizeMapKeys(snapshot.prices),
-          )) {
-            priceRows.push([
-              String(chainId),
-              tokenAddress,
-              snapshot.source,
-              usdPrice,
-            ]);
-          }
+      for (const snapshot of priceSnapshots) {
+        for (const [tokenAddress, usdPrice] of Object.entries(
+          normalizeMapKeys(snapshot.prices),
+        )) {
+          priceRows.push([chainId, tokenAddress, snapshot.source, usdPrice]);
         }
-      } catch (e) {
-        console.warn(`Failed to fetch prices for chain ID ${chainId}`, e);
-        continue;
       }
+    } catch (e) {
+      console.warn(`Failed to fetch prices for chain ID ${chainId}`, e);
+      return;
+    }
 
-      if (priceRows.length === 0) {
-        console.log(`No token prices to insert for chain ID ${chainId}`);
-        continue;
-      }
+    if (priceRows.length === 0) {
+      console.log(`No token prices to insert for chain ID ${chainId}`);
+      return;
+    }
 
-      let total: number = 0;
-      for (let i = 0; i < priceRows.length; i += 1000) {
-        const { count } = await sql`
+    let total: number = 0;
+    for (let i = 0; i < priceRows.length; i += 1000) {
+      const { count } = await sql`
         INSERT INTO erc20_tokens_usd_prices (chain_id, token_address, source, value)
         SELECT data.chain_id::int8,
                data.token_address::numeric,
@@ -420,50 +436,60 @@ async function syncTokenPrices(sql: Sql<{ bigint: bigint }>) {
           ON t.chain_id = data.chain_id::int8
          AND t.token_address = data.token_address::numeric;
       `;
-        total += count;
-      }
-
-      console.log(`Inserted ${total} token price rows for chain ID ${chainId}`);
+      total += count;
     }
+
+    console.log(`Inserted ${total} token price rows for chain ID ${chainId}`);
   });
 }
 
 async function main() {
   const intervalMs = getSyncInterval();
-  let isRunning = false;
+  const runningByChainId = new Map<string, boolean>();
+  const intervals = new Map<string, ReturnType<typeof setInterval>>();
 
   console.log(
-    `Starting token price sync worker (interval ${intervalMs.toLocaleString()} ms)`,
+    `Starting token price sync workers (interval ${intervalMs.toLocaleString()} ms)`,
   );
 
-  const runSync = async () => {
-    if (isRunning) {
+  const runSyncForChain = async (
+    chainId: string,
+    fetchers: PriceFetcherConfig[],
+  ) => {
+    if (runningByChainId.get(chainId)) {
       console.warn(
-        "Previous token price sync still running; skipping this interval",
+        `Previous token price sync still running for chain ID ${chainId}; skipping this interval`,
       );
       return;
     }
 
-    isRunning = true;
+    runningByChainId.set(chainId, true);
     const startedAt = Date.now();
 
     try {
-      await syncTokenPrices(sql);
+      await syncTokenPricesForChain(sql, chainId, fetchers);
       console.log(
-        `Token price sync completed in ${Math.round(Date.now() - startedAt)} ms`,
+        `Token price sync completed for chain ID ${chainId} in ${Math.round(
+          Date.now() - startedAt,
+        )} ms`,
       );
     } catch (error) {
-      console.error("Token price sync failed", error);
+      console.error(`Token price sync failed for chain ID ${chainId}`, error);
       process.exit(1);
     } finally {
-      isRunning = false;
+      runningByChainId.set(chainId, false);
     }
   };
 
-  const interval = setInterval(runSync, intervalMs);
+  for (const [chainId, fetchers] of Object.entries(FETCHER_BY_CHAIN_ID)) {
+    const run = () => runSyncForChain(chainId, fetchers);
+    intervals.set(chainId, setInterval(run, intervalMs));
+  }
 
   const shutdown = async () => {
-    clearInterval(interval);
+    for (const interval of intervals.values()) {
+      clearInterval(interval);
+    }
     try {
       await sql.end({ timeout: 5 });
     } catch (error) {
@@ -476,7 +502,11 @@ async function main() {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
-  await runSync();
+  await Promise.all(
+    Object.entries(FETCHER_BY_CHAIN_ID).map(([chainId, fetchers]) =>
+      runSyncForChain(chainId, fetchers),
+    ),
+  );
 }
 
 main().catch(async (error) => {
