@@ -5,10 +5,10 @@
     "": {
       "name": "@ekubo/indexer",
       "dependencies": {
-        "@apibara/evm": "^2.1.0-beta.55",
-        "@apibara/evm-rpc": "^2.1.0-beta.56",
-        "@apibara/protocol": "^2.1.0-beta.56",
-        "@apibara/starknet": "^2.1.0-beta.56",
+        "@apibara/evm": "^2.1.0-beta.56",
+        "@apibara/evm-rpc": "^2.1.0-beta.57",
+        "@apibara/protocol": "^2.1.0-beta.57",
+        "@apibara/starknet": "^2.1.0-beta.57",
         "bottleneck": "^2.19.5",
         "dotenv": "^17.3.1",
         "postgres": "^3.4.8",
@@ -25,13 +25,13 @@
   "packages": {
     "@adraffy/ens-normalize": ["@adraffy/ens-normalize@1.11.0", "", {}, ""],
 
-    "@apibara/evm": ["@apibara/evm@2.1.0-beta.55", "", { "dependencies": { "@apibara/protocol": "2.1.0-beta.56", "long": "^5.2.1", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.1.2", "viem": "^2.40.3" } }, "sha512-fJUNAqot1QfUfvqYtV3vMBQEv1dHm3G6Vt/8ku3FymHxKqhSaoEexrsVn4UB80+pMZuQIMC4neUK3YiMUXnoPQ=="],
+    "@apibara/evm": ["@apibara/evm@2.1.0-beta.56", "", { "dependencies": { "@apibara/protocol": "2.1.0-beta.57", "long": "^5.2.1", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.1.2", "viem": "^2.40.3" } }, "sha512-0kqHCLVAX5LhoszE8o+jnDt6GrMFV1tLVg2SzmiqICXYpnXzF95ZEDr+uWtOx7yE6hEoSPbGKmCGXT6KktNGwA=="],
 
-    "@apibara/evm-rpc": ["@apibara/evm-rpc@2.1.0-beta.56", "", { "dependencies": { "@apibara/evm": "2.1.0-beta.55", "@apibara/protocol": "2.1.0-beta.56", "viem": "^2.40.3" } }, "sha512-XPEpu7w2rxTzZia33oBOk6t/Qr68JeXxd1K4zoEpkIRi2FwNvX5ZXB+qMw+Z5GkZ/gwx6F+zFOWF+rt4BHeJKw=="],
+    "@apibara/evm-rpc": ["@apibara/evm-rpc@2.1.0-beta.57", "", { "dependencies": { "@apibara/evm": "2.1.0-beta.56", "@apibara/protocol": "2.1.0-beta.57", "viem": "^2.40.3" } }, "sha512-10sAlgoK3IWNzT8XY2j4wAq0DhLCEjCYEEoVF9iczLGZFSw91LknxRZAtq5/Kar4qrhurFDmr/ppr78ewIqP+g=="],
 
-    "@apibara/protocol": ["@apibara/protocol@2.1.0-beta.56", "", { "dependencies": { "consola": "^3.4.2", "long": "^5.2.3", "nice-grpc": "^2.1.8", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.3.0", "viem": "^2.13.2" } }, "sha512-TerNSio5rIy/3Cx3nj3OJNa/Ndzj4tcxVfsaDAoS+oU6cpPRxl1dIaiLwXQPrlMY4+pQQ8JlTQPjQhmiw4XRhg=="],
+    "@apibara/protocol": ["@apibara/protocol@2.1.0-beta.57", "", { "dependencies": { "consola": "^3.4.2", "long": "^5.2.3", "nice-grpc": "^2.1.8", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.3.0", "viem": "^2.13.2" } }, "sha512-1+1siOpeI1O9i4lxV9tk1he7BremjZfHTuq319Pyx7RklaQa24KRbWoITegTVkQST8WOB9PFEYkMjnnZYhLgPA=="],
 
-    "@apibara/starknet": ["@apibara/starknet@2.1.0-beta.56", "", { "dependencies": { "@apibara/protocol": "2.1.0-beta.56", "@scure/starknet": "^1.1.0", "abi-wan-kanabi": "^2.2.4", "long": "^5.2.1", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.1.2" } }, "sha512-CtwI+iqFrDYBRzH/AoOCggZhgp4tpIug9sfDz+pHhoXySgbH+pN0mt4px03ICmPtb6rrSsYozVBtGoNT+zRlzA=="],
+    "@apibara/starknet": ["@apibara/starknet@2.1.0-beta.57", "", { "dependencies": { "@apibara/protocol": "2.1.0-beta.57", "@scure/starknet": "^1.1.0", "abi-wan-kanabi": "^2.2.4", "long": "^5.2.1", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.1.2" } }, "sha512-jCmOz3Aa04p/HeePsTI5otceqKnmnCwBhu3aVUEuNnHxwWLLJo+2uuV5WubfuXXsyMOeR0e4gSXOyRa60heBuw=="],
 
     "@colors/colors": ["@colors/colors@1.6.0", "", {}, ""],
 
