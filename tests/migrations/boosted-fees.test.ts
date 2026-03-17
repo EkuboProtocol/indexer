@@ -19,6 +19,7 @@ const MIGRATION_FILES = [
   "00026_hourly_tables_block_time",
   "00060_pool_config_v2",
   "00091_boosted_fees",
+  "00098_boosted_fees_pool_state_recompute",
 ] as const;
 
 let client: PGlite;
@@ -283,4 +284,111 @@ test("actual boosted fee deltas skip boosts entirely in the past", async () => {
     net_donate_rate_delta0: "-50",
     net_donate_rate_delta1: "-75",
   });
+});
+
+test("boosted fee pool state recomputes when later boost is active at last donated time", async () => {
+  const chainId = 1;
+
+  const donatedBlockNumber = 3;
+  const donatedBlockTime = new Date("2024-01-03T00:00:00.000Z");
+  await seedBlock({
+    chainId,
+    blockNumber: donatedBlockNumber,
+    blockTime: donatedBlockTime,
+  });
+
+  const boostedBlockNumber = 4;
+  await seedBlock({
+    chainId,
+    blockNumber: boostedBlockNumber,
+    blockTime: new Date("2024-01-03T00:01:00.000Z"),
+  });
+
+  const poolKeyId = await insertPoolKey(chainId, "4000");
+  await client.query(
+    `INSERT INTO pool_states (pool_key_id, sqrt_ratio, tick, liquidity, last_event_id)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [poolKeyId, "1", 0, "0", "1"]
+  );
+
+  await client.query(
+    `INSERT INTO boosted_fees_donated (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        donate_rate0,
+        donate_rate1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [chainId, donatedBlockNumber, 0, 0, "123", "222", poolKeyId, "0", "0"]
+  );
+
+  await client.query(
+    `INSERT INTO boosted_fees_events (
+        chain_id,
+        block_number,
+        transaction_index,
+        event_index,
+        transaction_hash,
+        emitter,
+        pool_key_id,
+        start_time,
+        end_time,
+        rate0,
+        rate1
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [
+      chainId,
+      boostedBlockNumber,
+      0,
+      0,
+      "9999",
+      "1111",
+      poolKeyId,
+      donatedBlockTime,
+      new Date("2024-01-03T02:00:00.000Z"),
+      "10",
+      "20",
+    ]
+  );
+
+  const { rows } = await client.query<{
+    donate_rate0: string;
+    donate_rate1: string;
+  }>(
+    `SELECT donate_rate0, donate_rate1
+     FROM boosted_fees_pool_states
+     WHERE pool_key_id = $1`,
+    [poolKeyId]
+  );
+
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.donate_rate0).toBe("10");
+  expect(rows[0]?.donate_rate1).toBe("20");
+
+  const boostedEventId = computeEventId({
+    blockNumber: boostedBlockNumber,
+    transactionIndex: 0,
+    eventIndex: 0,
+  });
+  await client.query(
+    `DELETE FROM boosted_fees_events WHERE chain_id = $1 AND event_id = $2`,
+    [chainId, boostedEventId.toString()]
+  );
+
+  const { rows: afterDeleteRows } = await client.query<{
+    donate_rate0: string;
+    donate_rate1: string;
+  }>(
+    `SELECT donate_rate0, donate_rate1
+     FROM boosted_fees_pool_states
+     WHERE pool_key_id = $1`,
+    [poolKeyId]
+  );
+  expect(afterDeleteRows).toHaveLength(1);
+  expect(afterDeleteRows[0]?.donate_rate0).toBe("0");
+  expect(afterDeleteRows[0]?.donate_rate1).toBe("0");
 });
