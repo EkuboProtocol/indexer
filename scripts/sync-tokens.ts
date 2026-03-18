@@ -64,6 +64,14 @@ const REMOTE_TOKEN_LISTS = [
     name: "Compound Token List",
     url: "https://raw.githubusercontent.com/compound-finance/token-list/master/compound.tokenlist.json",
   },
+  {
+    name: "Tempo Mainnet",
+    url: "https://tokenlist.tempo.xyz/list/4217",
+  },
+  {
+    name: "Tempo Testnet",
+    url: "https://tokenlist.tempo.xyz/list/42431",
+  },
 ];
 
 const STARKNET_BRIDGE_TOKEN_LISTS = [
