@@ -7,6 +7,10 @@ DECLARE
     hex TEXT;
     remainder NUMERIC;
 BEGIN
+    IF num = 0 THEN
+        RETURN '0x0';
+    END IF;
+
     hex := '';
     LOOP
         IF num = 0 THEN
@@ -117,30 +121,6 @@ BEGIN
                  WHERE w.chain_id = p_chain_id
                    AND w.emitter = p_staker_address
                    AND b.block_time <= p_end_time
-
-                 UNION ALL
-
-                 SELECT p_start_time AS time,
-                        s.from_address AS staker,
-                        SUM(s.amount) AS amount_change
-                 FROM staker_staked s
-                          JOIN blocks b USING (chain_id, block_number)
-                 WHERE s.chain_id = p_chain_id
-                   AND s.emitter = p_staker_address
-                   AND b.block_time < p_start_time
-                 GROUP BY s.from_address
-
-                 UNION ALL
-
-                 SELECT p_start_time AS time,
-                        w.from_address AS staker,
-                        -SUM(w.amount) AS amount_change
-                 FROM staker_withdrawn w
-                          JOIN blocks b USING (chain_id, block_number)
-                 WHERE w.chain_id = p_chain_id
-                   AND w.emitter = p_staker_address
-                   AND b.block_time < p_start_time
-                 GROUP BY w.from_address
              ),
              stake_changes AS (
                  SELECT time,
