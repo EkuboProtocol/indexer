@@ -1,5 +1,6 @@
 CREATE OR REPLACE FUNCTION numeric_to_hex(num NUMERIC) RETURNS TEXT
     IMMUTABLE
+    STRICT
     LANGUAGE plpgsql
 AS
 $$
@@ -7,6 +8,14 @@ DECLARE
     hex TEXT;
     remainder NUMERIC;
 BEGIN
+    IF num < 0 THEN
+        RAISE EXCEPTION 'numeric_to_hex: input must be non-negative, got %', num;
+    END IF;
+
+    IF num != FLOOR(num) THEN
+        RAISE EXCEPTION 'numeric_to_hex: input must be an integer, got %', num;
+    END IF;
+
     IF num = 0 THEN
         RETURN '0x0';
     END IF;
@@ -139,27 +148,25 @@ BEGIN
                             ) AS stake_amount
                  FROM stake_changes
              ),
-             stakers AS (
-                 SELECT DISTINCT staker
-                 FROM stake_events
+             stake_segments AS (
+                 SELECT se.staker,
+                        se.time                                                      AS segment_start,
+                        LEAD(se.time, 1, p_end_time) OVER (
+                            PARTITION BY se.staker
+                            ORDER BY se.time
+                            )                                                        AS segment_end,
+                        se.stake_amount
+                 FROM stake_events se
              ),
              staker_intervals AS (
-                 SELECT i.start_time,
-                        i.end_time,
-                        s.staker,
-                        se.stake_amount
+                 SELECT GREATEST(i.start_time, ss.segment_start) AS start_time,
+                        LEAST(i.end_time, ss.segment_end)         AS end_time,
+                        ss.staker,
+                        ss.stake_amount
                  FROM intervals i
-                          JOIN stakers s ON TRUE
-                          JOIN LATERAL (
-                     SELECT stake_amount
-                     FROM stake_events se
-                     WHERE se.staker = s.staker
-                       AND se.time <= i.start_time
-                     ORDER BY se.time DESC
-                     LIMIT 1
-                     ) se ON TRUE
-                 WHERE i.end_time IS NOT NULL
-                   AND i.start_time < i.end_time
+                          JOIN stake_segments ss
+                               ON ss.segment_end > i.start_time
+                                   AND ss.segment_start < i.end_time
              ),
              total_stake_per_interval AS (
                  SELECT si.start_time,
@@ -251,7 +258,9 @@ BEGIN
                numeric_to_hex(fr.claimee) AS claimee,
                FLOOR(fr.total_reward) AS amount,
                FLOOR(fr.total_delegate_reward) AS delegate_portion,
-               FLOOR(fr.total_staker_reward) AS staker_portion
+               FLOOR(fr.total_staker_reward)
+                   + (FLOOR(fr.total_reward)
+                      - (FLOOR(fr.total_delegate_reward) + FLOOR(fr.total_staker_reward))) AS staker_portion
         FROM final_rewards fr
         WHERE fr.total_reward > 0
         ORDER BY fr.total_reward DESC, fr.claimee ASC;
