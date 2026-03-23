@@ -21,11 +21,8 @@ jobs:
       IMAGE_TAG: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: oven-sh/setup-bun@v2
-
       - run: bun ci
-
       - run: bun test
 
       - uses: digitalocean/action-doctl@v2
