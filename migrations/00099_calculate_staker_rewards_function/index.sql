@@ -247,13 +247,13 @@ BEGIN
                  FROM all_rewards ar
                  GROUP BY ar.claimee
              )
-        SELECT ROW_NUMBER() OVER (ORDER BY fr.total_reward DESC) - 1 AS id,
+        SELECT ROW_NUMBER() OVER (ORDER BY fr.total_reward DESC, fr.claimee ASC) - 1 AS id,
                numeric_to_hex(fr.claimee) AS claimee,
                FLOOR(fr.total_reward) AS amount,
                FLOOR(fr.total_delegate_reward) AS delegate_portion,
                FLOOR(fr.total_staker_reward) AS staker_portion
         FROM final_rewards fr
         WHERE fr.total_reward > 0
-        ORDER BY fr.total_reward DESC;
+        ORDER BY fr.total_reward DESC, fr.claimee ASC;
 END;
 $$;

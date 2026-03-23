@@ -623,6 +623,71 @@ test("calculate_staker_rewards ignores events from other chains", async () => {
   ]);
 });
 
+test("calculate_staker_rewards assigns stable ids when rewards tie", async () => {
+  const chainId = DEFAULT_CHAIN_ID;
+  const stakerAddress = DEFAULT_STAKER_ADDRESS;
+
+  await insertBlock({
+    chainId,
+    blockNumber: 1,
+    timestamp: "2024-01-01T00:00:00Z",
+  });
+  await insertBlock({
+    chainId,
+    blockNumber: 2,
+    timestamp: "2024-01-01T00:10:00Z",
+  });
+
+  await insertStake({
+    chainId,
+    blockNumber: 1,
+    transactionIndex: 0,
+    eventIndex: 0,
+    emitter: stakerAddress,
+    fromAddress: "11",
+    amount: "100",
+    delegate: "11",
+  });
+  await insertStake({
+    chainId,
+    blockNumber: 1,
+    transactionIndex: 1,
+    eventIndex: 0,
+    emitter: stakerAddress,
+    fromAddress: "10",
+    amount: "100",
+    delegate: "10",
+  });
+
+  const rows = await queryRewards([
+    "2024-01-01T00:00:00Z",
+    "2024-01-01T00:10:00Z",
+    "200",
+    "1",
+    "0",
+    chainId,
+    stakerAddress,
+    DEFAULT_GOVERNOR_ADDRESS,
+  ]);
+
+  expect(rows).toEqual([
+    {
+      id: "0",
+      claimee: "0xa",
+      amount: "100",
+      delegate_portion: "0",
+      staker_portion: "100",
+    },
+    {
+      id: "1",
+      claimee: "0xb",
+      amount: "100",
+      delegate_portion: "0",
+      staker_portion: "100",
+    },
+  ]);
+});
+
 test("calculate_staker_rewards uses the default staker and governor addresses", async () => {
   await seedDefaultScenario();
 
