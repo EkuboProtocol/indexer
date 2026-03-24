@@ -5,7 +5,7 @@ import { createClient } from "../helpers/db.js";
 const MIGRATION_FILES = [
   "00001_chain_tables",
   "00012_governance_tables",
-  "00099_calculate_staker_rewards_function",
+  "00100_calculate_staker_rewards_function",
 ] as const;
 
 let client: PGlite;
@@ -37,12 +37,12 @@ async function insertBlock({
     `INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated)
      VALUES ($1, 0, NULL, NOW())
      ON CONFLICT (chain_id) DO NOTHING`,
-    [chainId]
+    [chainId],
   );
   await client.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
      VALUES ($1, $2, $3, $4, 0)`,
-    [chainId, blockNumber, `${chainId}${blockNumber}`, timestamp]
+    [chainId, blockNumber, `${chainId}${blockNumber}`, timestamp],
   );
 }
 
@@ -87,7 +87,7 @@ async function insertStake({
       fromAddress,
       amount,
       delegate,
-    ]
+    ],
   );
 }
 
@@ -136,7 +136,7 @@ async function insertWithdrawal({
       amount,
       recipient,
       delegate,
-    ]
+    ],
   );
 }
 
@@ -179,7 +179,7 @@ async function insertProposal({
       proposalId,
       proposer,
       "0",
-    ]
+    ],
   );
 }
 
@@ -226,7 +226,7 @@ async function insertVote({
       voter,
       weight,
       true,
-    ]
+    ],
   );
 }
 
@@ -244,7 +244,7 @@ async function queryRewards(params: Array<string>) {
             delegate_portion::text AS delegate_portion,
             staker_portion::text AS staker_portion
      FROM calculate_staker_rewards(${params.map((_, i) => `$${i + 1}`).join(", ")})`,
-    params
+    params,
   );
 
   return rows;
@@ -385,7 +385,7 @@ test("numeric_to_hex formats zero as 0x0", async () => {
   const {
     rows: [row],
   } = await client.query<{ value: string }>(
-    `SELECT numeric_to_hex(0) AS value`
+    `SELECT numeric_to_hex(0) AS value`,
   );
 
   expect(row.value).toBe("0x0");
@@ -696,7 +696,14 @@ test("calculate_staker_rewards uses the default staker and governor addresses", 
   } = await client.query<{ total: string }>(
     `SELECT SUM(amount)::text AS total
      FROM calculate_staker_rewards($1, $2, $3, $4, $5, $6)`,
-    ["2024-01-01T00:05:00Z", "2024-01-01T00:20:00Z", "1000", "3", "1", DEFAULT_CHAIN_ID]
+    [
+      "2024-01-01T00:05:00Z",
+      "2024-01-01T00:20:00Z",
+      "1000",
+      "3",
+      "1",
+      DEFAULT_CHAIN_ID,
+    ],
   );
 
   expect(row.total).toBe("999");
@@ -710,7 +717,7 @@ test("calculate_staker_rewards defaults the chain, staker, and governor addresse
   } = await client.query<{ total: string }>(
     `SELECT SUM(amount)::text AS total
      FROM calculate_staker_rewards($1, $2, $3, $4, $5)`,
-    ["2024-01-01T00:05:00Z", "2024-01-01T00:20:00Z", "1000", "3", "1"]
+    ["2024-01-01T00:05:00Z", "2024-01-01T00:20:00Z", "1000", "3", "1"],
   );
 
   expect(row.total).toBe("999");
