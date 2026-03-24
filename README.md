@@ -97,6 +97,10 @@ This log records indexer deployments that:
 
 `all_pool_states_view` no longer filters rows by supported pool extension state markers, so any pool with a `pool_states` row now appears in the view. Downstream consumers that assumed the view contained only quoter-supported pools should add their own filtering before deploy; no backfill or manual intervention is required beyond running migrations.
 
+### 2026-03-23: all_pool_states_view adds pool_tvl_usd
+
+`all_pool_states_view` now includes `pool_tvl_usd`, computed from `pool_tvl` plus `erc20_tokens_latest_price` for both pool tokens. The column is `NULL` when either side lacks a latest USD price. Apply migrations before deploying any consumer that selects from this view.
+
 ### 2026-02-10: Auctions contract event indexing
 
 EVM V3 auction events now write to `auction_completed`, `auction_funds_added`, `auction_boost_started`, and `auction_creator_proceeds_collected`.
