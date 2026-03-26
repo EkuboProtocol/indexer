@@ -167,8 +167,9 @@ function quoteAmountInUnits(decimals: number): bigint {
 }
 
 const ekuboQuoterFetchLimiter = new Bottleneck({
-  // max 60 requests per minute
-  minTime: 1000,
+  minTime: Math.ceil(
+    60_000 / Number(process.env.MAX_QUOTER_REQUESTS_PER_MINUTE ?? 60),
+  ),
 });
 
 async function fetchTokensWithTvl(
