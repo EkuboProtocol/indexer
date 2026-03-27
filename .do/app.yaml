@@ -168,7 +168,7 @@ workers:
         value: "60000"
       - key: MAX_QUOTER_REQUESTS_PER_MINUTE
         scope: RUN_TIME
-        value: "120"
+        value: "300"
     run_command: bun scripts/sync-token-prices.ts
 jobs:
   - name: run-migrations
