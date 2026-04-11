@@ -6,7 +6,7 @@ DECLARE
     v_name                    CONSTANT TEXT        := 'Ethereum USDC Incentives Q2 2026';
     v_start                   CONSTANT timestamptz := '2026-04-15 00:00:00+00'::timestamptz;
     v_days                    CONSTANT INTEGER     := 91;
-    v_interval                CONSTANT INTERVAL    := '1 day';
+    v_interval                CONSTANT INTERVAL    := '4 hours';
     v_end                     CONSTANT timestamptz := v_start + (INTERVAL '1 day' * v_days);
     v_default_fee_denominator CONSTANT NUMERIC     := pow(2::NUMERIC, 64);
     v_core_address            CONSTANT NUMERIC     := 0x00000000000014aA86C5d3c41765bb24e11bd701;
