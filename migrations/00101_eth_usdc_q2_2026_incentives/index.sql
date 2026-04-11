@@ -3,7 +3,7 @@ $$
 DECLARE
     v_chain_id                CONSTANT int8        := 1;
     v_slug                    CONSTANT VARCHAR(20) := 'eth_usdc_q2_26';
-    v_name                    CONSTANT TEXT        := 'Ethereum USDC Incentives Q2 2026';
+    v_name                    CONSTANT TEXT        := 'Ethereum USDC Incentives';
     v_start                   CONSTANT timestamptz := '2026-04-15 00:00:00+00'::timestamptz;
     v_days                    CONSTANT INTEGER     := 91;
     v_interval                CONSTANT INTERVAL    := '4 hours';
