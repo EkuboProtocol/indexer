@@ -74,10 +74,10 @@ workers:
       - key: NETWORK_TYPE
         scope: RUN_TIME
         value: evm
-      - key: APIBARA_URL
+      - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: ${ETH_MAINNET_APIBARA_URL}
+        value: "https://eth.drpc.org,https://eth.llamarpc.com,https://eth-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet
