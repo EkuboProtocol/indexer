@@ -28,10 +28,7 @@ test("narrows realized volatility only for future periods of latest Ethereum USD
     } = await client.query<{ id: number }>(
       `SELECT id
        FROM incentives.campaigns
-       WHERE chain_id = 1
-         AND name = 'Ethereum USDC Incentives'
-       ORDER BY start_time DESC
-       LIMIT 1`
+       WHERE slug = 'eth_usdc_q2_26'`
     );
 
     const now = Date.now();
@@ -93,6 +90,39 @@ test("narrows realized volatility only for future periods of latest Ethereum USD
       [campaignId, toIso(now + 2 * 60 * 60 * 1000), toIso(now + 4 * 60 * 60 * 1000)]
     );
 
+    const {
+      rows: [{ id: computedFuturePeriodId }],
+    } = await client.query<{ id: number }>(
+      `INSERT INTO incentives.campaign_reward_periods (
+          campaign_id,
+          token0,
+          token1,
+          start_time,
+          end_time,
+          realized_volatility,
+          token0_reward_amount,
+          token1_reward_amount,
+          rewards_last_computed_at
+       ) VALUES (
+          $1,
+          9000,
+          9001,
+          $2,
+          $3,
+          0.2,
+          1,
+          0,
+          $4
+       )
+       RETURNING id`,
+      [
+        campaignId,
+        toIso(now + 5 * 60 * 60 * 1000),
+        toIso(now + 6 * 60 * 60 * 1000),
+        toIso(now - 30 * 60 * 1000),
+      ]
+    );
+
     await runMigrations(client, { files: [TARGET_MIGRATION] });
 
     const {
@@ -113,8 +143,18 @@ test("narrows realized volatility only for future periods of latest Ethereum USD
       [futurePeriodId]
     );
 
+    const {
+      rows: [{ realized_volatility: computedFutureVolatility }],
+    } = await client.query<{ realized_volatility: number }>(
+      `SELECT realized_volatility
+       FROM incentives.campaign_reward_periods
+       WHERE id = $1`,
+      [computedFuturePeriodId]
+    );
+
     expect(pastVolatility).toBeCloseTo(0.2, 12);
     expect(futureVolatility).toBeCloseTo(0.1, 12);
+    expect(computedFutureVolatility).toBeCloseTo(0.2, 12);
   } finally {
     await client.close();
   }
