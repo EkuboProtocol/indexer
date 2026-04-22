@@ -4,10 +4,15 @@ import { PGlite } from "@electric-sql/pglite";
 
 const MIGRATIONS_DIR = path.resolve(process.cwd(), "migrations");
 
+function parseMigrationNumber(name: string) {
+  const match = name.match(/^(\d+)/);
+  return match ? Number(match[1]) : null;
+}
+
 function normalizeSelection(name: string) {
   if (!name) return name;
-  let normalized = name.replace(/\/?index\.(sql|js)$/, "");
-  normalized = normalized.replace(/\.sql$/, "");
+  let normalized = name.replace(/^migrations\//, "");
+  normalized = normalized.replace(/\/index\.(sql|js)$/, "");
   const match = normalized.match(/^(\d+)(_.+)?$/);
   if (!match) {
     return normalized;
@@ -51,6 +56,23 @@ async function loadMigrationDirs(select?: string[]) {
   }
 
   return picked;
+}
+
+export async function runMigrationsThrough(
+  client: PGlite,
+  endMigrationNumber: number
+) {
+  const entries = await fs.readdir(MIGRATIONS_DIR, { withFileTypes: true });
+  const migrations = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+    .filter((name) => {
+      const migrationNumber = parseMigrationNumber(name);
+      return migrationNumber !== null && migrationNumber <= endMigrationNumber;
+    });
+
+  await runMigrations(client, { files: migrations });
 }
 
 export async function runMigrations(
