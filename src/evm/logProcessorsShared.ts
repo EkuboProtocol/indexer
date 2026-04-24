@@ -59,6 +59,13 @@ export type ContractHandlers<T extends Abi> = {
   ) => Promise<void>;
 };
 
+export type ContractHandlerDefinitions = Record<
+  string,
+  ContractHandlers<Abi>
+>;
+
+type EventTopicsParameters = Parameters<typeof encodeEventTopics>[0];
+
 export function createContractEventProcessor<
   T extends Abi,
   N extends ContractEventName<T>
@@ -81,7 +88,7 @@ export function createContractEventProcessor<
       topics: encodeEventTopics({
         abi,
         eventName,
-      } as any) as `0x${string}`[],
+      } as EventTopicsParameters) as `0x${string}`[],
       strict: false,
     },
     async handler(dao, key, event) {
@@ -100,13 +107,13 @@ export function createContractEventProcessor<
         key,
         event: result.args,
       });
-      await wrappedHandler(dao, key, result.args as any);
+      await wrappedHandler(dao, key, result.args as ContractEvent<T, N>);
     },
   };
 }
 
 export function createProcessorsFromHandlers(
-  processors: Record<string, ContractHandlers<Abi>>
+  processors: ContractHandlerDefinitions
 ): EvmLogProcessor[] {
   return Object.entries(processors).flatMap(
     ([contractName, { address, abi, handlers, noTopics }]) =>
@@ -127,13 +134,18 @@ export function createProcessorsFromHandlers(
       ).concat(
         handlers
           ? Object.entries(handlers).map(
-              ([eventName, handler]): EvmLogProcessor =>
+            ([eventName, handler]): EvmLogProcessor =>
                 createContractEventProcessor({
                   contractName,
                   address,
-                  abi: abi as any,
+                  abi,
                   eventName: eventName as ExtractAbiEventNames<typeof abi>,
-                  handler: handler as any,
+                  handler: handler as Parameters<
+                    typeof createContractEventProcessor<
+                      typeof abi,
+                      ExtractAbiEventNames<typeof abi>
+                    >
+                  >[0]["handler"],
                 })
             )
           : []

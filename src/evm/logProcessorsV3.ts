@@ -15,6 +15,7 @@ import type { PositionsContractProtocolFeeConfig } from "./positionsProtocolFeeC
 import {
   createContractEventProcessor,
   createProcessorsFromHandlers,
+  type ContractHandlerDefinitions,
   type ContractHandlers,
   type EvmLogProcessor,
 } from "./logProcessorsShared";
@@ -36,8 +37,8 @@ export interface LogProcessorConfigV3 {
   boostedFeesStableswapAddress: `0x${string}`;
   coreAddress: `0x${string}`;
   oracleAddress: `0x${string}`;
-  twammAddress: `0x${string}`;
-  ordersAddress: `0x${string}`;
+  twammAddresses: `0x${string}`[];
+  ordersAddresses: `0x${string}`[];
   incentivesAddress: `0x${string}`;
   tokenWrapperFactoryAddress: `0x${string}`;
   auctionsAddress: `0x${string}`;
@@ -47,14 +48,12 @@ export interface LogProcessorConfigV3 {
 type ProcessorDefinitionsV3 = {
   Core: ContractHandlers<typeof CORE_ABI_V3>;
   Oracle: ContractHandlers<typeof ORACLE_ABI_V3>;
-  TWAMM: ContractHandlers<typeof TWAMM_ABI_V3>;
-  Orders: ContractHandlers<typeof ORDERS_ABI_V3>;
   Incentives: ContractHandlers<typeof INCENTIVES_ABI_V3>;
   TokenWrapperFactory: ContractHandlers<typeof TOKEN_WRAPPER_FACTORY_ABI_V3>;
   BoostedFeesConcentrated: ContractHandlers<typeof BOOSTED_FEES_ABI_V3>;
   BoostedFeesStableswap: ContractHandlers<typeof BOOSTED_FEES_ABI_V3>;
   Auctions?: ContractHandlers<typeof AUCTIONS_ABI_V3>;
-};
+} & ContractHandlerDefinitions;
 
 export function createLogProcessorsV3({
   mevCaptureAddress,
@@ -62,8 +61,8 @@ export function createLogProcessorsV3({
   boostedFeesStableswapAddress,
   coreAddress,
   oracleAddress,
-  twammAddress,
-  ordersAddress,
+  twammAddresses,
+  ordersAddresses,
   incentivesAddress,
   tokenWrapperFactoryAddress,
   auctionsAddress,
@@ -111,6 +110,106 @@ export function createLogProcessorsV3({
           },
           key,
         );
+      },
+    },
+  };
+
+  const twammHandler: Pick<
+    ContractHandlers<typeof TWAMM_ABI_V3>,
+    "abi" | "handlers" | "noTopics"
+  > = {
+    abi: TWAMM_ABI_V3,
+    async noTopics(dao, key, data) {
+      if (!data) throw new Error("Event with no data from TWAMM");
+      const event = parseTwammVirtualOrdersExecuted(data);
+      await dao.insertTWAMMVirtualOrdersExecutedEvent(
+        { ...event, coreAddress },
+        key,
+      );
+    },
+    handlers: {
+      async OrderUpdated(dao, key, parsed) {
+        const { startTime, endTime, fee, isToken1 } = parseOrderConfig(
+          parsed.orderKey.config,
+        );
+        const [buyToken, sellToken] = isToken1
+          ? [parsed.orderKey.token0, parsed.orderKey.token1]
+          : [parsed.orderKey.token1, parsed.orderKey.token0];
+        await dao.insertTWAMMOrderUpdatedEvent(
+          {
+            coreAddress,
+            orderKey: {
+              buyToken,
+              sellToken,
+              startTime,
+              endTime,
+              fee,
+            },
+            poolId: toPoolId({
+              token0: parsed.orderKey.token0,
+              token1: parsed.orderKey.token1,
+              // v2 and v3 behavior match as long as tickSpacing == 0n
+              config: toPoolConfigV2({
+                fee,
+                tickSpacing: 0,
+                extension: key.emitter,
+              }),
+            }),
+            owner: parsed.owner,
+            salt: parsed.salt,
+            saleRateDelta: parsed.saleRateDelta,
+            is_selling_token1: isToken1,
+          },
+          key,
+        );
+      },
+      async OrderProceedsWithdrawn(dao, key, parsed) {
+        const { startTime, endTime, fee, isToken1 } = parseOrderConfig(
+          parsed.orderKey.config,
+        );
+        const [buyToken, sellToken] = isToken1
+          ? [parsed.orderKey.token0, parsed.orderKey.token1]
+          : [parsed.orderKey.token1, parsed.orderKey.token0];
+
+        await dao.insertTWAMMOrderProceedsWithdrawnEvent(
+          {
+            coreAddress,
+            orderKey: {
+              buyToken,
+              sellToken,
+              startTime,
+              endTime,
+              fee,
+            },
+            poolId: toPoolId({
+              token0: parsed.orderKey.token0,
+              token1: parsed.orderKey.token1,
+              // v2 and v3 behavior match as long as tickSpacing == 0n
+              config: toPoolConfigV2({
+                fee,
+                tickSpacing: 0,
+                extension: key.emitter,
+              }),
+            }),
+            owner: parsed.owner,
+            salt: parsed.salt,
+            amount: parsed.amount,
+            is_selling_token1: isToken1,
+          },
+          key,
+        );
+      },
+    },
+  };
+
+  const ordersHandler: Pick<
+    ContractHandlers<typeof ORDERS_ABI_V3>,
+    "abi" | "handlers"
+  > = {
+    abi: ORDERS_ABI_V3,
+    handlers: {
+      async Transfer(dao, key, parsed) {
+        await dao.insertNonfungibleTokenTransferEvent(parsed, key);
       },
     },
   };
@@ -273,100 +372,6 @@ export function createLogProcessorsV3({
         );
       },
     },
-    TWAMM: {
-      address: twammAddress,
-      abi: TWAMM_ABI_V3,
-      async noTopics(dao, key, data) {
-        if (!data) throw new Error("Event with no data from TWAMM");
-        const event = parseTwammVirtualOrdersExecuted(data);
-        await dao.insertTWAMMVirtualOrdersExecutedEvent(
-          { ...event, coreAddress },
-          key,
-        );
-      },
-      handlers: {
-        async OrderUpdated(dao, key, parsed) {
-          const { startTime, endTime, fee, isToken1 } = parseOrderConfig(
-            parsed.orderKey.config,
-          );
-          const [buyToken, sellToken] = isToken1
-            ? [parsed.orderKey.token0, parsed.orderKey.token1]
-            : [parsed.orderKey.token1, parsed.orderKey.token0];
-          await dao.insertTWAMMOrderUpdatedEvent(
-            {
-              coreAddress,
-              orderKey: {
-                buyToken,
-                sellToken,
-                startTime,
-                endTime,
-                fee,
-              },
-              poolId: toPoolId({
-                token0: parsed.orderKey.token0,
-                token1: parsed.orderKey.token1,
-                // v2 and v3 behavior match as long as tickSpacing == 0n
-                config: toPoolConfigV2({
-                  fee,
-                  tickSpacing: 0,
-                  extension: key.emitter,
-                }),
-              }),
-              owner: parsed.owner,
-              salt: parsed.salt,
-              saleRateDelta: parsed.saleRateDelta,
-              is_selling_token1: isToken1,
-            },
-            key,
-          );
-        },
-        async OrderProceedsWithdrawn(dao, key, parsed) {
-          const { startTime, endTime, fee, isToken1 } = parseOrderConfig(
-            parsed.orderKey.config,
-          );
-          const [buyToken, sellToken] = isToken1
-            ? [parsed.orderKey.token0, parsed.orderKey.token1]
-            : [parsed.orderKey.token1, parsed.orderKey.token0];
-
-          await dao.insertTWAMMOrderProceedsWithdrawnEvent(
-            {
-              coreAddress,
-              orderKey: {
-                buyToken,
-                sellToken,
-                startTime,
-                endTime,
-                fee,
-              },
-              poolId: toPoolId({
-                token0: parsed.orderKey.token0,
-                token1: parsed.orderKey.token1,
-                // v2 and v3 behavior match as long as tickSpacing == 0n
-                config: toPoolConfigV2({
-                  fee,
-                  tickSpacing: 0,
-                  extension: key.emitter,
-                }),
-              }),
-              owner: parsed.owner,
-              salt: parsed.salt,
-              amount: parsed.amount,
-              is_selling_token1: isToken1,
-            },
-            key,
-          );
-        },
-      },
-    },
-    Orders: {
-      address: ordersAddress,
-      abi: ORDERS_ABI_V3,
-      handlers: {
-        async Transfer(dao, key, parsed) {
-          await dao.insertNonfungibleTokenTransferEvent(parsed, key);
-        },
-      },
-    },
     Incentives: {
       address: incentivesAddress,
       abi: INCENTIVES_ABI_V3,
@@ -423,7 +428,25 @@ export function createLogProcessorsV3({
       : {}),
   };
 
-  const baseProcessors = createProcessorsFromHandlers(processors as any);
+  const baseProcessors = createProcessorsFromHandlers(processors);
+
+  const twammProcessors = twammAddresses.flatMap((address, index) =>
+    createProcessorsFromHandlers({
+      [`TWAMM${index + 1}`]: {
+        address,
+        ...twammHandler,
+      },
+    }),
+  );
+
+  const ordersProcessors = ordersAddresses.flatMap((address, index) =>
+    createProcessorsFromHandlers({
+      [`Orders${index + 1}`]: {
+        address,
+        ...ordersHandler,
+      },
+    }),
+  );
 
   const positionsProcessors =
     positionsContracts?.flatMap((p) =>
@@ -438,5 +461,9 @@ export function createLogProcessorsV3({
       }),
     ) ?? [];
 
-  return baseProcessors.concat(positionsProcessors);
+  return baseProcessors.concat(
+    twammProcessors,
+    ordersProcessors,
+    positionsProcessors,
+  );
 }

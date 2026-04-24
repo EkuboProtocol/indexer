@@ -31,12 +31,15 @@ interface EvmConfig extends CommonConfiguration {
 
   CORE_V3_ADDRESS: `0x${string}`;
   ORACLE_V3_ADDRESS: `0x${string}`;
-  TWAMM_V3_ADDRESS: `0x${string}`;
-  ORDERS_V3_ADDRESS: `0x${string}`;
+  TWAMM_V3_ADDRESS?: `0x${string}`;
+  LEGACY_TWAMM_V3_ADDRESS?: `0x${string}`;
+  ORDERS_V3_ADDRESS?: `0x${string}`;
+  LEGACY_ORDERS_V3_ADDRESS?: `0x${string}`;
   INCENTIVES_V3_ADDRESS: `0x${string}`;
   MEV_CAPTURE_V3_ADDRESS: `0x${string}`;
   AUCTIONS_V3_ADDRESS: `0x${string}`;
-  BOOSTED_FEES_V3_ADDRESS: `0x${string}`;
+  BOOSTED_FEES_CONCENTRATED_V3_ADDRESS: `0x${string}`;
+  BOOSTED_FEES_STABLESWAP_V3_ADDRESS: `0x${string}`;
   TOKEN_WRAPPER_FACTORY_V3_ADDRESS: `0x${string}`;
   POSITIONS_V3_PROTOCOL_FEE_CONFIGS?: string;
 }

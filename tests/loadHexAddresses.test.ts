@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { loadHexAddresses } from "../src/_shared/loadHexAddresses";
+import {
+  loadHexAddresses,
+  loadOptionalHexAddress,
+} from "../src/_shared/loadHexAddresses";
 
 describe("loadHexAddresses", () => {
   test("returns typed addresses when all env vars exist and are hex", () => {
@@ -53,5 +56,25 @@ describe("loadHexAddresses", () => {
     );
 
     expect(result).toBeUndefined();
+  });
+
+  test("loads optional addresses only when present", () => {
+    expect(
+      loadOptionalHexAddress("LEGACY_TWAMM_V3_ADDRESS", {
+        LEGACY_TWAMM_V3_ADDRESS: "  0xabc123  ",
+      })
+    ).toBe("0xabc123");
+
+    expect(loadOptionalHexAddress("LEGACY_TWAMM_V3_ADDRESS", {})).toBe(
+      undefined
+    );
+  });
+
+  test("throws when an optional address is present but malformed", () => {
+    expect(() =>
+      loadOptionalHexAddress("LEGACY_TWAMM_V3_ADDRESS", {
+        LEGACY_TWAMM_V3_ADDRESS: "not-hex",
+      })
+    ).toThrow('Invalid hex address for LEGACY_TWAMM_V3_ADDRESS: "not-hex"');
   });
 });
