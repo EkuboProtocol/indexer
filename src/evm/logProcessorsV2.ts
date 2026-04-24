@@ -270,5 +270,5 @@ export function createLogProcessorsV2({
     },
   };
 
-  return createProcessorsFromHandlers(processors as any);
+  return createProcessorsFromHandlers(processors);
 }

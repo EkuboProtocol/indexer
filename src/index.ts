@@ -11,7 +11,11 @@ import { parsePositionsProtocolFeeConfigs } from "./evm/positionsProtocolFeeConf
 import { createEventProcessors } from "./starknet/eventProcessors";
 import { createClient, Metadata } from "@apibara/protocol";
 import { msToHumanShort } from "./_shared/msToHumanShort";
-import { loadHexAddresses } from "./_shared/loadHexAddresses";
+import {
+  loadHexAddresses,
+  loadOptionalHexAddress,
+  type HexAddress,
+} from "./_shared/loadHexAddresses";
 import { createRpcClient } from "@apibara/protocol/rpc";
 import { createPublicClient, fallback } from "viem";
 import { EvmLogProcessor } from "./evm/logProcessorsShared";
@@ -39,6 +43,23 @@ if (!chainId) {
 }
 
 const dao = DAO.create(process.env.PG_CONNECTION_STRING!, chainId);
+
+function requireAtLeastOneAddress(
+  label: string,
+  envNames: string[],
+): HexAddress[] {
+  const addresses = envNames
+    .map((envName) => loadOptionalHexAddress(envName))
+    .filter((address): address is HexAddress => Boolean(address));
+
+  if (addresses.length === 0) {
+    throw new Error(
+      `Missing ${label}. Set at least one of: ${envNames.join(", ")}`,
+    );
+  }
+
+  return addresses;
+}
 
 // Timer for exiting if no blocks are received within the configured time
 const NO_BLOCKS_TIMEOUT_MS = parseInt(process.env.NO_BLOCKS_TIMEOUT_MS || "0");
@@ -138,8 +159,6 @@ function resetNoBlocksTimer() {
           boostedFeesStableswapAddress: "BOOSTED_FEES_STABLESWAP_V3_ADDRESS",
           coreAddress: "CORE_V3_ADDRESS",
           oracleAddress: "ORACLE_V3_ADDRESS",
-          twammAddress: "TWAMM_V3_ADDRESS",
-          ordersAddress: "ORDERS_V3_ADDRESS",
           incentivesAddress: "INCENTIVES_V3_ADDRESS",
           tokenWrapperFactoryAddress: "TOKEN_WRAPPER_FACTORY_V3_ADDRESS",
           auctionsAddress: "AUCTIONS_V3_ADDRESS",
@@ -199,6 +218,14 @@ function resetNoBlocksTimer() {
           ...(evmV3AddressConfig
             ? createLogProcessorsV3({
                 ...evmV3AddressConfig,
+                twammAddresses: requireAtLeastOneAddress("V3 TWAMM address", [
+                  "TWAMM_V3_ADDRESS",
+                  "LEGACY_TWAMM_V3_ADDRESS",
+                ]),
+                ordersAddresses: requireAtLeastOneAddress(
+                  "V3 Orders address",
+                  ["ORDERS_V3_ADDRESS", "LEGACY_ORDERS_V3_ADDRESS"],
+                ),
                 positionsContracts: positionsV3ProtocolFeeConfigs ?? [],
               })
             : []),
