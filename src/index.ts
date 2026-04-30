@@ -237,15 +237,6 @@ function resetNoBlocksTimer() {
       ? createEventProcessors(starknetAddressConfig)
       : ([] as ReturnType<typeof createEventProcessors>);
 
-  const streamOptions = {
-    finality: "accepted",
-    startingCursor: currentCursor!,
-    heartbeatInterval: {
-      seconds: 10n,
-      nanos: 0,
-    },
-  } as const;
-
   const createTransportFromUrl = (url: string) =>
     rateLimitedHttp(url, { rps: 100, retryCount: 0 });
 
@@ -302,41 +293,75 @@ function resetNoBlocksTimer() {
 
   const MERGE_GET_LOGS_FILTER = process.env.MERGE_GET_LOGS_FILTER;
 
-  const stream =
-    NETWORK_TYPE === "evm"
-      ? publicClient
-        ? createRpcClient(
-            new EvmRpcStream(publicClient, {
-              // how often we look for a new head
-              headRefreshIntervalMs: 2000,
-              // This parameter changes based on the rpc provider.
-              // The stream automatically shrinks the batch size when the provider returns an error.
-              getLogsRangeSize: BigInt(
-                process.env.GET_LOGS_RANGE_SIZE ?? 1_000_000n,
-              ),
-              alwaysSendAcceptedHeaders: true,
-              mergeGetLogsFilter:
-                MERGE_GET_LOGS_FILTER &&
-                ["always", "accepted"].includes(
-                  MERGE_GET_LOGS_FILTER.toLowerCase(),
-                )
-                  ? (MERGE_GET_LOGS_FILTER as "always" | "accepted")
-                  : false,
-            }),
-          ).streamData({
-            ...streamOptions,
-            filter: [
-              {
-                logs: evmProcessors.map((lp, ix) => ({
-                  id: ix + 1,
-                  address: lp.address,
-                  topics: lp.filter.topics,
-                  strict: lp.filter.strict,
-                })),
+  // Retry loop: if the stored cursor is no longer canonical (e.g. due to an
+  // unhandled reorg on a previous run), reset it to the last finalized cursor
+  // and restart the stream.
+  while (true) {
+    const streamOptions = {
+      finality: "accepted",
+      startingCursor: currentCursor!,
+      heartbeatInterval: {
+        seconds: 10n,
+        nanos: 0,
+      },
+    } as const;
+
+    const stream =
+      NETWORK_TYPE === "evm"
+        ? publicClient
+          ? createRpcClient(
+              new EvmRpcStream(publicClient, {
+                // how often we look for a new head
+                headRefreshIntervalMs: 2000,
+                // This parameter changes based on the rpc provider.
+                // The stream automatically shrinks the batch size when the provider returns an error.
+                getLogsRangeSize: BigInt(
+                  process.env.GET_LOGS_RANGE_SIZE ?? 1_000_000n,
+                ),
+                alwaysSendAcceptedHeaders: true,
+                mergeGetLogsFilter:
+                  MERGE_GET_LOGS_FILTER &&
+                  ["always", "accepted"].includes(
+                    MERGE_GET_LOGS_FILTER.toLowerCase(),
+                  )
+                    ? (MERGE_GET_LOGS_FILTER as "always" | "accepted")
+                    : false,
+              }),
+            ).streamData({
+              ...streamOptions,
+              filter: [
+                {
+                  logs: evmProcessors.map((lp, ix) => ({
+                    id: ix + 1,
+                    address: lp.address,
+                    topics: lp.filter.topics,
+                    strict: lp.filter.strict,
+                  })),
+                },
+              ],
+            })
+          : createClient(EvmStream, process.env.APIBARA_URL!, {
+              defaultCallOptions: {
+                "*": {
+                  metadata: Metadata({
+                    Authorization: `Bearer ${process.env.DNA_TOKEN}`,
+                  }),
+                },
               },
-            ],
-          })
-        : createClient(EvmStream, process.env.APIBARA_URL!, {
+            }).streamData({
+              ...streamOptions,
+              filter: [
+                {
+                  logs: evmProcessors.map((lp, ix) => ({
+                    id: ix + 1,
+                    address: lp.address,
+                    topics: lp.filter.topics,
+                    strict: lp.filter.strict,
+                  })),
+                },
+              ],
+            })
+        : createClient(StarknetStream, process.env.APIBARA_URL!, {
             defaultCallOptions: {
               "*": {
                 metadata: Metadata({
@@ -348,37 +373,17 @@ function resetNoBlocksTimer() {
             ...streamOptions,
             filter: [
               {
-                logs: evmProcessors.map((lp, ix) => ({
+                events: starknetProcessors.map((processor, ix) => ({
                   id: ix + 1,
-                  address: lp.address,
-                  topics: lp.filter.topics,
-                  strict: lp.filter.strict,
+                  address: processor.filter.fromAddress,
+                  keys: processor.filter.keys,
                 })),
               },
             ],
-          })
-      : createClient(StarknetStream, process.env.APIBARA_URL!, {
-          defaultCallOptions: {
-            "*": {
-              metadata: Metadata({
-                Authorization: `Bearer ${process.env.DNA_TOKEN}`,
-              }),
-            },
-          },
-        }).streamData({
-          ...streamOptions,
-          filter: [
-            {
-              events: starknetProcessors.map((processor, ix) => ({
-                id: ix + 1,
-                address: processor.filter.fromAddress,
-                keys: processor.filter.keys,
-              })),
-            },
-          ],
-        });
+          });
 
-  for await (const message of stream) {
+    try {
+      for await (const message of stream) {
     switch (message._tag) {
       case "heartbeat": {
         logger.debug(`Heartbeat`);
@@ -609,6 +614,35 @@ function resetNoBlocksTimer() {
         break;
       }
     }
+  }
+
+  // Stream ended gracefully; exit the retry loop
+  break;
+} catch (error) {
+  if (
+    error instanceof Error &&
+    error.message.includes("Starting cursor is not canonical")
+  ) {
+    const finalizedCursor = await dao.loadFinalizedCursor();
+    if (finalizedCursor) {
+      logger.warn(
+        "Cursor is not canonical, resetting to last finalized cursor",
+        { currentCursor, finalizedCursor },
+      );
+      await dao.begin(async (dao) => {
+        await dao.deleteOldBlockNumbers(
+          Number(finalizedCursor.orderKey) + 1,
+        );
+        currentCursor = await dao.writeCursor(
+          finalizedCursor,
+          currentCursor,
+        );
+      });
+      continue;
+    }
+  }
+  throw error;
+}
   }
 })()
   .then(() => {

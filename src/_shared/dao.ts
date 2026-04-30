@@ -459,6 +459,30 @@ export class DAO {
     return null;
   }
 
+  public async loadFinalizedCursor(): Promise<IndexerCursor | null> {
+    const [cursor] = await this.sql<
+      {
+        finalized_order_key: string | null;
+        finalized_unique_key: string | null;
+      }[]
+    >`SELECT finalized_order_key, finalized_unique_key FROM indexer_cursor WHERE chain_id = ${this.chainId};`;
+
+    if (cursor?.finalized_order_key) {
+      const { finalized_order_key, finalized_unique_key } = cursor;
+
+      return finalized_unique_key === null
+        ? {
+            orderKey: BigInt(finalized_order_key),
+          }
+        : {
+            orderKey: BigInt(finalized_order_key),
+            uniqueKey: `0x${BigInt(finalized_unique_key).toString(16)}`,
+          };
+    }
+
+    return null;
+  }
+
   public async writeCursor(
     cursor: IndexerCursor,
     expectedCursor: IndexerCursor
