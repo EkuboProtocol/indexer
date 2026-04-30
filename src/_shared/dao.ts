@@ -465,7 +465,7 @@ export class DAO {
         finalized_order_key: string | null;
         finalized_unique_key: string | null;
       }[]
-    >`SELECT finalized_order_key, finalized_unique_key FROM indexer_cursor WHERE chain_id = ${this.chainId};`;
+    >`SELECT finalized_order_key, finalized_unique_key FROM indexer_cursor WHERE chain_id = ${this.chainId} AND finalized_order_key IS NOT NULL AND finalized_order_key <= order_key;`;
 
     if (cursor?.finalized_order_key) {
       const { finalized_order_key, finalized_unique_key } = cursor;
