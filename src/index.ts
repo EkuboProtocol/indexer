@@ -111,25 +111,30 @@ function resetNoBlocksTimer() {
   let currentCursor: IndexerCursor;
   {
     const initializeTimer = logger.startTimer();
+    const expectedCursor = { orderKey: 0n };
+    let initializedCursor: IndexerCursor | null = null;
 
     currentCursor = await dao.begin(async (dao) => {
       const databaseStartingCursor = await dao.loadCursor();
       if (databaseStartingCursor) {
         return databaseStartingCursor;
       } else {
-        return dao.writeCursor(
+        initializedCursor = await dao.writeCursor(
           {
             orderKey: BigInt(process.env.STARTING_CURSOR_BLOCK_NUMBER!),
           },
           // should never happen but so this will cause it to revert if there's a race condition
-          { orderKey: 0n },
+          expectedCursor,
         );
+        return initializedCursor;
       }
     });
 
     initializeTimer.done({
       message: "Prepared indexer state",
       startingCursor: currentCursor,
+      expectedCursor: initializedCursor ? expectedCursor : null,
+      writtenCursor: initializedCursor,
     });
   }
 
@@ -222,10 +227,10 @@ function resetNoBlocksTimer() {
                   "TWAMM_V3_ADDRESS",
                   "LEGACY_TWAMM_V3_ADDRESS",
                 ]),
-                ordersAddresses: requireAtLeastOneAddress(
-                  "V3 Orders address",
-                  ["ORDERS_V3_ADDRESS", "LEGACY_ORDERS_V3_ADDRESS"],
-                ),
+                ordersAddresses: requireAtLeastOneAddress("V3 Orders address", [
+                  "ORDERS_V3_ADDRESS",
+                  "LEGACY_ORDERS_V3_ADDRESS",
+                ]),
                 positionsContracts: positionsV3ProtocolFeeConfigs ?? [],
               })
             : []),
@@ -386,277 +391,307 @@ function resetNoBlocksTimer() {
 
     try {
       for await (const message of stream) {
-    switch (message._tag) {
-      case "heartbeat": {
-        logger.debug(`Heartbeat`);
+        switch (message._tag) {
+          case "heartbeat": {
+            logger.debug(`Heartbeat`);
 
-        // Note: We don't reset the no-blocks timer on heartbeats, only when actual blocks are received
-        break;
-      }
-
-      case "systemMessage": {
-        switch (message.systemMessage.output?._tag) {
-          case "stderr":
-            logger.error(`System message: ${message.systemMessage.output}`);
+            // Note: We don't reset the no-blocks timer on heartbeats, only when actual blocks are received
             break;
-          case "stdout":
-            logger.info(`System message: ${message.systemMessage.output}`);
-            break;
-        }
-        break;
-      }
-
-      case "finalize": {
-        const finalizedCursor = message.finalize.cursor;
-
-        if (finalizedCursor) {
-          logger.info({
-            evt: "finalize",
-            chainId,
-            finalizedCursor,
-          });
-
-          await dao.updateFinalizedCursor(currentCursor, finalizedCursor);
-        }
-
-        break;
-      }
-
-      case "invalidate": {
-        const invalidatedCursor = message.invalidate.cursor;
-        if (!invalidatedCursor)
-          throw new Error("invalidate message missing a cursor");
-
-        if (invalidatedCursor) {
-          logger.warn(`Cursor invalidated`, { cursor: invalidatedCursor });
-
-          await dao.begin(async (dao) => {
-            await dao.deleteOldBlockNumbers(
-              Number(invalidatedCursor.orderKey) + 1,
-            );
-            currentCursor = await dao.writeCursor(
-              invalidatedCursor,
-              currentCursor,
-            );
-          });
-        }
-
-        break;
-      }
-
-      case "data": {
-        // Reset the no-blocks timer since we received block data
-        resetNoBlocksTimer();
-
-        const endCursor = message.data.endCursor;
-        if (!endCursor) {
-          throw new Error("Received data message without an end cursor");
-        }
-
-        for (const block of message.data.data) {
-          if (!block) continue;
-          const blockProcessingTimer = logger.startTimer();
-          const blockProcessingStartMs = Date.now();
-
-          const blockNumber = Number(block.header.blockNumber);
-          const blockTime = block.header.timestamp;
-
-          const plannedEvents =
-            NETWORK_TYPE === "evm"
-              ? (block as EvmBlock).logs.reduce(
-                  (total, log) => total + (log.filterIds?.length ?? 0),
-                  0,
-                )
-              : (block as StarknetBlock).events.reduce(
-                  (total, event) => total + (event.filterIds?.length ?? 0),
-                  0,
-                );
-
-          let eventsProcessed = 0;
-
-          await dao.begin(async (dao) => {
-            await dao.deleteOldBlockNumbers(blockNumber);
-
-            const blockHashHex = block.header.blockHash ?? "0x0";
-            let baseFeePerGas: bigint | null = null;
-
-            if ("baseFeePerGas" in block.header && block.header.baseFeePerGas) {
-              baseFeePerGas = BigInt(block.header.baseFeePerGas);
-            } else if (
-              "l2GasPrice" in block.header &&
-              block.header.l2GasPrice?.priceInFri
-            ) {
-              baseFeePerGas = BigInt(block.header.l2GasPrice.priceInFri);
-            }
-
-            await dao.insertBlock({
-              number: block.header.blockNumber,
-              hash: BigInt(blockHashHex),
-              time: blockTime,
-              baseFeePerGas,
-              numEvents: plannedEvents,
-            });
-
-            if (NETWORK_TYPE === "evm") {
-              const logs = (block as EvmBlock).logs;
-              for (let i = 0; i < logs.length; i++) {
-                const log = logs[i];
-
-                const eventKey: EventKey = {
-                  blockNumber,
-                  transactionIndex: log.transactionIndex ?? 0,
-                  eventIndex: log.logIndexInTransaction ?? log.logIndex ?? i,
-                  emitter: log.address,
-                  transactionHash: log.transactionHash,
-                };
-
-                await Promise.all(
-                  log.filterIds.map(async (matchingFilterId: number) => {
-                    eventsProcessed++;
-
-                    await evmProcessors[matchingFilterId - 1]!.handler(
-                      dao,
-                      eventKey,
-                      {
-                        topics: log.topics,
-                        data: log.data,
-                      },
-                    );
-                  }),
-                );
-              }
-            } else if (NETWORK_TYPE === "starknet") {
-              const events = (block as StarknetBlock).events;
-              for (const event of events) {
-                const eventKey: EventKey = {
-                  blockNumber,
-                  transactionIndex: event.transactionIndex,
-                  eventIndex: event.eventIndexInTransaction ?? event.eventIndex,
-                  emitter: event.address,
-                  transactionHash: event.transactionHash,
-                };
-
-                await Promise.all(
-                  event.filterIds.map(async (matchingFilterId: number) => {
-                    eventsProcessed++;
-                    const processor = starknetProcessors[matchingFilterId - 1]!;
-                    const { value: parsed } = processor.parser(event.data, 0);
-                    await processor.handle(dao, { key: eventKey, parsed });
-                  }),
-                );
-              }
-            }
-
-            // endCursor is what we write so when we restart we delete any pending block information
-            currentCursor = await dao.writeCursor(endCursor, currentCursor);
-          });
-
-          const nowMs = Date.now();
-          const lagMs = Math.max(0, nowMs - Number(blockTime.getTime()));
-
-          blockProcessingTimer.done({
-            bNo: blockNumber,
-            bTs: blockTime,
-            evts: eventsProcessed,
-            lag: msToHumanShort(lagMs, 2),
-          });
-
-          if (lastObservedLagMs !== null) {
-            statsLagReducedMs += lastObservedLagMs - lagMs;
           }
-          lastObservedLagMs = lagMs;
 
-          if (EVENT_STATS_BLOCK_INTERVAL > 0) {
-            const blockDurationMs = nowMs - blockProcessingStartMs;
-            statsBlocksProcessed += 1;
-            statsEventsInserted += eventsProcessed;
-            statsProcessingTimeMs += blockDurationMs;
+          case "systemMessage": {
+            switch (message.systemMessage.output?._tag) {
+              case "stderr":
+                logger.error(`System message: ${message.systemMessage.output}`);
+                break;
+              case "stdout":
+                logger.info(`System message: ${message.systemMessage.output}`);
+                break;
+            }
+            break;
+          }
 
-            if (statsBlocksProcessed === EVENT_STATS_BLOCK_INTERVAL) {
-              const eventsPerSecond =
-                statsProcessingTimeMs > 0
-                  ? statsEventsInserted / (statsProcessingTimeMs / 1000)
-                  : 0;
+          case "finalize": {
+            const finalizedCursor = message.finalize.cursor;
 
-              const catchupMsPerSec =
-                statsProcessingTimeMs > 0
-                  ? (statsLagReducedMs * 1000) / statsProcessingTimeMs
-                  : 0;
-
-              const etaMs =
-                catchupMsPerSec > 0 && lastObservedLagMs !== null
-                  ? Math.round((lastObservedLagMs / catchupMsPerSec) * 1000)
-                  : null;
+            if (finalizedCursor) {
+              const expectedCursor = currentCursor;
+              await dao.updateFinalizedCursor(expectedCursor, finalizedCursor);
 
               logger.info({
-                evt: "ingest-stats",
-                blocks: statsBlocksProcessed,
-                events: statsEventsInserted,
-                durationMs: Math.round(statsProcessingTimeMs),
-                eps: Number(eventsPerSecond.toFixed(2)),
-                lagMs: lastObservedLagMs,
-                catchupMsPerSec: Number(catchupMsPerSec.toFixed(2)),
-                eta: etaMs !== null ? msToHumanShort(etaMs, 2) : null,
+                evt: "finalize",
+                chainId,
+                finalizedCursor,
+                expectedCursor,
+              });
+            }
+
+            break;
+          }
+
+          case "invalidate": {
+            const invalidatedCursor = message.invalidate.cursor;
+            if (!invalidatedCursor)
+              throw new Error("invalidate message missing a cursor");
+
+            if (invalidatedCursor) {
+              let writtenCursor: IndexerCursor | null = null;
+              const expectedCursor = currentCursor;
+
+              await dao.begin(async (dao) => {
+                await dao.deleteOldBlockNumbers(
+                  Number(invalidatedCursor.orderKey) + 1,
+                );
+                currentCursor = await dao.writeCursor(
+                  invalidatedCursor,
+                  expectedCursor,
+                );
+                writtenCursor = currentCursor;
               });
 
-              statsBlocksProcessed = 0;
-              statsEventsInserted = 0;
-              statsProcessingTimeMs = 0;
-              statsLagReducedMs = 0;
+              logger.warn(`Cursor invalidated`, {
+                invalidatedCursor,
+                expectedCursor,
+                writtenCursor,
+              });
             }
+
+            break;
+          }
+
+          case "data": {
+            // Reset the no-blocks timer since we received block data
+            resetNoBlocksTimer();
+
+            const endCursor = message.data.endCursor;
+            if (!endCursor) {
+              throw new Error("Received data message without an end cursor");
+            }
+
+            for (const block of message.data.data) {
+              if (!block) continue;
+              const blockProcessingTimer = logger.startTimer();
+              const blockProcessingStartMs = Date.now();
+              const expectedCursor = currentCursor;
+              let writtenCursor: IndexerCursor | null = null;
+
+              const blockNumber = Number(block.header.blockNumber);
+              const blockTime = block.header.timestamp;
+
+              const plannedEvents =
+                NETWORK_TYPE === "evm"
+                  ? (block as EvmBlock).logs.reduce(
+                      (total, log) => total + (log.filterIds?.length ?? 0),
+                      0,
+                    )
+                  : (block as StarknetBlock).events.reduce(
+                      (total, event) => total + (event.filterIds?.length ?? 0),
+                      0,
+                    );
+
+              let eventsProcessed = 0;
+
+              await dao.begin(async (dao) => {
+                await dao.deleteOldBlockNumbers(blockNumber);
+
+                const blockHashHex = block.header.blockHash ?? "0x0";
+                let baseFeePerGas: bigint | null = null;
+
+                if (
+                  "baseFeePerGas" in block.header &&
+                  block.header.baseFeePerGas
+                ) {
+                  baseFeePerGas = BigInt(block.header.baseFeePerGas);
+                } else if (
+                  "l2GasPrice" in block.header &&
+                  block.header.l2GasPrice?.priceInFri
+                ) {
+                  baseFeePerGas = BigInt(block.header.l2GasPrice.priceInFri);
+                }
+
+                await dao.insertBlock({
+                  number: block.header.blockNumber,
+                  hash: BigInt(blockHashHex),
+                  time: blockTime,
+                  baseFeePerGas,
+                  numEvents: plannedEvents,
+                });
+
+                if (NETWORK_TYPE === "evm") {
+                  const logs = (block as EvmBlock).logs;
+                  for (let i = 0; i < logs.length; i++) {
+                    const log = logs[i];
+
+                    const eventKey: EventKey = {
+                      blockNumber,
+                      transactionIndex: log.transactionIndex ?? 0,
+                      eventIndex:
+                        log.logIndexInTransaction ?? log.logIndex ?? i,
+                      emitter: log.address,
+                      transactionHash: log.transactionHash,
+                    };
+
+                    await Promise.all(
+                      log.filterIds.map(async (matchingFilterId: number) => {
+                        eventsProcessed++;
+
+                        await evmProcessors[matchingFilterId - 1]!.handler(
+                          dao,
+                          eventKey,
+                          {
+                            topics: log.topics,
+                            data: log.data,
+                          },
+                        );
+                      }),
+                    );
+                  }
+                } else if (NETWORK_TYPE === "starknet") {
+                  const events = (block as StarknetBlock).events;
+                  for (const event of events) {
+                    const eventKey: EventKey = {
+                      blockNumber,
+                      transactionIndex: event.transactionIndex,
+                      eventIndex:
+                        event.eventIndexInTransaction ?? event.eventIndex,
+                      emitter: event.address,
+                      transactionHash: event.transactionHash,
+                    };
+
+                    await Promise.all(
+                      event.filterIds.map(async (matchingFilterId: number) => {
+                        eventsProcessed++;
+                        const processor =
+                          starknetProcessors[matchingFilterId - 1]!;
+                        const { value: parsed } = processor.parser(
+                          event.data,
+                          0,
+                        );
+                        await processor.handle(dao, { key: eventKey, parsed });
+                      }),
+                    );
+                  }
+                }
+
+                // endCursor is what we write so when we restart we delete any pending block information
+                currentCursor = await dao.writeCursor(
+                  endCursor,
+                  expectedCursor,
+                );
+                writtenCursor = currentCursor;
+              });
+
+              const nowMs = Date.now();
+              const lagMs = Math.max(0, nowMs - Number(blockTime.getTime()));
+
+              blockProcessingTimer.done({
+                bNo: blockNumber,
+                bTs: blockTime,
+                evts: eventsProcessed,
+                lag: msToHumanShort(lagMs, 2),
+                expectedCursor,
+                writtenCursor,
+              });
+
+              if (lastObservedLagMs !== null) {
+                statsLagReducedMs += lastObservedLagMs - lagMs;
+              }
+              lastObservedLagMs = lagMs;
+
+              if (EVENT_STATS_BLOCK_INTERVAL > 0) {
+                const blockDurationMs = nowMs - blockProcessingStartMs;
+                statsBlocksProcessed += 1;
+                statsEventsInserted += eventsProcessed;
+                statsProcessingTimeMs += blockDurationMs;
+
+                if (statsBlocksProcessed === EVENT_STATS_BLOCK_INTERVAL) {
+                  const eventsPerSecond =
+                    statsProcessingTimeMs > 0
+                      ? statsEventsInserted / (statsProcessingTimeMs / 1000)
+                      : 0;
+
+                  const catchupMsPerSec =
+                    statsProcessingTimeMs > 0
+                      ? (statsLagReducedMs * 1000) / statsProcessingTimeMs
+                      : 0;
+
+                  const etaMs =
+                    catchupMsPerSec > 0 && lastObservedLagMs !== null
+                      ? Math.round((lastObservedLagMs / catchupMsPerSec) * 1000)
+                      : null;
+
+                  logger.info({
+                    evt: "ingest-stats",
+                    blocks: statsBlocksProcessed,
+                    events: statsEventsInserted,
+                    durationMs: Math.round(statsProcessingTimeMs),
+                    eps: Number(eventsPerSecond.toFixed(2)),
+                    lagMs: lastObservedLagMs,
+                    catchupMsPerSec: Number(catchupMsPerSec.toFixed(2)),
+                    eta: etaMs !== null ? msToHumanShort(etaMs, 2) : null,
+                  });
+
+                  statsBlocksProcessed = 0;
+                  statsEventsInserted = 0;
+                  statsProcessingTimeMs = 0;
+                  statsLagReducedMs = 0;
+                }
+              }
+            }
+
+            break;
+          }
+
+          default: {
+            const unexpectedMessage: never = message;
+            logger.error("Unhandled message type", unexpectedMessage);
+            break;
           }
         }
-
-        break;
       }
 
-      default: {
-        const unexpectedMessage: never = message;
-        logger.error("Unhandled message type", unexpectedMessage);
-        break;
+      // Stream ended gracefully; exit the retry loop
+      break;
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.includes("Starting cursor is not canonical")
+      ) {
+        if (reorgRetries >= MAX_REORG_RETRIES) {
+          throw new Error(
+            `Cursor is not canonical and max retries (${MAX_REORG_RETRIES}) exceeded: ${error.message}`,
+            { cause: error },
+          );
+        }
+        const finalizedCursor = await dao.loadFinalizedCursor();
+        if (finalizedCursor) {
+          reorgRetries++;
+          const expectedCursor = currentCursor;
+          let writtenCursor: IndexerCursor | null = null;
+          await dao.begin(async (dao) => {
+            await dao.deleteOldBlockNumbers(
+              Number(finalizedCursor.orderKey) + 1,
+            );
+            currentCursor = await dao.writeCursor(
+              finalizedCursor,
+              expectedCursor,
+            );
+            writtenCursor = currentCursor;
+          });
+          logger.warn(
+            "Cursor is not canonical, resetting to last finalized cursor",
+            { expectedCursor, finalizedCursor, writtenCursor, reorgRetries },
+          );
+          continue;
+        } else {
+          throw new Error(
+            `Cursor is not canonical and no finalized cursor is available to recover to. Manual intervention may be required. Original error: ${error.message}`,
+            { cause: error },
+          );
+        }
       }
+      throw error;
     }
-  }
-
-  // Stream ended gracefully; exit the retry loop
-  break;
-} catch (error) {
-  if (
-    error instanceof Error &&
-    error.message.includes("Starting cursor is not canonical")
-  ) {
-    if (reorgRetries >= MAX_REORG_RETRIES) {
-      throw new Error(
-        `Cursor is not canonical and max retries (${MAX_REORG_RETRIES}) exceeded: ${error.message}`,
-        { cause: error },
-      );
-    }
-    const finalizedCursor = await dao.loadFinalizedCursor();
-    if (finalizedCursor) {
-      reorgRetries++;
-      logger.warn(
-        "Cursor is not canonical, resetting to last finalized cursor",
-        { currentCursor, finalizedCursor, reorgRetries },
-      );
-      await dao.begin(async (dao) => {
-        await dao.deleteOldBlockNumbers(
-          Number(finalizedCursor.orderKey) + 1,
-        );
-        currentCursor = await dao.writeCursor(
-          finalizedCursor,
-          currentCursor,
-        );
-      });
-      continue;
-    } else {
-      throw new Error(
-        `Cursor is not canonical and no finalized cursor is available to recover to. Manual intervention may be required. Original error: ${error.message}`,
-        { cause: error },
-      );
-    }
-  }
-  throw error;
-}
   }
 })()
   .then(() => {
