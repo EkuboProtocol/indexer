@@ -295,7 +295,9 @@ function resetNoBlocksTimer() {
 
   // Retry loop: if the stored cursor is no longer canonical (e.g. due to an
   // unhandled reorg on a previous run), reset it to the last finalized cursor
-  // and restart the stream.
+  // and restart the stream. Limit retries to avoid infinite loops.
+  const MAX_REORG_RETRIES = 3;
+  let reorgRetries = 0;
   while (true) {
     const streamOptions = {
       finality: "accepted",
@@ -623,11 +625,18 @@ function resetNoBlocksTimer() {
     error instanceof Error &&
     error.message.includes("Starting cursor is not canonical")
   ) {
+    if (reorgRetries >= MAX_REORG_RETRIES) {
+      throw new Error(
+        `Cursor is not canonical and max retries (${MAX_REORG_RETRIES}) exceeded: ${error.message}`,
+        { cause: error },
+      );
+    }
     const finalizedCursor = await dao.loadFinalizedCursor();
     if (finalizedCursor) {
+      reorgRetries++;
       logger.warn(
         "Cursor is not canonical, resetting to last finalized cursor",
-        { currentCursor, finalizedCursor },
+        { currentCursor, finalizedCursor, reorgRetries },
       );
       await dao.begin(async (dao) => {
         await dao.deleteOldBlockNumbers(
@@ -639,6 +648,11 @@ function resetNoBlocksTimer() {
         );
       });
       continue;
+    } else {
+      throw new Error(
+        `Cursor is not canonical and no finalized cursor is available to recover to. Manual intervention may be required. Original error: ${error.message}`,
+        { cause: error },
+      );
     }
   }
   throw error;
