@@ -77,6 +77,17 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet
+  - name: mega-mainnet
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: NETWORK_TYPE
+        scope: RUN_TIME
+        value: evm
+      - key: NETWORK
+        scope: RUN_TIME
+        value: megaeth
     run_command: scripts/restart.sh bun src/index.ts
   - name: base-sepolia
     image: *indexer-image
