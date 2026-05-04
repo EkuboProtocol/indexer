@@ -72,6 +72,10 @@ const REMOTE_TOKEN_LISTS = [
     name: "Tempo Testnet",
     url: "https://tokenlist.tempo.xyz/list/42431",
   },
+  {
+    name: "Mega",
+    url: "https://raw.githubusercontent.com/megaeth-labs/mega-tokenlist/refs/heads/main/megaeth.tokenlist.json",
+  },
 ];
 
 const STARKNET_BRIDGE_TOKEN_LISTS = [
