@@ -75,6 +75,7 @@ const REMOTE_TOKEN_LISTS = [
   {
     name: "Mega",
     url: "https://raw.githubusercontent.com/megaeth-labs/mega-tokenlist/refs/heads/main/megaeth.tokenlist.json",
+    visibility_priority: 1,
   },
 ];
 
