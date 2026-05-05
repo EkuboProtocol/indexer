@@ -5,33 +5,33 @@
     "": {
       "name": "@ekubo/indexer",
       "dependencies": {
-        "@apibara/evm": "^2.1.0-beta.58",
-        "@apibara/evm-rpc": "^2.1.0-beta.59",
-        "@apibara/protocol": "^2.1.0-beta.59",
-        "@apibara/starknet": "^2.1.0-beta.59",
+        "@apibara/evm": "^2.1.3",
+        "@apibara/evm-rpc": "^2.1.3",
+        "@apibara/protocol": "^2.1.2",
+        "@apibara/starknet": "^2.1.3",
         "bottleneck": "^2.19.5",
-        "dotenv": "^17.3.1",
-        "postgres": "^3.4.8",
+        "dotenv": "^17.4.2",
+        "postgres": "^3.4.9",
         "postgres-shift": "^0.1.0",
-        "viem": "^2.47.6",
+        "viem": "^2.48.4",
         "winston": "^3.19.0",
       },
       "devDependencies": {
         "@electric-sql/pglite": "^0.3.16",
-        "@types/bun": "^1.3.11",
+        "@types/bun": "^1.3.13",
       },
     },
   },
   "packages": {
     "@adraffy/ens-normalize": ["@adraffy/ens-normalize@1.11.0", "", {}, ""],
 
-    "@apibara/evm": ["@apibara/evm@2.1.2", "", { "dependencies": { "@apibara/protocol": "2.1.1", "long": "^5.2.1", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.1.2", "viem": "^2.40.3" } }, "sha512-9e71o9SdUELMi4BsVArSh0HNt8QdP6CAcmqp6CTKFPfpJ+OlWy2ALif5MdP/gUrYkfLxmpuxeJiRFpD27Jq+KA=="],
+    "@apibara/evm": ["@apibara/evm@2.1.3", "", { "dependencies": { "@apibara/protocol": "2.1.2", "long": "^5.2.1", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.1.2", "viem": "^2.40.3" } }, "sha512-QyWVquBXNurmTsw79Umir7VFVvKpfEseT+SrNqWDuAudbBalFh+naExjxL6XKcxb65NBlQQdCmibk7IaGjBTZw=="],
 
-    "@apibara/evm-rpc": ["@apibara/evm-rpc@2.1.2", "", { "dependencies": { "@apibara/evm": "2.1.2", "@apibara/protocol": "2.1.1", "viem": "^2.40.3" } }, "sha512-u26p3HA75Q5OqsvxETEn0wJrTblT4Mttpnjftf3KMDRKe1J19e2QZhAcxL7EBJpH0Aamwrld3FzoEPIi4Oa+lQ=="],
+    "@apibara/evm-rpc": ["@apibara/evm-rpc@2.1.3", "", { "dependencies": { "@apibara/evm": "2.1.3", "@apibara/protocol": "2.1.2", "@opentelemetry/api": "^1.9.0", "viem": "^2.40.3" } }, "sha512-A3dsEvxuzP5QkMoCdovdIY/rKtmXjZw+ep5L99E2jho1ElpiRGNrzKtH3QDWKuk1/4lOjF7JAF492qrK/hbIYQ=="],
 
-    "@apibara/protocol": ["@apibara/protocol@2.1.1", "", { "dependencies": { "consola": "^3.4.2", "long": "^5.2.3", "nice-grpc": "^2.1.8", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.3.0", "viem": "^2.13.2" } }, "sha512-mV8UVx47CsKOhgFWycu95M2P2kHVqJfphLZcrZ1m3skkbb36hz1F4KRVzcL49dfCB1U7lmWBnk6OR5HlNUdfQA=="],
+    "@apibara/protocol": ["@apibara/protocol@2.1.2", "", { "dependencies": { "@opentelemetry/api": "^1.9.0", "consola": "^3.4.2", "long": "^5.2.3", "nice-grpc": "^2.1.8", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.3.0", "viem": "^2.13.2" } }, "sha512-vORjHF0Ex2ol0jlA77ZdToqJ8QV8sVyVU+t3VU+0CZPAFl9QkIHl5oHpMH45R1csATU4bfkrFfE0ssvtTY3XaQ=="],
 
-    "@apibara/starknet": ["@apibara/starknet@2.1.2", "", { "dependencies": { "@apibara/protocol": "2.1.1", "@scure/starknet": "^1.1.0", "abi-wan-kanabi": "^2.2.4", "long": "^5.2.1", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.1.2" } }, "sha512-+wP0Gpjgh2De/3p1oB+SB81+vzPnbVAK0rJ4dr7Bc/gK6uDg3t0V+NfvTjozmVsAvJf+M0x+LZFxZ8u4AsmUwQ=="],
+    "@apibara/starknet": ["@apibara/starknet@2.1.3", "", { "dependencies": { "@apibara/protocol": "2.1.2", "@scure/starknet": "^1.1.0", "abi-wan-kanabi": "^2.2.4", "long": "^5.2.1", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.1.2" } }, "sha512-eP67jGEe4OWsIk81h8SnHV3BdXpCJzyZV1lKqU1PUoTF/oIU2hg/rvXeNzbJB3PtQORGmxRaz4ppqJcZB2phfQ=="],
 
     "@colors/colors": ["@colors/colors@1.6.0", "", {}, ""],
 
@@ -50,6 +50,8 @@
     "@noble/curves": ["@noble/curves@1.9.1", "", { "dependencies": { "@noble/hashes": "1.8.0" } }, "sha512-k11yZxZg+t+gWvBbIswW0yoJlu8cHOC7dhunwOzoWH/mXGBiYyR4YY6hAEK/3EUs4UpB8la1RfdRpeGsFHkWsA=="],
 
     "@noble/hashes": ["@noble/hashes@1.8.0", "", {}, "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A=="],
+
+    "@opentelemetry/api": ["@opentelemetry/api@1.9.1", "", {}, "sha512-gLyJlPHPZYdAk1JENA9LeHejZe1Ti77/pTeFm/nMXmQH/HFZlcS/O2XJB+L8fkbrNSqhdtlvjBVjxwUYanNH5Q=="],
 
     "@protobufjs/aspromise": ["@protobufjs/aspromise@1.1.2", "", {}, "sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ=="],
 
