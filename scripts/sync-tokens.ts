@@ -77,6 +77,11 @@ const REMOTE_TOKEN_LISTS = [
     url: "https://raw.githubusercontent.com/megaeth-labs/mega-tokenlist/refs/heads/main/megaeth.tokenlist.json",
     visibility_priority: 1,
   },
+  {
+    name: "Monad",
+    url: "https://raw.githubusercontent.com/monad-crypto/token-list/refs/heads/main/tokenlist-mainnet.json",
+    visibility_priority: 1,
+  },
 ];
 
 const STARKNET_BRIDGE_TOKEN_LISTS = [
