@@ -13,6 +13,7 @@
     "bsc:mainnet": "NETWORK_TYPE=evm NETWORK=bsc-mainnet bun src/index.ts",
     "eth:mainnet": "NETWORK_TYPE=evm NETWORK=mainnet bun src/index.ts",
     "mega:mainnet": "NETWORK_TYPE=evm NETWORK=megaeth bun src/index.ts",
+    "monad:mainnet": "NETWORK_TYPE=evm NETWORK=monad bun src/index.ts",
     "eth:sepolia": "NETWORK_TYPE=evm NETWORK=sepolia bun src/index.ts",
     "starknet:mainnet": "NETWORK_TYPE=starknet NETWORK=mainnet bun src/index.ts",
     "starknet:sepolia": "NETWORK_TYPE=starknet NETWORK=sepolia bun src/index.ts",
