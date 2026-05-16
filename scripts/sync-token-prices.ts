@@ -31,6 +31,10 @@ const QUOTE_TOKEN_BY_CHAIN_ID: Record<
     address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
     decimals: 6,
   },
+  ["143"]: {
+    address: "0x754704bc059f8c67012fed69bc8a327a5aafb603",
+    decimals: 6,
+  },
   ["11155111"]: {
     address: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
     decimals: 6,
@@ -314,6 +318,7 @@ const FETCHER_BY_CHAIN_ID: { [chainId: string]: PriceFetcherConfig[] } = {
     quoterPriceFetcher,
     /*oracleV1PriceFetcher,*/ sushiswapPriceFetcher,
   ],
+  ["143"]: [quoterPriceFetcher],
   // arbitrum one
   ["42161"]: [sushiswapPriceFetcher],
   // arbitrum sepolia
