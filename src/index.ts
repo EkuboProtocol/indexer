@@ -2,7 +2,7 @@ import "./config";
 import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
 import { DAO, type IndexerCursor } from "./_shared/dao";
-import { Block as EvmBlock, EvmStream } from "@apibara/evm";
+import { Block as EvmBlock } from "@apibara/evm";
 import { EvmRpcStream, rateLimitedHttp } from "@apibara/evm-rpc";
 import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
 import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
@@ -11,6 +11,10 @@ import { parsePositionsProtocolFeeConfigs } from "./evm/positionsProtocolFeeConf
 import { createEventProcessors } from "./starknet/eventProcessors";
 import { createClient, Metadata } from "@apibara/protocol";
 import { msToHumanShort } from "./_shared/msToHumanShort";
+import {
+  parseEvmRpcUrls,
+  requireStarknetApibaraUrl,
+} from "./_shared/streamEndpoints";
 import {
   loadHexAddresses,
   loadOptionalHexAddress,
@@ -245,16 +249,22 @@ function resetNoBlocksTimer() {
   const createTransportFromUrl = (url: string) =>
     rateLimitedHttp(url, { rps: 100, retryCount: 0 });
 
-  const evmRpcTransports =
-    NETWORK_TYPE === "evm" && process.env.EVM_RPC_URL
-      ? process.env.EVM_RPC_URL.split(",")
-          .map((url) => url.trim())
-          .filter(Boolean)
-          .map((url) => ({
-            url,
-            transport: createTransportFromUrl(url),
-          }))
-      : [];
+  const evmRpcUrls =
+    NETWORK_TYPE === "evm" ? parseEvmRpcUrls(process.env.EVM_RPC_URL) : [];
+
+  if (NETWORK_TYPE === "evm" && evmRpcUrls.length === 0) {
+    throw new Error("Missing EVM_RPC_URL");
+  }
+
+  const starknetApibaraUrl =
+    NETWORK_TYPE === "starknet"
+      ? requireStarknetApibaraUrl(process.env.APIBARA_URL)
+      : undefined;
+
+  const evmRpcTransports = evmRpcUrls.map((url) => ({
+    url,
+    transport: createTransportFromUrl(url),
+  }));
 
   const publicClient =
     NETWORK_TYPE === "evm" && evmRpcTransports.length > 0
@@ -315,60 +325,38 @@ function resetNoBlocksTimer() {
 
     const stream =
       NETWORK_TYPE === "evm"
-        ? publicClient
-          ? createRpcClient(
-              new EvmRpcStream(publicClient, {
-                // how often we look for a new head
-                headRefreshIntervalMs: 2000,
-                // This parameter changes based on the rpc provider.
-                // The stream automatically shrinks the batch size when the provider returns an error.
-                getLogsRangeSize: BigInt(
-                  process.env.GET_LOGS_RANGE_SIZE ?? 1_000_000n,
-                ),
-                alwaysSendAcceptedHeaders: true,
-                mergeGetLogsFilter:
-                  MERGE_GET_LOGS_FILTER &&
-                  ["always", "accepted"].includes(
-                    MERGE_GET_LOGS_FILTER.toLowerCase(),
-                  )
-                    ? (MERGE_GET_LOGS_FILTER as "always" | "accepted")
-                    : false,
-              }),
-            ).streamData({
-              ...streamOptions,
-              filter: [
-                {
-                  logs: evmProcessors.map((lp, ix) => ({
-                    id: ix + 1,
-                    address: lp.address,
-                    topics: lp.filter.topics,
-                    strict: lp.filter.strict,
-                  })),
-                },
-              ],
-            })
-          : createClient(EvmStream, process.env.APIBARA_URL!, {
-              defaultCallOptions: {
-                "*": {
-                  metadata: Metadata({
-                    Authorization: `Bearer ${process.env.DNA_TOKEN}`,
-                  }),
-                },
+        ? createRpcClient(
+            new EvmRpcStream(publicClient!, {
+              // how often we look for a new head
+              headRefreshIntervalMs: 2000,
+              // This parameter changes based on the rpc provider.
+              // The stream automatically shrinks the batch size when the provider returns an error.
+              getLogsRangeSize: BigInt(
+                process.env.GET_LOGS_RANGE_SIZE ?? 1_000_000n,
+              ),
+              alwaysSendAcceptedHeaders: true,
+              mergeGetLogsFilter:
+                MERGE_GET_LOGS_FILTER &&
+                ["always", "accepted"].includes(
+                  MERGE_GET_LOGS_FILTER.toLowerCase(),
+                )
+                  ? (MERGE_GET_LOGS_FILTER as "always" | "accepted")
+                  : false,
+            }),
+          ).streamData({
+            ...streamOptions,
+            filter: [
+              {
+                logs: evmProcessors.map((lp, ix) => ({
+                  id: ix + 1,
+                  address: lp.address,
+                  topics: lp.filter.topics,
+                  strict: lp.filter.strict,
+                })),
               },
-            }).streamData({
-              ...streamOptions,
-              filter: [
-                {
-                  logs: evmProcessors.map((lp, ix) => ({
-                    id: ix + 1,
-                    address: lp.address,
-                    topics: lp.filter.topics,
-                    strict: lp.filter.strict,
-                  })),
-                },
-              ],
-            })
-        : createClient(StarknetStream, process.env.APIBARA_URL!, {
+            ],
+          })
+        : createClient(StarknetStream, starknetApibaraUrl!, {
             defaultCallOptions: {
               "*": {
                 metadata: Metadata({

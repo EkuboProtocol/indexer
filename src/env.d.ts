@@ -7,7 +7,6 @@ interface CommonConfiguration {
   STARTING_CURSOR_BLOCK_NUMBER: string;
 
   DNA_TOKEN: string;
-  APIBARA_URL: string;
   PG_CONNECTION_STRING: string;
 
   NO_BLOCKS_TIMEOUT_MS: string; // Time in milliseconds before exiting if no blocks are received
@@ -18,7 +17,7 @@ interface CommonConfiguration {
 interface EvmConfig extends CommonConfiguration {
   NETWORK_TYPE: "evm";
 
-  EVM_RPC_URL?: string; // Supports comma-separated RPC URLs for fallback
+  EVM_RPC_URL: string; // Supports comma-separated RPC URLs for fallback
 
   CORE_ADDRESS: `0x${string}`;
   POSITIONS_ADDRESS: `0x${string}`;
@@ -46,6 +45,7 @@ interface EvmConfig extends CommonConfiguration {
 
 interface StarknetConfig extends CommonConfiguration {
   NETWORK_TYPE: "starknet";
+  APIBARA_URL: string;
 
   CORE_ADDRESS: `0x${string}`;
   NFT_ADDRESS: `0x${string}`;
