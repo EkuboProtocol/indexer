@@ -1,34 +1,21 @@
 import "./config";
-import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
 import { DAO, type IndexerCursor } from "./_shared/dao";
 import { Block as EvmBlock } from "@apibara/evm";
-import { EvmRpcStream, rateLimitedHttp } from "@apibara/evm-rpc";
-import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
-import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
-import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
-import { parsePositionsProtocolFeeConfigs } from "./evm/positionsProtocolFeeConfig";
-import { createEventProcessors } from "./starknet/eventProcessors";
-import { createClient, Metadata } from "@apibara/protocol";
+import { Block as StarknetBlock } from "@apibara/starknet";
 import { msToHumanShort } from "./_shared/msToHumanShort";
 import {
-  parseEvmRpcUrls,
-  requireStarknetApibaraUrl,
-} from "./_shared/streamEndpoints";
+  createEvmEntrypoint,
+  isEvmBlock,
+} from "./entrypoints/evm";
 import {
-  loadHexAddresses,
-  loadOptionalHexAddress,
-  type HexAddress,
-} from "./_shared/loadHexAddresses";
-import { createRpcClient } from "@apibara/protocol/rpc";
-import { createPublicClient, fallback } from "viem";
-import { EvmLogProcessor } from "./evm/logProcessorsShared";
-
-function isNetworkTypeValid(
-  networkType: string | undefined,
-): networkType is "starknet" | "evm" {
-  return Boolean(networkType && ["starknet", "evm"].includes(networkType));
-}
+  createStarknetEntrypoint,
+  isStarknetBlock,
+} from "./entrypoints/starknet";
+import {
+  isNetworkTypeValid,
+  type NetworkEntrypoint,
+} from "./entrypoints/types";
 
 const NETWORK_TYPE = process.env.NETWORK_TYPE;
 
@@ -48,22 +35,17 @@ if (!chainId) {
 
 const dao = DAO.create(process.env.PG_CONNECTION_STRING!, chainId);
 
-function requireAtLeastOneAddress(
-  label: string,
-  envNames: string[],
-): HexAddress[] {
-  const addresses = envNames
-    .map((envName) => loadOptionalHexAddress(envName))
-    .filter((address): address is HexAddress => Boolean(address));
-
-  if (addresses.length === 0) {
-    throw new Error(
-      `Missing ${label}. Set at least one of: ${envNames.join(", ")}`,
-    );
-  }
-
-  return addresses;
-}
+type SelectedEntrypoint =
+  | {
+      networkType: "evm";
+      entrypoint: NetworkEntrypoint<EvmBlock>;
+      isBlock: typeof isEvmBlock;
+    }
+  | {
+      networkType: "starknet";
+      entrypoint: NetworkEntrypoint<StarknetBlock>;
+      isBlock: typeof isStarknetBlock;
+    };
 
 // Timer for exiting if no blocks are received within the configured time
 const NO_BLOCKS_TIMEOUT_MS = parseInt(process.env.NO_BLOCKS_TIMEOUT_MS || "0");
@@ -145,168 +127,18 @@ function resetNoBlocksTimer() {
   // Start the no-blocks timer when application starts
   resetNoBlocksTimer();
 
-  const evmV2AddressConfig =
+  const selectedEntrypoint: SelectedEntrypoint =
     NETWORK_TYPE === "evm"
-      ? loadHexAddresses({
-          mevCaptureAddress: "MEV_CAPTURE_ADDRESS",
-          coreAddress: "CORE_ADDRESS",
-          positionsAddress: "POSITIONS_ADDRESS",
-          oracleAddress: "ORACLE_ADDRESS",
-          twammAddress: "TWAMM_ADDRESS",
-          ordersAddress: "ORDERS_ADDRESS",
-          incentivesAddress: "INCENTIVES_ADDRESS",
-          tokenWrapperFactoryAddress: "TOKEN_WRAPPER_FACTORY_ADDRESS",
-        })
-      : undefined;
-
-  const evmV3AddressConfig =
-    NETWORK_TYPE === "evm"
-      ? loadHexAddresses({
-          mevCaptureAddress: "MEV_CAPTURE_V3_ADDRESS",
-          boostedFeesConcentratedAddress:
-            "BOOSTED_FEES_CONCENTRATED_V3_ADDRESS",
-          boostedFeesStableswapAddress: "BOOSTED_FEES_STABLESWAP_V3_ADDRESS",
-          coreAddress: "CORE_V3_ADDRESS",
-          oracleAddress: "ORACLE_V3_ADDRESS",
-          incentivesAddress: "INCENTIVES_V3_ADDRESS",
-          tokenWrapperFactoryAddress: "TOKEN_WRAPPER_FACTORY_V3_ADDRESS",
-          auctionsAddress: "AUCTIONS_V3_ADDRESS",
-        })
-      : undefined;
-
-  const positionsV3ProtocolFeeConfigs =
-    NETWORK_TYPE === "evm"
-      ? parsePositionsProtocolFeeConfigs(
-          process.env.POSITIONS_V3_PROTOCOL_FEE_CONFIGS,
-        )
-      : undefined;
-
-  if (NETWORK_TYPE === "evm") {
-    if (!evmV2AddressConfig && !evmV3AddressConfig) {
-      throw new Error("No config for either V2 or V3 contracts");
-    }
-    if (evmV2AddressConfig)
-      logger.info(`Indexing V2 EVM contracts`, { evmV2AddressConfig });
-    if (evmV3AddressConfig)
-      logger.info(`Indexing V3 EVM contracts`, { evmV3AddressConfig });
-    if (positionsV3ProtocolFeeConfigs?.length)
-      logger.info(`Loaded V3 positions protocol fee configs`, {
-        positionsV3ProtocolFeeConfigs,
-      });
-  }
-
-  const starknetAddressConfig =
-    NETWORK_TYPE === "starknet"
-      ? loadHexAddresses({
-          nftAddress: "NFT_ADDRESS",
-          coreAddress: "CORE_ADDRESS",
-          tokenRegistryAddress: "TOKEN_REGISTRY_ADDRESS",
-          tokenRegistryV2Address: "TOKEN_REGISTRY_V2_ADDRESS",
-          tokenRegistryV3Address: "TOKEN_REGISTRY_V3_ADDRESS",
-          twammAddress: "TWAMM_ADDRESS",
-          stakerAddress: "STAKER_ADDRESS",
-          governorAddress: "GOVERNOR_ADDRESS",
-          oracleAddress: "ORACLE_ADDRESS",
-          limitOrdersAddress: "LIMIT_ORDERS_ADDRESS",
-          splineLiquidityProviderAddress: "SPLINE_LIQUIDITY_PROVIDER_ADDRESS",
-        })
-      : undefined;
-
-  if (NETWORK_TYPE === "starknet") {
-    if (!starknetAddressConfig)
-      throw new Error("Missing or invalid Starknet contract addresses");
-    logger.info(`Indexing Starknet contracts`, { starknetAddressConfig });
-  }
-
-  const evmProcessors: EvmLogProcessor[] =
-    NETWORK_TYPE === "evm"
-      ? [
-          ...(evmV2AddressConfig
-            ? createLogProcessorsV2(evmV2AddressConfig)
-            : []),
-          ...(evmV3AddressConfig
-            ? createLogProcessorsV3({
-                ...evmV3AddressConfig,
-                twammAddresses: requireAtLeastOneAddress("V3 TWAMM address", [
-                  "TWAMM_V3_ADDRESS",
-                  "LEGACY_TWAMM_V3_ADDRESS",
-                ]),
-                ordersAddresses: requireAtLeastOneAddress("V3 Orders address", [
-                  "ORDERS_V3_ADDRESS",
-                  "LEGACY_ORDERS_V3_ADDRESS",
-                ]),
-                positionsContracts: positionsV3ProtocolFeeConfigs ?? [],
-              })
-            : []),
-        ]
-      : [];
-
-  const starknetProcessors =
-    NETWORK_TYPE === "starknet" && starknetAddressConfig
-      ? createEventProcessors(starknetAddressConfig)
-      : ([] as ReturnType<typeof createEventProcessors>);
-
-  const createTransportFromUrl = (url: string) =>
-    rateLimitedHttp(url, { rps: 100, retryCount: 0 });
-
-  const evmRpcUrls =
-    NETWORK_TYPE === "evm" ? parseEvmRpcUrls(process.env.EVM_RPC_URL) : [];
-
-  if (NETWORK_TYPE === "evm" && evmRpcUrls.length === 0) {
-    throw new Error("Missing EVM_RPC_URL");
-  }
-
-  const starknetApibaraUrl =
-    NETWORK_TYPE === "starknet"
-      ? requireStarknetApibaraUrl(process.env.APIBARA_URL)
-      : undefined;
-
-  const evmRpcTransports = evmRpcUrls.map((url) => ({
-    url,
-    transport: createTransportFromUrl(url),
-  }));
-
-  const publicClient =
-    NETWORK_TYPE === "evm" && evmRpcTransports.length > 0
-      ? createPublicClient({
-          transport: fallback(
-            evmRpcTransports.map(({ transport }) => transport),
-          ),
-        })
-      : null;
-
-  if (publicClient) {
-    const [clientChainId, transportChainIds] = await Promise.all([
-      publicClient.getChainId(),
-      Promise.all(
-        evmRpcTransports.map(async ({ url, transport }) => ({
-          url,
-          chainId: BigInt(
-            await createPublicClient({
-              transport,
-            }).getChainId(),
-          ),
-        })),
-      ),
-    ]);
-
-    const uniqueChainIds = new Set<bigint>([
-      BigInt(clientChainId),
-      ...transportChainIds.map(({ chainId }) => chainId),
-    ]);
-
-    if (uniqueChainIds.size !== 1 || !uniqueChainIds.has(chainId)) {
-      const transportDetails = transportChainIds
-        .map(({ url, chainId }) => `${url}=${chainId}`)
-        .join(", ");
-
-      throw new Error(
-        `EVM_RPC_URL transports return chain IDs [${transportDetails}] which conflict with environment chain ID ${chainId}`,
-      );
-    }
-  }
-
-  const MERGE_GET_LOGS_FILTER = process.env.MERGE_GET_LOGS_FILTER;
+      ? {
+          networkType: "evm",
+          entrypoint: await createEvmEntrypoint(chainId),
+          isBlock: isEvmBlock,
+        }
+      : {
+          networkType: "starknet",
+          entrypoint: createStarknetEntrypoint(),
+          isBlock: isStarknetBlock,
+        };
 
   // Retry loop: if the stored cursor is no longer canonical (e.g. due to an
   // unhandled reorg on a previous run), reset it to the last finalized cursor
@@ -319,63 +151,11 @@ function resetNoBlocksTimer() {
       startingCursor: currentCursor!,
       heartbeatInterval: {
         seconds: 10n,
-        nanos: 0,
+        nanos: 0n,
       },
     } as const;
 
-    const stream =
-      NETWORK_TYPE === "evm"
-        ? createRpcClient(
-            new EvmRpcStream(publicClient!, {
-              // how often we look for a new head
-              headRefreshIntervalMs: 2000,
-              // This parameter changes based on the rpc provider.
-              // The stream automatically shrinks the batch size when the provider returns an error.
-              getLogsRangeSize: BigInt(
-                process.env.GET_LOGS_RANGE_SIZE ?? 1_000_000n,
-              ),
-              alwaysSendAcceptedHeaders: true,
-              mergeGetLogsFilter:
-                MERGE_GET_LOGS_FILTER &&
-                ["always", "accepted"].includes(
-                  MERGE_GET_LOGS_FILTER.toLowerCase(),
-                )
-                  ? (MERGE_GET_LOGS_FILTER as "always" | "accepted")
-                  : false,
-            }),
-          ).streamData({
-            ...streamOptions,
-            filter: [
-              {
-                logs: evmProcessors.map((lp, ix) => ({
-                  id: ix + 1,
-                  address: lp.address,
-                  topics: lp.filter.topics,
-                  strict: lp.filter.strict,
-                })),
-              },
-            ],
-          })
-        : createClient(StarknetStream, starknetApibaraUrl!, {
-            defaultCallOptions: {
-              "*": {
-                metadata: Metadata({
-                  Authorization: `Bearer ${process.env.DNA_TOKEN}`,
-                }),
-              },
-            },
-          }).streamData({
-            ...streamOptions,
-            filter: [
-              {
-                events: starknetProcessors.map((processor, ix) => ({
-                  id: ix + 1,
-                  address: processor.filter.fromAddress,
-                  keys: processor.filter.keys,
-                })),
-              },
-            ],
-          });
+    const stream = selectedEntrypoint.entrypoint.createStream(streamOptions);
 
     try {
       for await (const message of stream) {
@@ -466,16 +246,14 @@ function resetNoBlocksTimer() {
               const blockNumber = Number(block.header.blockNumber);
               const blockTime = block.header.timestamp;
 
+              if (!selectedEntrypoint.isBlock(block)) {
+                throw new Error(
+                  `Received unexpected block type for ${selectedEntrypoint.networkType}`,
+                );
+              }
+
               const plannedEvents =
-                NETWORK_TYPE === "evm"
-                  ? (block as EvmBlock).logs.reduce(
-                      (total, log) => total + (log.filterIds?.length ?? 0),
-                      0,
-                    )
-                  : (block as StarknetBlock).events.reduce(
-                      (total, event) => total + (event.filterIds?.length ?? 0),
-                      0,
-                    );
+                selectedEntrypoint.entrypoint.getPlannedEvents(block);
 
               let eventsProcessed = 0;
 
@@ -505,61 +283,12 @@ function resetNoBlocksTimer() {
                   numEvents: plannedEvents,
                 });
 
-                if (NETWORK_TYPE === "evm") {
-                  const logs = (block as EvmBlock).logs;
-                  for (let i = 0; i < logs.length; i++) {
-                    const log = logs[i];
-
-                    const eventKey: EventKey = {
-                      blockNumber,
-                      transactionIndex: log.transactionIndex ?? 0,
-                      eventIndex:
-                        log.logIndexInTransaction ?? log.logIndex ?? i,
-                      emitter: log.address,
-                      transactionHash: log.transactionHash,
-                    };
-
-                    await Promise.all(
-                      log.filterIds.map(async (matchingFilterId: number) => {
-                        eventsProcessed++;
-
-                        await evmProcessors[matchingFilterId - 1]!.handler(
-                          dao,
-                          eventKey,
-                          {
-                            topics: log.topics,
-                            data: log.data,
-                          },
-                        );
-                      }),
-                    );
-                  }
-                } else if (NETWORK_TYPE === "starknet") {
-                  const events = (block as StarknetBlock).events;
-                  for (const event of events) {
-                    const eventKey: EventKey = {
-                      blockNumber,
-                      transactionIndex: event.transactionIndex,
-                      eventIndex:
-                        event.eventIndexInTransaction ?? event.eventIndex,
-                      emitter: event.address,
-                      transactionHash: event.transactionHash,
-                    };
-
-                    await Promise.all(
-                      event.filterIds.map(async (matchingFilterId: number) => {
-                        eventsProcessed++;
-                        const processor =
-                          starknetProcessors[matchingFilterId - 1]!;
-                        const { value: parsed } = processor.parser(
-                          event.data,
-                          0,
-                        );
-                        await processor.handle(dao, { key: eventKey, parsed });
-                      }),
-                    );
-                  }
-                }
+                eventsProcessed =
+                  await selectedEntrypoint.entrypoint.processBlock({
+                    block,
+                    blockNumber,
+                    dao,
+                  });
 
                 // endCursor is what we write so when we restart we delete any pending block information
                 currentCursor = await dao.writeCursor(
