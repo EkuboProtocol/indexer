@@ -42,13 +42,12 @@ CI publishes the same image to GitHub Container Registry under `ghcr.io/ekubopro
 docker pull ghcr.io/ekuboprotocol/indexer:<git-sha>
 ```
 
-The resulting image can execute any of the TypeScript entrypoints. By default it runs the main indexer; pass environment variables the same way you would locally:
+The resulting image can execute any of the TypeScript entrypoints. Run the network-specific indexer entrypoint directly:
 
 ```bash
 docker run --rm \
-  -e NETWORK_TYPE=starknet \
   -e NETWORK=mainnet \
-  ekubo-indexer
+  ekubo-indexer bun src/entrypoints/starknet.ts
 ```
 
 ### Running scripts from the Docker image
@@ -80,7 +79,7 @@ Migration files live under `migrations/` and execute in order via `scripts/migra
 
 The DigitalOcean Apps spec in `.do/app.yaml` documents the full production stack:
 
-- Workers for each network (e.g.: `starknet-sepolia`, `starknet-mainnet`, `eth-sepolia`, `eth-mainnet`) that all run `bun src/index.ts` with the appropriate `NETWORK_TYPE`/`NETWORK` pairs, pulling the published Docker image (`ghcr.io/ekuboprotocol/indexer:${IMAGE_TAG}`).
+- Workers for each network (e.g.: `starknet-sepolia`, `starknet-mainnet`, `eth-sepolia`, `eth-mainnet`) that run the corresponding network entrypoint (`bun src/entrypoints/starknet.ts` or `bun src/entrypoints/evm.ts`) with the appropriate `NETWORK` value, pulling the published Docker image (`ghcr.io/ekuboprotocol/indexer:${IMAGE_TAG}`).
 - Managed Postgres (`indexer-db-nyc1`) wired in via the `PG_CONNECTION_STRING` env var along with secrets such as `DNA_TOKEN`.
 - A `run-migrations` pre-deploy job, a scheduled `scripts/sync-tokens.ts` job, and a long-running `scripts/sync-token-prices.ts` worker that loops on `TOKEN_PRICE_SYNC_INTERVAL_MS` (ms, defaults to 60000).
 

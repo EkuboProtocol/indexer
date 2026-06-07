@@ -1,10 +1,13 @@
 import { config } from "dotenv";
+import type { NetworkType } from "./entrypoints/types";
 
-config({
-  path: `./.env.${process.env.NETWORK_TYPE}.${process.env.NETWORK}.local`,
-});
-config({ path: `./.env.${process.env.NETWORK_TYPE}.${process.env.NETWORK}` });
-config({ path: `./.env.${process.env.NETWORK_TYPE}.local` });
-config({ path: `./.env.${process.env.NETWORK_TYPE}` });
-config({ path: `./.env.local` });
-config({ path: `./.env` });
+export function loadConfig(networkType: NetworkType) {
+  config({
+    path: `./.env.${networkType}.${process.env.NETWORK}.local`,
+  });
+  config({ path: `./.env.${networkType}.${process.env.NETWORK}` });
+  config({ path: `./.env.${networkType}.local` });
+  config({ path: `./.env.${networkType}` });
+  config({ path: `./.env.local` });
+  config({ path: `./.env` });
+}

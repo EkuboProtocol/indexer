@@ -1,97 +1,80 @@
-import "./config";
 import { logger } from "./_shared/logger";
 import { DAO, type IndexerCursor } from "./_shared/dao";
-import { Block as EvmBlock } from "@apibara/evm";
-import { Block as StarknetBlock } from "@apibara/starknet";
 import { msToHumanShort } from "./_shared/msToHumanShort";
-import {
-  createEvmEntrypoint,
-  isEvmBlock,
-} from "./entrypoints/evm";
-import {
-  createStarknetEntrypoint,
-  isStarknetBlock,
-} from "./entrypoints/starknet";
-import {
-  isNetworkTypeValid,
-  type NetworkEntrypoint,
-} from "./entrypoints/types";
+import { loadConfig } from "./config";
+import type { NetworkEntrypoint, NetworkType } from "./entrypoints/types";
 
-const NETWORK_TYPE = process.env.NETWORK_TYPE;
+type RuntimeEntrypoint<TBlock> = {
+  networkType: NetworkType;
+  createEntrypoint(
+    chainId: bigint,
+  ): Promise<NetworkEntrypoint<TBlock>> | NetworkEntrypoint<TBlock>;
+  isBlock(block: unknown): block is TBlock;
+};
 
-if (!isNetworkTypeValid(NETWORK_TYPE)) {
-  throw new Error(`Invalid NETWORK_TYPE: "${NETWORK_TYPE}"`);
-}
+export async function runIndexer<TBlock>({
+  networkType,
+  createEntrypoint,
+  isBlock,
+}: RuntimeEntrypoint<TBlock>) {
+  loadConfig(networkType);
 
-if (!process.env.NETWORK) {
-  throw new Error(`Missing NETWORK`);
-}
+  if (!process.env.NETWORK) {
+    throw new Error(`Missing NETWORK`);
+  }
 
-const chainId = BigInt(process.env.CHAIN_ID!);
+  const chainId = BigInt(process.env.CHAIN_ID!);
 
-if (!chainId) {
-  throw new Error("Missing CHAIN_ID");
-}
+  if (!chainId) {
+    throw new Error("Missing CHAIN_ID");
+  }
 
-const dao = DAO.create(process.env.PG_CONNECTION_STRING!, chainId);
+  const dao = DAO.create(process.env.PG_CONNECTION_STRING!, chainId);
+  const entrypoint = await createEntrypoint(chainId);
 
-type SelectedEntrypoint =
-  | {
-      networkType: "evm";
-      entrypoint: NetworkEntrypoint<EvmBlock>;
-      isBlock: typeof isEvmBlock;
+  // Timer for exiting if no blocks are received within the configured time
+  const NO_BLOCKS_TIMEOUT_MS = parseInt(process.env.NO_BLOCKS_TIMEOUT_MS || "0");
+  let noBlocksTimer: NodeJS.Timeout | null = null;
+
+  const statsBlockIntervalRaw = parseInt(
+    process.env.EVENT_STATS_BLOCK_INTERVAL || "100",
+    10,
+  );
+  const EVENT_STATS_BLOCK_INTERVAL = Number.isNaN(statsBlockIntervalRaw)
+    ? 100
+    : statsBlockIntervalRaw;
+  let statsBlocksProcessed = 0;
+  let statsEventsInserted = 0;
+  let statsProcessingTimeMs = 0;
+  let statsLagReducedMs = 0;
+  let lastObservedLagMs: number | null = null;
+
+  // Function to set or reset the no-blocks timer
+  function resetNoBlocksTimer() {
+    // Clear existing timer if it exists
+    if (noBlocksTimer) {
+      clearTimeout(noBlocksTimer);
     }
-  | {
-      networkType: "starknet";
-      entrypoint: NetworkEntrypoint<StarknetBlock>;
-      isBlock: typeof isStarknetBlock;
-    };
 
-// Timer for exiting if no blocks are received within the configured time
-const NO_BLOCKS_TIMEOUT_MS = parseInt(process.env.NO_BLOCKS_TIMEOUT_MS || "0");
-let noBlocksTimer: NodeJS.Timeout | null = null;
-
-const statsBlockIntervalRaw = parseInt(
-  process.env.EVENT_STATS_BLOCK_INTERVAL || "100",
-  10,
-);
-const EVENT_STATS_BLOCK_INTERVAL = Number.isNaN(statsBlockIntervalRaw)
-  ? 100
-  : statsBlockIntervalRaw;
-let statsBlocksProcessed = 0;
-let statsEventsInserted = 0;
-let statsProcessingTimeMs = 0;
-let statsLagReducedMs = 0;
-let lastObservedLagMs: number | null = null;
-
-// Function to set or reset the no-blocks timer
-function resetNoBlocksTimer() {
-  // Clear existing timer if it exists
-  if (noBlocksTimer) {
-    clearTimeout(noBlocksTimer);
+    // Only set a new timer if the timeout is greater than 0
+    if (NO_BLOCKS_TIMEOUT_MS > 0) {
+      noBlocksTimer = setTimeout(() => {
+        logger.error(
+          `No blocks received in the last ${msToHumanShort(
+            NO_BLOCKS_TIMEOUT_MS,
+            2,
+          )}. Exiting process.`,
+        );
+        process.exit(1);
+      }, NO_BLOCKS_TIMEOUT_MS);
+    }
   }
 
-  // Only set a new timer if the timeout is greater than 0
-  if (NO_BLOCKS_TIMEOUT_MS > 0) {
-    noBlocksTimer = setTimeout(() => {
-      logger.error(
-        `No blocks received in the last ${msToHumanShort(
-          NO_BLOCKS_TIMEOUT_MS,
-          2,
-        )}. Exiting process.`,
-      );
-      process.exit(1);
-    }, NO_BLOCKS_TIMEOUT_MS);
-  }
-}
-
-(async function () {
-  {
+  return (async function () {
     logger.info({ message: `Acquiring lock for chain ID ${chainId}` });
     const lockTimer = logger.startTimer();
     await dao.acquireLock();
     lockTimer.done({ message: `Acquired lock for chain ID ${chainId}` });
-  }
 
   // first set up the schema
   let currentCursor: IndexerCursor;
@@ -127,19 +110,6 @@ function resetNoBlocksTimer() {
   // Start the no-blocks timer when application starts
   resetNoBlocksTimer();
 
-  const selectedEntrypoint: SelectedEntrypoint =
-    NETWORK_TYPE === "evm"
-      ? {
-          networkType: "evm",
-          entrypoint: await createEvmEntrypoint(chainId),
-          isBlock: isEvmBlock,
-        }
-      : {
-          networkType: "starknet",
-          entrypoint: createStarknetEntrypoint(),
-          isBlock: isStarknetBlock,
-        };
-
   // Retry loop: if the stored cursor is no longer canonical (e.g. due to an
   // unhandled reorg on a previous run), reset it to the last finalized cursor
   // and restart the stream. Limit retries to avoid infinite loops.
@@ -155,7 +125,7 @@ function resetNoBlocksTimer() {
       },
     } as const;
 
-    const stream = selectedEntrypoint.entrypoint.createStream(streamOptions);
+    const stream = entrypoint.createStream(streamOptions);
 
     try {
       for await (const message of stream) {
@@ -246,14 +216,13 @@ function resetNoBlocksTimer() {
               const blockNumber = Number(block.header.blockNumber);
               const blockTime = block.header.timestamp;
 
-              if (!selectedEntrypoint.isBlock(block)) {
+              if (!isBlock(block)) {
                 throw new Error(
-                  `Received unexpected block type for ${selectedEntrypoint.networkType}`,
+                  `Received unexpected block type for ${networkType}`,
                 );
               }
 
-              const plannedEvents =
-                selectedEntrypoint.entrypoint.getPlannedEvents(block);
+              const plannedEvents = entrypoint.getPlannedEvents(block);
 
               let eventsProcessed = 0;
 
@@ -283,12 +252,11 @@ function resetNoBlocksTimer() {
                   numEvents: plannedEvents,
                 });
 
-                eventsProcessed =
-                  await selectedEntrypoint.entrypoint.processBlock({
-                    block,
-                    blockNumber,
-                    dao,
-                  });
+                eventsProcessed = await entrypoint.processBlock({
+                  block,
+                  blockNumber,
+                  dao,
+                });
 
                 // endCursor is what we write so when we restart we delete any pending block information
                 currentCursor = await dao.writeCursor(
@@ -410,7 +378,7 @@ function resetNoBlocksTimer() {
       throw error;
     }
   }
-})()
+  })()
   .then(() => {
     logger.info("Stream closed gracefully");
     process.exit(0);
@@ -423,3 +391,4 @@ function resetNoBlocksTimer() {
     await dao.releaseLock();
     await dao.end();
   });
+}

@@ -13,6 +13,7 @@ import { parseEvmRpcUrls } from "../_shared/streamEndpoints";
 import { createLogProcessorsV2 } from "../evm/logProcessorsV2";
 import { createLogProcessorsV3 } from "../evm/logProcessorsV3";
 import { parsePositionsProtocolFeeConfigs } from "../evm/positionsProtocolFeeConfig";
+import { runIndexer } from "../runtime";
 import type { NetworkEntrypoint, StreamOptions } from "./types";
 
 function requireAtLeastOneAddress(
@@ -207,4 +208,12 @@ export async function createEvmEntrypoint(
       return eventsProcessed;
     },
   };
+}
+
+if (import.meta.main) {
+  await runIndexer({
+    networkType: "evm",
+    createEntrypoint: createEvmEntrypoint,
+    isBlock: isEvmBlock,
+  });
 }

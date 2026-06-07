@@ -4,6 +4,7 @@ import type { EventKey } from "../_shared/eventKey";
 import { logger } from "../_shared/logger";
 import { loadHexAddresses } from "../_shared/loadHexAddresses";
 import { requireStarknetApibaraUrl } from "../_shared/streamEndpoints";
+import { runIndexer } from "../runtime";
 import { createEventProcessors } from "../starknet/eventProcessors";
 import type { NetworkEntrypoint, StreamOptions } from "./types";
 
@@ -89,4 +90,12 @@ export function createStarknetEntrypoint(): NetworkEntrypoint<StarknetBlock> {
       return eventsProcessed;
     },
   };
+}
+
+if (import.meta.main) {
+  await runIndexer({
+    networkType: "starknet",
+    createEntrypoint: () => createStarknetEntrypoint(),
+    isBlock: isStarknetBlock,
+  });
 }
