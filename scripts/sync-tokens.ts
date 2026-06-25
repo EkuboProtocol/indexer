@@ -1,6 +1,6 @@
 import "../src/config";
 import { EVM_NATIVE_TOKEN_ALIASES } from "./evmNativeTokenAliases";
-import postgres, { TransactionSql, type Sql } from "postgres";
+import postgres, { type Sql } from "postgres";
 
 const sql = postgres(process.env.PG_CONNECTION_STRING!, {
   connect_timeout: 5,
@@ -40,8 +40,6 @@ type AvnuToken = {
 type AvnuTokenResponse = {
   content?: AvnuToken[];
 };
-
-type AddTokensMode = "replace" | "by_visibility_priority" | "only_missing";
 
 const REMOTE_TOKEN_LISTS = [
   {
@@ -129,9 +127,9 @@ const STARKNET_AVNU_TOKEN_SOURCES = [
 async function addTokens({
   sql,
   tokens,
-  mode,
+  upsert = false,
 }: {
-  sql: TransactionSql;
+  sql: Sql;
   tokens: {
     chain_id: string;
     token_address: string;
@@ -143,12 +141,11 @@ async function addTokens({
     visibility_priority: number;
     sort_order: number;
   }[];
-  mode: AddTokensMode;
+  upsert?: boolean;
 }): Promise<number> {
   if (!tokens.length) return 0;
 
-  // any data that is already there is replaced, always
-  if (mode === "replace") {
+  if (upsert) {
     const { count } = await sql`
       INSERT INTO erc20_tokens ${sql(tokens)}
       ON CONFLICT (chain_id, token_address)
@@ -166,29 +163,6 @@ async function addTokens({
             erc20_tokens.token_decimals != EXCLUDED.token_decimals OR
             erc20_tokens.logo_url != EXCLUDED.logo_url OR
             erc20_tokens.visibility_priority != EXCLUDED.visibility_priority OR
-            erc20_tokens.sort_order != EXCLUDED.sort_order OR
-            erc20_tokens.total_supply != EXCLUDED.total_supply;
-    `;
-    return count;
-  } else if (mode === "by_visibility_priority") {
-    // only update missing data if the visibility priority of the incoming data is higher
-    const { count } = await sql`
-      INSERT INTO erc20_tokens ${sql(tokens)}
-      ON CONFLICT (chain_id, token_address)
-      DO UPDATE
-          SET token_name = EXCLUDED.token_name,
-              token_symbol = EXCLUDED.token_symbol,
-              token_decimals = EXCLUDED.token_decimals,
-              logo_url = COALESCE(erc20_tokens.logo_url, EXCLUDED.logo_url),
-              visibility_priority = EXCLUDED.visibility_priority,
-              sort_order = EXCLUDED.sort_order,
-              total_supply = EXCLUDED.total_supply
-          WHERE
-            erc20_tokens.token_name != EXCLUDED.token_name OR
-            erc20_tokens.token_symbol != EXCLUDED.token_symbol OR
-            erc20_tokens.token_decimals != EXCLUDED.token_decimals OR
-            erc20_tokens.logo_url != COALESCE(erc20_tokens.logo_url, EXCLUDED.logo_url) OR
-            erc20_tokens.visibility_priority < EXCLUDED.visibility_priority OR
             erc20_tokens.sort_order != EXCLUDED.sort_order OR
             erc20_tokens.total_supply != EXCLUDED.total_supply;
     `;
@@ -222,7 +196,7 @@ async function addBridgeRelationships({
   sql,
   relationships,
 }: {
-  sql: TransactionSql;
+  sql: Sql;
   relationships: BridgeRelationship[];
 }) {
   if (relationships.length === 0) return 0;
@@ -294,7 +268,7 @@ async function main() {
           ...t,
           total_supply: null,
         })) satisfies Parameters<typeof addTokens>[0]["tokens"],
-        mode: "replace",
+        upsert: true,
       });
 
       console.log(
@@ -335,7 +309,6 @@ async function main() {
         total_supply: t.total_supply,
         logo_url: null,
       })),
-      mode: "only_missing",
     });
 
     console.log(
@@ -357,7 +330,6 @@ async function main() {
 
         const listTokensImported = await addTokens({
           sql,
-          mode: "by_visibility_priority",
           tokens: list.tokens.flatMap((token) => {
             const normalizedTokenAddress = normalizeTokenAddress(
               token.address,
@@ -478,7 +450,6 @@ async function main() {
 
         const importedCount = await addTokens({
           sql,
-          mode: "only_missing",
           tokens: avnuTokens.map((token) => ({
             chain_id: STARKNET_MAINNET_CHAIN_ID_STRING,
             token_address: token.address,
