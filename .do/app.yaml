@@ -143,9 +143,6 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: rhc-sepolia
-      - key: EVM_RPC_URL
-        scope: RUN_TIME
-        value: "https://robinhood-testnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
     run_command: scripts/restart.sh bun src/index.ts
   - name: arb-mainnet
     image: *indexer-image
