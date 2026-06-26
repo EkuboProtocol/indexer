@@ -17,6 +17,9 @@ envs:
     scope: RUN_TIME
     type: SECRET
     value: ${APIBARA_DNA_TOKEN}
+  - key: RESTART_DELAY_SECONDS
+    scope: RUN_TIME
+    value: "1"
 workers:
   - name: starknet-sepolia
     image: &indexer-image
