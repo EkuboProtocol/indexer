@@ -1,8 +1,11 @@
-export function parseEvmRpcUrls(evmRpcUrl: string | undefined): string[] {
-  return (evmRpcUrl ?? "")
-    .split(",")
-    .map((url) => url.trim())
-    .filter(Boolean);
+export function requireEvmRpcUrl(evmRpcUrl: string | undefined): string {
+  const trimmed = evmRpcUrl?.trim();
+
+  if (!trimmed) {
+    throw new Error("Missing EVM_RPC_URL");
+  }
+
+  return trimmed;
 }
 
 export function requireStarknetApibaraUrl(

@@ -1,17 +1,14 @@
 import { describe, expect, it } from "bun:test";
-import { parseEvmRpcUrls, requireStarknetApibaraUrl } from "./streamEndpoints";
+import { requireEvmRpcUrl, requireStarknetApibaraUrl } from "./streamEndpoints";
 
-describe("parseEvmRpcUrls", () => {
-  it("splits and trims comma-separated urls", () => {
-    expect(parseEvmRpcUrls(" https://a.rpc ,https://b.rpc ")).toEqual([
-      "https://a.rpc",
-      "https://b.rpc",
-    ]);
+describe("requireEvmRpcUrl", () => {
+  it("returns a trimmed value", () => {
+    expect(requireEvmRpcUrl(" https://evm.rpc ")).toBe("https://evm.rpc");
   });
 
-  it("returns an empty array for missing or blank values", () => {
-    expect(parseEvmRpcUrls(undefined)).toEqual([]);
-    expect(parseEvmRpcUrls(" ,  ")).toEqual([]);
+  it("throws when missing", () => {
+    expect(() => requireEvmRpcUrl(undefined)).toThrow("Missing EVM_RPC_URL");
+    expect(() => requireEvmRpcUrl("   ")).toThrow("Missing EVM_RPC_URL");
   });
 });
 
