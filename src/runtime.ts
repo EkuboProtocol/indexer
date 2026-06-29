@@ -30,7 +30,6 @@ export async function runIndexer<TBlock>({
   }
 
   const dao = DAO.create(process.env.PG_CONNECTION_STRING!, chainId);
-  const entrypoint = await createEntrypoint(chainId);
 
   // Timer for exiting if no blocks are received within the configured time
   const NO_BLOCKS_TIMEOUT_MS = parseInt(process.env.NO_BLOCKS_TIMEOUT_MS || "0");
@@ -76,308 +75,314 @@ export async function runIndexer<TBlock>({
     await dao.acquireLock();
     lockTimer.done({ message: `Acquired lock for chain ID ${chainId}` });
 
-  // first set up the schema
-  let currentCursor: IndexerCursor;
-  {
-    const initializeTimer = logger.startTimer();
-    const expectedCursor = { orderKey: 0n };
-    let initializedCursor: IndexerCursor | null = null;
+    const entrypoint = await createEntrypoint(chainId);
 
-    currentCursor = await dao.begin(async (dao) => {
-      const databaseStartingCursor = await dao.loadCursor();
-      if (databaseStartingCursor) {
-        return databaseStartingCursor;
-      } else {
-        initializedCursor = await dao.writeCursor(
-          {
-            orderKey: BigInt(process.env.STARTING_CURSOR_BLOCK_NUMBER!),
-          },
-          // should never happen but so this will cause it to revert if there's a race condition
-          expectedCursor,
-        );
-        return initializedCursor;
-      }
-    });
+    // first set up the schema
+    let currentCursor: IndexerCursor;
+    {
+      const initializeTimer = logger.startTimer();
+      const expectedCursor = { orderKey: 0n };
+      let initializedCursor: IndexerCursor | null = null;
 
-    initializeTimer.done({
-      message: "Prepared indexer state",
-      startingCursor: currentCursor,
-      expectedCursor: initializedCursor ? expectedCursor : null,
-      writtenCursor: initializedCursor,
-    });
-  }
+      currentCursor = await dao.begin(async (dao) => {
+        const databaseStartingCursor = await dao.loadCursor();
+        if (databaseStartingCursor) {
+          return databaseStartingCursor;
+        } else {
+          initializedCursor = await dao.writeCursor(
+            {
+              orderKey: BigInt(process.env.STARTING_CURSOR_BLOCK_NUMBER!),
+            },
+            // should never happen but so this will cause it to revert if there's a race condition
+            expectedCursor,
+          );
+          return initializedCursor;
+        }
+      });
 
-  // Start the no-blocks timer when application starts
-  resetNoBlocksTimer();
+      initializeTimer.done({
+        message: "Prepared indexer state",
+        startingCursor: currentCursor,
+        expectedCursor: initializedCursor ? expectedCursor : null,
+        writtenCursor: initializedCursor,
+      });
+    }
 
-  // Retry loop: if the stored cursor is no longer canonical (e.g. due to an
-  // unhandled reorg on a previous run), reset it to the last finalized cursor
-  // and restart the stream. Limit retries to avoid infinite loops.
-  const MAX_REORG_RETRIES = 3;
-  let reorgRetries = 0;
-  while (true) {
-    const streamOptions = {
-      finality: "accepted",
-      startingCursor: currentCursor!,
-      heartbeatInterval: {
-        seconds: 10n,
-        nanos: 0,
-      },
-    } as const;
+    // Start the no-blocks timer when application starts
+    resetNoBlocksTimer();
 
-    const stream = entrypoint.createStream(streamOptions);
+    // Retry loop: if the stored cursor is no longer canonical (e.g. due to an
+    // unhandled reorg on a previous run), reset it to the last finalized cursor
+    // and restart the stream. Limit retries to avoid infinite loops.
+    const MAX_REORG_RETRIES = 3;
+    let reorgRetries = 0;
+    while (true) {
+      const streamOptions = {
+        finality: "accepted",
+        startingCursor: currentCursor!,
+        heartbeatInterval: {
+          seconds: 10n,
+          nanos: 0,
+        },
+      } as const;
 
-    try {
-      for await (const message of stream) {
-        switch (message._tag) {
-          case "heartbeat": {
-            logger.debug(`Heartbeat`);
+      const stream = entrypoint.createStream(streamOptions);
 
-            // Note: We don't reset the no-blocks timer on heartbeats, only when actual blocks are received
-            break;
-          }
+      try {
+        for await (const message of stream) {
+          switch (message._tag) {
+            case "heartbeat": {
+              logger.debug(`Heartbeat`);
 
-          case "systemMessage": {
-            switch (message.systemMessage.output?._tag) {
-              case "stderr":
-                logger.error(`System message: ${message.systemMessage.output}`);
-                break;
-              case "stdout":
-                logger.info(`System message: ${message.systemMessage.output}`);
-                break;
-            }
-            break;
-          }
-
-          case "finalize": {
-            const finalizedCursor = message.finalize.cursor;
-
-            if (finalizedCursor) {
-              const expectedCursor = currentCursor;
-              await dao.updateFinalizedCursor(expectedCursor, finalizedCursor);
-
-              logger.info({
-                evt: "finalize",
-                chainId,
-                finalizedCursor,
-                expectedCursor,
-              });
+              // Note: We don't reset the no-blocks timer on heartbeats, only when actual blocks are received
+              break;
             }
 
-            break;
-          }
+            case "systemMessage": {
+              switch (message.systemMessage.output?._tag) {
+                case "stderr":
+                  logger.error(
+                    `System message: ${message.systemMessage.output}`,
+                  );
+                  break;
+                case "stdout":
+                  logger.info(`System message: ${message.systemMessage.output}`);
+                  break;
+              }
+              break;
+            }
 
-          case "invalidate": {
-            const invalidatedCursor = message.invalidate.cursor;
-            if (!invalidatedCursor)
-              throw new Error("invalidate message missing a cursor");
+            case "finalize": {
+              const finalizedCursor = message.finalize.cursor;
 
-            if (invalidatedCursor) {
-              let writtenCursor: IndexerCursor | null = null;
-              const expectedCursor = currentCursor;
+              if (finalizedCursor) {
+                const expectedCursor = currentCursor;
+                await dao.updateFinalizedCursor(expectedCursor, finalizedCursor);
 
-              await dao.begin(async (dao) => {
-                await dao.deleteOldBlockNumbers(
-                  Number(invalidatedCursor.orderKey) + 1,
-                );
-                currentCursor = await dao.writeCursor(
+                logger.info({
+                  evt: "finalize",
+                  chainId,
+                  finalizedCursor,
+                  expectedCursor,
+                });
+              }
+
+              break;
+            }
+
+            case "invalidate": {
+              const invalidatedCursor = message.invalidate.cursor;
+              if (!invalidatedCursor)
+                throw new Error("invalidate message missing a cursor");
+
+              if (invalidatedCursor) {
+                let writtenCursor: IndexerCursor | null = null;
+                const expectedCursor = currentCursor;
+
+                await dao.begin(async (dao) => {
+                  await dao.deleteOldBlockNumbers(
+                    Number(invalidatedCursor.orderKey) + 1,
+                  );
+                  currentCursor = await dao.writeCursor(
+                    invalidatedCursor,
+                    expectedCursor,
+                  );
+                  writtenCursor = currentCursor;
+                });
+
+                logger.warn(`Cursor invalidated`, {
                   invalidatedCursor,
                   expectedCursor,
-                );
-                writtenCursor = currentCursor;
-              });
-
-              logger.warn(`Cursor invalidated`, {
-                invalidatedCursor,
-                expectedCursor,
-                writtenCursor,
-              });
-            }
-
-            break;
-          }
-
-          case "data": {
-            // Reset the no-blocks timer since we received block data
-            resetNoBlocksTimer();
-
-            const endCursor = message.data.endCursor;
-            if (!endCursor) {
-              throw new Error("Received data message without an end cursor");
-            }
-
-            for (const block of message.data.data) {
-              if (!block) continue;
-              const blockProcessingTimer = logger.startTimer();
-              const blockProcessingStartMs = Date.now();
-              const expectedCursor = currentCursor;
-              let writtenCursor: IndexerCursor | null = null;
-
-              const blockNumber = Number(block.header.blockNumber);
-              const blockTime = block.header.timestamp;
-
-              if (!isBlock(block)) {
-                throw new Error(
-                  `Received unexpected block type for ${networkType}`,
-                );
+                  writtenCursor,
+                });
               }
 
-              const plannedEvents = entrypoint.getPlannedEvents(block);
+              break;
+            }
 
-              let eventsProcessed = 0;
+            case "data": {
+              // Reset the no-blocks timer since we received block data
+              resetNoBlocksTimer();
 
-              await dao.begin(async (dao) => {
-                await dao.deleteOldBlockNumbers(blockNumber);
+              const endCursor = message.data.endCursor;
+              if (!endCursor) {
+                throw new Error("Received data message without an end cursor");
+              }
 
-                const blockHashHex = block.header.blockHash ?? "0x0";
-                let baseFeePerGas: bigint | null = null;
+              for (const block of message.data.data) {
+                if (!block) continue;
+                const blockProcessingTimer = logger.startTimer();
+                const blockProcessingStartMs = Date.now();
+                const expectedCursor = currentCursor;
+                let writtenCursor: IndexerCursor | null = null;
 
-                if (
-                  "baseFeePerGas" in block.header &&
-                  block.header.baseFeePerGas
-                ) {
-                  baseFeePerGas = BigInt(block.header.baseFeePerGas);
-                } else if (
-                  "l2GasPrice" in block.header &&
-                  block.header.l2GasPrice?.priceInFri
-                ) {
-                  baseFeePerGas = BigInt(block.header.l2GasPrice.priceInFri);
+                const blockNumber = Number(block.header.blockNumber);
+                const blockTime = block.header.timestamp;
+
+                if (!isBlock(block)) {
+                  throw new Error(
+                    `Received unexpected block type for ${networkType}`,
+                  );
                 }
 
-                await dao.insertBlock({
-                  number: block.header.blockNumber,
-                  hash: BigInt(blockHashHex),
-                  time: blockTime,
-                  baseFeePerGas,
-                  numEvents: plannedEvents,
-                });
+                const plannedEvents = entrypoint.getPlannedEvents(block);
 
-                eventsProcessed = await entrypoint.processBlock({
-                  block,
-                  blockNumber,
-                  dao,
-                });
+                let eventsProcessed = 0;
 
-                // endCursor is what we write so when we restart we delete any pending block information
-                currentCursor = await dao.writeCursor(
-                  endCursor,
-                  expectedCursor,
-                );
-                writtenCursor = currentCursor;
-              });
+                await dao.begin(async (dao) => {
+                  await dao.deleteOldBlockNumbers(blockNumber);
 
-              const nowMs = Date.now();
-              const lagMs = Math.max(0, nowMs - Number(blockTime.getTime()));
+                  const blockHashHex = block.header.blockHash ?? "0x0";
+                  let baseFeePerGas: bigint | null = null;
 
-              blockProcessingTimer.done({
-                bNo: blockNumber,
-                bTs: blockTime,
-                evts: eventsProcessed,
-                lag: msToHumanShort(lagMs, 2),
-                expectedCursor,
-                writtenCursor,
-              });
+                  if (
+                    "baseFeePerGas" in block.header &&
+                    block.header.baseFeePerGas
+                  ) {
+                    baseFeePerGas = BigInt(block.header.baseFeePerGas);
+                  } else if (
+                    "l2GasPrice" in block.header &&
+                    block.header.l2GasPrice?.priceInFri
+                  ) {
+                    baseFeePerGas = BigInt(block.header.l2GasPrice.priceInFri);
+                  }
 
-              if (lastObservedLagMs !== null) {
-                statsLagReducedMs += lastObservedLagMs - lagMs;
-              }
-              lastObservedLagMs = lagMs;
-
-              if (EVENT_STATS_BLOCK_INTERVAL > 0) {
-                const blockDurationMs = nowMs - blockProcessingStartMs;
-                statsBlocksProcessed += 1;
-                statsEventsInserted += eventsProcessed;
-                statsProcessingTimeMs += blockDurationMs;
-
-                if (statsBlocksProcessed === EVENT_STATS_BLOCK_INTERVAL) {
-                  const eventsPerSecond =
-                    statsProcessingTimeMs > 0
-                      ? statsEventsInserted / (statsProcessingTimeMs / 1000)
-                      : 0;
-
-                  const catchupMsPerSec =
-                    statsProcessingTimeMs > 0
-                      ? (statsLagReducedMs * 1000) / statsProcessingTimeMs
-                      : 0;
-
-                  const etaMs =
-                    catchupMsPerSec > 0 && lastObservedLagMs !== null
-                      ? Math.round((lastObservedLagMs / catchupMsPerSec) * 1000)
-                      : null;
-
-                  logger.info({
-                    evt: "ingest-stats",
-                    blocks: statsBlocksProcessed,
-                    events: statsEventsInserted,
-                    durationMs: Math.round(statsProcessingTimeMs),
-                    eps: Number(eventsPerSecond.toFixed(2)),
-                    lagMs: lastObservedLagMs,
-                    catchupMsPerSec: Number(catchupMsPerSec.toFixed(2)),
-                    eta: etaMs !== null ? msToHumanShort(etaMs, 2) : null,
+                  await dao.insertBlock({
+                    number: block.header.blockNumber,
+                    hash: BigInt(blockHashHex),
+                    time: blockTime,
+                    baseFeePerGas,
+                    numEvents: plannedEvents,
                   });
 
-                  statsBlocksProcessed = 0;
-                  statsEventsInserted = 0;
-                  statsProcessingTimeMs = 0;
-                  statsLagReducedMs = 0;
+                  eventsProcessed = await entrypoint.processBlock({
+                    block,
+                    blockNumber,
+                    dao,
+                  });
+
+                  // endCursor is what we write so when we restart we delete any pending block information
+                  currentCursor = await dao.writeCursor(
+                    endCursor,
+                    expectedCursor,
+                  );
+                  writtenCursor = currentCursor;
+                });
+
+                const nowMs = Date.now();
+                const lagMs = Math.max(0, nowMs - Number(blockTime.getTime()));
+
+                blockProcessingTimer.done({
+                  bNo: blockNumber,
+                  bTs: blockTime,
+                  evts: eventsProcessed,
+                  lag: msToHumanShort(lagMs, 2),
+                  expectedCursor,
+                  writtenCursor,
+                });
+
+                if (lastObservedLagMs !== null) {
+                  statsLagReducedMs += lastObservedLagMs - lagMs;
+                }
+                lastObservedLagMs = lagMs;
+
+                if (EVENT_STATS_BLOCK_INTERVAL > 0) {
+                  const blockDurationMs = nowMs - blockProcessingStartMs;
+                  statsBlocksProcessed += 1;
+                  statsEventsInserted += eventsProcessed;
+                  statsProcessingTimeMs += blockDurationMs;
+
+                  if (statsBlocksProcessed === EVENT_STATS_BLOCK_INTERVAL) {
+                    const eventsPerSecond =
+                      statsProcessingTimeMs > 0
+                        ? statsEventsInserted / (statsProcessingTimeMs / 1000)
+                        : 0;
+
+                    const catchupMsPerSec =
+                      statsProcessingTimeMs > 0
+                        ? (statsLagReducedMs * 1000) / statsProcessingTimeMs
+                        : 0;
+
+                    const etaMs =
+                      catchupMsPerSec > 0 && lastObservedLagMs !== null
+                        ? Math.round(
+                            (lastObservedLagMs / catchupMsPerSec) * 1000,
+                          )
+                        : null;
+
+                    logger.info({
+                      evt: "ingest-stats",
+                      blocks: statsBlocksProcessed,
+                      events: statsEventsInserted,
+                      durationMs: Math.round(statsProcessingTimeMs),
+                      eps: Number(eventsPerSecond.toFixed(2)),
+                      lagMs: lastObservedLagMs,
+                      catchupMsPerSec: Number(catchupMsPerSec.toFixed(2)),
+                      eta: etaMs !== null ? msToHumanShort(etaMs, 2) : null,
+                    });
+
+                    statsBlocksProcessed = 0;
+                    statsEventsInserted = 0;
+                    statsProcessingTimeMs = 0;
+                    statsLagReducedMs = 0;
+                  }
                 }
               }
+
+              break;
             }
 
-            break;
-          }
-
-          default: {
-            const unexpectedMessage: never = message;
-            logger.error("Unhandled message type", unexpectedMessage);
-            break;
+            default: {
+              const unexpectedMessage: never = message;
+              logger.error("Unhandled message type", unexpectedMessage);
+              break;
+            }
           }
         }
-      }
 
-      // Stream ended gracefully; exit the retry loop
-      break;
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message.includes("Starting cursor is not canonical")
-      ) {
-        if (reorgRetries >= MAX_REORG_RETRIES) {
-          throw new Error(
-            `Cursor is not canonical and max retries (${MAX_REORG_RETRIES}) exceeded: ${error.message}`,
-            { cause: error },
-          );
-        }
-        const finalizedCursor = await dao.loadFinalizedCursor();
-        if (finalizedCursor) {
-          reorgRetries++;
-          const expectedCursor = currentCursor;
-          let writtenCursor: IndexerCursor | null = null;
-          await dao.begin(async (dao) => {
-            await dao.deleteOldBlockNumbers(
-              Number(finalizedCursor.orderKey) + 1,
+        // Stream ended gracefully; exit the retry loop
+        break;
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.includes("Starting cursor is not canonical")
+        ) {
+          if (reorgRetries >= MAX_REORG_RETRIES) {
+            throw new Error(
+              `Cursor is not canonical and max retries (${MAX_REORG_RETRIES}) exceeded: ${error.message}`,
+              { cause: error },
             );
-            currentCursor = await dao.writeCursor(
-              finalizedCursor,
-              expectedCursor,
+          }
+          const finalizedCursor = await dao.loadFinalizedCursor();
+          if (finalizedCursor) {
+            reorgRetries++;
+            const expectedCursor = currentCursor;
+            let writtenCursor: IndexerCursor | null = null;
+            await dao.begin(async (dao) => {
+              await dao.deleteOldBlockNumbers(
+                Number(finalizedCursor.orderKey) + 1,
+              );
+              currentCursor = await dao.writeCursor(
+                finalizedCursor,
+                expectedCursor,
+              );
+              writtenCursor = currentCursor;
+            });
+            logger.warn(
+              "Cursor is not canonical, resetting to last finalized cursor",
+              { expectedCursor, finalizedCursor, writtenCursor, reorgRetries },
             );
-            writtenCursor = currentCursor;
-          });
-          logger.warn(
-            "Cursor is not canonical, resetting to last finalized cursor",
-            { expectedCursor, finalizedCursor, writtenCursor, reorgRetries },
-          );
-          continue;
-        } else {
-          throw new Error(
-            `Cursor is not canonical and no finalized cursor is available to recover to. Manual intervention may be required. Original error: ${error.message}`,
-            { cause: error },
-          );
+            continue;
+          } else {
+            throw new Error(
+              `Cursor is not canonical and no finalized cursor is available to recover to. Manual intervention may be required. Original error: ${error.message}`,
+              { cause: error },
+            );
+          }
         }
+        throw error;
       }
-      throw error;
     }
-  }
   })()
   .then(() => {
     logger.info("Stream closed gracefully");
