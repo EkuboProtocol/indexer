@@ -1,8 +1,10 @@
-import "../src/config";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import postgres from "postgres";
 import shift from "postgres-shift";
+import { loadBaseConfig } from "../src/config";
+
+loadBaseConfig();
 
 async function main() {
   const connectionString = process.env.PG_CONNECTION_STRING;

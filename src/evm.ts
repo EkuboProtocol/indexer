@@ -2,18 +2,18 @@ import { Block as EvmBlock } from "@apibara/evm";
 import { EvmRpcStream, rateLimitedHttp } from "@apibara/evm-rpc";
 import { createRpcClient } from "@apibara/protocol/rpc";
 import { createPublicClient, fallback } from "viem";
-import type { EventKey } from "../_shared/eventKey";
-import { logger } from "../_shared/logger";
+import type { EventKey } from "./_shared/eventKey";
+import { logger } from "./_shared/logger";
 import {
   loadHexAddresses,
   loadOptionalHexAddress,
   type HexAddress,
-} from "../_shared/loadHexAddresses";
-import { parseEvmRpcUrls } from "../_shared/streamEndpoints";
-import { createLogProcessorsV2 } from "../evm/logProcessorsV2";
-import { createLogProcessorsV3 } from "../evm/logProcessorsV3";
-import { parsePositionsProtocolFeeConfigs } from "../evm/positionsProtocolFeeConfig";
-import { runIndexer } from "../runtime";
+} from "./_shared/loadHexAddresses";
+import { parseEvmRpcUrls } from "./_shared/streamEndpoints";
+import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
+import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
+import { parsePositionsProtocolFeeConfigs } from "./evm/positionsProtocolFeeConfig";
+import { runIndexer } from "./runtime";
 import type { NetworkEntrypoint, StreamOptions } from "./types";
 
 function requireAtLeastOneAddress(
@@ -151,7 +151,9 @@ export async function createEvmEntrypoint(
       return createRpcClient(
         new EvmRpcStream(publicClient, {
           headRefreshIntervalMs: 2000,
-          getLogsRangeSize: BigInt(process.env.GET_LOGS_RANGE_SIZE ?? 1_000_000n),
+          getLogsRangeSize: BigInt(
+            process.env.GET_LOGS_RANGE_SIZE ?? 1_000_000n,
+          ),
           alwaysSendAcceptedHeaders: true,
           mergeGetLogsFilter:
             mergeGetLogsFilter &&

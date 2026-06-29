@@ -2,7 +2,7 @@ import { logger } from "./_shared/logger";
 import { DAO, type IndexerCursor } from "./_shared/dao";
 import { msToHumanShort } from "./_shared/msToHumanShort";
 import { loadConfig } from "./config";
-import type { NetworkEntrypoint, NetworkType } from "./entrypoints/types";
+import type { NetworkEntrypoint, NetworkType } from "./types";
 
 type RuntimeEntrypoint<TBlock> = {
   networkType: NetworkType;

@@ -1,5 +1,5 @@
 import { config } from "dotenv";
-import type { NetworkType } from "./entrypoints/types";
+import type { NetworkType } from "./types";
 
 export function loadConfig(networkType: NetworkType) {
   config({
@@ -8,6 +8,11 @@ export function loadConfig(networkType: NetworkType) {
   config({ path: `./.env.${networkType}.${process.env.NETWORK}` });
   config({ path: `./.env.${networkType}.local` });
   config({ path: `./.env.${networkType}` });
+  config({ path: `./.env.local` });
+  config({ path: `./.env` });
+}
+
+export function loadBaseConfig() {
   config({ path: `./.env.local` });
   config({ path: `./.env` });
 }

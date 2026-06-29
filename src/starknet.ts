@@ -1,11 +1,11 @@
 import { Metadata, createClient } from "@apibara/protocol";
 import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
-import type { EventKey } from "../_shared/eventKey";
-import { logger } from "../_shared/logger";
-import { loadHexAddresses } from "../_shared/loadHexAddresses";
-import { requireStarknetApibaraUrl } from "../_shared/streamEndpoints";
-import { runIndexer } from "../runtime";
-import { createEventProcessors } from "../starknet/eventProcessors";
+import type { EventKey } from "./_shared/eventKey";
+import { logger } from "./_shared/logger";
+import { loadHexAddresses } from "./_shared/loadHexAddresses";
+import { requireStarknetApibaraUrl } from "./_shared/streamEndpoints";
+import { runIndexer } from "./runtime";
+import { createEventProcessors } from "./starknet/eventProcessors";
 import type { NetworkEntrypoint, StreamOptions } from "./types";
 
 export function isStarknetBlock(block: unknown): block is StarknetBlock {
@@ -42,7 +42,7 @@ export function createStarknetEntrypoint(): NetworkEntrypoint<StarknetBlock> {
         defaultCallOptions: {
           "*": {
             metadata: Metadata({
-              Authorization: "Bearer " + process.env.DNA_TOKEN,
+              Authorization: `Bearer ${process.env.DNA_TOKEN}`,
             }),
           },
         },

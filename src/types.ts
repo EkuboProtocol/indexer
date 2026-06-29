@@ -1,4 +1,4 @@
-import type { DAO, IndexerCursor } from "../_shared/dao";
+import type { DAO, IndexerCursor } from "./_shared/dao";
 
 export type NetworkType = "evm" | "starknet";
 
