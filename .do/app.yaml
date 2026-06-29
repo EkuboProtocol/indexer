@@ -30,21 +30,15 @@ workers:
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
-      - key: NETWORK_TYPE
-        scope: RUN_TIME
-        value: starknet
       - key: NETWORK
         scope: RUN_TIME
         value: sepolia
-    run_command: scripts/restart.sh bun src/index.ts
+    run_command: scripts/restart.sh bun src/starknet.ts
   - name: starknet-mainnet
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
-      - key: NETWORK_TYPE
-        scope: RUN_TIME
-        value: starknet
       - key: APIBARA_URL
         scope: RUN_TIME
         type: SECRET
@@ -52,27 +46,21 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet
-    run_command: scripts/restart.sh bun src/index.ts
+    run_command: scripts/restart.sh bun src/starknet.ts
   - name: eth-sepolia
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
-      - key: NETWORK_TYPE
-        scope: RUN_TIME
-        value: evm
       - key: NETWORK
         scope: RUN_TIME
         value: sepolia
-    run_command: scripts/restart.sh bun src/index.ts
+    run_command: scripts/restart.sh bun src/evm.ts
   - name: eth-mainnet
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
-      - key: NETWORK_TYPE
-        scope: RUN_TIME
-        value: evm
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
@@ -80,26 +68,21 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet
+    run_command: scripts/restart.sh bun src/evm.ts
   - name: base-sepolia
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
-      - key: NETWORK_TYPE
-        scope: RUN_TIME
-        value: evm
       - key: NETWORK
         scope: RUN_TIME
         value: base-sepolia
-    run_command: scripts/restart.sh bun src/index.ts
+    run_command: scripts/restart.sh bun src/evm.ts
   - name: base-mainnet
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
-      - key: NETWORK_TYPE
-        scope: RUN_TIME
-        value: evm
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
@@ -107,54 +90,42 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: base-mainnet
-    run_command: scripts/restart.sh bun src/index.ts
+    run_command: scripts/restart.sh bun src/evm.ts
   - name: arb-sepolia
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
-      - key: NETWORK_TYPE
-        scope: RUN_TIME
-        value: evm
       - key: NETWORK
         scope: RUN_TIME
         value: arb-sepolia
-    run_command: scripts/restart.sh bun src/index.ts
+    run_command: scripts/restart.sh bun src/evm.ts
   - name: rhc-mainnet
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
-      - key: NETWORK_TYPE
-        scope: RUN_TIME
-        value: evm
       - key: NETWORK
         scope: RUN_TIME
         value: rhc-mainnet
       - key: EVM_RPC_URL
         scope: RUN_TIME
         value: "https://robinhood-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
-    run_command: scripts/restart.sh bun src/index.ts
+    run_command: scripts/restart.sh bun src/evm.ts
   - name: rhc-sepolia
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
-      - key: NETWORK_TYPE
-        scope: RUN_TIME
-        value: evm
       - key: NETWORK
         scope: RUN_TIME
         value: rhc-sepolia
-    run_command: scripts/restart.sh bun src/index.ts
+    run_command: scripts/restart.sh bun src/evm.ts
   - name: arb-mainnet
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
-      - key: NETWORK_TYPE
-        scope: RUN_TIME
-        value: evm
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
@@ -162,7 +133,7 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: arb-mainnet
-    run_command: scripts/restart.sh bun src/index.ts
+    run_command: scripts/restart.sh bun src/evm.ts
   - name: token-price-sync
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb

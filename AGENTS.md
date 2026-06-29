@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-TypeScript entrypoint `src/index.ts` orchestrates EVM and Starknet processors from `src/evm` and `src/starknet`, with shared utilities in `src/_shared`. Configuration bootstraps in `src/config.ts`, which layers `.env` files per network. SQL migrations under `migrations/` execute sequentially through `scripts/migrate.ts`. Tests live in `tests/migrations/*.test.ts` and reuse the harness in `tests/helpers`. Operational scripts (migrations, token jobs, etc.) sit in `scripts/`. The production App Platform definition is tracked in `.do/app.yaml`, and automated Postgres dumps are handled via `.github/workflows/pg-dump.yaml`.
+TypeScript entrypoints `src/evm.ts` and `src/starknet.ts` orchestrate network-specific processors from `src/evm` and `src/starknet`, with shared utilities in `src/_shared` and runtime logic in `src/runtime.ts`. Configuration bootstraps in `src/config.ts`, which layers `.env` files per network. SQL migrations under `migrations/` execute sequentially through `scripts/migrate.ts`. Tests live in `tests/migrations/*.test.ts` and reuse the harness in `tests/helpers`. Operational scripts (migrations, token jobs, etc.) sit in `scripts/`. The production App Platform definition is tracked in `.do/app.yaml`, and automated Postgres dumps are handled via `.github/workflows/pg-dump.yaml`.
 
 ## Build, Test, and Development Commands
 - `bun run eth:mainnet` / `bun run eth:sepolia`: run the EVM indexer for the selected network; ensure database and RPC env vars are present.
