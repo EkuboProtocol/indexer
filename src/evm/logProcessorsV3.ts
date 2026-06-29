@@ -6,6 +6,7 @@ import {
   parseOrderConfig,
   parsePoolBalanceUpdate,
   parsePositionId,
+  parseStakeId,
   parseV2PoolKeyConfig,
   toPoolConfigV2,
   toPoolId,
@@ -28,6 +29,7 @@ import {
   POSITIONS_ABI as POSITIONS_ABI_V3,
   TOKEN_WRAPPER_FACTORY_ABI as TOKEN_WRAPPER_FACTORY_ABI_V3,
   TWAMM_ABI as TWAMM_ABI_V3,
+  VE33_ABI as VE33_ABI_V3,
   BOOSTED_FEES_ABI as BOOSTED_FEES_ABI_V3,
 } from "./abis_v3";
 
@@ -42,6 +44,9 @@ export interface LogProcessorConfigV3 {
   incentivesAddress: `0x${string}`;
   tokenWrapperFactoryAddress: `0x${string}`;
   auctionsAddress: `0x${string}`;
+  ve33Address?: `0x${string}`;
+  veTokenAddress?: `0x${string}`;
+  ve33PositionsAddress?: `0x${string}`;
   positionsContracts: PositionsContractProtocolFeeConfig[];
 }
 
@@ -53,7 +58,20 @@ type ProcessorDefinitionsV3 = {
   BoostedFeesConcentrated: ContractHandlers<typeof BOOSTED_FEES_ABI_V3>;
   BoostedFeesStableswap: ContractHandlers<typeof BOOSTED_FEES_ABI_V3>;
   Auctions?: ContractHandlers<typeof AUCTIONS_ABI_V3>;
+  Ve33?: ContractHandlers<typeof VE33_ABI_V3>;
+  VeToken?: ContractHandlers<typeof POSITIONS_ABI_V3>;
+  Ve33Positions?: ContractHandlers<typeof POSITIONS_ABI_V3>;
 } & ContractHandlerDefinitions;
+
+function stakeDescriptor(stakeId: `0x${string}`) {
+  const { salt, endTime } = parseStakeId(stakeId);
+
+  return {
+    id: stakeId,
+    salt,
+    endTime,
+  };
+}
 
 export function createLogProcessorsV3({
   mevCaptureAddress,
@@ -66,6 +84,9 @@ export function createLogProcessorsV3({
   incentivesAddress,
   tokenWrapperFactoryAddress,
   auctionsAddress,
+  ve33Address,
+  veTokenAddress,
+  ve33PositionsAddress,
   positionsContracts,
 }: LogProcessorConfigV3): EvmLogProcessor[] {
   const mevCaptureAddressBigInt = BigInt(mevCaptureAddress);
@@ -426,6 +447,107 @@ export function createLogProcessorsV3({
           },
         }
       : {}),
+    ...(ve33Address
+      ? {
+          Ve33: {
+            address: ve33Address,
+            abi: VE33_ABI_V3,
+            handlers: {
+              async StakeChanged(dao, key, parsed) {
+                await dao.insertVe33StakeChangedEvent(key, {
+                  owner: parsed.owner,
+                  stake: stakeDescriptor(parsed.stakeId),
+                  delta: parsed.delta,
+                });
+              },
+              async VoteWeightApplied(dao, key, parsed) {
+                await dao.insertVe33VoteWeightAppliedEvent(key, {
+                  coreAddress,
+                  poolId: parsed.poolId,
+                  owner: parsed.owner,
+                  stake: stakeDescriptor(parsed.stakeId),
+                  weight: parsed.weight,
+                  swapFee: parsed.swapFee,
+                });
+              },
+              async PoolFeesAccounted(dao, key, parsed) {
+                await dao.insertVe33PoolFeesAccountedEvent(key, {
+                  coreAddress,
+                  poolId: parsed.poolId,
+                  amount0: parsed.amount0,
+                  amount1: parsed.amount1,
+                });
+              },
+              async PoolFeesClaimed(dao, key, parsed) {
+                await dao.insertVe33PoolFeesClaimedEvent(key, {
+                  coreAddress,
+                  poolId: parsed.poolId,
+                  owner: parsed.owner,
+                  stake: stakeDescriptor(parsed.stakeId),
+                  amount0: parsed.amount0,
+                  amount1: parsed.amount1,
+                });
+              },
+              async EmissionsScheduled(dao, key, parsed) {
+                await dao.insertVe33EmissionsScheduledEvent(key, {
+                  funder: parsed.funder,
+                  startTime: parsed.startTime,
+                  endTime: parsed.endTime,
+                  rewardRate: parsed.rewardRate,
+                  amount: parsed.amount,
+                });
+              },
+              async PoolEmissionsAccrued(dao, key, parsed) {
+                await dao.insertVe33PoolEmissionsAccruedEvent(key, {
+                  coreAddress,
+                  poolId: parsed.poolId,
+                  amount: parsed.amount,
+                });
+              },
+              async RewardsClaimed(dao, key, parsed) {
+                const { salt, lower, upper } = parsePositionId(
+                  parsed.positionId,
+                );
+                await dao.insertVe33RewardsClaimedEvent(key, {
+                  coreAddress,
+                  poolId: parsed.poolId,
+                  owner: parsed.owner,
+                  positionId: parsed.positionId,
+                  salt,
+                  bounds: { lower, upper },
+                  amount: parsed.amount,
+                });
+              },
+            },
+          },
+        }
+      : {}),
+    ...(veTokenAddress
+      ? {
+          VeToken: {
+            address: veTokenAddress,
+            abi: POSITIONS_ABI_V3,
+            handlers: {
+              async Transfer(dao, key, parsed) {
+                await dao.insertNonfungibleTokenTransferEvent(parsed, key);
+              },
+            },
+          },
+        }
+      : {}),
+    ...(ve33PositionsAddress
+      ? {
+          Ve33Positions: {
+            address: ve33PositionsAddress,
+            abi: POSITIONS_ABI_V3,
+            handlers: {
+              async Transfer(dao, key, parsed) {
+                await dao.insertNonfungibleTokenTransferEvent(parsed, key);
+              },
+            },
+          },
+        }
+      : {}),
   };
 
   const baseProcessors = createProcessorsFromHandlers(processors);
@@ -449,17 +571,23 @@ export function createLogProcessorsV3({
   );
 
   const positionsProcessors =
-    positionsContracts?.flatMap((p) =>
-      createContractEventProcessor({
-        contractName: "Positions",
-        address: p.address,
-        abi: POSITIONS_ABI_V3,
-        eventName: "Transfer",
-        async handler(dao, event, key) {
-          await dao.insertNonfungibleTokenTransferEvent(key, event);
-        },
-      }),
-    ) ?? [];
+    positionsContracts
+      ?.filter(
+        (p) =>
+          !ve33PositionsAddress ||
+          BigInt(p.address) !== BigInt(ve33PositionsAddress),
+      )
+      .flatMap((p) =>
+        createContractEventProcessor({
+          contractName: "Positions",
+          address: p.address,
+          abi: POSITIONS_ABI_V3,
+          eventName: "Transfer",
+          async handler(dao, key, event) {
+            await dao.insertNonfungibleTokenTransferEvent(event, key);
+          },
+        }),
+      ) ?? [];
 
   return baseProcessors.concat(
     twammProcessors,

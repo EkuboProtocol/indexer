@@ -39,6 +39,9 @@ interface EvmConfig extends CommonConfiguration {
   BOOSTED_FEES_STABLESWAP_V3_ADDRESS: `0x${string}`;
   TOKEN_WRAPPER_FACTORY_V3_ADDRESS: `0x${string}`;
   POSITIONS_V3_PROTOCOL_FEE_CONFIGS?: string;
+  VE33_V3_ADDRESS?: `0x${string}`;
+  VE_TOKEN_V3_ADDRESS?: `0x${string}`;
+  VE33_POSITIONS_V3_ADDRESS?: `0x${string}`;
 }
 
 interface StarknetConfig extends CommonConfiguration {

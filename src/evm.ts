@@ -66,6 +66,12 @@ export async function createEvmEntrypoint(
     process.env.POSITIONS_V3_PROTOCOL_FEE_CONFIGS,
   );
 
+  const evmV3Ve33AddressConfig = {
+    ve33Address: loadOptionalHexAddress("VE33_V3_ADDRESS"),
+    veTokenAddress: loadOptionalHexAddress("VE_TOKEN_V3_ADDRESS"),
+    ve33PositionsAddress: loadOptionalHexAddress("VE33_POSITIONS_V3_ADDRESS"),
+  };
+
   if (!evmV2AddressConfig && !evmV3AddressConfig) {
     throw new Error("No config for either V2 or V3 contracts");
   }
@@ -78,6 +84,12 @@ export async function createEvmEntrypoint(
     logger.info(`Loaded V3 positions protocol fee configs`, {
       positionsV3ProtocolFeeConfigs,
     });
+  if (
+    evmV3Ve33AddressConfig.ve33Address ||
+    evmV3Ve33AddressConfig.veTokenAddress ||
+    evmV3Ve33AddressConfig.ve33PositionsAddress
+  )
+    logger.info(`Indexing V3 Ve33 contracts`, { evmV3Ve33AddressConfig });
 
   const processors = [
     ...(evmV2AddressConfig ? createLogProcessorsV2(evmV2AddressConfig) : []),
@@ -92,6 +104,7 @@ export async function createEvmEntrypoint(
             "ORDERS_V3_ADDRESS",
             "LEGACY_ORDERS_V3_ADDRESS",
           ]),
+          ...evmV3Ve33AddressConfig,
           positionsContracts: positionsV3ProtocolFeeConfigs ?? [],
         })
       : []),

@@ -92,6 +92,17 @@ export function parsePositionId(_positionId: `0x${string}`): {
   return { salt, lower, upper };
 }
 
+export function parseStakeId(_stakeId: `0x${string}`): {
+  salt: bigint;
+  endTime: bigint;
+} {
+  const stakeId = BigInt(_stakeId);
+  const endTime = stakeId & ((1n << 64n) - 1n);
+  const salt = stakeId >> 64n;
+
+  return { salt, endTime };
+}
+
 export function parseOrderConfig(_config: `0x${string}`): {
   isToken1: boolean;
   salt: bigint;

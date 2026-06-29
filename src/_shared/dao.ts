@@ -243,6 +243,63 @@ export interface TokenWrapperDeployedInsert {
   unlockTime: NumericValue;
 }
 
+export interface StakeDescriptor {
+  id: AddressValue;
+  salt: NumericValue;
+  endTime: NumericValue;
+}
+
+export interface Ve33PoolEventDescriptor {
+  coreAddress: `0x${string}`;
+  poolId: `0x${string}`;
+}
+
+export interface Ve33StakeChangedInsert {
+  owner: AddressValue;
+  stake: StakeDescriptor;
+  delta: bigint;
+}
+
+export interface Ve33VoteWeightAppliedInsert extends Ve33PoolEventDescriptor {
+  owner: AddressValue;
+  stake: StakeDescriptor;
+  weight: NumericValue;
+  swapFee: NumericValue;
+}
+
+export interface Ve33PoolFeesAccountedInsert extends Ve33PoolEventDescriptor {
+  amount0: NumericValue;
+  amount1: NumericValue;
+}
+
+export interface Ve33PoolFeesClaimedInsert extends Ve33PoolEventDescriptor {
+  owner: AddressValue;
+  stake: StakeDescriptor;
+  amount0: NumericValue;
+  amount1: NumericValue;
+}
+
+export interface Ve33EmissionsScheduledInsert {
+  funder: AddressValue;
+  startTime: NumericValue;
+  endTime: NumericValue;
+  rewardRate: NumericValue;
+  amount: NumericValue;
+}
+
+export interface Ve33PoolEmissionsAccruedInsert
+  extends Ve33PoolEventDescriptor {
+  amount: NumericValue;
+}
+
+export interface Ve33RewardsClaimedInsert extends Ve33PoolEventDescriptor {
+  owner: AddressValue;
+  positionId: AddressValue;
+  salt: NumericValue;
+  bounds: BoundsDescriptor;
+  amount: NumericValue;
+}
+
 export interface TokenRegistrationInsert {
   address: AddressValue;
   name: NumericValue;
@@ -1850,6 +1907,212 @@ export class DAO {
         ${this.numeric(parsed.tokenWrapper)},
         ${this.numeric(parsed.underlyingToken)},
         ${this.numeric(parsed.unlockTime)}
+      );
+    `;
+  }
+
+  async insertVe33StakeChangedEvent(
+    key: EventKey,
+    parsed: Ve33StakeChangedInsert
+  ) {
+    await this.sql`
+      INSERT INTO ve33_stake_changed
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         owner, stake_id, stake_salt, stake_end_time, delta)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(parsed.owner)},
+        ${this.numeric(parsed.stake.id)},
+        ${this.numeric(parsed.stake.salt)},
+        ${new Date(Number(BigInt(parsed.stake.endTime) * 1000n))},
+        ${this.numeric(parsed.delta)}
+      );
+    `;
+  }
+
+  async insertVe33VoteWeightAppliedEvent(
+    key: EventKey,
+    parsed: Ve33VoteWeightAppliedInsert
+  ) {
+    await this.sql`
+      INSERT INTO ve33_vote_weight_applied
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, owner, stake_id, stake_salt, stake_end_time, weight, swap_fee)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pk.pool_key_id
+          FROM pool_keys pk
+          WHERE pk.chain_id = ${this.chainId}
+            AND pk.core_address = ${this.numeric(parsed.coreAddress)}
+            AND pk.pool_id = ${this.numeric(parsed.poolId)}
+        ),
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.owner)},
+        ${this.numeric(parsed.stake.id)},
+        ${this.numeric(parsed.stake.salt)},
+        ${new Date(Number(BigInt(parsed.stake.endTime) * 1000n))},
+        ${this.numeric(parsed.weight)},
+        ${this.numeric(parsed.swapFee)}
+      );
+    `;
+  }
+
+  async insertVe33PoolFeesAccountedEvent(
+    key: EventKey,
+    parsed: Ve33PoolFeesAccountedInsert
+  ) {
+    await this.sql`
+      INSERT INTO ve33_pool_fees_accounted
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, amount0, amount1)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pk.pool_key_id
+          FROM pool_keys pk
+          WHERE pk.chain_id = ${this.chainId}
+            AND pk.core_address = ${this.numeric(parsed.coreAddress)}
+            AND pk.pool_id = ${this.numeric(parsed.poolId)}
+        ),
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.amount0)},
+        ${this.numeric(parsed.amount1)}
+      );
+    `;
+  }
+
+  async insertVe33PoolFeesClaimedEvent(
+    key: EventKey,
+    parsed: Ve33PoolFeesClaimedInsert
+  ) {
+    await this.sql`
+      INSERT INTO ve33_pool_fees_claimed
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, owner, stake_id, stake_salt, stake_end_time, amount0, amount1)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pk.pool_key_id
+          FROM pool_keys pk
+          WHERE pk.chain_id = ${this.chainId}
+            AND pk.core_address = ${this.numeric(parsed.coreAddress)}
+            AND pk.pool_id = ${this.numeric(parsed.poolId)}
+        ),
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.owner)},
+        ${this.numeric(parsed.stake.id)},
+        ${this.numeric(parsed.stake.salt)},
+        ${new Date(Number(BigInt(parsed.stake.endTime) * 1000n))},
+        ${this.numeric(parsed.amount0)},
+        ${this.numeric(parsed.amount1)}
+      );
+    `;
+  }
+
+  async insertVe33EmissionsScheduledEvent(
+    key: EventKey,
+    parsed: Ve33EmissionsScheduledInsert
+  ) {
+    await this.sql`
+      INSERT INTO ve33_emissions_scheduled
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         funder, start_time, end_time, reward_rate, amount)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(parsed.funder)},
+        ${new Date(Number(BigInt(parsed.startTime) * 1000n))},
+        ${new Date(Number(BigInt(parsed.endTime) * 1000n))},
+        ${this.numeric(parsed.rewardRate)},
+        ${this.numeric(parsed.amount)}
+      );
+    `;
+  }
+
+  async insertVe33PoolEmissionsAccruedEvent(
+    key: EventKey,
+    parsed: Ve33PoolEmissionsAccruedInsert
+  ) {
+    await this.sql`
+      INSERT INTO ve33_pool_emissions_accrued
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, amount)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pk.pool_key_id
+          FROM pool_keys pk
+          WHERE pk.chain_id = ${this.chainId}
+            AND pk.core_address = ${this.numeric(parsed.coreAddress)}
+            AND pk.pool_id = ${this.numeric(parsed.poolId)}
+        ),
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.amount)}
+      );
+    `;
+  }
+
+  async insertVe33RewardsClaimedEvent(
+    key: EventKey,
+    parsed: Ve33RewardsClaimedInsert
+  ) {
+    const { lower, upper } = parsed.bounds;
+
+    await this.sql`
+      INSERT INTO ve33_rewards_claimed
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, owner, position_id, salt, lower_bound, upper_bound, amount)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pk.pool_key_id
+          FROM pool_keys pk
+          WHERE pk.chain_id = ${this.chainId}
+            AND pk.core_address = ${this.numeric(parsed.coreAddress)}
+            AND pk.pool_id = ${this.numeric(parsed.poolId)}
+        ),
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.owner)},
+        ${this.numeric(parsed.positionId)},
+        ${this.numeric(parsed.salt)},
+        ${lower},
+        ${upper},
+        ${this.numeric(parsed.amount)}
       );
     `;
   }
