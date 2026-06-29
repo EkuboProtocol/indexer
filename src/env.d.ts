@@ -15,8 +15,6 @@ interface CommonConfiguration {
 }
 
 interface EvmConfig extends CommonConfiguration {
-  NETWORK_TYPE: "evm";
-
   EVM_RPC_URL: string; // Supports comma-separated RPC URLs for fallback
 
   CORE_ADDRESS: `0x${string}`;
@@ -44,7 +42,6 @@ interface EvmConfig extends CommonConfiguration {
 }
 
 interface StarknetConfig extends CommonConfiguration {
-  NETWORK_TYPE: "starknet";
   APIBARA_URL: string;
 
   CORE_ADDRESS: `0x${string}`;

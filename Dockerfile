@@ -19,4 +19,4 @@ COPY .env* ./
 RUN chmod +x scripts/restart.sh
 
 ENTRYPOINT ["/app/scripts/restart.sh"]
-CMD ["bun", "src/index.ts"]
+CMD ["bun", "src/starknet.ts"]
