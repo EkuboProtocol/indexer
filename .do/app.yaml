@@ -104,9 +104,6 @@ workers:
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
-      - key: NETWORK_TYPE
-        scope: RUN_TIME
-        value: evm
       - key: NETWORK
         scope: RUN_TIME
         value: rhc-mainnet
