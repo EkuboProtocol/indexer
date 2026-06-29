@@ -17,6 +17,9 @@ envs:
     scope: RUN_TIME
     type: SECRET
     value: ${APIBARA_DNA_TOKEN}
+  - key: RESTART_DELAY_SECONDS
+    scope: RUN_TIME
+    value: "1"
 workers:
   - name: starknet-sepolia
     image: &indexer-image
@@ -65,25 +68,6 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet
-    run_command: scripts/restart.sh bun src/entrypoints/evm.ts
-  - name: mega-mainnet
-    image: *indexer-image
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    envs:
-      - key: NETWORK
-        scope: RUN_TIME
-        value: megaeth
-    run_command: scripts/restart.sh bun src/entrypoints/evm.ts
-  - name: monad-mainnet
-    image: *indexer-image
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    envs:
-      - key: NETWORK
-        scope: RUN_TIME
-        value: monad
-    run_command: scripts/restart.sh bun src/entrypoints/evm.ts
   - name: base-sepolia
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
@@ -101,7 +85,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://mainnet.base.org,https://base.drpc.org,https://base-rpc.publicnode.com,https://base-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://mainnet.base.org,https://base-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: base-mainnet
@@ -114,7 +98,22 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: arb-sepolia
-    run_command: scripts/restart.sh bun src/entrypoints/evm.ts
+    run_command: scripts/restart.sh bun src/index.ts
+  - name: rhc-mainnet
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: NETWORK_TYPE
+        scope: RUN_TIME
+        value: evm
+      - key: NETWORK
+        scope: RUN_TIME
+        value: rhc-mainnet
+      - key: EVM_RPC_URL
+        scope: RUN_TIME
+        value: "https://robinhood-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+    run_command: scripts/restart.sh bun src/index.ts
   - name: rhc-sepolia
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
@@ -132,7 +131,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://arb1.arbitrum.io/rpc,https://api.zan.top/arb-one,https://arbitrum.drpc.org,https://arb-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://arb1.arbitrum.io/rpc,https://arb-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: arb-mainnet

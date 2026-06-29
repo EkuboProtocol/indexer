@@ -45,7 +45,7 @@ const REMOTE_TOKEN_LISTS = [
   {
     name: "Uniswap Default Token List",
     url: "https://ipfs.io/ipns/tokens.uniswap.org",
-    visibility_priority: 0,
+    visibility_priority: 1,
   },
   {
     name: "1inch Token List",
