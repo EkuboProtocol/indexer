@@ -121,7 +121,7 @@ export async function runIndexer<TBlock>({
       startingCursor: currentCursor!,
       heartbeatInterval: {
         seconds: 10n,
-        nanos: 0n,
+        nanos: 0,
       },
     } as const;
 

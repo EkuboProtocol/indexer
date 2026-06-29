@@ -13,7 +13,7 @@ export interface StreamOptions {
   startingCursor: IndexerCursor;
   heartbeatInterval: {
     seconds: bigint;
-    nanos: bigint;
+    nanos: number;
   };
 }
 

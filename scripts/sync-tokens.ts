@@ -1,8 +1,8 @@
 import { EVM_NATIVE_TOKEN_ALIASES } from "./evmNativeTokenAliases";
 import postgres, { type Sql } from "postgres";
-import { loadBaseConfig } from "../src/config";
+import { loadConfig } from "../src/config";
 
-loadBaseConfig();
+loadConfig();
 
 const sql = postgres(process.env.PG_CONNECTION_STRING!, {
   connect_timeout: 5,
