@@ -4,6 +4,7 @@ import {
   parseOrderConfig,
   parsePoolBalanceUpdate,
   parsePositionId,
+  parseStakeId,
   parseV2PoolKeyConfig,
 } from "./poolKey";
 
@@ -211,6 +212,33 @@ describe("parsePositionId", () => {
         salt: saltMasked,
         lower,
         upper,
+      });
+    });
+  });
+});
+
+describe("parseStakeId", () => {
+  const cases = [
+    { salt: 0n, endTime: 0n },
+    {
+      salt: (1n << 192n) - 1n,
+      endTime: (1n << 64n) - 1n,
+    },
+    {
+      salt: 0x1234567890abcdef1234567890abcdef1234567890abcdefn,
+      endTime: 1_798_675_200n,
+    },
+  ];
+
+  cases.forEach(({ salt, endTime }, idx) => {
+    it(`recovers salt and end time #${idx + 1}`, () => {
+      const saltMasked = BigInt.asUintN(192, salt);
+      const endTimeMasked = BigInt.asUintN(64, endTime);
+      const packed = (saltMasked << 64n) | endTimeMasked;
+
+      expect(parseStakeId(toHex(packed))).toEqual({
+        salt: saltMasked,
+        endTime: endTimeMasked,
       });
     });
   });

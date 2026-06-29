@@ -181,6 +181,17 @@ function resetNoBlocksTimer() {
         )
       : undefined;
 
+  const evmV3Ve33AddressConfig =
+    NETWORK_TYPE === "evm"
+      ? {
+          ve33Address: loadOptionalHexAddress("VE33_V3_ADDRESS"),
+          veTokenAddress: loadOptionalHexAddress("VE_TOKEN_V3_ADDRESS"),
+          ve33PositionsAddress: loadOptionalHexAddress(
+            "VE33_POSITIONS_V3_ADDRESS",
+          ),
+        }
+      : undefined;
+
   if (NETWORK_TYPE === "evm") {
     if (!evmV2AddressConfig && !evmV3AddressConfig) {
       throw new Error("No config for either V2 or V3 contracts");
@@ -193,6 +204,12 @@ function resetNoBlocksTimer() {
       logger.info(`Loaded V3 positions protocol fee configs`, {
         positionsV3ProtocolFeeConfigs,
       });
+    if (
+      evmV3Ve33AddressConfig?.ve33Address ||
+      evmV3Ve33AddressConfig?.veTokenAddress ||
+      evmV3Ve33AddressConfig?.ve33PositionsAddress
+    )
+      logger.info(`Indexing V3 Ve33 contracts`, { evmV3Ve33AddressConfig });
   }
 
   const starknetAddressConfig =
@@ -235,6 +252,7 @@ function resetNoBlocksTimer() {
                   "ORDERS_V3_ADDRESS",
                   "LEGACY_ORDERS_V3_ADDRESS",
                 ]),
+                ...evmV3Ve33AddressConfig,
                 positionsContracts: positionsV3ProtocolFeeConfigs ?? [],
               })
             : []),
