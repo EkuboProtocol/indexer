@@ -1,7 +1,7 @@
 import { Block as EvmBlock } from "@apibara/evm";
 import { EvmRpcStream, rateLimitedHttp } from "@apibara/evm-rpc";
 import { createRpcClient } from "@apibara/protocol/rpc";
-import { createPublicClient } from "viem";
+import { createPublicClient, fallback } from "viem";
 import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
 import {
@@ -9,7 +9,7 @@ import {
   loadOptionalHexAddress,
   type HexAddress,
 } from "./_shared/loadHexAddresses";
-import { requireEvmRpcUrl } from "./_shared/streamEndpoints";
+import { parseEvmRpcUrls } from "./_shared/streamEndpoints";
 import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
 import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
 import { parsePositionsProtocolFeeConfigs } from "./evm/positionsProtocolFeeConfig";
@@ -97,20 +97,50 @@ export async function createEvmEntrypoint(
       : []),
   ];
 
-  const evmRpcUrl = requireEvmRpcUrl(process.env.EVM_RPC_URL);
-  const evmRpcTransport = rateLimitedHttp(evmRpcUrl, {
-    rps: 100,
-    retryCount: 0,
-  });
+  const createTransportFromUrl = (url: string) =>
+    rateLimitedHttp(url, { rps: 100, retryCount: 0 });
+
+  const evmRpcUrls = parseEvmRpcUrls(process.env.EVM_RPC_URL);
+
+  if (evmRpcUrls.length === 0) {
+    throw new Error("Missing EVM_RPC_URL");
+  }
+
+  const evmRpcTransports = evmRpcUrls.map((url) => ({
+    url,
+    transport: createTransportFromUrl(url),
+  }));
 
   const publicClient = createPublicClient({
-    transport: evmRpcTransport,
+    transport: fallback(evmRpcTransports.map(({ transport }) => transport)),
   });
 
-  const clientChainId = BigInt(await publicClient.getChainId());
-  if (clientChainId !== chainId) {
+  const [clientChainId, transportChainIds] = await Promise.all([
+    publicClient.getChainId(),
+    Promise.all(
+      evmRpcTransports.map(async ({ url, transport }) => ({
+        url,
+        chainId: BigInt(
+          await createPublicClient({
+            transport,
+          }).getChainId(),
+        ),
+      })),
+    ),
+  ]);
+
+  const uniqueChainIds = new Set<bigint>([
+    BigInt(clientChainId),
+    ...transportChainIds.map(({ chainId }) => chainId),
+  ]);
+
+  if (uniqueChainIds.size !== 1 || !uniqueChainIds.has(chainId)) {
+    const transportDetails = transportChainIds
+      .map(({ url, chainId }) => `${url}=${chainId}`)
+      .join(", ");
+
     throw new Error(
-      `EVM_RPC_URL returns chain ID ${clientChainId} which conflicts with environment chain ID ${chainId}`,
+      `EVM_RPC_URL transports return chain IDs [${transportDetails}] which conflict with environment chain ID ${chainId}`,
     );
   }
 

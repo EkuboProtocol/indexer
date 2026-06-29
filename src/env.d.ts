@@ -15,7 +15,7 @@ interface CommonConfiguration {
 }
 
 interface EvmConfig extends CommonConfiguration {
-  EVM_RPC_URL: string;
+  EVM_RPC_URL: string; // Supports comma-separated RPC URLs for fallback
 
   CORE_ADDRESS: `0x${string}`;
   POSITIONS_ADDRESS: `0x${string}`;
