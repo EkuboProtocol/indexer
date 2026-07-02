@@ -17,6 +17,32 @@ CREATE TABLE ve33_pool_states
     last_event_id                             int8        NOT NULL
 );
 
+CREATE TABLE ve33_pool_vote_states
+(
+    pool_key_id int8    NOT NULL REFERENCES pool_keys (pool_key_id),
+    chain_id    int8    NOT NULL,
+    emitter     NUMERIC NOT NULL,
+    owner       NUMERIC NOT NULL,
+    stake_id    NUMERIC NOT NULL,
+    pool_id     NUMERIC NOT NULL,
+    weight      NUMERIC NOT NULL,
+    swap_fee    NUMERIC NOT NULL,
+    event_id    int8    NOT NULL,
+    PRIMARY KEY (pool_key_id, chain_id, emitter, owner, stake_id, pool_id)
+);
+
+CREATE INDEX ON ve33_pool_vote_states (pool_key_id);
+
+CREATE INDEX ON ve33_vote_weight_applied (
+    pool_key_id,
+    chain_id,
+    emitter,
+    owner,
+    stake_id,
+    pool_id,
+    event_id DESC
+);
+
 CREATE FUNCTION recompute_ve33_pool_state(p_pool_key_id int8)
     RETURNS VOID
     LANGUAGE plpgsql AS
@@ -40,6 +66,8 @@ DECLARE
 
     v_last_event_id                     int8;
 BEGIN
+    DELETE FROM ve33_pool_vote_states WHERE pool_key_id = p_pool_key_id;
+
     SELECT vwa.event_id,
            vwa.swap_fee
     INTO v_last_vote_event_id,
@@ -51,7 +79,13 @@ BEGIN
 
     WITH latest_votes AS (
         SELECT DISTINCT ON (vwa.chain_id, vwa.emitter, vwa.owner, vwa.stake_id, vwa.pool_id)
+               vwa.chain_id,
+               vwa.emitter,
+               vwa.owner,
+               vwa.stake_id,
+               vwa.pool_id,
                vwa.weight,
+               vwa.swap_fee,
                vwa.event_id
         FROM ve33_vote_weight_applied vwa
         WHERE vwa.pool_key_id = p_pool_key_id
@@ -62,9 +96,32 @@ BEGIN
                  vwa.pool_id,
                  vwa.event_id DESC
     )
+    INSERT INTO ve33_pool_vote_states (
+        pool_key_id,
+        chain_id,
+        emitter,
+        owner,
+        stake_id,
+        pool_id,
+        weight,
+        swap_fee,
+        event_id
+    )
+    SELECT p_pool_key_id,
+           vwa.chain_id,
+           vwa.emitter,
+           vwa.owner,
+           vwa.stake_id,
+           vwa.pool_id,
+           vwa.weight,
+           vwa.swap_fee,
+           vwa.event_id
+    FROM latest_votes vwa;
+
     SELECT COALESCE(SUM(weight), 0)
     INTO v_pool_total_vote_weight
-    FROM latest_votes;
+    FROM ve33_pool_vote_states
+    WHERE pool_key_id = p_pool_key_id;
 
     SELECT pfa.event_id,
            b.block_time,
@@ -169,42 +226,465 @@ BEGIN
 END
 $$;
 
-CREATE FUNCTION trg_ve33_pool_state_recompute()
-    RETURNS TRIGGER
+CREATE FUNCTION refresh_ve33_pool_state_last_event(p_pool_key_id int8)
+    RETURNS VOID
     LANGUAGE plpgsql AS
 $$
 BEGIN
-    IF TG_OP = 'INSERT' THEN
-        IF NEW.pool_key_id IS NOT NULL THEN
-            PERFORM recompute_ve33_pool_state(NEW.pool_key_id);
-        END IF;
-    ELSE
-        IF OLD.pool_key_id IS NOT NULL THEN
-            PERFORM recompute_ve33_pool_state(OLD.pool_key_id);
-        END IF;
+    UPDATE ve33_pool_states
+    SET last_event_id = GREATEST(
+        COALESCE(last_vote_weight_applied_event_id, -9223372036854775807::int8),
+        COALESCE(last_pool_fees_accounted_event_id, -9223372036854775807::int8),
+        COALESCE(last_pool_emissions_accrued_event_id, -9223372036854775807::int8)
+    )
+    WHERE pool_key_id = p_pool_key_id
+      AND (
+        last_vote_weight_applied_event_id IS NOT NULL
+        OR last_pool_fees_accounted_event_id IS NOT NULL
+        OR last_pool_emissions_accrued_event_id IS NOT NULL
+      );
+
+    DELETE FROM ve33_pool_states
+    WHERE pool_key_id = p_pool_key_id
+      AND last_vote_weight_applied_event_id IS NULL
+      AND last_pool_fees_accounted_event_id IS NULL
+      AND last_pool_emissions_accrued_event_id IS NULL;
+END
+$$;
+
+CREATE FUNCTION trg_ve33_vote_weight_applied_pool_state_insert()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql AS
+$$
+DECLARE
+    v_previous_weight   NUMERIC := 0;
+    v_previous_event_id int8;
+    v_weight_delta      NUMERIC;
+BEGIN
+    IF NEW.pool_key_id IS NULL THEN
+        RETURN NULL;
     END IF;
+
+    SELECT weight, event_id
+    INTO v_previous_weight, v_previous_event_id
+    FROM ve33_pool_vote_states
+    WHERE pool_key_id = NEW.pool_key_id
+      AND chain_id = NEW.chain_id
+      AND emitter = NEW.emitter
+      AND owner = NEW.owner
+      AND stake_id = NEW.stake_id
+      AND pool_id = NEW.pool_id
+    FOR UPDATE;
+
+    IF v_previous_event_id IS NOT NULL AND v_previous_event_id > NEW.event_id THEN
+        RETURN NULL;
+    END IF;
+
+    v_weight_delta := NEW.weight - COALESCE(v_previous_weight, 0);
+
+    INSERT INTO ve33_pool_vote_states (
+        pool_key_id,
+        chain_id,
+        emitter,
+        owner,
+        stake_id,
+        pool_id,
+        weight,
+        swap_fee,
+        event_id
+    )
+    VALUES (
+        NEW.pool_key_id,
+        NEW.chain_id,
+        NEW.emitter,
+        NEW.owner,
+        NEW.stake_id,
+        NEW.pool_id,
+        NEW.weight,
+        NEW.swap_fee,
+        NEW.event_id
+    )
+    ON CONFLICT (pool_key_id, chain_id, emitter, owner, stake_id, pool_id) DO UPDATE
+        SET weight   = EXCLUDED.weight,
+            swap_fee = EXCLUDED.swap_fee,
+            event_id = EXCLUDED.event_id;
+
+    INSERT INTO ve33_pool_states AS s (
+        pool_key_id,
+        pool_total_vote_weight,
+        swap_fee,
+        last_vote_weight_applied_event_id,
+        total_pool_fees_accounted0,
+        total_pool_fees_accounted1,
+        total_pool_emissions_accrued,
+        last_event_id
+    )
+    VALUES (
+        NEW.pool_key_id,
+        v_weight_delta,
+        NEW.swap_fee,
+        NEW.event_id,
+        0,
+        0,
+        0,
+        NEW.event_id
+    )
+    ON CONFLICT (pool_key_id) DO UPDATE
+        SET pool_total_vote_weight            = s.pool_total_vote_weight + v_weight_delta,
+            swap_fee                          = EXCLUDED.swap_fee,
+            last_vote_weight_applied_event_id = EXCLUDED.last_vote_weight_applied_event_id,
+            last_event_id                     = GREATEST(s.last_event_id, EXCLUDED.last_event_id);
+
+    RETURN NULL;
+END
+$$;
+
+CREATE FUNCTION trg_ve33_vote_weight_applied_pool_state_delete()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql AS
+$$
+DECLARE
+    v_current_event_id int8;
+    v_replacement     ve33_vote_weight_applied%ROWTYPE;
+    v_weight_delta    NUMERIC;
+    v_pool_latest_vote_event_id int8;
+    v_pool_latest_swap_fee      NUMERIC;
+BEGIN
+    IF OLD.pool_key_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    SELECT event_id
+    INTO v_current_event_id
+    FROM ve33_pool_vote_states
+    WHERE pool_key_id = OLD.pool_key_id
+      AND chain_id = OLD.chain_id
+      AND emitter = OLD.emitter
+      AND owner = OLD.owner
+      AND stake_id = OLD.stake_id
+      AND pool_id = OLD.pool_id
+    FOR UPDATE;
+
+    IF v_current_event_id IS DISTINCT FROM OLD.event_id THEN
+        RETURN NULL;
+    END IF;
+
+    SELECT *
+    INTO v_replacement
+    FROM ve33_vote_weight_applied vwa
+    WHERE vwa.pool_key_id = OLD.pool_key_id
+      AND vwa.chain_id = OLD.chain_id
+      AND vwa.emitter = OLD.emitter
+      AND vwa.owner = OLD.owner
+      AND vwa.stake_id = OLD.stake_id
+      AND vwa.pool_id = OLD.pool_id
+    ORDER BY vwa.event_id DESC
+    LIMIT 1;
+
+    IF FOUND THEN
+        v_weight_delta := v_replacement.weight - OLD.weight;
+
+        UPDATE ve33_pool_vote_states
+        SET weight = v_replacement.weight,
+            swap_fee = v_replacement.swap_fee,
+            event_id = v_replacement.event_id
+        WHERE pool_key_id = OLD.pool_key_id
+          AND chain_id = OLD.chain_id
+          AND emitter = OLD.emitter
+          AND owner = OLD.owner
+          AND stake_id = OLD.stake_id
+          AND pool_id = OLD.pool_id;
+    ELSE
+        v_weight_delta := -OLD.weight;
+
+        DELETE FROM ve33_pool_vote_states
+        WHERE pool_key_id = OLD.pool_key_id
+          AND chain_id = OLD.chain_id
+          AND emitter = OLD.emitter
+          AND owner = OLD.owner
+          AND stake_id = OLD.stake_id
+          AND pool_id = OLD.pool_id;
+    END IF;
+
+    SELECT event_id, swap_fee
+    INTO v_pool_latest_vote_event_id, v_pool_latest_swap_fee
+    FROM ve33_vote_weight_applied vwa
+    WHERE vwa.pool_key_id = OLD.pool_key_id
+    ORDER BY vwa.event_id DESC
+    LIMIT 1;
+
+    UPDATE ve33_pool_states
+    SET pool_total_vote_weight = pool_total_vote_weight + v_weight_delta,
+        swap_fee = COALESCE(v_pool_latest_swap_fee, 0),
+        last_vote_weight_applied_event_id = v_pool_latest_vote_event_id
+    WHERE pool_key_id = OLD.pool_key_id;
+
+    PERFORM refresh_ve33_pool_state_last_event(OLD.pool_key_id);
+
+    RETURN NULL;
+END
+$$;
+
+CREATE FUNCTION trg_ve33_pool_fees_accounted_pool_state_insert()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql AS
+$$
+DECLARE
+    v_block_time timestamptz;
+BEGIN
+    IF NEW.pool_key_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    SELECT block_time
+    INTO STRICT v_block_time
+    FROM blocks
+    WHERE chain_id = NEW.chain_id
+      AND block_number = NEW.block_number;
+
+    INSERT INTO ve33_pool_states AS s (
+        pool_key_id,
+        pool_total_vote_weight,
+        swap_fee,
+        last_pool_fees_accounted_event_id,
+        last_pool_fees_accounted_block_timestamp,
+        last_pool_fees_accounted_amount0,
+        last_pool_fees_accounted_amount1,
+        total_pool_fees_accounted0,
+        total_pool_fees_accounted1,
+        total_pool_emissions_accrued,
+        last_event_id
+    )
+    VALUES (
+        NEW.pool_key_id,
+        0,
+        0,
+        NEW.event_id,
+        v_block_time,
+        NEW.amount0,
+        NEW.amount1,
+        NEW.amount0,
+        NEW.amount1,
+        0,
+        NEW.event_id
+    )
+    ON CONFLICT (pool_key_id) DO UPDATE
+        SET last_pool_fees_accounted_event_id = CASE
+                WHEN s.last_pool_fees_accounted_event_id IS NULL
+                    OR NEW.event_id >= s.last_pool_fees_accounted_event_id
+                THEN NEW.event_id
+                ELSE s.last_pool_fees_accounted_event_id
+            END,
+            last_pool_fees_accounted_block_timestamp = CASE
+                WHEN s.last_pool_fees_accounted_event_id IS NULL
+                    OR NEW.event_id >= s.last_pool_fees_accounted_event_id
+                THEN v_block_time
+                ELSE s.last_pool_fees_accounted_block_timestamp
+            END,
+            last_pool_fees_accounted_amount0 = CASE
+                WHEN s.last_pool_fees_accounted_event_id IS NULL
+                    OR NEW.event_id >= s.last_pool_fees_accounted_event_id
+                THEN NEW.amount0
+                ELSE s.last_pool_fees_accounted_amount0
+            END,
+            last_pool_fees_accounted_amount1 = CASE
+                WHEN s.last_pool_fees_accounted_event_id IS NULL
+                    OR NEW.event_id >= s.last_pool_fees_accounted_event_id
+                THEN NEW.amount1
+                ELSE s.last_pool_fees_accounted_amount1
+            END,
+            total_pool_fees_accounted0 = s.total_pool_fees_accounted0 + NEW.amount0,
+            total_pool_fees_accounted1 = s.total_pool_fees_accounted1 + NEW.amount1,
+            last_event_id = GREATEST(s.last_event_id, NEW.event_id);
+
+    RETURN NULL;
+END
+$$;
+
+CREATE FUNCTION trg_ve33_pool_fees_accounted_pool_state_delete()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql AS
+$$
+DECLARE
+    v_replacement ve33_pool_fees_accounted%ROWTYPE;
+    v_block_time  timestamptz;
+BEGIN
+    IF OLD.pool_key_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    SELECT *
+    INTO v_replacement
+    FROM ve33_pool_fees_accounted pfa
+    WHERE pfa.pool_key_id = OLD.pool_key_id
+    ORDER BY pfa.event_id DESC
+    LIMIT 1;
+
+    IF FOUND THEN
+        SELECT block_time
+        INTO STRICT v_block_time
+        FROM blocks
+        WHERE chain_id = v_replacement.chain_id
+          AND block_number = v_replacement.block_number;
+    END IF;
+
+    UPDATE ve33_pool_states
+    SET last_pool_fees_accounted_event_id = v_replacement.event_id,
+        last_pool_fees_accounted_block_timestamp = v_block_time,
+        last_pool_fees_accounted_amount0 = v_replacement.amount0,
+        last_pool_fees_accounted_amount1 = v_replacement.amount1,
+        total_pool_fees_accounted0 = total_pool_fees_accounted0 - OLD.amount0,
+        total_pool_fees_accounted1 = total_pool_fees_accounted1 - OLD.amount1
+    WHERE pool_key_id = OLD.pool_key_id;
+
+    PERFORM refresh_ve33_pool_state_last_event(OLD.pool_key_id);
+
+    RETURN NULL;
+END
+$$;
+
+CREATE FUNCTION trg_ve33_pool_emissions_accrued_pool_state_insert()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql AS
+$$
+DECLARE
+    v_block_time timestamptz;
+BEGIN
+    IF NEW.pool_key_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    SELECT block_time
+    INTO STRICT v_block_time
+    FROM blocks
+    WHERE chain_id = NEW.chain_id
+      AND block_number = NEW.block_number;
+
+    INSERT INTO ve33_pool_states AS s (
+        pool_key_id,
+        pool_total_vote_weight,
+        swap_fee,
+        total_pool_fees_accounted0,
+        total_pool_fees_accounted1,
+        last_pool_emissions_accrued_event_id,
+        last_pool_emissions_accrued_block_timestamp,
+        last_pool_emissions_accrued_amount,
+        total_pool_emissions_accrued,
+        last_event_id
+    )
+    VALUES (
+        NEW.pool_key_id,
+        0,
+        0,
+        0,
+        0,
+        NEW.event_id,
+        v_block_time,
+        NEW.amount,
+        NEW.amount,
+        NEW.event_id
+    )
+    ON CONFLICT (pool_key_id) DO UPDATE
+        SET last_pool_emissions_accrued_event_id = CASE
+                WHEN s.last_pool_emissions_accrued_event_id IS NULL
+                    OR NEW.event_id >= s.last_pool_emissions_accrued_event_id
+                THEN NEW.event_id
+                ELSE s.last_pool_emissions_accrued_event_id
+            END,
+            last_pool_emissions_accrued_block_timestamp = CASE
+                WHEN s.last_pool_emissions_accrued_event_id IS NULL
+                    OR NEW.event_id >= s.last_pool_emissions_accrued_event_id
+                THEN v_block_time
+                ELSE s.last_pool_emissions_accrued_block_timestamp
+            END,
+            last_pool_emissions_accrued_amount = CASE
+                WHEN s.last_pool_emissions_accrued_event_id IS NULL
+                    OR NEW.event_id >= s.last_pool_emissions_accrued_event_id
+                THEN NEW.amount
+                ELSE s.last_pool_emissions_accrued_amount
+            END,
+            total_pool_emissions_accrued = s.total_pool_emissions_accrued + NEW.amount,
+            last_event_id = GREATEST(s.last_event_id, NEW.event_id);
+
+    RETURN NULL;
+END
+$$;
+
+CREATE FUNCTION trg_ve33_pool_emissions_accrued_pool_state_delete()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql AS
+$$
+DECLARE
+    v_replacement ve33_pool_emissions_accrued%ROWTYPE;
+    v_block_time  timestamptz;
+BEGIN
+    IF OLD.pool_key_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    SELECT *
+    INTO v_replacement
+    FROM ve33_pool_emissions_accrued pea
+    WHERE pea.pool_key_id = OLD.pool_key_id
+    ORDER BY pea.event_id DESC
+    LIMIT 1;
+
+    IF FOUND THEN
+        SELECT block_time
+        INTO STRICT v_block_time
+        FROM blocks
+        WHERE chain_id = v_replacement.chain_id
+          AND block_number = v_replacement.block_number;
+    END IF;
+
+    UPDATE ve33_pool_states
+    SET last_pool_emissions_accrued_event_id = v_replacement.event_id,
+        last_pool_emissions_accrued_block_timestamp = v_block_time,
+        last_pool_emissions_accrued_amount = v_replacement.amount,
+        total_pool_emissions_accrued = total_pool_emissions_accrued - OLD.amount
+    WHERE pool_key_id = OLD.pool_key_id;
+
+    PERFORM refresh_ve33_pool_state_last_event(OLD.pool_key_id);
 
     RETURN NULL;
 END
 $$;
 
 CREATE TRIGGER trg_ve33_vote_weight_applied_pool_state
-    AFTER INSERT OR DELETE
+    AFTER INSERT
     ON ve33_vote_weight_applied
     FOR EACH ROW
-EXECUTE FUNCTION trg_ve33_pool_state_recompute();
+EXECUTE FUNCTION trg_ve33_vote_weight_applied_pool_state_insert();
+
+CREATE TRIGGER trg_ve33_vote_weight_applied_pool_state_delete
+    AFTER DELETE
+    ON ve33_vote_weight_applied
+    FOR EACH ROW
+EXECUTE FUNCTION trg_ve33_vote_weight_applied_pool_state_delete();
 
 CREATE TRIGGER trg_ve33_pool_fees_accounted_pool_state
-    AFTER INSERT OR DELETE
+    AFTER INSERT
     ON ve33_pool_fees_accounted
     FOR EACH ROW
-EXECUTE FUNCTION trg_ve33_pool_state_recompute();
+EXECUTE FUNCTION trg_ve33_pool_fees_accounted_pool_state_insert();
+
+CREATE TRIGGER trg_ve33_pool_fees_accounted_pool_state_delete
+    AFTER DELETE
+    ON ve33_pool_fees_accounted
+    FOR EACH ROW
+EXECUTE FUNCTION trg_ve33_pool_fees_accounted_pool_state_delete();
 
 CREATE TRIGGER trg_ve33_pool_emissions_accrued_pool_state
-    AFTER INSERT OR DELETE
+    AFTER INSERT
     ON ve33_pool_emissions_accrued
     FOR EACH ROW
-EXECUTE FUNCTION trg_ve33_pool_state_recompute();
+EXECUTE FUNCTION trg_ve33_pool_emissions_accrued_pool_state_insert();
+
+CREATE TRIGGER trg_ve33_pool_emissions_accrued_pool_state_delete
+    AFTER DELETE
+    ON ve33_pool_emissions_accrued
+    FOR EACH ROW
+EXECUTE FUNCTION trg_ve33_pool_emissions_accrued_pool_state_delete();
 
 DROP VIEW IF EXISTS all_pool_states_view;
 

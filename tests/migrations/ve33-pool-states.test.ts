@@ -92,6 +92,8 @@ async function insertVoteWeightApplied({
   poolKeyId,
   weight,
   swapFee,
+  owner = "7000",
+  stakeId = "8000",
 }: {
   db?: PGlite;
   chainId: number;
@@ -100,6 +102,8 @@ async function insertVoteWeightApplied({
   poolKeyId: bigint;
   weight: string;
   swapFee: string;
+  owner?: string;
+  stakeId?: string;
 }) {
   await db.query(
     `INSERT INTO ve33_vote_weight_applied (
@@ -127,8 +131,8 @@ async function insertVoteWeightApplied({
       "5000",
       poolKeyId,
       "2000",
-      "7000",
-      "8000",
+      owner,
+      stakeId,
       "80",
       new Date("2027-01-01T00:00:00.000Z"),
       weight,
@@ -292,6 +296,57 @@ test("ve33 pool state recomputes from pool events and surfaces in all_pool_state
   );
 
   expect(emptyRows).toHaveLength(0);
+});
+
+test("ve33 vote cache tracks independent current stake votes incrementally", async () => {
+  const chainId = 11155113;
+  await seedBlock({
+    chainId,
+    blockNumber: 1,
+    blockTime: new Date("2026-06-29T02:00:00.000Z"),
+  });
+  const poolKeyId = await seedVe33Pool(chainId);
+
+  await insertVoteWeightApplied({
+    chainId,
+    blockNumber: 1,
+    eventIndex: 0,
+    poolKeyId,
+    weight: "100",
+    swapFee: "20",
+    owner: "7000",
+    stakeId: "8000",
+  });
+
+  await insertVoteWeightApplied({
+    chainId,
+    blockNumber: 1,
+    eventIndex: 1,
+    poolKeyId,
+    weight: "40",
+    swapFee: "30",
+    owner: "7001",
+    stakeId: "8001",
+  });
+
+  const { rows } = await client.query<{
+    pool_total_vote_weight: string;
+    swap_fee: string;
+    cached_votes: number;
+  }>(
+    `SELECT vps.pool_total_vote_weight,
+            vps.swap_fee,
+            count(vpvs.event_id)::int AS cached_votes
+     FROM ve33_pool_states vps
+              JOIN ve33_pool_vote_states vpvs USING (pool_key_id)
+     WHERE vps.pool_key_id = $1
+     GROUP BY vps.pool_total_vote_weight, vps.swap_fee`,
+    [poolKeyId],
+  );
+
+  expect(rows).toEqual([
+    { pool_total_vote_weight: "140", swap_fee: "30", cached_votes: 2 },
+  ]);
 });
 
 test("ve33 pool state backfills events that existed before the state migration", async () => {
