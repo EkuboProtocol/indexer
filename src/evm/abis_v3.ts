@@ -796,6 +796,220 @@ export const CORE_ABI = [
   },
 ] as const;
 
+export const VE33_ABI = [
+  {
+    type: "event",
+    name: "StakeChanged",
+    inputs: [
+      {
+        name: "owner",
+        type: "address",
+        indexed: false,
+        internalType: "address",
+      },
+      {
+        name: "stakeId",
+        type: "bytes32",
+        indexed: false,
+        internalType: "StakeId",
+      },
+      {
+        name: "delta",
+        type: "int256",
+        indexed: false,
+        internalType: "int256",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "VoteWeightApplied",
+    inputs: [
+      {
+        name: "owner",
+        type: "address",
+        indexed: false,
+        internalType: "address",
+      },
+      {
+        name: "stakeId",
+        type: "bytes32",
+        indexed: false,
+        internalType: "StakeId",
+      },
+      {
+        name: "poolId",
+        type: "bytes32",
+        indexed: false,
+        internalType: "PoolId",
+      },
+      {
+        name: "weight",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+      {
+        name: "swapFee",
+        type: "uint64",
+        indexed: false,
+        internalType: "uint64",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "PoolFeesAccounted",
+    inputs: [
+      {
+        name: "poolId",
+        type: "bytes32",
+        indexed: false,
+        internalType: "PoolId",
+      },
+      {
+        name: "amount0",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "PoolFeesClaimed",
+    inputs: [
+      {
+        name: "poolId",
+        type: "bytes32",
+        indexed: false,
+        internalType: "PoolId",
+      },
+      {
+        name: "owner",
+        type: "address",
+        indexed: false,
+        internalType: "address",
+      },
+      {
+        name: "stakeId",
+        type: "bytes32",
+        indexed: false,
+        internalType: "StakeId",
+      },
+      {
+        name: "amount0",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "EmissionsScheduled",
+    inputs: [
+      {
+        name: "funder",
+        type: "address",
+        indexed: false,
+        internalType: "address",
+      },
+      {
+        name: "startTime",
+        type: "uint64",
+        indexed: false,
+        internalType: "uint64",
+      },
+      {
+        name: "endTime",
+        type: "uint64",
+        indexed: false,
+        internalType: "uint64",
+      },
+      {
+        name: "rewardRate",
+        type: "uint160",
+        indexed: false,
+        internalType: "uint160",
+      },
+      {
+        name: "amount",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "PoolEmissionsAccrued",
+    inputs: [
+      {
+        name: "poolId",
+        type: "bytes32",
+        indexed: false,
+        internalType: "PoolId",
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "RewardsClaimed",
+    inputs: [
+      {
+        name: "poolId",
+        type: "bytes32",
+        indexed: false,
+        internalType: "PoolId",
+      },
+      {
+        name: "owner",
+        type: "address",
+        indexed: false,
+        internalType: "address",
+      },
+      {
+        name: "positionId",
+        type: "bytes32",
+        indexed: false,
+        internalType: "PositionId",
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256",
+      },
+    ],
+    anonymous: false,
+  },
+] as const;
+
 export const POSITIONS_ABI = [
   {
     type: "constructor",

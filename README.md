@@ -92,6 +92,14 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-06-29: Ve33 event indexing
+
+EVM V3 Ve33 events now write to `ve33_stake_changed`, `ve33_vote_weight_applied`, `ve33_pool_fees_accounted`, `ve33_pool_fees_claimed`, `ve33_emissions_scheduled`, `ve33_pool_emissions_accrued`, and `ve33_rewards_claimed`. Sepolia also indexes VeToken and FreeVe33Positions ERC721 transfers when `VE_TOKEN_V3_ADDRESS` and `VE33_POSITIONS_V3_ADDRESS` are configured. Apply migrations before deploying consumers that read these tables.
+
+### 2026-06-29: Ve33 pool state view support
+
+Ve33 pool quote state is now maintained in `ve33_pool_states` and exposed through `all_pool_states_view` via `ve33_*` columns plus `is_ve33_pool`. Apply migrations before deploying consumers that select from the view; no manual backfill is required beyond the migration.
+
 ### 2026-02-23: all_pool_states_view now includes unsupported extensions
 
 `all_pool_states_view` no longer filters rows by supported pool extension state markers, so any pool with a `pool_states` row now appears in the view. Downstream consumers that assumed the view contained only quoter-supported pools should add their own filtering before deploy; no backfill or manual intervention is required beyond running migrations.
