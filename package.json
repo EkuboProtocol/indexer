@@ -5,6 +5,7 @@
   "description": "Indexes Ekubo data into a Postgres database",
   "scripts": {
     "rhc:sepolia": "NETWORK=rhc-sepolia bun src/evm.ts",
+    "rhc:mainnet": "NETWORK=rhc-mainnet bun src/evm.ts",
     "base:sepolia": "NETWORK=base-sepolia bun src/evm.ts",
     "base:mainnet": "NETWORK=base-mainnet bun src/evm.ts",
     "arb:sepolia": "NETWORK=arb-sepolia bun src/evm.ts",
