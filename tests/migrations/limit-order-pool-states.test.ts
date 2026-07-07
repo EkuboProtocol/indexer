@@ -8,6 +8,7 @@ const MIGRATION_FILES = [
   "00004_pool_states",
   "00013_limit_orders",
   "00060_pool_config_v2",
+  "00106_fix_limit_order_pool_state_last_event_id",
 ] as const;
 
 let client: PGlite;
@@ -50,17 +51,19 @@ function valueToBigInt(value: string | number | bigint) {
 }
 
 async function seedBlock({
+  db = client,
   chainId,
   blockNumber,
   blockTime,
 }: {
+  db?: PGlite;
   chainId: number;
   blockNumber: number;
   blockTime: Date;
 }) {
-  await ensureIndexerCursor(client, chainId);
+  await ensureIndexerCursor(db, chainId);
   const blockHash = `${chainId}${blockNumber}`;
-  await client.query(
+  await db.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
      VALUES ($1, $2, $3, $4, 0)`,
     [chainId, blockNumber, blockHash, blockTime]
@@ -225,8 +228,8 @@ async function insertLimitOrderClosed({
   return eventId;
 }
 
-async function getLimitOrderPoolState(poolKeyId: number) {
-  const { rows } = await client.query<{
+async function getLimitOrderPoolState(poolKeyId: number, db = client) {
+  const { rows } = await db.query<{
     last_event_id: string | number | bigint;
   }>(
     `SELECT last_event_id
@@ -281,7 +284,7 @@ test("limit order pool state tracks placements, closures, and cleans up when eve
 
   const stateAfterPlacement = await getLimitOrderPoolState(poolKeyId);
   expect(stateAfterPlacement).not.toBeNull();
-  expect(valueToBigInt(stateAfterPlacement!.last_event_id)).toBe(0n);
+  expect(valueToBigInt(stateAfterPlacement!.last_event_id)).toBe(placedEventId);
   expect(placedEventId).toBe(
     computeEventId({
       blockNumber: blockNumbers.placed,
@@ -310,7 +313,9 @@ test("limit order pool state tracks placements, closures, and cleans up when eve
 
   const stateAfterClosedDeletion = await getLimitOrderPoolState(poolKeyId);
   expect(stateAfterClosedDeletion).not.toBeNull();
-  expect(valueToBigInt(stateAfterClosedDeletion!.last_event_id)).toBe(0n);
+  expect(valueToBigInt(stateAfterClosedDeletion!.last_event_id)).toBe(
+    placedEventId
+  );
 
   await client.query(
     `DELETE FROM limit_order_placed WHERE chain_id = $1 AND event_id = $2`,
@@ -366,4 +371,136 @@ test("limit order pool state drops when underlying pool state is removed", async
   expect(placements.length).toBe(1);
 
   expect(await getLimitOrderPoolState(poolKeyId)).toBeNull();
+});
+
+test("migration repairs limit order state rows with zero last event id", async () => {
+  const legacyClient = await createClient({
+    files: [
+      "00001_chain_tables",
+      "00002_core_tables",
+      "00004_pool_states",
+      "00013_limit_orders",
+      "00060_pool_config_v2",
+    ],
+  });
+
+  try {
+    const chainId = 4300;
+    const blockNumbers = {
+      init: 400,
+      placed: 401,
+    };
+
+    await seedBlock({
+      db: legacyClient,
+      chainId,
+      blockNumber: blockNumbers.init,
+      blockTime: new Date("2024-04-03T00:00:00Z"),
+    });
+    await seedBlock({
+      db: legacyClient,
+      chainId,
+      blockNumber: blockNumbers.placed,
+      blockTime: new Date("2024-04-03T00:05:00Z"),
+    });
+
+    const {
+      rows: [{ pool_key_id: poolKeyId }],
+    } = await legacyClient.query<{ pool_key_id: bigint }>(
+      `INSERT INTO pool_keys (
+          chain_id,
+          core_address,
+          pool_id,
+          token0,
+          token1,
+          fee,
+          fee_denominator,
+          tick_spacing,
+          pool_extension
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       RETURNING pool_key_id`,
+      [chainId, "1000", "2000", "4000", "5000", "10", "1000", 60, "6000"]
+    );
+
+    await legacyClient.query(
+      `INSERT INTO pool_initializations (
+          chain_id,
+          block_number,
+          transaction_index,
+          event_index,
+          transaction_hash,
+          emitter,
+          pool_key_id,
+          tick,
+          sqrt_ratio
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [chainId, blockNumbers.init, 0, 0, "6000", "7000", poolKeyId, 10, "1200"]
+    );
+
+    const {
+      rows: [{ event_id: placedEventId }],
+    } = await legacyClient.query<{ event_id: bigint }>(
+      `INSERT INTO limit_order_placed (
+          chain_id,
+          block_number,
+          transaction_index,
+          event_index,
+          transaction_hash,
+          emitter,
+          pool_key_id,
+          locker,
+          salt,
+          token0,
+          token1,
+          tick,
+          liquidity,
+          amount
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       RETURNING event_id`,
+      [
+        chainId,
+        blockNumbers.placed,
+        0,
+        0,
+        "8000",
+        "8000",
+        poolKeyId,
+        "8100",
+        "8200",
+        "8300",
+        "8400",
+        15,
+        "900",
+        "100",
+      ]
+    );
+
+    expect(valueToBigInt(placedEventId)).toBeLessThan(0n);
+
+    let state = await getLimitOrderPoolState(Number(poolKeyId), legacyClient);
+    expect(state).not.toBeNull();
+    expect(valueToBigInt(state!.last_event_id)).toBe(0n);
+
+    await legacyClient.exec(
+      await Bun.file(
+        "migrations/00106_fix_limit_order_pool_state_last_event_id/index.sql"
+      ).text()
+    );
+
+    const { rows } = await legacyClient.query<{
+      last_event_id: string | number | bigint;
+    }>(
+      `SELECT last_event_id
+       FROM limit_order_pool_states
+       WHERE pool_key_id = $1`,
+      [poolKeyId]
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(valueToBigInt(rows[0].last_event_id)).toBe(
+      valueToBigInt(placedEventId)
+    );
+  } finally {
+    await legacyClient.close();
+  }
 });
