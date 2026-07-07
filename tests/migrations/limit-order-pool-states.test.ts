@@ -373,6 +373,48 @@ test("limit order pool state drops when underlying pool state is removed", async
   expect(await getLimitOrderPoolState(poolKeyId)).toBeNull();
 });
 
+test("deleting the only limit order event removes pool state without reverting", async () => {
+  const chainId = 4250;
+  const blockNumbers = {
+    init: 350,
+    placed: 351,
+  };
+
+  await seedBlock({
+    chainId,
+    blockNumber: blockNumbers.init,
+    blockTime: new Date("2024-04-02T01:00:00Z"),
+  });
+  await seedBlock({
+    chainId,
+    blockNumber: blockNumbers.placed,
+    blockTime: new Date("2024-04-02T01:05:00Z"),
+  });
+
+  const poolKeyId = await insertPoolKey(chainId);
+  await insertPoolInitialization({
+    chainId,
+    blockNumber: blockNumbers.init,
+    poolKeyId,
+  });
+
+  const placedEventId = await insertLimitOrderPlaced({
+    chainId,
+    blockNumber: blockNumbers.placed,
+    poolKeyId,
+    eventIndex: 0,
+  });
+
+  expect(await getLimitOrderPoolState(poolKeyId)).not.toBeNull();
+
+  await client.query(
+    `DELETE FROM limit_order_placed WHERE chain_id = $1 AND event_id = $2`,
+    [chainId, placedEventId]
+  );
+
+  expect(await getLimitOrderPoolState(poolKeyId)).toBeNull();
+});
+
 test("migration repairs limit order state rows with zero last event id", async () => {
   const legacyClient = await createClient({
     files: [
