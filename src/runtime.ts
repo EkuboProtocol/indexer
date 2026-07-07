@@ -4,18 +4,30 @@ import { msToHumanShort } from "./_shared/msToHumanShort";
 import { loadConfig } from "./config";
 import type { NetworkEntrypoint, NetworkType } from "./types";
 
+export type RuntimeBlockHeader = {
+  number: number;
+  hash: bigint;
+  timestamp: number;
+  baseFeePerGas: bigint | null;
+};
+
+export type ParsedRuntimeBlock<TBlock> = {
+  block: TBlock;
+  header: RuntimeBlockHeader;
+};
+
 type RuntimeEntrypoint<TBlock> = {
   networkType: NetworkType;
   createEntrypoint(
     chainId: bigint,
   ): Promise<NetworkEntrypoint<TBlock>> | NetworkEntrypoint<TBlock>;
-  isBlock(block: unknown): block is TBlock;
+  parseBlockHeader(block: unknown): ParsedRuntimeBlock<TBlock> | null;
 };
 
 export async function runIndexer<TBlock>({
   networkType,
   createEntrypoint,
-  isBlock,
+  parseBlockHeader,
 }: RuntimeEntrypoint<TBlock>) {
   loadConfig(networkType);
 
@@ -32,21 +44,10 @@ export async function runIndexer<TBlock>({
   const dao = DAO.create(process.env.PG_CONNECTION_STRING!, chainId);
 
   // Timer for exiting if no blocks are received within the configured time
-  const NO_BLOCKS_TIMEOUT_MS = parseInt(process.env.NO_BLOCKS_TIMEOUT_MS || "0");
-  let noBlocksTimer: NodeJS.Timeout | null = null;
-
-  const statsBlockIntervalRaw = parseInt(
-    process.env.EVENT_STATS_BLOCK_INTERVAL || "100",
-    10,
+  const NO_BLOCKS_TIMEOUT_MS = parseInt(
+    process.env.NO_BLOCKS_TIMEOUT_MS || "0",
   );
-  const EVENT_STATS_BLOCK_INTERVAL = Number.isNaN(statsBlockIntervalRaw)
-    ? 100
-    : statsBlockIntervalRaw;
-  let statsBlocksProcessed = 0;
-  let statsEventsInserted = 0;
-  let statsProcessingTimeMs = 0;
-  let statsLagReducedMs = 0;
-  let lastObservedLagMs: number | null = null;
+  let noBlocksTimer: NodeJS.Timeout | null = null;
 
   // Function to set or reset the no-blocks timer
   function resetNoBlocksTimer() {
@@ -146,7 +147,9 @@ export async function runIndexer<TBlock>({
                   );
                   break;
                 case "stdout":
-                  logger.info(`System message: ${message.systemMessage.output}`);
+                  logger.info(
+                    `System message: ${message.systemMessage.output}`,
+                  );
                   break;
               }
               break;
@@ -157,7 +160,10 @@ export async function runIndexer<TBlock>({
 
               if (finalizedCursor) {
                 const expectedCursor = currentCursor;
-                await dao.updateFinalizedCursor(expectedCursor, finalizedCursor);
+                await dao.updateFinalizedCursor(
+                  expectedCursor,
+                  finalizedCursor,
+                );
 
                 logger.info({
                   evt: "finalize",
@@ -211,52 +217,40 @@ export async function runIndexer<TBlock>({
 
               for (const block of message.data.data) {
                 if (!block) continue;
-                const blockProcessingTimer = logger.startTimer();
-                const blockProcessingStartMs = Date.now();
-                const expectedCursor = currentCursor;
-                let writtenCursor: IndexerCursor | null = null;
 
-                const blockNumber = Number(block.header.blockNumber);
-                const blockTime = block.header.timestamp;
-
-                if (!isBlock(block)) {
+                const parsedBlock = parseBlockHeader(block);
+                if (!parsedBlock) {
                   throw new Error(
                     `Received unexpected block type for ${networkType}`,
                   );
                 }
 
-                const plannedEvents = entrypoint.getPlannedEvents(block);
+                const blockProcessingTimer = logger.startTimer();
+                const expectedCursor = currentCursor;
+                let writtenCursor: IndexerCursor | null = null;
+
+                const blockNumber = parsedBlock.header.number;
+                const blockTime = new Date(parsedBlock.header.timestamp);
+
+                const plannedEvents = entrypoint.getPlannedEvents(
+                  parsedBlock.block,
+                );
 
                 let eventsProcessed = 0;
 
                 await dao.begin(async (dao) => {
                   await dao.deleteOldBlockNumbers(blockNumber);
 
-                  const blockHashHex = block.header.blockHash ?? "0x0";
-                  let baseFeePerGas: bigint | null = null;
-
-                  if (
-                    "baseFeePerGas" in block.header &&
-                    block.header.baseFeePerGas
-                  ) {
-                    baseFeePerGas = BigInt(block.header.baseFeePerGas);
-                  } else if (
-                    "l2GasPrice" in block.header &&
-                    block.header.l2GasPrice?.priceInFri
-                  ) {
-                    baseFeePerGas = BigInt(block.header.l2GasPrice.priceInFri);
-                  }
-
                   await dao.insertBlock({
-                    number: block.header.blockNumber,
-                    hash: BigInt(blockHashHex),
+                    number: parsedBlock.header.number,
+                    hash: parsedBlock.header.hash,
                     time: blockTime,
-                    baseFeePerGas,
+                    baseFeePerGas: parsedBlock.header.baseFeePerGas,
                     numEvents: plannedEvents,
                   });
 
                   eventsProcessed = await entrypoint.processBlock({
-                    block,
+                    block: parsedBlock.block,
                     blockNumber,
                     dao,
                   });
@@ -270,7 +264,7 @@ export async function runIndexer<TBlock>({
                 });
 
                 const nowMs = Date.now();
-                const lagMs = Math.max(0, nowMs - Number(blockTime.getTime()));
+                const lagMs = Math.max(0, nowMs - parsedBlock.header.timestamp);
 
                 blockProcessingTimer.done({
                   bNo: blockNumber,
@@ -280,61 +274,13 @@ export async function runIndexer<TBlock>({
                   expectedCursor,
                   writtenCursor,
                 });
-
-                if (lastObservedLagMs !== null) {
-                  statsLagReducedMs += lastObservedLagMs - lagMs;
-                }
-                lastObservedLagMs = lagMs;
-
-                if (EVENT_STATS_BLOCK_INTERVAL > 0) {
-                  const blockDurationMs = nowMs - blockProcessingStartMs;
-                  statsBlocksProcessed += 1;
-                  statsEventsInserted += eventsProcessed;
-                  statsProcessingTimeMs += blockDurationMs;
-
-                  if (statsBlocksProcessed === EVENT_STATS_BLOCK_INTERVAL) {
-                    const eventsPerSecond =
-                      statsProcessingTimeMs > 0
-                        ? statsEventsInserted / (statsProcessingTimeMs / 1000)
-                        : 0;
-
-                    const catchupMsPerSec =
-                      statsProcessingTimeMs > 0
-                        ? (statsLagReducedMs * 1000) / statsProcessingTimeMs
-                        : 0;
-
-                    const etaMs =
-                      catchupMsPerSec > 0 && lastObservedLagMs !== null
-                        ? Math.round(
-                            (lastObservedLagMs / catchupMsPerSec) * 1000,
-                          )
-                        : null;
-
-                    logger.info({
-                      evt: "ingest-stats",
-                      blocks: statsBlocksProcessed,
-                      events: statsEventsInserted,
-                      durationMs: Math.round(statsProcessingTimeMs),
-                      eps: Number(eventsPerSecond.toFixed(2)),
-                      lagMs: lastObservedLagMs,
-                      catchupMsPerSec: Number(catchupMsPerSec.toFixed(2)),
-                      eta: etaMs !== null ? msToHumanShort(etaMs, 2) : null,
-                    });
-
-                    statsBlocksProcessed = 0;
-                    statsEventsInserted = 0;
-                    statsProcessingTimeMs = 0;
-                    statsLagReducedMs = 0;
-                  }
-                }
               }
 
               break;
             }
 
             default: {
-              const unexpectedMessage: never = message;
-              logger.error("Unhandled message type", unexpectedMessage);
+              logger.error("Unhandled message type", message);
               break;
             }
           }
@@ -384,16 +330,16 @@ export async function runIndexer<TBlock>({
       }
     }
   })()
-  .then(() => {
-    logger.info("Stream closed gracefully");
-    process.exit(0);
-  })
-  .catch((error) => {
-    logger.error(error);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await dao.releaseLock();
-    await dao.end();
-  });
+    .then(() => {
+      logger.info("Stream closed gracefully");
+      process.exit(0);
+    })
+    .catch((error) => {
+      logger.error(error);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await dao.releaseLock();
+      await dao.end();
+    });
 }

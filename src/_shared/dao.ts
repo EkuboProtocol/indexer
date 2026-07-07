@@ -103,8 +103,10 @@ export interface PositionFeesWithheldInsert {
   amount1: bigint;
 }
 
-export interface PositionWithdrawalFeesWithheldInsert
-  extends Omit<PositionFeesWithheldInsert, "amount0" | "amount1"> {
+export interface PositionWithdrawalFeesWithheldInsert extends Omit<
+  PositionFeesWithheldInsert,
+  "amount0" | "amount1"
+> {
   amount0: bigint;
   amount1: bigint;
   withdrawalProtocolFeeDivisor: bigint;
@@ -287,8 +289,7 @@ export interface Ve33EmissionsScheduledInsert {
   amount: NumericValue;
 }
 
-export interface Ve33PoolEmissionsAccruedInsert
-  extends Ve33PoolEventDescriptor {
+export interface Ve33PoolEmissionsAccruedInsert extends Ve33PoolEventDescriptor {
   amount: NumericValue;
 }
 
@@ -440,7 +441,7 @@ export class DAO {
 
   private constructor(
     sql: Sql<{ numeric: bigint; bigint: bigint }>,
-    chainId: bigint
+    chainId: bigint,
   ) {
     this.chainId = chainId;
     this.sql = sql;
@@ -483,7 +484,7 @@ export class DAO {
   }
 
   public async begin<T>(
-    cb: (dao: DAO) => T | Promise<T>
+    cb: (dao: DAO) => T | Promise<T>,
   ): Promise<UnwrapPromiseArray<T>> {
     return this.sql.begin((sql) => {
       const dao = new DAO(sql, this.chainId);
@@ -542,7 +543,7 @@ export class DAO {
 
   public async writeCursor(
     cursor: IndexerCursor,
-    expectedCursor: IndexerCursor
+    expectedCursor: IndexerCursor,
   ): Promise<IndexerCursor> {
     const uniqueKey =
       typeof cursor.uniqueKey !== "string" ? null : BigInt(cursor.uniqueKey);
@@ -556,15 +557,15 @@ export class DAO {
     >`
       INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated)
       VALUES (${this.chainId}, ${cursor.orderKey}, ${this.numeric(
-      uniqueKey
-    )}, NOW())
+        uniqueKey,
+      )}, NOW())
       ON CONFLICT (chain_id) DO UPDATE
         SET order_key = excluded.order_key,
             unique_key = excluded.unique_key,
             last_updated = NOW()
         WHERE indexer_cursor.order_key = ${expectedCursor.orderKey}
           AND indexer_cursor.unique_key IS NOT DISTINCT FROM ${this.numeric(
-            expectedUniqueKey
+            expectedUniqueKey,
           )}
       RETURNING order_key, unique_key;
     `;
@@ -572,8 +573,8 @@ export class DAO {
     if (!updatedCursor) {
       throw new Error(
         `Refused to overwrite cursor because database state differed from expected (expected: ${this.describeCursor(
-          expectedCursor
-        )})`
+          expectedCursor,
+        )})`,
       );
     }
 
@@ -582,7 +583,7 @@ export class DAO {
 
   public async updateFinalizedCursor(
     expectedCursor: IndexerCursor,
-    finalizedCursor: IndexerCursor
+    finalizedCursor: IndexerCursor,
   ): Promise<void> {
     const uniqueKey =
       typeof finalizedCursor.uniqueKey !== "string"
@@ -599,8 +600,8 @@ export class DAO {
         SET finalized_order_key = ${
           finalizedCursor.orderKey
         }, finalized_unique_key = ${this.numeric(
-      uniqueKey
-    )}, last_updated = NOW()
+          uniqueKey,
+        )}, last_updated = NOW()
       WHERE chain_id = ${this.chainId}
         AND order_key = ${expectedCursor.orderKey}
         AND unique_key IS NOT DISTINCT FROM ${this.numeric(expectedUniqueKey)};
@@ -609,8 +610,8 @@ export class DAO {
     if (!count) {
       throw new Error(
         `Failed to update finalized cursor, expected cursor: ${this.describeCursor(
-          expectedCursor
-        )}, finalized: ${this.describeCursor(finalizedCursor)}`
+          expectedCursor,
+        )}, finalized: ${this.describeCursor(finalizedCursor)}`,
       );
     }
   }
@@ -634,7 +635,7 @@ export class DAO {
     baseFeePerGas,
     numEvents,
   }: {
-    number: bigint;
+    number: number;
     hash: bigint;
     time: Date;
     baseFeePerGas: bigint | null;
@@ -643,14 +644,14 @@ export class DAO {
     await this.sql`
       INSERT INTO blocks (chain_id, block_number, block_hash, block_time, base_fee_per_gas, num_events)
       VALUES (${this.chainId}, ${number}, ${this.numeric(
-        hash
+        hash,
       )}, ${time}, ${this.numeric(baseFeePerGas)}, ${numEvents});
     `;
   }
 
   public async insertNonfungibleTokenTransferEvent(
     transfer: NonfungibleTokenTransfer,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO nonfungible_token_transfers
@@ -671,7 +672,7 @@ export class DAO {
 
   public async insertPositionMintedWithReferrerEvent(
     event: PositionMintedWithReferrerInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO position_minted_with_referrer
@@ -691,7 +692,7 @@ export class DAO {
 
   public async insertPositionUpdatedEvent(
     event: PositionUpdatedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     const {
       params: { salt, bounds, liquidityDelta },
@@ -735,7 +736,7 @@ export class DAO {
   // assumes the amounts in delta0 and delta1 are after the withdrawal protocol fee is paid (not true of v3)
   public async insertPositionUpdatedEventWithSyntheticProtocolFeesPaid(
     event: PositionUpdatedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     const {
       params: { salt, bounds, liquidityDelta },
@@ -791,15 +792,15 @@ export class DAO {
         ${lower},
         ${upper},
         FLOOR((${this.numeric(
-          delta0
+          delta0,
         )} * fee_denominator) / (fee_denominator - fee)) - ${this.numeric(
-      delta0
-    )},
+          delta0,
+        )},
         FLOOR((${this.numeric(
-          delta1
+          delta1,
         )} * fee_denominator) / (fee_denominator - fee)) - ${this.numeric(
-      delta1
-    )}
+          delta1,
+        )}
       FROM pool_keys
       WHERE chain_id = ${this.chainId}
         AND core_address = ${this.numeric(key.emitter)}
@@ -811,7 +812,7 @@ export class DAO {
 
   public async insertPositionFeesCollectedEvent(
     event: PositionFeesCollectedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     const {
       poolId,
@@ -851,7 +852,7 @@ export class DAO {
 
   public async insertPoolInitializedEvent(
     newPool: PoolInitializedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     const {
       poolKey: {
@@ -922,7 +923,7 @@ export class DAO {
 
   public async insertMEVCapturePoolKey(
     coreAddress: `0x${string}`,
-    poolId: `0x${string}`
+    poolId: `0x${string}`,
   ) {
     await this.sql`
       INSERT INTO mev_capture_pool_keys (pool_key_id)
@@ -939,7 +940,7 @@ export class DAO {
 
   public async insertProtocolFeesWithdrawn(
     event: ProtocolFeesWithdrawnInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO protocol_fees_withdrawn
@@ -968,7 +969,7 @@ export class DAO {
 
   public async insertProtocolFeesPaid(
     event: ProtocolFeesPaidInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     const {
       locker,
@@ -1009,7 +1010,7 @@ export class DAO {
 
   public async insertPositionFeesWithheld(
     event: PositionFeesWithheldInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     const {
       locker,
@@ -1055,7 +1056,7 @@ export class DAO {
 
   public async insertPositionWithdrawalFeesWithheld(
     event: PositionWithdrawalFeesWithheldInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     const {
       locker,
@@ -1083,19 +1084,19 @@ export class DAO {
           CASE
             WHEN ${this.numeric(amount0)} > 0
               THEN CEIL((${this.numeric(
-                amount0
+                amount0,
               )} * fee) / (fee_denominator * ${this.numeric(
-      withdrawalProtocolFeeDivisor
-    )}))
+                withdrawalProtocolFeeDivisor,
+              )}))
             ELSE 0
           END AS protocol_fee0,
           CASE
             WHEN ${this.numeric(amount1)} > 0
               THEN CEIL((${this.numeric(
-                amount1
+                amount1,
               )} * fee) / (fee_denominator * ${this.numeric(
-      withdrawalProtocolFeeDivisor
-    )}))
+                withdrawalProtocolFeeDivisor,
+              )}))
             ELSE 0
           END AS protocol_fee1
         FROM pool_key
@@ -1124,7 +1125,7 @@ export class DAO {
 
   public async insertExtensionRegistered(
     event: ExtensionRegisteredInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO extension_registrations
@@ -1143,7 +1144,7 @@ export class DAO {
 
   public async insertRegistration(
     event: TokenRegistrationInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO token_registrations
@@ -1166,7 +1167,7 @@ export class DAO {
 
   public async insertRegistrationV3(
     event: TokenRegistrationV3Insert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO token_registrations_v3
@@ -1189,7 +1190,7 @@ export class DAO {
 
   public async insertStakerStakedEvent(
     event: StakerStakedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO staker_staked
@@ -1210,7 +1211,7 @@ export class DAO {
 
   public async insertStakerWithdrawnEvent(
     event: StakerWithdrawnInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO staker_withdrawn
@@ -1232,7 +1233,7 @@ export class DAO {
 
   public async insertGovernorReconfiguredEvent(
     event: GovernorReconfiguredInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO governor_reconfigured
@@ -1259,7 +1260,7 @@ export class DAO {
 
   public async insertGovernorProposedEvent(
     event: GovernorProposedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     const configVersion =
       event.configVersion === null ? 0n : BigInt(event.configVersion);
@@ -1303,7 +1304,7 @@ export class DAO {
 
   public async insertGovernorCanceledEvent(
     event: GovernorCanceledInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO governor_canceled
@@ -1323,7 +1324,7 @@ export class DAO {
 
   public async insertGovernorVotedEvent(
     event: GovernorVotedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO governor_voted
@@ -1345,7 +1346,7 @@ export class DAO {
 
   public async insertGovernorExecutedEvent(
     event: GovernorExecutedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO governor_executed
@@ -1380,7 +1381,7 @@ export class DAO {
 
   public async insertGovernorProposalDescribedEvent(
     event: GovernorProposalDescribedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO governor_proposal_described
@@ -1400,7 +1401,7 @@ export class DAO {
 
   public async insertFeesAccumulatedEvent(
     event: FeesAccumulatedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO fees_accumulated
@@ -1466,7 +1467,7 @@ export class DAO {
 
   public async insertTWAMMOrderUpdatedEvent(
     event: TwammOrderUpdatedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     const { orderKey, poolId, coreAddress } = event;
 
@@ -1505,7 +1506,7 @@ export class DAO {
 
   public async insertTWAMMOrderProceedsWithdrawnEvent(
     event: TwammOrderProceedsWithdrawnInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     const { orderKey, poolId } = event;
 
@@ -1544,7 +1545,7 @@ export class DAO {
 
   public async insertTWAMMVirtualOrdersExecutedEvent(
     event: TwammVirtualOrdersExecutedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO twamm_virtual_order_executions
@@ -1572,7 +1573,7 @@ export class DAO {
 
   public async insertBoostedFeesDonatedEvent(
     event: BoostedFeesDonatedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO boosted_fees_donated
@@ -1600,7 +1601,7 @@ export class DAO {
 
   public async insertBoostedFeesPoolBoostedEvent(
     event: BoostedFeesPoolBoostedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO boosted_fees_events
@@ -1630,7 +1631,7 @@ export class DAO {
 
   public async insertAuctionCompletedEvent(
     event: AuctionCompletedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO auction_completed
@@ -1655,7 +1656,7 @@ export class DAO {
 
   public async insertAuctionFundsAddedEvent(
     event: AuctionFundsAddedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO auction_funds_added
@@ -1679,7 +1680,7 @@ export class DAO {
 
   public async insertAuctionBoostStartedEvent(
     event: AuctionBoostStartedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO auction_boost_started
@@ -1703,7 +1704,7 @@ export class DAO {
 
   public async insertCreatorProceedsCollectedEvent(
     event: CreatorProceedsCollectedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO auction_creator_proceeds_collected
@@ -1728,7 +1729,7 @@ export class DAO {
 
   public async insertOrderPlacedEvent(
     event: LimitOrderPlacedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO limit_order_placed
@@ -1760,7 +1761,7 @@ export class DAO {
 
   public async insertOrderClosedEvent(
     event: LimitOrderClosedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO limit_order_closed
@@ -1792,7 +1793,7 @@ export class DAO {
 
   public async insertSplineLiquidityUpdatedEvent(
     event: LiquidityUpdatedInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO spline_liquidity_updated
@@ -1824,7 +1825,7 @@ export class DAO {
 
   async insertOracleSnapshotEvent(
     snapshot: OracleSnapshotInsert,
-    key: EventKey
+    key: EventKey,
   ) {
     await this.sql`
       INSERT INTO oracle_snapshots
@@ -1848,7 +1849,7 @@ export class DAO {
 
   async insertIncentivesRefundedEvent(
     key: EventKey,
-    parsed: IncentivesRefundedInsert
+    parsed: IncentivesRefundedInsert,
   ) {
     await this.sql`
       INSERT INTO incentives_refunded
@@ -1870,7 +1871,7 @@ export class DAO {
 
   async insertIncentivesFundedEvent(
     key: EventKey,
-    parsed: IncentivesFundedInsert
+    parsed: IncentivesFundedInsert,
   ) {
     await this.sql`
       INSERT INTO incentives_funded
@@ -1892,7 +1893,7 @@ export class DAO {
 
   async insertTokenWrapperDeployed(
     key: EventKey,
-    parsed: TokenWrapperDeployedInsert
+    parsed: TokenWrapperDeployedInsert,
   ) {
     await this.sql`
       INSERT INTO token_wrapper_deployed
@@ -1913,7 +1914,7 @@ export class DAO {
 
   async insertVe33StakeChangedEvent(
     key: EventKey,
-    parsed: Ve33StakeChangedInsert
+    parsed: Ve33StakeChangedInsert,
   ) {
     await this.sql`
       INSERT INTO ve33_stake_changed
@@ -1937,7 +1938,7 @@ export class DAO {
 
   async insertVe33VoteWeightAppliedEvent(
     key: EventKey,
-    parsed: Ve33VoteWeightAppliedInsert
+    parsed: Ve33VoteWeightAppliedInsert,
   ) {
     await this.sql`
       INSERT INTO ve33_vote_weight_applied
@@ -1970,7 +1971,7 @@ export class DAO {
 
   async insertVe33PoolFeesAccountedEvent(
     key: EventKey,
-    parsed: Ve33PoolFeesAccountedInsert
+    parsed: Ve33PoolFeesAccountedInsert,
   ) {
     await this.sql`
       INSERT INTO ve33_pool_fees_accounted
@@ -1999,7 +2000,7 @@ export class DAO {
 
   async insertVe33PoolFeesClaimedEvent(
     key: EventKey,
-    parsed: Ve33PoolFeesClaimedInsert
+    parsed: Ve33PoolFeesClaimedInsert,
   ) {
     await this.sql`
       INSERT INTO ve33_pool_fees_claimed
@@ -2032,7 +2033,7 @@ export class DAO {
 
   async insertVe33EmissionsScheduledEvent(
     key: EventKey,
-    parsed: Ve33EmissionsScheduledInsert
+    parsed: Ve33EmissionsScheduledInsert,
   ) {
     await this.sql`
       INSERT INTO ve33_emissions_scheduled
@@ -2056,7 +2057,7 @@ export class DAO {
 
   async insertVe33PoolEmissionsAccruedEvent(
     key: EventKey,
-    parsed: Ve33PoolEmissionsAccruedInsert
+    parsed: Ve33PoolEmissionsAccruedInsert,
   ) {
     await this.sql`
       INSERT INTO ve33_pool_emissions_accrued
@@ -2084,7 +2085,7 @@ export class DAO {
 
   async insertVe33RewardsClaimedEvent(
     key: EventKey,
-    parsed: Ve33RewardsClaimedInsert
+    parsed: Ve33RewardsClaimedInsert,
   ) {
     const { lower, upper } = parsed.bounds;
 

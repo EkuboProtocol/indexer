@@ -13,7 +13,7 @@ import { parseEvmRpcUrls } from "./_shared/streamEndpoints";
 import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
 import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
 import { parsePositionsProtocolFeeConfigs } from "./evm/positionsProtocolFeeConfig";
-import { runIndexer } from "./runtime";
+import { runIndexer, type ParsedRuntimeBlock } from "./runtime";
 import type { NetworkEntrypoint, StreamOptions } from "./types";
 
 function requireAtLeastOneAddress(
@@ -33,8 +33,44 @@ function requireAtLeastOneAddress(
   return addresses;
 }
 
-export function isEvmBlock(block: unknown): block is EvmBlock {
-  return Boolean(block && typeof block === "object" && "logs" in block);
+export function parseEvmBlockHeader(
+  block: unknown,
+): ParsedRuntimeBlock<EvmBlock> | null {
+  if (!block || typeof block !== "object") return null;
+
+  const evmBlock = block as Partial<EvmBlock>;
+  if (!evmBlock.header || !Array.isArray(evmBlock.logs)) return null;
+
+  const { header } = evmBlock;
+  if (
+    typeof header.blockNumber !== "bigint" ||
+    !(header.timestamp instanceof Date)
+  ) {
+    return null;
+  }
+
+  const blockNumber = Number(header.blockNumber);
+  const timestamp = header.timestamp.getTime();
+  if (!Number.isSafeInteger(blockNumber) || !Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  let hash: bigint;
+  try {
+    hash = BigInt(header.blockHash ?? "0x0");
+  } catch {
+    return null;
+  }
+
+  return {
+    block: evmBlock as EvmBlock,
+    header: {
+      number: blockNumber,
+      hash,
+      timestamp,
+      baseFeePerGas: header.baseFeePerGas ?? null,
+    },
+  };
 }
 
 export async function createEvmEntrypoint(
@@ -229,6 +265,6 @@ if (import.meta.main) {
   await runIndexer({
     networkType: "evm",
     createEntrypoint: createEvmEntrypoint,
-    isBlock: isEvmBlock,
+    parseBlockHeader: parseEvmBlockHeader,
   });
 }

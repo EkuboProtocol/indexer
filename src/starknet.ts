@@ -4,12 +4,54 @@ import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
 import { loadHexAddresses } from "./_shared/loadHexAddresses";
 import { requireStarknetApibaraUrl } from "./_shared/streamEndpoints";
-import { runIndexer } from "./runtime";
+import { runIndexer, type ParsedRuntimeBlock } from "./runtime";
 import { createEventProcessors } from "./starknet/eventProcessors";
 import type { NetworkEntrypoint, StreamOptions } from "./types";
 
-export function isStarknetBlock(block: unknown): block is StarknetBlock {
-  return Boolean(block && typeof block === "object" && "events" in block);
+export function parseStarknetBlockHeader(
+  block: unknown,
+): ParsedRuntimeBlock<StarknetBlock> | null {
+  if (!block || typeof block !== "object") return null;
+
+  const starknetBlock = block as Partial<StarknetBlock>;
+  if (!starknetBlock.header || !Array.isArray(starknetBlock.events)) {
+    return null;
+  }
+
+  const { header } = starknetBlock;
+  if (
+    typeof header.blockNumber !== "bigint" ||
+    !(header.timestamp instanceof Date)
+  ) {
+    return null;
+  }
+
+  const blockNumber = Number(header.blockNumber);
+  const timestamp = header.timestamp.getTime();
+  if (!Number.isSafeInteger(blockNumber) || !Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  let hash: bigint;
+  let baseFeePerGas: bigint | null = null;
+  try {
+    hash = BigInt(header.blockHash ?? "0x0");
+    if (header.l2GasPrice?.priceInFri) {
+      baseFeePerGas = BigInt(header.l2GasPrice.priceInFri);
+    }
+  } catch {
+    return null;
+  }
+
+  return {
+    block: starknetBlock as StarknetBlock,
+    header: {
+      number: blockNumber,
+      hash,
+      timestamp,
+      baseFeePerGas,
+    },
+  };
 }
 
 export function createStarknetEntrypoint(): NetworkEntrypoint<StarknetBlock> {
@@ -96,6 +138,6 @@ if (import.meta.main) {
   await runIndexer({
     networkType: "starknet",
     createEntrypoint: () => createStarknetEntrypoint(),
-    isBlock: isStarknetBlock,
+    parseBlockHeader: parseStarknetBlockHeader,
   });
 }
