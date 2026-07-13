@@ -37,6 +37,13 @@ const COINGECKO_PLATFORM_BY_CHAIN_ID: Record<string, string> = {
   ["42161"]: "arbitrum-one",
 };
 
+const COINGECKO_NATIVE_COIN_BY_CHAIN_ID: Record<string, string> = {
+  ["1"]: "ethereum",
+  ["8453"]: "ethereum",
+  ["4663"]: "ethereum",
+  ["42161"]: "ethereum",
+};
+
 const QUOTE_TOKEN_BY_CHAIN_ID: Record<
   string,
   { address: `0x${string}`; decimals: number }
@@ -230,8 +237,10 @@ async function fetchTokenAddresses(
 type CoinGeckoTokenPriceResponse = Record<string, { usd?: number }>;
 
 const coingeckoPriceFetcher: PriceFetcher = async (sql, chainId) => {
-  const platform = COINGECKO_PLATFORM_BY_CHAIN_ID[chainId.toString()];
-  if (!platform) return {};
+  const chainKey = chainId.toString();
+  const platform = COINGECKO_PLATFORM_BY_CHAIN_ID[chainKey];
+  const nativeCoinId = COINGECKO_NATIVE_COIN_BY_CHAIN_ID[chainKey];
+  if (!platform && !nativeCoinId) return {};
 
   const apiKey = process.env.COINGECKO_API_KEY;
   if (!apiKey) {
@@ -240,24 +249,15 @@ const coingeckoPriceFetcher: PriceFetcher = async (sql, chainId) => {
     );
   }
 
-  const addresses = await fetchTokenAddresses(sql, chainId);
   const prices: AddressPriceMap = {};
 
-  for (
-    let offset = 0;
-    offset < addresses.length;
-    offset += COINGECKO_MAX_CONTRACT_ADDRESSES
-  ) {
-    const batch = addresses.slice(
-      offset,
-      offset + COINGECKO_MAX_CONTRACT_ADDRESSES,
-    );
+  if (nativeCoinId) {
     const query = new URLSearchParams({
-      contract_addresses: batch.join(","),
+      ids: nativeCoinId,
       vs_currencies: "usd",
       precision: "full",
     });
-    const url = `${COINGECKO_API_BASE_URL}/simple/token_price/${platform}?${query}`;
+    const url = `${COINGECKO_API_BASE_URL}/simple/price?${query}`;
     const response = await fetch(url, {
       headers: {
         Accept: "application/json",
@@ -268,14 +268,58 @@ const coingeckoPriceFetcher: PriceFetcher = async (sql, chainId) => {
     if (!response.ok) {
       const body = await response.text();
       throw new Error(
-        `CoinGecko request failed for chain ${chainId}: ${response.status} ${response.statusText}: ${body}`,
+        `CoinGecko native token request failed for chain ${chainId}: ${response.status} ${response.statusText}: ${body}`,
       );
     }
 
     const result = (await response.json()) as CoinGeckoTokenPriceResponse;
-    for (const [address, { usd }] of Object.entries(result)) {
-      if (typeof usd === "number" && Number.isFinite(usd) && usd > 0) {
-        prices[address] = usd;
+    const nativeUsdPrice = result[nativeCoinId]?.usd;
+    if (
+      typeof nativeUsdPrice === "number" &&
+      Number.isFinite(nativeUsdPrice) &&
+      nativeUsdPrice > 0
+    ) {
+      prices["0x0"] = nativeUsdPrice;
+    }
+  }
+
+  if (platform) {
+    const addresses = await fetchTokenAddresses(sql, chainId);
+
+    for (
+      let offset = 0;
+      offset < addresses.length;
+      offset += COINGECKO_MAX_CONTRACT_ADDRESSES
+    ) {
+      const batch = addresses.slice(
+        offset,
+        offset + COINGECKO_MAX_CONTRACT_ADDRESSES,
+      );
+      const query = new URLSearchParams({
+        contract_addresses: batch.join(","),
+        vs_currencies: "usd",
+        precision: "full",
+      });
+      const url = `${COINGECKO_API_BASE_URL}/simple/token_price/${platform}?${query}`;
+      const response = await fetch(url, {
+        headers: {
+          Accept: "application/json",
+          "x-cg-demo-api-key": apiKey,
+        },
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(
+          `CoinGecko request failed for chain ${chainId}: ${response.status} ${response.statusText}: ${body}`,
+        );
+      }
+
+      const result = (await response.json()) as CoinGeckoTokenPriceResponse;
+      for (const [address, { usd }] of Object.entries(result)) {
+        if (typeof usd === "number" && Number.isFinite(usd) && usd > 0) {
+          prices[address] = usd;
+        }
       }
     }
   }
@@ -425,10 +469,12 @@ const FETCHER_BY_CHAIN_ID: { [chainId: string]: PriceFetcherConfig[] } = {
 const COINGECKO_FETCHER_BY_CHAIN_ID: {
   [chainId: string]: PriceFetcherConfig[];
 } = Object.fromEntries(
-  Object.keys(COINGECKO_PLATFORM_BY_CHAIN_ID).map((chainId) => [
-    chainId,
-    [coingeckoV1PriceFetcher],
-  ]),
+  [
+    ...new Set([
+      ...Object.keys(COINGECKO_PLATFORM_BY_CHAIN_ID),
+      ...Object.keys(COINGECKO_NATIVE_COIN_BY_CHAIN_ID),
+    ]),
+  ].map((chainId) => [chainId, [coingeckoV1PriceFetcher]]),
 );
 
 function readPositiveInterval(name: string, defaultValue: number): number {
