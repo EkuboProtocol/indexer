@@ -145,6 +145,13 @@ workers:
       - key: MAX_QUOTER_REQUESTS_PER_MINUTE
         scope: RUN_TIME
         value: "300"
+      - key: COINGECKO_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ${COINGECKO_API_KEY}
+      - key: COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS
+        scope: RUN_TIME
+        value: "900"
     run_command: bun scripts/sync-token-prices.ts
 jobs:
   - name: run-migrations

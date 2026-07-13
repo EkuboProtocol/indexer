@@ -11,6 +11,8 @@ interface CommonConfiguration {
 
   NO_BLOCKS_TIMEOUT_MS: string; // Time in milliseconds before exiting if no blocks are received
   TOKEN_PRICE_SYNC_INTERVAL_MS?: string; // Interval for the token price worker (milliseconds)
+  COINGECKO_API_KEY?: string;
+  COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS?: string; // Zero or unset disables CoinGecko price syncing
 }
 
 interface EvmConfig extends CommonConfiguration {

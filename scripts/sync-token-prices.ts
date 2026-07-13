@@ -21,9 +21,21 @@ type TokenRow = {
   token_symbol: string;
 };
 
+type TokenAddressRow = Pick<TokenRow, "token_address">;
+
 const QUOTE_USD_AMOUNT = 1000n;
 const EKUBO_QUOTER_BASE_URL =
   process.env.EKUBO_QUOTER_URL ?? "https://prod-api-quoter.ekubo.org";
+const COINGECKO_API_BASE_URL = "https://api.coingecko.com/api/v3";
+// Although CoinGecko accepts more addresses, large comma-separated batches can
+// exceed the HTTP request-line limit before reaching the API.
+const COINGECKO_MAX_CONTRACT_ADDRESSES = 100;
+
+const COINGECKO_PLATFORM_BY_CHAIN_ID: Record<string, string> = {
+  ["8453"]: "base",
+  ["4663"]: "robinhood",
+  ["42161"]: "arbitrum-one",
+};
 
 const QUOTE_TOKEN_BY_CHAIN_ID: Record<
   string,
@@ -168,6 +180,10 @@ function toHexAddress(address: string): `0x${string}` {
   return `0x${BigInt(address).toString(16)}`;
 }
 
+function toEvmAddress(address: string): `0x${string}` {
+  return `0x${BigInt(address).toString(16).padStart(40, "0")}`;
+}
+
 function quoteAmountInUnits(decimals: number): bigint {
   return QUOTE_USD_AMOUNT * 10n ** BigInt(decimals);
 }
@@ -195,6 +211,77 @@ WHERE t.chain_id = ${chainId}
                 AND (pt.balance0 > 0 OR pt.balance1 > 0))
   `;
 }
+
+async function fetchTokenAddresses(
+  sql: Sql<{ bigint: bigint }>,
+  chainId: bigint,
+): Promise<`0x${string}`[]> {
+  const tokens = await sql<TokenAddressRow[]>`
+    SELECT token_address::TEXT
+    FROM erc20_tokens
+    WHERE chain_id = ${chainId}
+      AND token_address > 0
+    ORDER BY token_address
+  `;
+
+  return tokens.map(({ token_address }) => toEvmAddress(token_address));
+}
+
+type CoinGeckoTokenPriceResponse = Record<string, { usd?: number }>;
+
+const coingeckoPriceFetcher: PriceFetcher = async (sql, chainId) => {
+  const platform = COINGECKO_PLATFORM_BY_CHAIN_ID[chainId.toString()];
+  if (!platform) return {};
+
+  const apiKey = process.env.COINGECKO_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "COINGECKO_API_KEY is required when CoinGecko price syncing is enabled",
+    );
+  }
+
+  const addresses = await fetchTokenAddresses(sql, chainId);
+  const prices: AddressPriceMap = {};
+
+  for (
+    let offset = 0;
+    offset < addresses.length;
+    offset += COINGECKO_MAX_CONTRACT_ADDRESSES
+  ) {
+    const batch = addresses.slice(
+      offset,
+      offset + COINGECKO_MAX_CONTRACT_ADDRESSES,
+    );
+    const query = new URLSearchParams({
+      contract_addresses: batch.join(","),
+      vs_currencies: "usd",
+      precision: "full",
+    });
+    const url = `${COINGECKO_API_BASE_URL}/simple/token_price/${platform}?${query}`;
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "x-cg-demo-api-key": apiKey,
+      },
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(
+        `CoinGecko request failed for chain ${chainId}: ${response.status} ${response.statusText}: ${body}`,
+      );
+    }
+
+    const result = (await response.json()) as CoinGeckoTokenPriceResponse;
+    for (const [address, { usd }] of Object.entries(result)) {
+      if (typeof usd === "number" && Number.isFinite(usd) && usd > 0) {
+        prices[address] = usd;
+      }
+    }
+  }
+
+  return prices;
+};
 
 async function fetchEkuboQuoterPrice({
   chainId,
@@ -309,6 +396,10 @@ const sushiswapPriceFetcher: PriceFetcherConfig = {
   source: "ss1",
   fetch: sushiswapApiPriceFetcher,
 };
+const coingeckoV1PriceFetcher: PriceFetcherConfig = {
+  source: "cg1",
+  fetch: coingeckoPriceFetcher,
+};
 
 const FETCHER_BY_CHAIN_ID: { [chainId: string]: PriceFetcherConfig[] } = {
   // eth mainnet
@@ -330,6 +421,31 @@ const FETCHER_BY_CHAIN_ID: { [chainId: string]: PriceFetcherConfig[] } = {
   // starknet sepolia
   ["23448594291968335"]: [],
 };
+
+const COINGECKO_FETCHER_BY_CHAIN_ID: {
+  [chainId: string]: PriceFetcherConfig[];
+} = Object.fromEntries(
+  Object.keys(COINGECKO_PLATFORM_BY_CHAIN_ID).map((chainId) => [
+    chainId,
+    [coingeckoV1PriceFetcher],
+  ]),
+);
+
+function readPositiveInterval(name: string, defaultValue: number): number {
+  const value = Number(process.env[name] ?? defaultValue);
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return value;
+}
+
+function readOptionalIntervalSeconds(name: string): number {
+  const value = Number(process.env[name] ?? 0);
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return value;
+}
 
 async function syncTokenPricesForChain(
   sql: Sql<{ bigint: bigint }>,
@@ -459,11 +575,43 @@ async function main() {
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 
+  const defaultIntervalMs = readPositiveInterval(
+    "TOKEN_PRICE_SYNC_INTERVAL_MS",
+    60_000,
+  );
+  const coingeckoIntervalSeconds = readOptionalIntervalSeconds(
+    "COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS",
+  );
+
+  const syncJobs = Object.entries(FETCHER_BY_CHAIN_ID).map(
+    ([chainId, fetchers]) => ({
+      chainId,
+      fetchers,
+      intervalMs: defaultIntervalMs,
+    }),
+  );
+
+  if (coingeckoIntervalSeconds > 0) {
+    syncJobs.push(
+      ...Object.entries(COINGECKO_FETCHER_BY_CHAIN_ID).map(
+        ([chainId, fetchers]) => ({
+          chainId,
+          fetchers,
+          intervalMs: coingeckoIntervalSeconds * 1_000,
+        }),
+      ),
+    );
+  } else {
+    console.log(
+      "CoinGecko price syncing is disabled because COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS is 0",
+    );
+  }
+
   await Promise.all(
-    Object.entries(FETCHER_BY_CHAIN_ID).map(([chainId, fetchers]) => {
+    syncJobs.map(({ chainId, fetchers, intervalMs }) => {
       const scheduler = new Bottleneck({
         maxConcurrent: 1,
-        minTime: 60_000,
+        minTime: intervalMs,
       });
       chainSchedulers.push(scheduler);
       return runSyncLoopForChain(scheduler, chainId, fetchers);
