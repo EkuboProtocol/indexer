@@ -467,6 +467,7 @@ export function createLogProcessorsV3({
                   owner: parsed.owner,
                   stake: stakeDescriptor(parsed.stakeId),
                   weight: parsed.weight,
+                  votedSwapFee: parsed.votedSwapFee,
                   swapFee: parsed.swapFee,
                 });
               },

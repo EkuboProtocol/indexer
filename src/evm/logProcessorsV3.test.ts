@@ -1,4 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
+import { encodeAbiParameters, encodeEventTopics } from "viem";
+import { VE33_ABI } from "./abis_v3";
 import { createLogProcessorsV3 } from "./logProcessorsV3";
 
 const config = {
@@ -85,5 +87,68 @@ describe("createLogProcessorsV3", () => {
     expect(
       processors.filter((p) => p.address === ve33PositionsAddress),
     ).toHaveLength(1);
+  });
+
+  it("indexes both the voted and effective swap fees", async () => {
+    const ve33Address = "0x0000000000000000000000000000000000000020";
+    const processors = createLogProcessorsV3({
+      ...config,
+      twammAddresses: [],
+      ordersAddresses: [],
+      ve33Address,
+    });
+    const topics = encodeEventTopics({
+      abi: VE33_ABI,
+      eventName: "VoteWeightApplied",
+    });
+    const processor = processors.find(
+      (candidate) =>
+        candidate.address === ve33Address &&
+        candidate.filter.topics[0] === topics[0],
+    );
+    expect(processor).toBeDefined();
+
+    const insertVe33VoteWeightAppliedEvent = mock(async () => {});
+    const owner = "0x0000000000000000000000000000000000000030";
+    const stakeId = `0x${((12n << 64n) | 1_800_000_000n).toString(16).padStart(64, "0")}` as const;
+    const poolId = `0x${"40".padStart(64, "0")}` as const;
+
+    await processor!.handler(
+      { insertVe33VoteWeightAppliedEvent } as never,
+      {
+        blockNumber: 1,
+        transactionIndex: 2,
+        eventIndex: 3,
+        emitter: ve33Address,
+        transactionHash: `0x${"50".padStart(64, "0")}`,
+      },
+      {
+        topics,
+        data: encodeAbiParameters(
+          [
+            { type: "address" },
+            { type: "bytes32" },
+            { type: "bytes32" },
+            { type: "uint128" },
+            { type: "uint64" },
+            { type: "uint64" },
+          ],
+          [owner, stakeId, poolId, 123n, 17n, 45n],
+        ),
+      },
+    );
+
+    expect(insertVe33VoteWeightAppliedEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        coreAddress: config.coreAddress,
+        poolId,
+        owner,
+        stake: { id: stakeId, salt: 12n, endTime: 1_800_000_000n },
+        weight: 123n,
+        votedSwapFee: 17n,
+        swapFee: 45n,
+      },
+    );
   });
 });

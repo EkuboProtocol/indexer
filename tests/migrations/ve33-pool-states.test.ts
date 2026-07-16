@@ -91,6 +91,7 @@ async function insertVoteWeightApplied({
   eventIndex,
   poolKeyId,
   weight,
+  votedSwapFee,
   swapFee,
   owner = "7000",
   stakeId = "8000",
@@ -101,10 +102,39 @@ async function insertVoteWeightApplied({
   eventIndex: number;
   poolKeyId: bigint;
   weight: string;
+  votedSwapFee?: string;
   swapFee: string;
   owner?: string;
   stakeId?: string;
 }) {
+  if (votedSwapFee !== undefined) {
+    await db.query(
+      `INSERT INTO ve33_vote_weight_applied (
+          chain_id, block_number, transaction_index, event_index,
+          transaction_hash, emitter, pool_key_id, pool_id, owner, stake_id,
+          stake_salt, stake_end_time, weight, voted_swap_fee, swap_fee
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+      [
+        chainId,
+        blockNumber,
+        0,
+        eventIndex,
+        `900${eventIndex}`,
+        "5000",
+        poolKeyId,
+        "2000",
+        owner,
+        stakeId,
+        "80",
+        new Date("2027-01-01T00:00:00.000Z"),
+        weight,
+        votedSwapFee,
+        swapFee,
+      ],
+    );
+    return;
+  }
+
   await db.query(
     `INSERT INTO ve33_vote_weight_applied (
         chain_id,
@@ -155,6 +185,7 @@ test("ve33 pool state recomputes from pool events and surfaces in all_pool_state
     eventIndex: 0,
     poolKeyId,
     weight: "100",
+    votedSwapFee: "25",
     swapFee: "25",
   });
 
@@ -164,6 +195,7 @@ test("ve33 pool state recomputes from pool events and surfaces in all_pool_state
     eventIndex: 0,
     poolKeyId,
     weight: "150",
+    votedSwapFee: "30",
     swapFee: "30",
   });
 
@@ -313,6 +345,7 @@ test("ve33 vote cache tracks independent current stake votes incrementally", asy
     eventIndex: 0,
     poolKeyId,
     weight: "100",
+    votedSwapFee: "20",
     swapFee: "20",
     owner: "7000",
     stakeId: "8000",
@@ -324,6 +357,7 @@ test("ve33 vote cache tracks independent current stake votes incrementally", asy
     eventIndex: 1,
     poolKeyId,
     weight: "40",
+    votedSwapFee: "30",
     swapFee: "30",
     owner: "7001",
     stakeId: "8001",

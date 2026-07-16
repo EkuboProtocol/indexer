@@ -266,6 +266,7 @@ export interface Ve33VoteWeightAppliedInsert extends Ve33PoolEventDescriptor {
   owner: AddressValue;
   stake: StakeDescriptor;
   weight: NumericValue;
+  votedSwapFee: NumericValue;
   swapFee: NumericValue;
 }
 
@@ -1943,7 +1944,8 @@ export class DAO {
     await this.sql`
       INSERT INTO ve33_vote_weight_applied
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-         pool_key_id, pool_id, owner, stake_id, stake_salt, stake_end_time, weight, swap_fee)
+         pool_key_id, pool_id, owner, stake_id, stake_salt, stake_end_time, weight,
+         voted_swap_fee, swap_fee)
       VALUES (
         ${this.chainId},
         ${key.blockNumber},
@@ -1964,6 +1966,7 @@ export class DAO {
         ${this.numeric(parsed.stake.salt)},
         ${new Date(Number(BigInt(parsed.stake.endTime) * 1000n))},
         ${this.numeric(parsed.weight)},
+        ${this.numeric(parsed.votedSwapFee)},
         ${this.numeric(parsed.swapFee)}
       );
     `;

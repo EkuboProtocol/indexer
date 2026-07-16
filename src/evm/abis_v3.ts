@@ -851,6 +851,12 @@ export const VE33_ABI = [
         internalType: "uint128",
       },
       {
+        name: "votedSwapFee",
+        type: "uint64",
+        indexed: false,
+        internalType: "uint64",
+      },
+      {
         name: "swapFee",
         type: "uint64",
         indexed: false,
