@@ -26,7 +26,7 @@ type TokenAddressRow = Pick<TokenRow, "token_address">;
 const QUOTE_USD_AMOUNT = 1000n;
 const EKUBO_QUOTER_BASE_URL =
   process.env.EKUBO_QUOTER_URL ?? "https://prod-api-quoter.ekubo.org";
-const COINGECKO_API_BASE_URL = "https://api.coingecko.com/api/v3";
+const COINGECKO_API_BASE_URL = "https://pro-api.coingecko.com/api/v3";
 // Although CoinGecko accepts more addresses, large comma-separated batches can
 // exceed the HTTP request-line limit before reaching the API.
 const COINGECKO_MAX_CONTRACT_ADDRESSES = 100;
@@ -54,6 +54,11 @@ const QUOTE_TOKEN_BY_CHAIN_ID: Record<
   },
   ["143"]: {
     address: "0x754704bc059f8c67012fed69bc8a327a5aafb603",
+    decimals: 6,
+  },
+  // usdg on robinhood chain
+  ["4663"]: {
+    address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
     decimals: 6,
   },
   ["11155111"]: {
@@ -261,7 +266,7 @@ const coingeckoPriceFetcher: PriceFetcher = async (sql, chainId) => {
     const response = await fetch(url, {
       headers: {
         Accept: "application/json",
-        "x-cg-demo-api-key": apiKey,
+        "x-cg-pro-api-key": apiKey,
       },
     });
 
@@ -304,7 +309,7 @@ const coingeckoPriceFetcher: PriceFetcher = async (sql, chainId) => {
       const response = await fetch(url, {
         headers: {
           Accept: "application/json",
-          "x-cg-demo-api-key": apiKey,
+          "x-cg-pro-api-key": apiKey,
         },
       });
 
@@ -456,6 +461,7 @@ const FETCHER_BY_CHAIN_ID: { [chainId: string]: PriceFetcherConfig[] } = {
     /*oracleV1PriceFetcher,*/ sushiswapPriceFetcher,
   ],
   ["143"]: [quoterPriceFetcher],
+  ["4663"]: [quoterPriceFetcher],
   // arbitrum one
   ["42161"]: [sushiswapPriceFetcher],
   // arbitrum sepolia
