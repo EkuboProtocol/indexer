@@ -152,6 +152,14 @@ workers:
       - key: COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS
         scope: RUN_TIME
         value: "300"
+      - key: CHAINLINK_TOKEN_PRICE_SYNC_INTERVAL_SECONDS
+        scope: RUN_TIME
+        value: "60"
+      - key: CHAINLINK_TOKEN_PRICE_CONFIG
+        scope: RUN_TIME
+        type: SECRET
+        value: >-
+          {"1":{"rpcUrls":["https://eth-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"],"feeds":[{"tokenAddress":"0x0000000000000000000000000000000000000000","feedAddress":"0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419","maxAgeSeconds":7200}]},"8453":{"rpcUrls":["https://base-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"],"feeds":[{"tokenAddress":"0x0000000000000000000000000000000000000000","feedAddress":"0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70","maxAgeSeconds":7200}]},"42161":{"rpcUrls":["https://arb-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"],"feeds":[{"tokenAddress":"0x0000000000000000000000000000000000000000","feedAddress":"0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612","maxAgeSeconds":7200}]}}
     run_command: bun scripts/sync-token-prices.ts
 jobs:
   - name: run-migrations
