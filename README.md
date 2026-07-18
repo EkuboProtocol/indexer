@@ -67,24 +67,20 @@ docker run --rm ekubo-indexer scripts/sync-token-prices.ts
 
 The token-price entrypoint runs continuously; control its default cadence with `TOKEN_PRICE_SYNC_INTERVAL_MS` (milliseconds, defaults to 60000). CoinGecko contract-token prices for Base, Robinhood, and Arbitrum, plus their native ETH price and Ethereum mainnet's native ETH price, use a separate `COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS` cadence. Set it to a positive number and provide `COINGECKO_API_KEY` to enable CoinGecko syncing; zero or an unset value disables it.
 
-Chainlink token/USD feeds can supplement those sources over EVM RPC. Set `CHAINLINK_TOKEN_PRICE_SYNC_INTERVAL_SECONDS` to a positive number and provide `CHAINLINK_TOKEN_PRICE_CONFIG` as a JSON object keyed by chain ID. Each chain declares fallback RPC URLs and a list mapping indexed token addresses to Chainlink aggregator addresses. All feed reads for a chain are aggregated into one on-chain Multicall3 call, which the RPC provider accounts for as a single `eth_call`; `multicallAddress` can override the standard `0xcA11...CA11` deployment for a chain. `maxAgeSeconds` should match the feed's expected heartbeat; stale, incomplete, non-positive, and superseded rounds are skipped. The RPC-reported chain ID is also checked before reading feeds.
+Chainlink token/USD feeds can supplement those sources over EVM RPC. Set `CHAINLINK_TOKEN_PRICE_SYNC_INTERVAL_SECONDS` to a positive number and provide `CHAINLINK_TOKEN_PRICE_CONFIG` as a JSON object keyed by chain ID. Each chain declares fallback RPC URLs and a Chainlink Reference Data Directory `catalogUrl`. The catalog supplies token/USD proxy addresses and heartbeats; feeds are matched only when an eligible indexed token and catalog base asset have a unique symbol. Discovery prefers standard reference-price proxies, falls back to the underlying proxy associated with a shared SVR feed on networks that only publish that variant, and also supports primary tokenized-price feeds. Secondary SVR proxies, ambiguous symbols, and hidden, deprecating, or non-USD feeds are skipped. An optional `feeds` array can override or supplement discovery for exceptional mappings.
+
+Catalogs are refreshed hourly by default, controlled by `CHAINLINK_FEED_CATALOG_REFRESH_INTERVAL_SECONDS`, and the last successful response remains usable during a catalog outage. All discovered feed reads for a chain are aggregated into one on-chain Multicall3 call, which the RPC provider accounts for as a single `eth_call`; `multicallAddress` can override the standard `0xcA11...CA11` deployment for a chain. Stale, incomplete, non-positive, and superseded rounds are skipped. The RPC-reported chain ID is also checked before reading feeds.
 
 ```json
 {
   "1": {
     "rpcUrls": ["https://eth-mainnet.example/v1/API_KEY"],
-    "feeds": [
-      {
-        "tokenAddress": "0x0000000000000000000000000000000000000000",
-        "feedAddress": "0x0000000000000000000000000000000000000001",
-        "maxAgeSeconds": 3600
-      }
-    ]
+    "catalogUrl": "https://reference-data-directory.vercel.app/feeds-mainnet.json"
   }
 }
 ```
 
-The example addresses are placeholders. Chainlink syncing is disabled when its interval is zero/unset or its config is empty. Valid observations are stored under the `cl1` source using the feed round's `updatedAt` timestamp, and unchanged rounds are not inserted repeatedly. One failing feed does not prevent fresh observations from other configured feeds on that chain.
+Chainlink syncing is disabled when its interval is zero/unset or its config is empty. Valid observations are stored under the `cl1` source using the feed round's `updatedAt` timestamp, and unchanged rounds are not inserted repeatedly. One failing feed does not prevent fresh observations from other configured feeds on that chain.
 
 ## Database migrations
 
@@ -100,7 +96,7 @@ The DigitalOcean Apps spec in `.do/app.yaml` documents the full production stack
 
 - Workers for each network (e.g.: `starknet-sepolia`, `starknet-mainnet`, `eth-sepolia`, `eth-mainnet`) that run the corresponding network entrypoint (`bun src/starknet.ts` or `bun src/evm.ts`) with the appropriate `NETWORK` value, pulling the published Docker image (`ghcr.io/ekuboprotocol/indexer:${IMAGE_TAG}`).
 - Managed Postgres (`indexer-db-nyc1`) wired in via the `PG_CONNECTION_STRING` env var along with secrets such as `DNA_TOKEN`.
-- A `run-migrations` pre-deploy job, a scheduled `scripts/sync-tokens.ts` job, and a long-running `scripts/sync-token-prices.ts` worker that loops on `TOKEN_PRICE_SYNC_INTERVAL_MS` (ms, defaults to 60000), with independently configured CoinGecko and Chainlink cadences. The app spec enables native ETH/USD Chainlink feeds on Ethereum, Base, and Arbitrum through the existing Alchemy API key secret.
+- A `run-migrations` pre-deploy job, a scheduled `scripts/sync-tokens.ts` job, and a long-running `scripts/sync-token-prices.ts` worker that loops on `TOKEN_PRICE_SYNC_INTERVAL_MS` (ms, defaults to 60000), with independently configured CoinGecko and Chainlink cadences. The app spec discovers Chainlink feeds for eligible tokens on Ethereum, Base, Arbitrum, and Robinhood through Chainlink's multi-network catalogs and the existing Alchemy API key secret.
 
 Use this file as a base to recreate the stack in a new DigitalOcean App Platform project or as a reference for configuring similar infrastructure elsewhere.
 

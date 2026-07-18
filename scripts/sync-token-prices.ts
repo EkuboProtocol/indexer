@@ -3,9 +3,12 @@ import Bottleneck from "bottleneck";
 import postgres, { type Sql } from "postgres";
 import { loadConfig } from "../src/config";
 import {
+  discoverChainlinkFeeds,
+  fetchChainlinkFeedCatalog,
   fetchChainlinkTokenPrices,
   parseChainlinkPriceConfig,
   type ChainlinkPriceObservation,
+  type ChainlinkToken,
 } from "./chainlinkTokenPrices";
 
 loadConfig();
@@ -28,6 +31,7 @@ type TokenRow = {
 };
 
 type TokenAddressRow = Pick<TokenRow, "token_address">;
+type ChainlinkTokenRow = Pick<TokenRow, "token_address" | "token_symbol">;
 
 const QUOTE_USD_AMOUNT = 1000n;
 const EKUBO_QUOTER_BASE_URL =
@@ -36,6 +40,15 @@ const COINGECKO_API_BASE_URL = "https://pro-api.coingecko.com/api/v3";
 const CHAINLINK_PRICE_CONFIG = parseChainlinkPriceConfig(
   process.env.CHAINLINK_TOKEN_PRICE_CONFIG,
 );
+const CHAINLINK_CATALOG_REFRESH_INTERVAL_MS =
+  readPositiveInterval(
+    "CHAINLINK_FEED_CATALOG_REFRESH_INTERVAL_SECONDS",
+    3600,
+  ) * 1_000;
+const chainlinkCatalogCache = new Map<
+  string,
+  { catalog: unknown; lastAttemptAt: number }
+>();
 // Although CoinGecko accepts more addresses, large comma-separated batches can
 // exceed the HTTP request-line limit before reaching the API.
 const COINGECKO_MAX_CONTRACT_ADDRESSES = 100;
@@ -248,6 +261,51 @@ async function fetchTokenAddresses(
   return tokens.map(({ token_address }) => toEvmAddress(token_address));
 }
 
+async function fetchChainlinkTokens(
+  sql: Sql<{ bigint: bigint }>,
+  chainId: bigint,
+): Promise<ChainlinkToken[]> {
+  const tokens = await sql<ChainlinkTokenRow[]>`
+    SELECT token_address::TEXT, token_symbol
+    FROM erc20_tokens
+    WHERE chain_id = ${chainId}
+      AND visibility_priority >= 0
+  `;
+  return tokens.map((token) => ({
+    address: toEvmAddress(token.token_address),
+    symbol: token.token_symbol,
+  }));
+}
+
+async function getChainlinkCatalog(catalogUrl: string): Promise<unknown> {
+  const cached = chainlinkCatalogCache.get(catalogUrl);
+  if (
+    cached &&
+    Date.now() - cached.lastAttemptAt < CHAINLINK_CATALOG_REFRESH_INTERVAL_MS
+  ) {
+    return cached.catalog;
+  }
+
+  try {
+    const catalog = await fetchChainlinkFeedCatalog(catalogUrl);
+    chainlinkCatalogCache.set(catalogUrl, {
+      catalog,
+      lastAttemptAt: Date.now(),
+    });
+    return catalog;
+  } catch (error) {
+    if (cached) {
+      cached.lastAttemptAt = Date.now();
+      console.warn(
+        `Failed to refresh Chainlink feed catalog ${catalogUrl}; using cached catalog`,
+        error,
+      );
+      return cached.catalog;
+    }
+    throw error;
+  }
+}
+
 type CoinGeckoTokenPriceResponse = Record<string, { usd?: number }>;
 
 const coingeckoPriceFetcher: PriceFetcher = async (sql, chainId) => {
@@ -341,11 +399,30 @@ const coingeckoPriceFetcher: PriceFetcher = async (sql, chainId) => {
   return prices;
 };
 
-const chainlinkPriceFetcher: PriceFetcher = async (_sql, chainId) => {
+const chainlinkPriceFetcher: PriceFetcher = async (sql, chainId) => {
   const chainKey = chainId.toString();
   const config = CHAINLINK_PRICE_CONFIG[chainKey];
   if (!config) return {};
-  return fetchChainlinkTokenPrices(chainKey, config);
+  const feedsByToken = new Map(
+    config.feeds.map((feed) => [feed.tokenAddress.toLowerCase(), feed]),
+  );
+
+  if (config.catalogUrl) {
+    const tokens = await fetchChainlinkTokens(sql, chainId);
+    const catalog = await getChainlinkCatalog(config.catalogUrl);
+    for (const feed of discoverChainlinkFeeds(catalog, tokens)) {
+      if (!feedsByToken.has(feed.tokenAddress.toLowerCase())) {
+        feedsByToken.set(feed.tokenAddress.toLowerCase(), feed);
+      }
+    }
+  }
+
+  const feeds = [...feedsByToken.values()];
+  console.log(
+    `Fetching ${feeds.length} Chainlink prices for chain ID ${chainId}`,
+  );
+  if (feeds.length === 0) return {};
+  return fetchChainlinkTokenPrices(chainKey, { ...config, feeds });
 };
 
 async function fetchEkuboQuoterPrice({

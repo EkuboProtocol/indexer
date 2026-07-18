@@ -43,6 +43,7 @@ export interface ChainlinkFeedConfig {
 export interface ChainlinkChainConfig {
   rpcUrls: string[];
   feeds: ChainlinkFeedConfig[];
+  catalogUrl?: string;
   multicallAddress?: Address;
 }
 
@@ -52,6 +53,28 @@ export interface ChainlinkPriceObservation {
   usdPrice: number;
   timestamp: Date;
 }
+
+export interface ChainlinkToken {
+  address: Address;
+  symbol: string;
+}
+
+type ChainlinkCatalogEntry = {
+  proxyAddress?: unknown;
+  secondaryProxyAddress?: unknown;
+  heartbeat?: unknown;
+  path?: unknown;
+  feedCategory?: unknown;
+  docs?: {
+    baseAsset?: unknown;
+    quoteAsset?: unknown;
+    deliveryChannelCode?: unknown;
+    productType?: unknown;
+    productTypeCode?: unknown;
+    hidden?: unknown;
+    shutdownDate?: unknown;
+  };
+};
 
 interface ChainlinkReader {
   getChainId(): Promise<number>;
@@ -139,14 +162,18 @@ export function parseChainlinkPriceConfig(
       }
 
       const chain = assertObject(value, `Chainlink config for chain ${chainId}`);
-      if (!Array.isArray(chain.feeds) || chain.feeds.length === 0) {
-        throw new Error(
-          `Chainlink feeds for chain ${chainId} must be a non-empty array`,
-        );
+      let rawFeeds: unknown[] = [];
+      if (chain.feeds !== undefined) {
+        if (!Array.isArray(chain.feeds)) {
+          throw new Error(
+            `Chainlink feeds for chain ${chainId} must be an array`,
+          );
+        }
+        rawFeeds = chain.feeds;
       }
 
       const seenTokens = new Set<string>();
-      const feeds = chain.feeds.map((value, index) => {
+      const feeds = rawFeeds.map((value, index) => {
         const label = `Chainlink feed ${chainId}[${index}]`;
         const feed = assertObject(value, label);
         const tokenAddress = parseAddress(
@@ -177,6 +204,19 @@ export function parseChainlinkPriceConfig(
         return { tokenAddress, feedAddress, maxAgeSeconds };
       });
 
+      let catalogUrl: string | undefined;
+      if (chain.catalogUrl !== undefined) {
+        [catalogUrl] = parseRpcUrls(
+          [chain.catalogUrl],
+          `Chainlink catalog URL for chain ${chainId}`,
+        );
+      }
+      if (!catalogUrl && feeds.length === 0) {
+        throw new Error(
+          `Chainlink config for chain ${chainId} requires catalogUrl or feeds`,
+        );
+      }
+
       return [
         chainId,
         {
@@ -185,6 +225,7 @@ export function parseChainlinkPriceConfig(
             `Chainlink RPC URLs for chain ${chainId}`,
           ),
           feeds,
+          ...(catalogUrl ? { catalogUrl } : {}),
           ...(chain.multicallAddress === undefined
             ? {}
             : {
@@ -197,6 +238,103 @@ export function parseChainlinkPriceConfig(
       ];
     }),
   );
+}
+
+function normalizeSymbol(symbol: string): string {
+  return symbol.trim().toUpperCase();
+}
+
+export function discoverChainlinkFeeds(
+  catalog: unknown,
+  tokens: ChainlinkToken[],
+): ChainlinkFeedConfig[] {
+  if (!Array.isArray(catalog)) {
+    throw new Error("Chainlink feed catalog must be an array");
+  }
+
+  const tokensBySymbol = new Map<string, ChainlinkToken[]>();
+  for (const token of tokens) {
+    const symbol = normalizeSymbol(token.symbol);
+    const matches = tokensBySymbol.get(symbol) ?? [];
+    matches.push(token);
+    tokensBySymbol.set(symbol, matches);
+  }
+
+  const catalogFeedsBySymbol = new Map<
+    string,
+    { feed: ChainlinkFeedConfig; rank: number }[]
+  >();
+  for (const rawValue of catalog) {
+    if (!rawValue || typeof rawValue !== "object") continue;
+    const value = rawValue as ChainlinkCatalogEntry;
+    const docs = value.docs;
+    if (
+      !docs ||
+      docs.deliveryChannelCode !== "DF" ||
+      docs.productType !== "Price" ||
+      !["RefPrice", "primaryTokenizedPrice"].includes(
+        String(docs.productTypeCode),
+      ) ||
+      docs.quoteAsset !== "USD" ||
+      typeof docs.baseAsset !== "string" ||
+      docs.hidden === true ||
+      docs.shutdownDate ||
+      value.feedCategory === "deprecating" ||
+      typeof value.path !== "string" ||
+      typeof value.proxyAddress !== "string" ||
+      !isAddress(value.proxyAddress) ||
+      typeof value.heartbeat !== "number" ||
+      !Number.isSafeInteger(value.heartbeat) ||
+      value.heartbeat <= 0 ||
+      value.heartbeat > Number.MAX_SAFE_INTEGER / 2
+    ) {
+      continue;
+    }
+
+    const symbol = normalizeSymbol(docs.baseAsset);
+    const matchingTokens = tokensBySymbol.get(symbol);
+    if (matchingTokens?.length !== 1) continue;
+
+    const feed: ChainlinkFeedConfig = {
+      tokenAddress: matchingTokens[0].address,
+      feedAddress: getAddress(value.proxyAddress),
+      maxAgeSeconds: value.heartbeat * 2,
+    };
+    const rank = value.secondaryProxyAddress
+      ? value.path.includes("shared-svr")
+        ? 1
+        : 2
+      : 0;
+    const feeds = catalogFeedsBySymbol.get(symbol) ?? [];
+    feeds.push({ feed, rank });
+    catalogFeedsBySymbol.set(symbol, feeds);
+  }
+
+  return [...catalogFeedsBySymbol.values()]
+    .map((feeds) => {
+      const bestRank = Math.min(...feeds.map(({ rank }) => rank));
+      const bestFeeds = feeds.filter(({ rank }) => rank === bestRank);
+      return bestFeeds.length === 1 ? bestFeeds[0].feed : null;
+    })
+    .filter((feed): feed is ChainlinkFeedConfig => feed !== null);
+}
+
+export async function fetchChainlinkFeedCatalog(
+  catalogUrl: string,
+  fetchFn: (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => Promise<Response> = fetch,
+): Promise<unknown> {
+  const response = await fetchFn(catalogUrl, {
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Chainlink catalog request failed: ${response.status} ${response.statusText}`,
+    );
+  }
+  return response.json();
 }
 
 export async function readChainlinkFeedPrice(
@@ -217,7 +355,12 @@ export async function readChainlinkFeedPrice(
     }),
   ]);
 
-  return parseChainlinkFeedPrice(decimalsResult, roundDataResult, feed, nowSeconds);
+  return parseChainlinkFeedPrice(
+    decimalsResult,
+    roundDataResult,
+    feed,
+    nowSeconds,
+  );
 }
 
 function parseChainlinkFeedPrice(
