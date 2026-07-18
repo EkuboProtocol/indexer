@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  fetchChainlinkTokenPrices,
   parseChainlinkPriceConfig,
   readChainlinkFeedPrice,
   type ChainlinkFeedConfig,
@@ -95,5 +96,75 @@ describe("readChainlinkFeedPrice", () => {
         10_000,
       ),
     ).rejects.toThrow("old round");
+  });
+});
+
+describe("fetchChainlinkTokenPrices", () => {
+  test("sends all feed calls in one batch RPC request", async () => {
+    type RpcRequest = {
+      id: number;
+      method: string;
+      params?: [{ data?: string }];
+    };
+
+    const requests: (RpcRequest | RpcRequest[])[] = [];
+    const uint256Word = (value: bigint) => value.toString(16).padStart(64, "0");
+    const updatedAt = BigInt(Math.floor(Date.now() / 1_000));
+    const decimalsResult = `0x${uint256Word(8n)}`;
+    const roundDataResult = `0x${[
+      10n,
+      123_456_789n,
+      updatedAt,
+      updatedAt,
+      10n,
+    ]
+      .map(uint256Word)
+      .join("")}`;
+
+    const fetchFn = async (
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      const body = JSON.parse(String(init?.body)) as RpcRequest | RpcRequest[];
+      requests.push(body);
+
+      const respond = (rpcRequest: RpcRequest) => ({
+        jsonrpc: "2.0",
+        id: rpcRequest.id,
+        result:
+          rpcRequest.method === "eth_chainId"
+            ? "0x1"
+            : rpcRequest.params?.[0].data?.startsWith("0x313ce567")
+              ? decimalsResult
+              : roundDataResult,
+      });
+
+      return Response.json(
+        Array.isArray(body) ? body.map(respond) : respond(body),
+      );
+    };
+
+    const prices = await fetchChainlinkTokenPrices(
+      "1",
+      {
+        rpcUrls: ["https://rpc.example"],
+        feeds: [
+          { tokenAddress, feedAddress, maxAgeSeconds: 3600 },
+          {
+            tokenAddress: "0x0000000000000000000000000000000000000003",
+            feedAddress: "0x0000000000000000000000000000000000000004",
+            maxAgeSeconds: 3600,
+          },
+        ],
+      },
+      fetchFn,
+    );
+
+    expect(Object.keys(prices)).toHaveLength(2);
+    expect(requests).toHaveLength(2);
+    expect(Array.isArray(requests[0])).toBe(true);
+    expect(Array.isArray(requests[1])).toBe(true);
+    expect(requests[0]).toHaveLength(1);
+    expect(requests[1]).toHaveLength(4);
   });
 });

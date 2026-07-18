@@ -6,6 +6,7 @@ import {
   http,
   isAddress,
   type Address,
+  type HttpTransportConfig,
 } from "viem";
 
 const CHAINLINK_AGGREGATOR_ABI = [
@@ -216,9 +217,20 @@ export async function readChainlinkFeedPrice(
 export async function fetchChainlinkTokenPrices(
   chainId: string,
   config: ChainlinkChainConfig,
+  fetchFn: NonNullable<HttpTransportConfig["fetchFn"]> = fetch,
 ): Promise<Record<string, ChainlinkPriceObservation>> {
   const client = createPublicClient({
-    transport: fallback(config.rpcUrls.map((rpcUrl) => http(rpcUrl))),
+    transport: fallback(
+      config.rpcUrls.map((rpcUrl) =>
+        http(rpcUrl, {
+          batch: {
+            batchSize: Number.MAX_SAFE_INTEGER,
+            wait: 0,
+          },
+          fetchFn,
+        }),
+      ),
+    ),
   }) as unknown as ChainlinkReader;
 
   const rpcChainId = await client.getChainId();
