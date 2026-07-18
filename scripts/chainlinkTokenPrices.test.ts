@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  fetchChainlinkTokenPrices,
+  fetchChainlinkTokenPricesWithMulticall,
   parseChainlinkPriceConfig,
   readChainlinkFeedPrice,
   type ChainlinkFeedConfig,
@@ -99,52 +99,30 @@ describe("readChainlinkFeedPrice", () => {
   });
 });
 
-describe("fetchChainlinkTokenPrices", () => {
-  test("sends all feed calls in one batch RPC request", async () => {
-    type RpcRequest = {
-      id: number;
-      method: string;
-      params?: [{ data?: string }];
-    };
-
-    const requests: (RpcRequest | RpcRequest[])[] = [];
-    const uint256Word = (value: bigint) => value.toString(16).padStart(64, "0");
+describe("fetchChainlinkTokenPricesWithMulticall", () => {
+  test("reads all feeds in one Multicall3 call", async () => {
     const updatedAt = BigInt(Math.floor(Date.now() / 1_000));
-    const decimalsResult = `0x${uint256Word(8n)}`;
-    const roundDataResult = `0x${[
-      10n,
-      123_456_789n,
-      updatedAt,
-      updatedAt,
-      10n,
-    ]
-      .map(uint256Word)
-      .join("")}`;
-
-    const fetchFn = async (
-      _input: string | URL | Request,
-      init?: RequestInit,
-    ): Promise<Response> => {
-      const body = JSON.parse(String(init?.body)) as RpcRequest | RpcRequest[];
-      requests.push(body);
-
-      const respond = (rpcRequest: RpcRequest) => ({
-        jsonrpc: "2.0",
-        id: rpcRequest.id,
-        result:
-          rpcRequest.method === "eth_chainId"
-            ? "0x1"
-            : rpcRequest.params?.[0].data?.startsWith("0x313ce567")
-              ? decimalsResult
-              : roundDataResult,
-      });
-
-      return Response.json(
-        Array.isArray(body) ? body.map(respond) : respond(body),
-      );
+    const multicallArgs: unknown[] = [];
+    const reader = {
+      async multicall(args: unknown) {
+        multicallArgs.push(args);
+        return [
+          { status: "success" as const, result: 8 },
+          {
+            status: "success" as const,
+            result: [10n, 123_456_789n, updatedAt, updatedAt, 10n],
+          },
+          { status: "success" as const, result: 8 },
+          {
+            status: "success" as const,
+            result: [10n, 200_000_000n, updatedAt, updatedAt, 10n],
+          },
+        ];
+      },
     };
 
-    const prices = await fetchChainlinkTokenPrices(
+    const prices = await fetchChainlinkTokenPricesWithMulticall(
+      reader,
       "1",
       {
         rpcUrls: ["https://rpc.example"],
@@ -157,14 +135,26 @@ describe("fetchChainlinkTokenPrices", () => {
           },
         ],
       },
-      fetchFn,
     );
 
     expect(Object.keys(prices)).toHaveLength(2);
-    expect(requests).toHaveLength(2);
-    expect(Array.isArray(requests[0])).toBe(true);
-    expect(Array.isArray(requests[1])).toBe(true);
-    expect(requests[0]).toHaveLength(1);
-    expect(requests[1]).toHaveLength(4);
+    expect(multicallArgs).toHaveLength(1);
+    expect(multicallArgs[0]).toMatchObject({
+      allowFailure: true,
+      batchSize: Number.MAX_SAFE_INTEGER,
+      multicallAddress: "0xcA11bde05977b3631167028862bE2a173976CA11",
+      contracts: [
+        { address: feedAddress, functionName: "decimals" },
+        { address: feedAddress, functionName: "latestRoundData" },
+        {
+          address: "0x0000000000000000000000000000000000000004",
+          functionName: "decimals",
+        },
+        {
+          address: "0x0000000000000000000000000000000000000004",
+          functionName: "latestRoundData",
+        },
+      ],
+    });
   });
 });

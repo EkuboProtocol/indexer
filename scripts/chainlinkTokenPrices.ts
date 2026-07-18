@@ -6,8 +6,10 @@ import {
   http,
   isAddress,
   type Address,
-  type HttpTransportConfig,
 } from "viem";
+
+const DEFAULT_MULTICALL3_ADDRESS =
+  "0xcA11bde05977b3631167028862bE2a173976CA11";
 
 const CHAINLINK_AGGREGATOR_ABI = [
   {
@@ -41,6 +43,7 @@ export interface ChainlinkFeedConfig {
 export interface ChainlinkChainConfig {
   rpcUrls: string[];
   feeds: ChainlinkFeedConfig[];
+  multicallAddress?: Address;
 }
 
 export type ChainlinkPriceConfig = Record<string, ChainlinkChainConfig>;
@@ -57,6 +60,23 @@ interface ChainlinkReader {
     abi: typeof CHAINLINK_AGGREGATOR_ABI;
     functionName: "decimals" | "latestRoundData";
   }): Promise<unknown>;
+}
+
+type ChainlinkMulticallResult =
+  | { status: "success"; result: unknown }
+  | { status: "failure"; error: Error };
+
+interface ChainlinkMulticallReader {
+  multicall(args: {
+    contracts: {
+      address: Address;
+      abi: typeof CHAINLINK_AGGREGATOR_ABI;
+      functionName: "decimals" | "latestRoundData";
+    }[];
+    allowFailure: true;
+    batchSize: number;
+    multicallAddress: Address;
+  }): Promise<ChainlinkMulticallResult[]>;
 }
 
 function assertObject(value: unknown, label: string): Record<string, unknown> {
@@ -165,6 +185,14 @@ export function parseChainlinkPriceConfig(
             `Chainlink RPC URLs for chain ${chainId}`,
           ),
           feeds,
+          ...(chain.multicallAddress === undefined
+            ? {}
+            : {
+                multicallAddress: parseAddress(
+                  chain.multicallAddress,
+                  `Chainlink multicall address for chain ${chainId}`,
+                ),
+              }),
         },
       ];
     }),
@@ -189,6 +217,15 @@ export async function readChainlinkFeedPrice(
     }),
   ]);
 
+  return parseChainlinkFeedPrice(decimalsResult, roundDataResult, feed, nowSeconds);
+}
+
+function parseChainlinkFeedPrice(
+  decimalsResult: unknown,
+  roundDataResult: unknown,
+  feed: ChainlinkFeedConfig,
+  nowSeconds = Math.floor(Date.now() / 1_000),
+): ChainlinkPriceObservation {
   const decimals = decimalsResult as number;
   const [roundId, answer, , updatedAt, answeredInRound] =
     roundDataResult as readonly [bigint, bigint, bigint, bigint, bigint];
@@ -214,24 +251,68 @@ export async function readChainlinkFeedPrice(
   };
 }
 
+export async function fetchChainlinkTokenPricesWithMulticall(
+  reader: ChainlinkMulticallReader,
+  chainId: string,
+  config: ChainlinkChainConfig,
+): Promise<Record<string, ChainlinkPriceObservation>> {
+  const contracts = config.feeds.flatMap((feed) => [
+    {
+      address: feed.feedAddress,
+      abi: CHAINLINK_AGGREGATOR_ABI,
+      functionName: "decimals" as const,
+    },
+    {
+      address: feed.feedAddress,
+      abi: CHAINLINK_AGGREGATOR_ABI,
+      functionName: "latestRoundData" as const,
+    },
+  ]);
+  const results = await reader.multicall({
+    contracts,
+    allowFailure: true,
+    batchSize: Number.MAX_SAFE_INTEGER,
+    multicallAddress:
+      config.multicallAddress ?? DEFAULT_MULTICALL3_ADDRESS,
+  });
+
+  const prices: Record<string, ChainlinkPriceObservation> = {};
+  config.feeds.forEach((feed, index) => {
+    const decimalsResult = results[index * 2];
+    const roundDataResult = results[index * 2 + 1];
+    try {
+      if (!decimalsResult) throw new Error("missing decimals result");
+      if (decimalsResult.status === "failure") {
+        throw decimalsResult.error;
+      }
+      if (!roundDataResult) throw new Error("missing round data result");
+      if (roundDataResult.status === "failure") {
+        throw roundDataResult.error;
+      }
+      prices[feed.tokenAddress] = parseChainlinkFeedPrice(
+        decimalsResult.result,
+        roundDataResult.result,
+        feed,
+      );
+    } catch (error) {
+      console.warn(
+        `Failed to fetch Chainlink price for ${feed.tokenAddress} on chain ${chainId}`,
+        error,
+      );
+    }
+  });
+  return prices;
+}
+
 export async function fetchChainlinkTokenPrices(
   chainId: string,
   config: ChainlinkChainConfig,
-  fetchFn: NonNullable<HttpTransportConfig["fetchFn"]> = fetch,
 ): Promise<Record<string, ChainlinkPriceObservation>> {
   const client = createPublicClient({
     transport: fallback(
-      config.rpcUrls.map((rpcUrl) =>
-        http(rpcUrl, {
-          batch: {
-            batchSize: Number.MAX_SAFE_INTEGER,
-            wait: 0,
-          },
-          fetchFn,
-        }),
-      ),
+      config.rpcUrls.map((rpcUrl) => http(rpcUrl)),
     ),
-  }) as unknown as ChainlinkReader;
+  }) as unknown as ChainlinkReader & ChainlinkMulticallReader;
 
   const rpcChainId = await client.getChainId();
   if (BigInt(rpcChainId) !== BigInt(chainId)) {
@@ -240,18 +321,5 @@ export async function fetchChainlinkTokenPrices(
     );
   }
 
-  const prices: Record<string, ChainlinkPriceObservation> = {};
-  await Promise.all(
-    config.feeds.map(async (feed) => {
-      try {
-        prices[feed.tokenAddress] = await readChainlinkFeedPrice(client, feed);
-      } catch (error) {
-        console.warn(
-          `Failed to fetch Chainlink price for ${feed.tokenAddress} on chain ${chainId}`,
-          error,
-        );
-      }
-    }),
-  );
-  return prices;
+  return fetchChainlinkTokenPricesWithMulticall(client, chainId, config);
 }
