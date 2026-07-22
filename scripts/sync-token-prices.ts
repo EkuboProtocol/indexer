@@ -27,6 +27,7 @@ const QUOTE_USD_AMOUNT = 1000n;
 const EKUBO_QUOTER_BASE_URL =
   process.env.EKUBO_QUOTER_URL ?? "https://prod-api-quoter.ekubo.org";
 const COINGECKO_API_BASE_URL = "https://pro-api.coingecko.com/api/v3";
+const PRICE_EXPIRATION_POLL_INTERVAL_MS = 1_000;
 // Although CoinGecko accepts more addresses, large comma-separated batches can
 // exceed the HTTP request-line limit before reaching the API.
 const COINGECKO_MAX_CONTRACT_ADDRESSES = 100;
@@ -86,6 +87,7 @@ interface PriceFetcher {
 
 interface PriceFetcherConfig {
   source: string;
+  confidence: number;
   fetch: PriceFetcher;
 }
 
@@ -435,24 +437,28 @@ const ekuboQuoterPriceFetcher: PriceFetcher = async (sql, chainId) => {
 
 const quoterPriceFetcher: PriceFetcherConfig = {
   source: "qp1",
+  confidence: 3,
   fetch: ekuboQuoterPriceFetcher,
 };
 const oracleV1PriceFetcher: PriceFetcherConfig = {
   source: "ov1",
+  confidence: 0,
   fetch: ekuboUsdOraclePriceFetcher,
 };
 const sushiswapPriceFetcher: PriceFetcherConfig = {
   source: "ss1",
+  confidence: 1,
   fetch: sushiswapApiPriceFetcher,
 };
 const coingeckoV1PriceFetcher: PriceFetcherConfig = {
   source: "cg1",
+  confidence: 2,
   fetch: coingeckoPriceFetcher,
 };
 
 const FETCHER_BY_CHAIN_ID: { [chainId: string]: PriceFetcherConfig[] } = {
   // eth mainnet
-  ["1"]: [sushiswapPriceFetcher, quoterPriceFetcher /*oracleV1PriceFetcher,*/],
+  ["1"]: [quoterPriceFetcher, sushiswapPriceFetcher /*oracleV1PriceFetcher,*/],
   // eth sepolia
   ["11155111"]: [sushiswapPriceFetcher],
   // base
@@ -503,37 +509,65 @@ async function syncTokenPricesForChain(
   sql: Sql<{ bigint: bigint }>,
   chainId: string,
   fetchers: PriceFetcherConfig[],
+  freshnessTimeMs: number,
 ) {
-  await sql.begin(async (sql) => {
-    const priceRows: [
-      chain_id: string,
-      token_address: `0x${string}`,
-      source: string,
-      usd_price: number,
-    ][] = [];
+  const priceRows: [
+    chain_id: string,
+    token_address: `0x${string}`,
+    source: string,
+    usd_price: number,
+  ][] = [];
+  let fetchFailed = false;
 
-    try {
-      const priceSnapshots = await Promise.all(
-        fetchers.map(async (fetcher) => ({
-          source: fetcher.source,
-          prices: await fetcher.fetch(sql, BigInt(chainId)),
-        })),
+  try {
+    // Fetch outside a transaction. Some sources make many rate-limited HTTP
+    // requests, and holding a database connection here can starve expiry work.
+    const priceSnapshots = await Promise.all(
+      fetchers.map(async (fetcher) => ({
+        source: fetcher.source,
+        prices: await fetcher.fetch(sql, BigInt(chainId)),
+      })),
+    );
+
+    for (const snapshot of priceSnapshots) {
+      for (const [tokenAddress, usdPrice] of Object.entries(snapshot.prices)) {
+        priceRows.push([
+          chainId,
+          `0x${BigInt(tokenAddress).toString(16)}`,
+          snapshot.source,
+          usdPrice,
+        ]);
+      }
+    }
+  } catch (e) {
+    fetchFailed = true;
+    console.warn(`Failed to fetch prices for chain ID ${chainId}`, e);
+  }
+
+  await sql.begin(async (sql) => {
+    if (fetchers.length > 0) {
+      const sourceRows = fetchers.map(
+        ({ source, confidence }): [string, number, number] => [
+          source,
+          confidence,
+          freshnessTimeMs,
+        ],
       );
 
-      for (const snapshot of priceSnapshots) {
-        for (const [tokenAddress, usdPrice] of Object.entries(
-          snapshot.prices,
-        )) {
-          priceRows.push([
-            chainId,
-            `0x${BigInt(tokenAddress).toString(16)}`,
-            snapshot.source,
-            usdPrice,
-          ]);
-        }
-      }
-    } catch (e) {
-      console.warn(`Failed to fetch prices for chain ID ${chainId}`, e);
+      await sql`
+        INSERT INTO erc20_token_price_sources (source, confidence, freshness_time)
+        SELECT data.source::char(3),
+               data.confidence::smallint,
+               data.freshness_time_ms::double precision * INTERVAL '1 millisecond'
+        FROM (values ${sql(sourceRows)})
+                 AS data (source, confidence, freshness_time_ms)
+        ON CONFLICT (source) DO UPDATE
+          SET confidence = excluded.confidence,
+              freshness_time = excluded.freshness_time;
+      `;
+    }
+
+    if (fetchFailed) {
       return;
     }
 
@@ -568,11 +602,17 @@ async function main() {
   const runSyncForChain = async (
     chainId: string,
     fetchers: PriceFetcherConfig[],
+    freshnessTimeMs: number,
   ) => {
     const startedAt = Date.now();
 
     try {
-      await syncTokenPricesForChain(sql, chainId, fetchers);
+      await syncTokenPricesForChain(
+        sql,
+        chainId,
+        fetchers,
+        freshnessTimeMs,
+      );
       console.log(
         `Token price sync completed for chain ID ${chainId} in ${Math.round(
           Date.now() - startedAt,
@@ -590,10 +630,13 @@ async function main() {
     scheduler: Bottleneck,
     chainId: string,
     fetchers: PriceFetcherConfig[],
+    freshnessTimeMs: number,
   ) => {
     while (!isShuttingDown) {
       try {
-        await scheduler.schedule(() => runSyncForChain(chainId, fetchers));
+        await scheduler.schedule(() =>
+          runSyncForChain(chainId, fetchers, freshnessTimeMs),
+        );
       } catch (error) {
         if (error instanceof Bottleneck.BottleneckError) {
           break;
@@ -607,6 +650,22 @@ async function main() {
   };
 
   const chainSchedulers: Bottleneck[] = [];
+
+  const runPriceExpirationLoop = async () => {
+    while (!isShuttingDown) {
+      try {
+        await sql`SELECT refresh_expired_erc20_token_latest_prices()`;
+      } catch (error) {
+        if (!isShuttingDown) {
+          console.error("Failed to expire stale token prices", error);
+        }
+      }
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, PRICE_EXPIRATION_POLL_INTERVAL_MS),
+      );
+    }
+  };
 
   const shutdown = async () => {
     if (isShuttingDown) return;
@@ -659,16 +718,25 @@ async function main() {
     );
   }
 
-  await Promise.all(
-    syncJobs.map(({ chainId, fetchers, intervalMs }) => {
+  await Promise.all([
+    ...syncJobs.map(({ chainId, fetchers, intervalMs }) => {
       const scheduler = new Bottleneck({
         maxConcurrent: 1,
         minTime: intervalMs,
       });
       chainSchedulers.push(scheduler);
-      return runSyncLoopForChain(scheduler, chainId, fetchers);
+      // Keep a snapshot valid across two missed runs, with a one-minute floor
+      // for deliberately aggressive development cadences.
+      const freshnessTimeMs = Math.max(intervalMs * 3, 60_000);
+      return runSyncLoopForChain(
+        scheduler,
+        chainId,
+        fetchers,
+        freshnessTimeMs,
+      );
     }),
-  );
+    runPriceExpirationLoop(),
+  ]);
 }
 
 main().catch(async (error) => {
