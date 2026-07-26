@@ -6,6 +6,10 @@ let client: PGlite;
 
 beforeAll(async () => {
   client = await createClient();
+  await client.query(
+    `INSERT INTO erc20_token_price_sources (source, freshness_time, confidence)
+     VALUES ('SRC', INTERVAL '1 hour', 1)`
+  );
 });
 
 afterAll(async () => {
@@ -73,8 +77,8 @@ test("all_pool_states_view computes pool_tvl_usd from latest token prices", asyn
   await client.query(
     `INSERT INTO erc20_tokens_usd_prices (chain_id, token_address, source, "timestamp", value)
      VALUES
-       ($1, $2, 'SRC', '2024-01-01T00:00:00Z', 1.5),
-       ($1, $3, 'SRC', '2024-01-01T00:00:00Z', 2.0)`,
+       ($1, $2, 'SRC', CURRENT_TIMESTAMP, 1.5),
+       ($1, $3, 'SRC', CURRENT_TIMESTAMP, 2.0)`,
     [chainId, token0, token1]
   );
 
@@ -136,7 +140,7 @@ test("all_pool_states_view leaves pool_tvl_usd null when either latest price is 
 
   await client.query(
     `INSERT INTO erc20_tokens_usd_prices (chain_id, token_address, source, "timestamp", value)
-     VALUES ($1, $2, 'SRC', '2024-01-01T00:00:00Z', 4.0)`,
+     VALUES ($1, $2, 'SRC', CURRENT_TIMESTAMP, 4.0)`,
     [chainId, token0]
   );
 

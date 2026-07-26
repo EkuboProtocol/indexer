@@ -65,7 +65,7 @@ docker run --rm ekubo-indexer scripts/sync-tokens.ts
 docker run --rm ekubo-indexer scripts/sync-token-prices.ts
 ```
 
-The token-price entrypoint runs continuously; control its default cadence with `TOKEN_PRICE_SYNC_INTERVAL_MS` (milliseconds, defaults to 60000). CoinGecko contract-token prices for Base, Robinhood, and Arbitrum, plus their native ETH price and Ethereum mainnet's native ETH price, use a separate `COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS` cadence. Set it to a positive number and provide `COINGECKO_API_KEY` to enable CoinGecko syncing; zero or an unset value disables it.
+The token-price entrypoint runs continuously; control its default cadence with `TOKEN_PRICE_SYNC_INTERVAL_MS` (milliseconds, defaults to 60000). CoinGecko contract-token prices for Base, Robinhood, and Arbitrum, plus their native ETH price and Ethereum mainnet's native ETH price, use a separate `COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS` cadence. Set it to a positive number and provide `COINGECKO_API_KEY` to enable CoinGecko syncing; zero or an unset value disables it. Each source remains fresh for three sync intervals (with a one-minute minimum). The latest-price cache prefers quoter prices, then CoinGecko, then SushiSwap, then other configured sources; it averages sources tied at the highest confidence and reconciles expiration once per second.
 
 ## Database migrations
 
@@ -91,6 +91,10 @@ This log records indexer deployments that:
 
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
+
+### 2026-07-22: Freshness-aware prioritized token prices
+
+Token price source policy now lives in `erc20_token_price_sources`, with a bounded `confidence` and a `freshness_time`. The compact `erc20_tokens_latest_price_by_source` cache tracks source expirations, while the physical, primary-keyed `erc20_tokens_latest_price` table stores the fresh maximum-confidence aggregate for fast quoter reads. The price worker reconciles expirations once per second, promoting a lower-confidence source when needed. The high-volume `erc20_tokens_usd_prices` history schema and `all_pool_states_view` definition remain unchanged. Apply migrations before deploying the updated `sync-token-prices` worker. Consumers selecting every column from `erc20_tokens_latest_price` must account for its new `confidence` and `valid_until` columns and the synthetic `AVG` source on tied values; no manual backfill is required.
 
 ### 2026-07-16: Ve33 voted swap fee indexing
 
