@@ -17,8 +17,8 @@ describe("parseEvmRpcUrls", () => {
 
 describe("requireStarknetApibaraUrl", () => {
   it("returns a trimmed value", () => {
-    expect(requireStarknetApibaraUrl(" https://starknet.preview.apibara.org ")).toBe(
-      "https://starknet.preview.apibara.org",
+    expect(requireStarknetApibaraUrl(" https://mainnet.starkstream.io ")).toBe(
+      "https://mainnet.starkstream.io",
     );
   });
 
