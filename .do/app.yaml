@@ -39,9 +39,6 @@ workers:
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
-      - key: APIBARA_URL
-        scope: RUN_TIME
-        value: https://mainnet.starkstream.io
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet
