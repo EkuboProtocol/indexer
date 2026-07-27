@@ -41,8 +41,7 @@ workers:
     envs:
       - key: APIBARA_URL
         scope: RUN_TIME
-        type: SECRET
-        value: ${STARKNET_MAINNET_APIBARA_URL}
+        value: https://mainnet.starkstream.io
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet
