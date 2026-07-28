@@ -9,7 +9,6 @@ TypeScript entrypoints `src/evm.ts` and `src/starknet.ts` orchestrate network-sp
 - `bun run eth:mainnet` / `bun run eth:sepolia`: run the EVM indexer for the selected network; ensure database and RPC env vars are present.
 - `bun run starknet:mainnet` / `bun run starknet:sepolia`: start the Starknet indexer with the same environment requirements.
 - `bun run migrate` (or `bun scripts/migrate.ts`): apply `migrations/` against the configured Postgres instance; the Docker image can run the same command.
-- `bun run sync-tokens`: execute the scheduled token metadata job on demand.
 - `bun run sync-token-prices`: start the long-running price-sync process.
 - `bun test`: run the Bun test suite (backed by in-memory PGlite) to validate migrations and helpers.
 
@@ -27,7 +26,7 @@ Commits follow short, action-oriented summaries (see `git log`, e.g. `increase n
 
 ## Environment & Deployment Tips
 
-`src/config.ts` loads cascading `.env` files: `.env`, `.env.<networkType>`, `.env.<networkType>.<network>`, plus optional `.local` overrides. Keep secrets in untracked `.local` files. Production deployments rely on the Docker image described in `Dockerfile`/`README.md`, the DigitalOcean App spec in `.do/app.yaml`, and nightly Postgres dumps from `.github/workflows/pg-dump.yaml` for rapid restores. Align local env vars with the DO spec, and prefer `bun` commands for any long-running workers or one-off scripts.
+`src/config.ts` loads cascading `.env` files: `.env`, `.env.<networkType>`, `.env.<networkType>.<network>`, plus optional `.local` overrides. Keep secrets in untracked `.local` files. Production deployments rely on the Docker image described in `Dockerfile`/`README.md`, the DigitalOcean App spec in `.do/app.yaml`, and nightly Postgres dumps from `.github/workflows/pg-dump.yaml` for rapid restores. Token metadata is owned and synchronized by the `EkuboProtocol/default-tokens` repository. Align local env vars with the DO spec, and prefer `bun` commands for any long-running workers or one-off scripts.
 
 ## Breaking Change Documentation
 
