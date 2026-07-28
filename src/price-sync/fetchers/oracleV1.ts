@@ -1,10 +1,9 @@
-import type {
-  AddressPriceMap,
-  PriceSyncJob,
-  PriceSyncJobOptions,
-} from "./types";
+import type { Sql } from "postgres";
+import type { PriceSyncJob, PriceSyncJobOptions } from "./types";
+import { toPriceUpdates } from "./utils";
 
 interface OracleV1PriceFetcherOptions extends PriceSyncJobOptions {
+  sql: Sql<{ bigint: bigint }>;
   usdProxyToken: `0x${string}`;
   oracleExtension: `0x${string}`;
   oracleToken: `0x${string}`;
@@ -12,6 +11,7 @@ interface OracleV1PriceFetcherOptions extends PriceSyncJobOptions {
 }
 
 export function oracleV1PriceFetcher({
+  sql,
   chainId,
   intervalMs,
   usdProxyToken,
@@ -23,7 +23,7 @@ export function oracleV1PriceFetcher({
     chainId,
     source: "ov1",
     intervalMs,
-    fetch: async (sql) => {
+    fetch: async function* () {
       const prices = await sql<{ token_address: string; usd_price: string }[]>`
         SELECT token_address, usd_price
         FROM get_oracle_usd_prices(
@@ -35,10 +35,14 @@ export function oracleV1PriceFetcher({
         )
       `;
 
-      return prices.reduce<AddressPriceMap>((result, price) => {
-        result[price.token_address] = Number(price.usd_price);
-        return result;
-      }, {});
+      const updates = toPriceUpdates(
+        chainId,
+        prices.map(
+          ({ token_address, usd_price }) =>
+            [token_address, Number(usd_price)] as const,
+        ),
+      );
+      if (updates.length > 0) yield updates;
     },
   };
 }

@@ -1,9 +1,6 @@
-import { EVM_NATIVE_TOKEN_ALIASES } from "../evmNativeTokenAliases";
-import type {
-  AddressPriceMap,
-  PriceSyncJob,
-  PriceSyncJobOptions,
-} from "./types";
+import { EVM_NATIVE_TOKEN_ALIASES } from "../../_shared/evmNativeTokenAliases";
+import type { PriceSyncJob, PriceSyncJobOptions } from "./types";
+import { toPriceUpdates } from "./utils";
 
 export function sushiswapPriceFetcher({
   chainId,
@@ -13,7 +10,7 @@ export function sushiswapPriceFetcher({
     chainId,
     source: "ss1",
     intervalMs,
-    fetch: async () => {
+    fetch: async function* () {
       const url = `https://api.sushi.com/price/v1/${chainId}`;
       const response = await fetch(url, {
         method: "GET",
@@ -31,7 +28,7 @@ export function sushiswapPriceFetcher({
         );
       }
 
-      const prices = (await response.json()) as AddressPriceMap;
+      const prices = (await response.json()) as Record<string, number>;
 
       for (const [address, price] of Object.entries(prices)) {
         if (EVM_NATIVE_TOKEN_ALIASES.has(BigInt(address))) {
@@ -40,7 +37,8 @@ export function sushiswapPriceFetcher({
         }
       }
 
-      return prices;
+      const updates = toPriceUpdates(chainId, Object.entries(prices));
+      if (updates.length > 0) yield updates;
     },
   };
 }

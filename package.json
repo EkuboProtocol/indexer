@@ -18,7 +18,7 @@
     "starknet:mainnet": "NETWORK=mainnet bun src/starknet.ts",
     "starknet:sepolia": "NETWORK=sepolia bun src/starknet.ts",
     "sync-tokens": "bun scripts/sync-tokens.ts",
-    "sync-token-prices": "bun scripts/sync-token-prices.ts",
+    "sync-token-prices": "bun src/price-sync/index.ts",
     "migrate": "bun scripts/migrate.ts"
   },
   "author": "Moody Salem",
