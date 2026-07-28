@@ -111,7 +111,7 @@ export function createPriceSyncJobs({
       sql,
       chainId: 46630n,
       intervalMs: defaultIntervalMs,
-      address: "0xC93C4Ad185CA48d66FEfe80f906a67ef859fc47d",
+      address: "0x9367e29667db75Cb91788330a8509b3B4ac66c8f",
       decimals: 6,
       quoteAmount: 10n,
     }),
