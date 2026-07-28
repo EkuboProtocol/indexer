@@ -1,487 +1,13 @@
-import { EVM_NATIVE_TOKEN_ALIASES } from "./evmNativeTokenAliases";
 import Bottleneck from "bottleneck";
 import postgres, { type Sql } from "postgres";
 import { loadConfig } from "../src/config";
+import { coingeckoPriceFetcher } from "./fetchers/coingecko";
+import { quoterPriceFetcher } from "./fetchers/ekuboQuoter";
+// import { oracleV1PriceFetcher } from "./fetchers/oracleV1";
+import { sushiswapPriceFetcher } from "./fetchers/sushiswap";
+import type { PriceSyncJob } from "./fetchers/types";
 
 loadConfig();
-
-const sql = postgres(process.env.PG_CONNECTION_STRING!, {
-  connect_timeout: 5,
-  types: { bigint: postgres.BigInt },
-  connection: {
-    application_name: `sync-token-prices.ts`,
-  },
-});
-
-type AddressPriceMap = Record<`0x${string}` | string, number>;
-
-type TokenRow = {
-  token_address: string;
-  token_decimals: number;
-  token_symbol: string;
-};
-
-type TokenAddressRow = Pick<TokenRow, "token_address">;
-
-const QUOTE_USD_AMOUNT = 1000n;
-const EKUBO_QUOTER_BASE_URL =
-  process.env.EKUBO_QUOTER_URL ?? "https://prod-api-quoter.ekubo.org";
-const COINGECKO_API_BASE_URL = "https://pro-api.coingecko.com/api/v3";
-// Although CoinGecko accepts more addresses, large comma-separated batches can
-// exceed the HTTP request-line limit before reaching the API.
-const COINGECKO_MAX_CONTRACT_ADDRESSES = 100;
-
-const COINGECKO_PLATFORM_BY_CHAIN_ID: Record<string, string> = {
-  ["8453"]: "base",
-  ["4663"]: "robinhood",
-  ["42161"]: "arbitrum-one",
-};
-
-const COINGECKO_NATIVE_COIN_BY_CHAIN_ID: Record<string, string> = {
-  ["1"]: "ethereum",
-  ["8453"]: "ethereum",
-  ["4663"]: "ethereum",
-  ["42161"]: "ethereum",
-};
-
-const QUOTE_TOKEN_BY_CHAIN_ID: Record<
-  string,
-  { address: `0x${string}`; decimals: number }
-> = {
-  ["1"]: {
-    address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-    decimals: 6,
-  },
-  ["143"]: {
-    address: "0x754704bc059f8c67012fed69bc8a327a5aafb603",
-    decimals: 6,
-  },
-  // usdg on robinhood chain
-  ["4663"]: {
-    address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
-    decimals: 6,
-  },
-  ["11155111"]: {
-    address: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
-    decimals: 6,
-  },
-  ["23448594291968334"]: {
-    address:
-      "0x033068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
-    decimals: 6,
-  },
-  ["23448594291968335"]: {
-    address:
-      "0x053b40a647cedfca6ca84f542a0fe36736031905a9639a7f19a3c1e66bfd5080",
-    decimals: 6,
-  },
-};
-
-interface PriceFetcher {
-  (
-    sql: Sql<{ bigint: bigint }>,
-    chainId: bigint,
-  ): AddressPriceMap | Promise<AddressPriceMap>;
-}
-
-interface PriceFetcherConfig {
-  source: string;
-  fetch: PriceFetcher;
-}
-
-const sushiswapApiPriceFetcher: PriceFetcher = async (
-  _sql,
-  chainId: bigint,
-) => {
-  const url = `https://api.sushi.com/price/v1/${chainId}`;
-
-  const response = await fetch(url, {
-    method: "GET",
-    credentials: "omit",
-    headers: {
-      Accept: "application/json",
-    },
-    referrer: "https://ekubo.org/",
-  });
-
-  if (!response.ok) {
-    console.error(
-      `Failed to fetch sushiswap prices for chain ${chainId}: ${response.status} ${response.statusText}`,
-    );
-  }
-
-  const result = (await response.json()) as AddressPriceMap;
-
-  for (const [key, value] of Object.entries(result)) {
-    const numericKey = BigInt(key);
-
-    if (EVM_NATIVE_TOKEN_ALIASES.has(numericKey)) {
-      // normalize all known EVM native token aliases to zero address
-      delete result[key];
-      result["0x0"] = value;
-    }
-  }
-
-  return result;
-};
-
-const ekuboUsdOraclePriceFetcher: PriceFetcher = async (sql, chainId) => {
-  let prices: { token_address: string; usd_price: string }[] = [];
-  switch (chainId) {
-    // mainnet
-    case 1n: {
-      prices = await sql`
-        SELECT token_address, usd_price
-        FROM get_oracle_usd_prices(1,
-                                  0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48,
-                                  0x51d02A5948496a67827242EaBc5725531342527C,
-                                  0x0,
-                                  60);
-      `;
-      break;
-    }
-    // sepolia
-    case 11155111n: {
-      prices = await sql`
-        SELECT token_address, usd_price
-        FROM get_oracle_usd_prices(11155111,
-                                  0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238,
-                                  0x51d02A5948496a67827242EaBc5725531342527C,
-                                  0x0,
-                                  60);
-      `;
-      break;
-    }
-    // starknet mainnet
-    case 0x534e5f4d41494en: {
-      prices = await sql`
-        SELECT token_address, usd_price
-        FROM get_oracle_usd_prices(23448594291968334,
-                           0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8,
-                           0x005e470ff654d834983a46b8f29dfa99963d5044b993cb7b9c92243a69dab38f,
-                           0x075afe6402ad5a5c20dd25e10ec3b3986acaa647b77e4ae24b0cbc9a54a27a87,
-                           60);
-      `;
-      break;
-    }
-    // starknet sepolia
-    case 0x534e5f4d41494fn: {
-      prices = await sql`
-        SELECT token_address, usd_price
-        FROM get_oracle_usd_prices(23448594291968335,
-                           0x053b40a647cedfca6ca84f542a0fe36736031905a9639a7f19a3c1e66bfd5080,
-                           0x003ccf3ee24638dd5f1a51ceb783e120695f53893f6fd947cc2dcabb3f86dc65,
-                           0x01fad7c03b2ea7fbef306764e20977f8d4eae6191b3a54e4514cc5fc9d19e569,
-                           60);
-      `;
-      break;
-    }
-    default: {
-      throw new Error(`Unsupported chain ID ${chainId}`);
-    }
-  }
-  return prices.reduce<AddressPriceMap>((memo, value) => {
-    memo[value.token_address] = Number(value.usd_price);
-    return memo;
-  }, {});
-};
-
-type EkuboQuoteResponse = { total_calculated: string; price_impact?: number };
-
-function toHexAddress(address: string): `0x${string}` {
-  return `0x${BigInt(address).toString(16)}`;
-}
-
-function toEvmAddress(address: string): `0x${string}` {
-  return `0x${BigInt(address).toString(16).padStart(40, "0")}`;
-}
-
-function quoteAmountInUnits(decimals: number): bigint {
-  return QUOTE_USD_AMOUNT * 10n ** BigInt(decimals);
-}
-
-const ekuboQuoterFetchLimiter = new Bottleneck({
-  minTime: Math.ceil(
-    60_000 / Number(process.env.MAX_QUOTER_REQUESTS_PER_MINUTE ?? 60),
-  ),
-});
-
-async function fetchTokensWithTvl(
-  sql: Sql<{ bigint: bigint }>,
-  chainId: bigint,
-): Promise<TokenRow[]> {
-  return sql<TokenRow[]>`
-SELECT t.token_address::TEXT, t.token_decimals, t.token_symbol
-FROM erc20_tokens t
-WHERE t.chain_id = ${chainId}
-  AND t.visibility_priority >= 0
-  AND EXISTS (SELECT 1
-              FROM pool_keys pk
-                       JOIN pool_tvl pt USING (pool_key_id)
-              WHERE pk.chain_id = t.chain_id
-                AND (pk.token0 = t.token_address OR pk.token1 = t.token_address)
-                AND (pt.balance0 > 0 OR pt.balance1 > 0))
-  `;
-}
-
-async function fetchTokenAddresses(
-  sql: Sql<{ bigint: bigint }>,
-  chainId: bigint,
-): Promise<`0x${string}`[]> {
-  const tokens = await sql<TokenAddressRow[]>`
-    SELECT token_address::TEXT
-    FROM erc20_tokens
-    WHERE chain_id = ${chainId}
-      AND token_address > 0
-    ORDER BY token_address
-  `;
-
-  return tokens.map(({ token_address }) => toEvmAddress(token_address));
-}
-
-type CoinGeckoTokenPriceResponse = Record<string, { usd?: number }>;
-
-const coingeckoPriceFetcher: PriceFetcher = async (sql, chainId) => {
-  const chainKey = chainId.toString();
-  const platform = COINGECKO_PLATFORM_BY_CHAIN_ID[chainKey];
-  const nativeCoinId = COINGECKO_NATIVE_COIN_BY_CHAIN_ID[chainKey];
-  if (!platform && !nativeCoinId) return {};
-
-  const apiKey = process.env.COINGECKO_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "COINGECKO_API_KEY is required when CoinGecko price syncing is enabled",
-    );
-  }
-
-  const prices: AddressPriceMap = {};
-
-  if (nativeCoinId) {
-    const query = new URLSearchParams({
-      ids: nativeCoinId,
-      vs_currencies: "usd",
-      precision: "full",
-    });
-    const url = `${COINGECKO_API_BASE_URL}/simple/price?${query}`;
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        "x-cg-pro-api-key": apiKey,
-      },
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(
-        `CoinGecko native token request failed for chain ${chainId}: ${response.status} ${response.statusText}: ${body}`,
-      );
-    }
-
-    const result = (await response.json()) as CoinGeckoTokenPriceResponse;
-    const nativeUsdPrice = result[nativeCoinId]?.usd;
-    if (
-      typeof nativeUsdPrice === "number" &&
-      Number.isFinite(nativeUsdPrice) &&
-      nativeUsdPrice > 0
-    ) {
-      prices["0x0"] = nativeUsdPrice;
-    }
-  }
-
-  if (platform) {
-    const addresses = await fetchTokenAddresses(sql, chainId);
-
-    for (
-      let offset = 0;
-      offset < addresses.length;
-      offset += COINGECKO_MAX_CONTRACT_ADDRESSES
-    ) {
-      const batch = addresses.slice(
-        offset,
-        offset + COINGECKO_MAX_CONTRACT_ADDRESSES,
-      );
-      const query = new URLSearchParams({
-        contract_addresses: batch.join(","),
-        vs_currencies: "usd",
-        precision: "full",
-      });
-      const url = `${COINGECKO_API_BASE_URL}/simple/token_price/${platform}?${query}`;
-      const response = await fetch(url, {
-        headers: {
-          Accept: "application/json",
-          "x-cg-pro-api-key": apiKey,
-        },
-      });
-
-      if (!response.ok) {
-        const body = await response.text();
-        throw new Error(
-          `CoinGecko request failed for chain ${chainId}: ${response.status} ${response.statusText}: ${body}`,
-        );
-      }
-
-      const result = (await response.json()) as CoinGeckoTokenPriceResponse;
-      for (const [address, { usd }] of Object.entries(result)) {
-        if (typeof usd === "number" && Number.isFinite(usd) && usd > 0) {
-          prices[address] = usd;
-        }
-      }
-    }
-  }
-
-  return prices;
-};
-
-async function fetchEkuboQuoterPrice({
-  chainId,
-  token,
-  quoteToken,
-  maxImpact = 0.2,
-  baseUrl,
-}: {
-  chainId: bigint;
-  token: TokenRow;
-  quoteToken: { address: `0x${string}`; decimals: number };
-  maxImpact?: number;
-  baseUrl: string;
-}): Promise<number | null> {
-  const amountOut = quoteAmountInUnits(quoteToken.decimals);
-  const url = `${baseUrl}${-amountOut}/${quoteToken.address}/${toHexAddress(
-    token.token_address,
-  )}`;
-
-  try {
-    const response = await ekuboQuoterFetchLimiter.schedule(() =>
-      fetch(url, {
-        method: "GET",
-        credentials: "omit",
-        headers: { Accept: "application/json" },
-        referrer: "https://ekubo.org/",
-      }),
-    );
-
-    if (!response.ok) {
-      const result = await response.text();
-      console.warn(
-        `Quoter request failed for ${token.token_symbol}: ${response.status} (${response.statusText}): ${url}; ${result}`,
-      );
-      return null;
-    }
-
-    const quote = (await response.json()) as EkuboQuoteResponse;
-
-    const priceImpact = Math.max(0, quote.price_impact ?? Infinity);
-
-    if (maxImpact && priceImpact >= maxImpact) {
-      console.warn(
-        `Skipping result for ${token.token_symbol} because price impact ${priceImpact} was g.t.e. max ${maxImpact}: ${url}`,
-      );
-      return null;
-    }
-
-    const tokenAmount =
-      (Number(quote.total_calculated) * -1) /
-      10 ** Number(token.token_decimals);
-
-    const basePrice = Number(QUOTE_USD_AMOUNT) / tokenAmount;
-    const adjustedPrice = basePrice * (1 + priceImpact);
-
-    return adjustedPrice;
-  } catch (error) {
-    console.error(
-      `JS error while quoting price of ${token.token_symbol} on chain ${chainId}`,
-    );
-    return null;
-  }
-}
-
-const ekuboQuoterPriceFetcher: PriceFetcher = async (sql, chainId) => {
-  const chainKey = chainId.toString();
-  const quoteToken = QUOTE_TOKEN_BY_CHAIN_ID[chainKey];
-  if (!quoteToken) return {};
-
-  const tokens = await fetchTokensWithTvl(sql, chainId);
-
-  const result: AddressPriceMap = {};
-
-  console.log(
-    `Fetching quoter prices for chain ID ${chainId} tokens: ${tokens
-      .map((t) => t.token_symbol)
-      .join(", ")}`,
-  );
-
-  await Promise.all(
-    tokens.map(async (token) => {
-      const price = await fetchEkuboQuoterPrice({
-        chainId,
-        token,
-        quoteToken,
-        baseUrl: `${EKUBO_QUOTER_BASE_URL}/${chainId}/`,
-      });
-
-      if (!price) return;
-
-      console.log(
-        `Found price ${price} for ${
-          token.token_symbol
-        } (${chainId}:${toHexAddress(token.token_address)})`,
-      );
-      result[token.token_address] = price;
-    }),
-  );
-
-  return result;
-};
-
-const quoterPriceFetcher: PriceFetcherConfig = {
-  source: "qp1",
-  fetch: ekuboQuoterPriceFetcher,
-};
-const oracleV1PriceFetcher: PriceFetcherConfig = {
-  source: "ov1",
-  fetch: ekuboUsdOraclePriceFetcher,
-};
-const sushiswapPriceFetcher: PriceFetcherConfig = {
-  source: "ss1",
-  fetch: sushiswapApiPriceFetcher,
-};
-const coingeckoV1PriceFetcher: PriceFetcherConfig = {
-  source: "cg1",
-  fetch: coingeckoPriceFetcher,
-};
-
-const FETCHER_BY_CHAIN_ID: { [chainId: string]: PriceFetcherConfig[] } = {
-  // eth mainnet
-  ["1"]: [sushiswapPriceFetcher, quoterPriceFetcher /*oracleV1PriceFetcher,*/],
-  // eth sepolia
-  ["11155111"]: [sushiswapPriceFetcher],
-  // base
-  ["8453"]: [
-    quoterPriceFetcher,
-    /*oracleV1PriceFetcher,*/ sushiswapPriceFetcher,
-  ],
-  ["143"]: [quoterPriceFetcher],
-  ["4663"]: [quoterPriceFetcher],
-  // arbitrum one
-  ["42161"]: [sushiswapPriceFetcher],
-  // arbitrum sepolia
-  ["421614"]: [quoterPriceFetcher],
-  // starknet mainnet
-  ["23448594291968334"]: [quoterPriceFetcher /*,oracleV1PriceFetcher*/],
-  // starknet sepolia
-  ["23448594291968335"]: [],
-};
-
-const COINGECKO_FETCHER_BY_CHAIN_ID: {
-  [chainId: string]: PriceFetcherConfig[];
-} = Object.fromEntries(
-  [
-    ...new Set([
-      ...Object.keys(COINGECKO_PLATFORM_BY_CHAIN_ID),
-      ...Object.keys(COINGECKO_NATIVE_COIN_BY_CHAIN_ID),
-    ]),
-  ].map((chainId) => [chainId, [coingeckoV1PriceFetcher]]),
-);
 
 function readPositiveInterval(name: string, defaultValue: number): number {
   const value = Number(process.env[name] ?? defaultValue);
@@ -499,50 +25,190 @@ function readOptionalIntervalSeconds(name: string): number {
   return value;
 }
 
-async function syncTokenPricesForChain(
+const DEFAULT_PRICE_FETCH_INTERVAL_MS = readPositiveInterval(
+  "TOKEN_PRICE_SYNC_INTERVAL_MS",
+  60_000,
+);
+const COINGECKO_PRICE_FETCH_INTERVAL_MS =
+  readOptionalIntervalSeconds("COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS") *
+  1_000;
+
+const sql = postgres(process.env.PG_CONNECTION_STRING!, {
+  connect_timeout: 5,
+  types: { bigint: postgres.BigInt },
+  connection: {
+    application_name: "sync-token-prices.ts",
+  },
+});
+
+// Each entry is an independent recurring job. An interval of zero disables it.
+const PRICE_SYNC_JOBS: PriceSyncJob[] = [
+  // eth mainnet
+  sushiswapPriceFetcher({
+    chainId: 1n,
+    intervalMs: DEFAULT_PRICE_FETCH_INTERVAL_MS,
+  }),
+  quoterPriceFetcher({
+    chainId: 1n,
+    intervalMs: DEFAULT_PRICE_FETCH_INTERVAL_MS,
+    address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    decimals: 6,
+    quoteAmount: 1000n,
+  }),
+  /*
+  oracleV1PriceFetcher({
+    chainId: 1n,
+    intervalMs: DEFAULT_PRICE_FETCH_INTERVAL_MS,
+    usdProxyToken: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    oracleExtension: "0x51d02A5948496a67827242EaBc5725531342527C",
+    oracleToken: "0x0",
+    twapDurationSeconds: 60,
+  }),
+  */
+  coingeckoPriceFetcher({
+    chainId: 1n,
+    intervalMs: COINGECKO_PRICE_FETCH_INTERVAL_MS,
+    nativeCoinId: "ethereum",
+  }),
+
+  // eth sepolia
+  sushiswapPriceFetcher({
+    chainId: 11155111n,
+    intervalMs: DEFAULT_PRICE_FETCH_INTERVAL_MS,
+  }),
+
+  // base
+  quoterPriceFetcher({
+    chainId: 8453n,
+    intervalMs: DEFAULT_PRICE_FETCH_INTERVAL_MS,
+    address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    decimals: 6,
+    quoteAmount: 1000n,
+  }),
+  sushiswapPriceFetcher({
+    chainId: 8453n,
+    intervalMs: DEFAULT_PRICE_FETCH_INTERVAL_MS,
+  }),
+  coingeckoPriceFetcher({
+    chainId: 8453n,
+    intervalMs: COINGECKO_PRICE_FETCH_INTERVAL_MS,
+    platform: "base",
+    nativeCoinId: "ethereum",
+  }),
+
+  // monad
+  quoterPriceFetcher({
+    chainId: 143n,
+    intervalMs: DEFAULT_PRICE_FETCH_INTERVAL_MS,
+    address: "0x754704bc059f8c67012fed69bc8a327a5aafb603",
+    decimals: 6,
+    quoteAmount: 1000n,
+  }),
+
+  // robinhood
+  quoterPriceFetcher({
+    chainId: 4663n,
+    intervalMs: DEFAULT_PRICE_FETCH_INTERVAL_MS,
+    address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    decimals: 6,
+    quoteAmount: 1000n,
+  }),
+  sushiswapPriceFetcher({
+    chainId: 4663n,
+    intervalMs: DEFAULT_PRICE_FETCH_INTERVAL_MS,
+  }),
+  coingeckoPriceFetcher({
+    chainId: 4663n,
+    intervalMs: COINGECKO_PRICE_FETCH_INTERVAL_MS,
+    platform: "robinhood",
+    nativeCoinId: "ethereum",
+  }),
+
+  // fake robinhood chain
+  quoterPriceFetcher({
+    chainId: 46630n,
+    intervalMs: DEFAULT_PRICE_FETCH_INTERVAL_MS,
+    address: "0xC93C4Ad185CA48d66FEfe80f906a67ef859fc47d",
+    decimals: 6,
+    quoteAmount: 10n,
+  }),
+
+  // arbitrum one
+  sushiswapPriceFetcher({
+    chainId: 42161n,
+    intervalMs: DEFAULT_PRICE_FETCH_INTERVAL_MS,
+  }),
+  coingeckoPriceFetcher({
+    chainId: 42161n,
+    intervalMs: COINGECKO_PRICE_FETCH_INTERVAL_MS,
+    platform: "arbitrum-one",
+    nativeCoinId: "ethereum",
+  }),
+
+  // arbitrum sepolia
+  quoterPriceFetcher({
+    chainId: 421614n,
+    intervalMs: DEFAULT_PRICE_FETCH_INTERVAL_MS,
+    address: "0x75faf114eafb1bdbe2f0316df893fd58ce46aa4d",
+    decimals: 6,
+    quoteAmount: 1000n,
+  }),
+
+  // starknet mainnet
+  quoterPriceFetcher({
+    chainId: 23448594291968334n,
+    intervalMs: DEFAULT_PRICE_FETCH_INTERVAL_MS,
+    address:
+      "0x033068f6539f8e6e6b131e6b2b814e6c34a5224bc66947c47dab9dfee93b35fb",
+    decimals: 6,
+    quoteAmount: 1000n,
+  }),
+  /*
+  oracleV1PriceFetcher({
+    chainId: 23448594291968334n,
+    intervalMs: DEFAULT_PRICE_FETCH_INTERVAL_MS,
+    usdProxyToken:
+      "0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8",
+    oracleExtension:
+      "0x005e470ff654d834983a46b8f29dfa99963d5044b993cb7b9c92243a69dab38f",
+    oracleToken:
+      "0x075afe6402ad5a5c20dd25e10ec3b3986acaa647b77e4ae24b0cbc9a54a27a87",
+    twapDurationSeconds: 60,
+  }),
+  */
+];
+
+async function syncTokenPrices(
   sql: Sql<{ bigint: bigint }>,
-  chainId: string,
-  fetchers: PriceFetcherConfig[],
+  job: PriceSyncJob,
 ) {
+  const chainId = job.chainId.toString();
+  const prices = await job.fetch(sql);
+  const priceRows: [
+    chain_id: string,
+    token_address: `0x${string}`,
+    source: string,
+    usd_price: number,
+  ][] = [];
+
+  for (const [tokenAddress, usdPrice] of Object.entries(prices)) {
+    priceRows.push([
+      chainId,
+      `0x${BigInt(tokenAddress).toString(16)}`,
+      job.source,
+      usdPrice,
+    ]);
+  }
+
+  if (priceRows.length === 0) {
+    console.log(
+      `No ${job.source} token prices to insert for chain ID ${chainId}`,
+    );
+    return;
+  }
+
+  let total = 0;
   await sql.begin(async (sql) => {
-    const priceRows: [
-      chain_id: string,
-      token_address: `0x${string}`,
-      source: string,
-      usd_price: number,
-    ][] = [];
-
-    try {
-      const priceSnapshots = await Promise.all(
-        fetchers.map(async (fetcher) => ({
-          source: fetcher.source,
-          prices: await fetcher.fetch(sql, BigInt(chainId)),
-        })),
-      );
-
-      for (const snapshot of priceSnapshots) {
-        for (const [tokenAddress, usdPrice] of Object.entries(
-          snapshot.prices,
-        )) {
-          priceRows.push([
-            chainId,
-            `0x${BigInt(tokenAddress).toString(16)}`,
-            snapshot.source,
-            usdPrice,
-          ]);
-        }
-      }
-    } catch (e) {
-      console.warn(`Failed to fetch prices for chain ID ${chainId}`, e);
-      return;
-    }
-
-    if (priceRows.length === 0) {
-      console.log(`No token prices to insert for chain ID ${chainId}`);
-      return;
-    }
-
-    let total: number = 0;
     for (let i = 0; i < priceRows.length; i += 1000) {
       const { count } = await sql`
         INSERT INTO erc20_tokens_usd_prices (chain_id, token_address, source, value)
@@ -559,63 +225,62 @@ async function syncTokenPricesForChain(
       `;
       total += count;
     }
-
-    console.log(`Inserted ${total} token price rows for chain ID ${chainId}`);
   });
+
+  console.log(
+    `Inserted ${total} ${job.source} token price rows for chain ID ${chainId}`,
+  );
 }
 
 async function main() {
-  const runSyncForChain = async (
-    chainId: string,
-    fetchers: PriceFetcherConfig[],
-  ) => {
+  const runSyncJob = async (job: PriceSyncJob) => {
     const startedAt = Date.now();
 
     try {
-      await syncTokenPricesForChain(sql, chainId, fetchers);
+      await syncTokenPrices(sql, job);
       console.log(
-        `Token price sync completed for chain ID ${chainId} in ${Math.round(
-          Date.now() - startedAt,
-        )} ms`,
+        `${job.source} token price sync completed for chain ID ${
+          job.chainId
+        } in ${Math.round(Date.now() - startedAt)} ms`,
       );
     } catch (error) {
-      console.error(`Token price sync failed for chain ID ${chainId}`, error);
-      process.exit(1);
+      console.error(
+        `${job.source} token price sync failed for chain ID ${job.chainId}`,
+        error,
+      );
     }
   };
 
   let isShuttingDown = false;
 
-  const runSyncLoopForChain = async (
-    scheduler: Bottleneck,
-    chainId: string,
-    fetchers: PriceFetcherConfig[],
-  ) => {
+  const runSyncLoop = async (scheduler: Bottleneck, job: PriceSyncJob) => {
     while (!isShuttingDown) {
       try {
-        await scheduler.schedule(() => runSyncForChain(chainId, fetchers));
+        await scheduler.schedule(() => runSyncJob(job));
       } catch (error) {
         if (error instanceof Bottleneck.BottleneckError) {
           break;
         }
         console.error(
-          `Token price sync loop failed for chain ID ${chainId}`,
+          `${job.source} token price sync loop failed for chain ID ${job.chainId}`,
           error,
         );
       }
     }
   };
 
-  const chainSchedulers: Bottleneck[] = [];
+  const jobSchedulers: Bottleneck[] = [];
 
   const shutdown = async () => {
     if (isShuttingDown) return;
     isShuttingDown = true;
+
     try {
       await Promise.all(
-        chainSchedulers.map((l) => l.stop({ dropWaitingJobs: true })),
+        jobSchedulers.map((scheduler) =>
+          scheduler.stop({ dropWaitingJobs: true }),
+        ),
       );
-      // then shutdown the sql connection
       await sql.end({ timeout: 0 });
     } catch (error) {
       console.warn("Failed to shut down cleanly", error);
@@ -627,46 +292,41 @@ async function main() {
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 
-  const defaultIntervalMs = readPositiveInterval(
-    "TOKEN_PRICE_SYNC_INTERVAL_MS",
-    60_000,
-  );
-  const coingeckoIntervalSeconds = readOptionalIntervalSeconds(
-    "COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS",
-  );
+  const activeJobs = PRICE_SYNC_JOBS.filter((job) => {
+    if (
+      !Number.isFinite(job.intervalMs) ||
+      !Number.isInteger(job.intervalMs) ||
+      job.intervalMs < 0
+    ) {
+      throw new Error(
+        `${job.source} interval for chain ID ${job.chainId} must be a non-negative integer`,
+      );
+    }
 
-  const syncJobs = Object.entries(FETCHER_BY_CHAIN_ID).map(
-    ([chainId, fetchers]) => ({
-      chainId,
-      fetchers,
-      intervalMs: defaultIntervalMs,
-    }),
-  );
+    if (job.intervalMs === 0) {
+      console.log(
+        `${job.source} token price syncing is disabled for chain ID ${job.chainId}`,
+      );
+      return false;
+    }
 
-  if (coingeckoIntervalSeconds > 0) {
-    syncJobs.push(
-      ...Object.entries(COINGECKO_FETCHER_BY_CHAIN_ID).map(
-        ([chainId, fetchers]) => ({
-          chainId,
-          fetchers,
-          intervalMs: coingeckoIntervalSeconds * 1_000,
-        }),
-      ),
-    );
-  } else {
-    console.log(
-      "CoinGecko price syncing is disabled because COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS is 0",
-    );
+    return true;
+  });
+
+  if (activeJobs.length === 0) {
+    console.log("No token price sync jobs are enabled");
+    await sql.end({ timeout: 0 });
+    return;
   }
 
   await Promise.all(
-    syncJobs.map(({ chainId, fetchers, intervalMs }) => {
+    activeJobs.map((job) => {
       const scheduler = new Bottleneck({
         maxConcurrent: 1,
-        minTime: intervalMs,
+        minTime: job.intervalMs,
       });
-      chainSchedulers.push(scheduler);
-      return runSyncLoopForChain(scheduler, chainId, fetchers);
+      jobSchedulers.push(scheduler);
+      return runSyncLoop(scheduler, job);
     }),
   );
 }
