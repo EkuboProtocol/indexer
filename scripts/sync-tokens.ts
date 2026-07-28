@@ -1,4 +1,4 @@
-import { EVM_NATIVE_TOKEN_ALIASES } from "./evmNativeTokenAliases";
+import { EVM_NATIVE_TOKEN_ALIASES } from "../src/_shared/evmNativeTokenAliases";
 import postgres, { type Sql } from "postgres";
 import { loadConfig } from "../src/config";
 

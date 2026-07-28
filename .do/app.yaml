@@ -148,7 +148,7 @@ workers:
       - key: COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS
         scope: RUN_TIME
         value: "300"
-    run_command: bun scripts/sync-token-prices.ts
+    run_command: bun src/price-sync/index.ts
 jobs:
   - name: run-migrations
     kind: PRE_DEPLOY

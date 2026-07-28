@@ -1,9 +1,6 @@
 import type { Sql } from "postgres";
-import type {
-  AddressPriceMap,
-  PriceSyncJob,
-  PriceSyncJobOptions,
-} from "./types";
+import type { PriceSyncJob, PriceSyncJobOptions } from "./types";
+import { toPriceUpdates } from "./utils";
 
 const COINGECKO_API_BASE_URL = "https://pro-api.coingecko.com/api/v3";
 // Although CoinGecko accepts more addresses, large comma-separated batches can
@@ -14,6 +11,7 @@ type CoinGeckoTokenPriceResponse = Record<string, { usd?: number }>;
 type TokenAddressRow = { token_address: string };
 
 interface CoinGeckoPriceFetcherOptions extends PriceSyncJobOptions {
+  sql: Sql<{ bigint: bigint }>;
   platform?: string;
   nativeCoinId?: string;
 }
@@ -64,6 +62,7 @@ async function fetchCoinGecko<T>({
 }
 
 export function coingeckoPriceFetcher({
+  sql,
   chainId,
   intervalMs,
   platform,
@@ -73,15 +72,13 @@ export function coingeckoPriceFetcher({
     chainId,
     source: "cg1",
     intervalMs,
-    fetch: async (sql) => {
+    fetch: async function* () {
       const apiKey = process.env.COINGECKO_API_KEY;
       if (!apiKey) {
         throw new Error(
           "COINGECKO_API_KEY is required when CoinGecko price syncing is enabled",
         );
       }
-
-      const prices: AddressPriceMap = {};
 
       if (nativeCoinId) {
         const query = new URLSearchParams({
@@ -101,7 +98,7 @@ export function coingeckoPriceFetcher({
           Number.isFinite(nativeUsdPrice) &&
           nativeUsdPrice > 0
         ) {
-          prices["0x0"] = nativeUsdPrice;
+          yield toPriceUpdates(chainId, [["0x0", nativeUsdPrice]]);
         }
       }
 
@@ -127,16 +124,18 @@ export function coingeckoPriceFetcher({
             apiKey,
             context: `token prices for chain ${chainId}`,
           });
+          const prices: [tokenAddress: string, usdPrice: number][] = [];
 
           for (const [address, { usd }] of Object.entries(result)) {
             if (typeof usd === "number" && Number.isFinite(usd) && usd > 0) {
-              prices[address] = usd;
+              prices.push([address, usd]);
             }
           }
+
+          const updates = toPriceUpdates(chainId, prices);
+          if (updates.length > 0) yield updates;
         }
       }
-
-      return prices;
     },
   };
 }

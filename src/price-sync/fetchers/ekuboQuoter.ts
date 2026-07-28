@@ -1,10 +1,7 @@
 import Bottleneck from "bottleneck";
 import type { Sql } from "postgres";
-import type {
-  AddressPriceMap,
-  PriceSyncJob,
-  PriceSyncJobOptions,
-} from "./types";
+import type { PriceSyncJob, PriceSyncJobOptions } from "./types";
+import { toPriceUpdates } from "./utils";
 
 type TokenRow = {
   token_address: string;
@@ -18,6 +15,7 @@ type EkuboQuoteResponse = {
 };
 
 interface QuoterPriceFetcherOptions extends PriceSyncJobOptions {
+  sql: Sql<{ bigint: bigint }>;
   address: `0x${string}`;
   decimals: number;
   quoteAmount: bigint;
@@ -140,6 +138,7 @@ async function fetchEkuboQuoterPrice({
 }
 
 export function quoterPriceFetcher({
+  sql,
   chainId,
   intervalMs,
   address,
@@ -154,9 +153,8 @@ export function quoterPriceFetcher({
     chainId,
     source: "qp1",
     intervalMs,
-    fetch: async (sql) => {
+    fetch: async function* () {
       const tokens = await fetchTokensWithTvl(sql, chainId);
-      const prices: AddressPriceMap = {};
 
       console.log(
         `Fetching quoter prices for chain ID ${chainId} tokens: ${tokens
@@ -164,29 +162,35 @@ export function quoterPriceFetcher({
           .join(", ")}`,
       );
 
-      await Promise.all(
-        tokens.map(async (token) => {
-          const price = await fetchEkuboQuoterPrice({
-            chainId,
-            token,
-            address,
-            decimals,
-            quoteAmount,
-            baseUrl: `${quoterBaseUrl}/${chainId}/`,
-          });
+      const prices = (
+        await Promise.all(
+          tokens.map(async (token) => {
+            const price = await fetchEkuboQuoterPrice({
+              chainId,
+              token,
+              address,
+              decimals,
+              quoteAmount,
+              baseUrl: `${quoterBaseUrl}/${chainId}/`,
+            });
 
-          if (!price) return;
+            if (!price) return null;
 
-          console.log(
-            `Found price ${price} for ${
-              token.token_symbol
-            } (${chainId}:${toHexAddress(token.token_address)})`,
-          );
-          prices[token.token_address] = price;
-        }),
+            console.log(
+              `Found price ${price} for ${
+                token.token_symbol
+              } (${chainId}:${toHexAddress(token.token_address)})`,
+            );
+            return [token.token_address, price] as const;
+          }),
+        )
+      ).filter(
+        (price): price is readonly [tokenAddress: string, usdPrice: number] =>
+          price !== null,
       );
 
-      return prices;
+      const updates = toPriceUpdates(chainId, prices);
+      if (updates.length > 0) yield updates;
     },
   };
 }

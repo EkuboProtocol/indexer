@@ -1,9 +1,12 @@
-import type { Sql } from "postgres";
-
-export type AddressPriceMap = Record<string, number>;
+export interface PriceUpdate {
+  readonly chainId: bigint;
+  readonly tokenAddress: `0x${string}`;
+  readonly timestamp: Date;
+  readonly usdPrice: number;
+}
 
 export interface PriceFetcher {
-  (sql: Sql<{ bigint: bigint }>): AddressPriceMap | Promise<AddressPriceMap>;
+  (): AsyncIterable<readonly PriceUpdate[]>;
 }
 
 export interface PriceSyncJob {

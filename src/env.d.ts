@@ -13,6 +13,8 @@ interface CommonConfiguration {
   TOKEN_PRICE_SYNC_INTERVAL_MS?: string; // Interval for the token price worker (milliseconds)
   COINGECKO_API_KEY?: string;
   COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS?: string; // Zero or unset disables CoinGecko price syncing
+  EKUBO_QUOTER_URL?: string;
+  MAX_QUOTER_REQUESTS_PER_MINUTE?: string;
 }
 
 interface EvmConfig extends CommonConfiguration {

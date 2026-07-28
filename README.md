@@ -62,10 +62,10 @@ Match the examples in `.do/app.yaml` to run other helpers, e.g.:
 
 ```bash
 docker run --rm ekubo-indexer scripts/sync-tokens.ts
-docker run --rm ekubo-indexer scripts/sync-token-prices.ts
+docker run --rm ekubo-indexer src/price-sync/index.ts
 ```
 
-The token-price entrypoint runs continuously; control its default cadence with `TOKEN_PRICE_SYNC_INTERVAL_MS` (milliseconds, defaults to 60000). CoinGecko contract-token prices for Base, Robinhood, and Arbitrum, plus their native ETH price and Ethereum mainnet's native ETH price, use a separate `COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS` cadence. Set it to a positive number and provide `COINGECKO_API_KEY` to enable CoinGecko syncing; zero or an unset value disables it.
+The price-sync process runs every configured chain/source pair as an independent recurring job. A job is uniquely identified by its chain ID and three-character source identifier; startup fails if that pair is configured twice. `TOKEN_PRICE_SYNC_INTERVAL_MS` controls the default cadence in milliseconds (default: `60000`). CoinGecko jobs use `COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS`; set it to a positive number and provide `COINGECKO_API_KEY` to enable them. Zero or an unset value disables those jobs.
 
 ## Database migrations
 
@@ -81,7 +81,7 @@ The DigitalOcean Apps spec in `.do/app.yaml` documents the full production stack
 
 - Workers for each network (e.g.: `starknet-sepolia`, `starknet-mainnet`, `eth-sepolia`, `eth-mainnet`) that run the corresponding network entrypoint (`bun src/starknet.ts` or `bun src/evm.ts`) with the appropriate `NETWORK` value, pulling the published Docker image (`ghcr.io/ekuboprotocol/indexer:${IMAGE_TAG}`).
 - Managed Postgres (`indexer-db-nyc1`) wired in via the `PG_CONNECTION_STRING` env var along with secrets such as `DNA_TOKEN`.
-- A `run-migrations` pre-deploy job, a scheduled `scripts/sync-tokens.ts` job, and a long-running `scripts/sync-token-prices.ts` worker that loops on `TOKEN_PRICE_SYNC_INTERVAL_MS` (ms, defaults to 60000), with an independently configured CoinGecko cadence for Base, Robinhood, and Arbitrum.
+- A `run-migrations` pre-deploy job, a scheduled `scripts/sync-tokens.ts` job, and the long-running `src/price-sync/index.ts` process. Each price source/chain job has an independent timer, with a separately configured CoinGecko cadence.
 
 Use this file as a base to recreate the stack in a new DigitalOcean App Platform project or as a reference for configuring similar infrastructure elsewhere.
 
