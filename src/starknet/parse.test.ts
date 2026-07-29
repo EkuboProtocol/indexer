@@ -1,4 +1,4 @@
-import { parsePoolKey } from "./core";
+import { parsePoolKey, parseSavedBalanceEvent } from "./core";
 import { describe, expect, it } from "bun:test";
 import { parseByteArray, parseUint8Array } from "./parse";
 
@@ -36,6 +36,23 @@ describe("parse", () => {
           fee: 0x2n,
           tick_spacing: 0x3n,
           extension: 4n,
+        },
+      });
+    });
+  });
+
+  describe("parseSavedBalanceEvent", () => {
+    it("parses the saved balance key and amount", () => {
+      expect(
+        parseSavedBalanceEvent(
+          ["0x123", "0x456", "0x789", "0xabc"],
+          0
+        )
+      ).toEqual({
+        next: 4,
+        value: {
+          key: { owner: 0x123n, token: 0x456n, salt: 0x789n },
+          amount: 0xabcn,
         },
       });
     });
