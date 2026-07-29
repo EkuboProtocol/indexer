@@ -17,7 +17,6 @@
     "eth:sepolia": "NETWORK=sepolia bun src/evm.ts",
     "starknet:mainnet": "NETWORK=mainnet bun src/starknet.ts",
     "starknet:sepolia": "NETWORK=sepolia bun src/starknet.ts",
-    "sync-tokens": "bun scripts/sync-tokens.ts",
     "sync-token-prices": "bun src/price-sync/index.ts",
     "migrate": "bun scripts/migrate.ts"
   },

@@ -52,7 +52,7 @@ docker run --rm \
 
 ### Running scripts from the Docker image
 
-Override the command to reuse the same image for auxiliary scripts (migrations, token sync, etc.). The default entrypoint is already `bun`, so point it to the desired TypeScript file:
+Override the command to reuse the same image for auxiliary scripts such as migrations. The default entrypoint is already `bun`, so point it to the desired TypeScript file:
 
 ```bash
 docker run --rm ekubo-indexer scripts/migrate.ts
@@ -61,9 +61,12 @@ docker run --rm ekubo-indexer scripts/migrate.ts
 Match the examples in `.do/app.yaml` to run other helpers, e.g.:
 
 ```bash
-docker run --rm ekubo-indexer scripts/sync-tokens.ts
 docker run --rm ekubo-indexer src/price-sync/index.ts
 ```
+
+Token metadata generation and database synchronization are owned by the
+[`EkuboProtocol/default-tokens`](https://github.com/EkuboProtocol/default-tokens)
+repository. The indexer image does not fetch or write token metadata.
 
 The price-sync process runs every configured chain/source pair as an independent recurring job. A job is uniquely identified by its chain ID and three-character source identifier; startup fails if that pair is configured twice. `TOKEN_PRICE_SYNC_INTERVAL_MS` controls the default cadence in milliseconds (default: `60000`). CoinGecko jobs use `COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS`; set it to a positive number and provide `COINGECKO_API_KEY` to enable them. Zero or an unset value disables those jobs.
 
@@ -81,7 +84,7 @@ The DigitalOcean Apps spec in `.do/app.yaml` documents the full production stack
 
 - Workers for each network (e.g.: `starknet-sepolia`, `starknet-mainnet`, `eth-sepolia`, `eth-mainnet`) that run the corresponding network entrypoint (`bun src/starknet.ts` or `bun src/evm.ts`) with the appropriate `NETWORK` value, pulling the published Docker image (`ghcr.io/ekuboprotocol/indexer:${IMAGE_TAG}`).
 - Managed Postgres (`indexer-db-nyc1`) wired in via the `PG_CONNECTION_STRING` env var along with secrets such as `DNA_TOKEN`.
-- A `run-migrations` pre-deploy job, a scheduled `scripts/sync-tokens.ts` job, and the long-running `src/price-sync/index.ts` process. Each price source/chain job has an independent timer, with a separately configured CoinGecko cadence.
+- A `run-migrations` pre-deploy job and the long-running `src/price-sync/index.ts` process. Each price source/chain job has an independent timer, with a separately configured CoinGecko cadence.
 
 Use this file as a base to recreate the stack in a new DigitalOcean App Platform project or as a reference for configuring similar infrastructure elsewhere.
 
@@ -91,6 +94,15 @@ This log records indexer deployments that:
 
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
+
+### 2026-07-28: Token metadata automation moved to `default-tokens`
+
+The DigitalOcean `sync-tokens` scheduled job and `scripts/sync-tokens.ts` were
+removed. Before deploying this indexer version, configure the
+`EkuboProtocol/default-tokens` update and database-sync workflow secrets, run
+the token-list update once, and run the separate database sync once. Future
+token sources, generated metadata, provenance, bridge mappings, and hosted
+logos are audited in that repository.
 
 ### 2026-07-16: Ve33 voted swap fee indexing
 
