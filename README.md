@@ -100,8 +100,10 @@ This log records indexer deployments that:
 EVM V3 `PoolFeesAccounted` events now contribute to
 `hourly_volume_by_token.fees`, which feeds the API's fee totals and APRs. The
 migration backfills existing Ve33 fee events and keeps the hourly aggregates
-correct when events are inserted or removed during a reorg. Apply migrations
-before deploying the updated EVM indexer; no manual backfill is required.
+correct when events are inserted or removed during a reorg. These events now
+require a `pool_key_id`, so an unresolved pool fails indexing instead of being
+silently omitted from fee stats. Apply migrations before deploying the updated
+EVM indexer; no manual backfill is expected.
 
 ### 2026-07-28: Token metadata automation moved to `default-tokens`
 

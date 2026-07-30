@@ -11,6 +11,7 @@ const MIGRATION_FILES = [
   "00002_core_tables",
   "00104_ve33_events",
   "00107_ve33_vote_weight_applied_voted_swap_fee",
+  "00109_require_ve33_pool_fees_pool_key",
 ] as const;
 
 let client: PGlite;
@@ -59,7 +60,7 @@ async function seedPoolKey(chainId: number) {
   return poolKeyId.toString();
 }
 
-test("ve33 event tables can reference known pools or keep raw pool ids", async () => {
+test("ve33 pool fee events require a known pool key", async () => {
   const chainId = 11155111;
   const blockNumber = 1;
   await seedBlock(chainId, blockNumber);
@@ -115,11 +116,22 @@ test("ve33 event tables can reference known pools or keep raw pool ids", async (
         amount0,
         amount1
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-    [chainId, blockNumber, 0, 1, "9001", "6000", null, "9999", "5", "6"],
+    [
+      chainId,
+      blockNumber,
+      0,
+      1,
+      "9001",
+      "6000",
+      poolKeyId,
+      "2000",
+      "5",
+      "0",
+    ],
   );
 
   const { rows } = await client.query<{
-    pool_key_id: string | null;
+    pool_key_id: string;
     pool_id: string;
   }>(
     `SELECT pool_key_id, pool_id
@@ -128,7 +140,27 @@ test("ve33 event tables can reference known pools or keep raw pool ids", async (
     [chainId],
   );
 
-  expect(rows).toEqual([{ pool_key_id: null, pool_id: "9999" }]);
+  expect(
+    rows.map((row) => ({ ...row, pool_key_id: String(row.pool_key_id) })),
+  ).toEqual([{ pool_key_id: poolKeyId, pool_id: "2000" }]);
+
+  await expect(
+    client.query(
+      `INSERT INTO ve33_pool_fees_accounted (
+          chain_id,
+          block_number,
+          transaction_index,
+          event_index,
+          transaction_hash,
+          emitter,
+          pool_key_id,
+          pool_id,
+          amount0,
+          amount1
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [chainId, blockNumber, 0, 2, "9002", "6000", null, "9999", "6", "0"],
+    ),
+  ).rejects.toThrow();
 
   const { rows: voteRows } = await client.query<{
     pool_key_id: string;
