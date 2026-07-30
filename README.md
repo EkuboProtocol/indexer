@@ -95,6 +95,14 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-07-30: Ve33 fees included in hourly pool stats
+
+EVM V3 `PoolFeesAccounted` events now contribute to
+`hourly_volume_by_token.fees`, which feeds the API's fee totals and APRs. The
+migration backfills existing Ve33 fee events and keeps the hourly aggregates
+correct when events are inserted or removed during a reorg. Apply migrations
+before deploying the updated EVM indexer; no manual backfill is required.
+
 ### 2026-07-28: Token metadata automation moved to `default-tokens`
 
 The DigitalOcean `sync-tokens` scheduled job and `scripts/sync-tokens.ts` were
