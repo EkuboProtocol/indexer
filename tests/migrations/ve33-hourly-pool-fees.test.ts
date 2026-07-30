@@ -126,7 +126,10 @@ test("ve33 fees are backfilled and kept reorg-safe in hourly pool stats", async 
     );
 
     await runMigrations(client, {
-      files: ["00108_ve33_hourly_pool_fees"],
+      files: [
+        "00108_ve33_hourly_pool_fees",
+        "00109_require_ve33_pool_fees_pool_key",
+      ],
     });
 
     const { rows: backfilledRows } = await client.query<{
@@ -208,32 +211,34 @@ test("ve33 fees are backfilled and kept reorg-safe in hourly pool stats", async 
       { volume0_24h: "100", fees0_24h: "5", fees1_24h: "7" },
     ]);
 
-    await client.query(
-      `INSERT INTO ve33_pool_fees_accounted (
-          chain_id,
-          block_number,
-          transaction_index,
-          event_index,
-          transaction_hash,
-          emitter,
-          pool_key_id,
-          pool_id,
-          amount0,
-          amount1
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-      [
-        chainId,
-        blockNumber,
-        0,
-        3,
-        "6003",
-        "5000",
-        null,
-        "9999",
-        "11",
-        "0",
-      ],
-    );
+    await expect(
+      client.query(
+        `INSERT INTO ve33_pool_fees_accounted (
+            chain_id,
+            block_number,
+            transaction_index,
+            event_index,
+            transaction_hash,
+            emitter,
+            pool_key_id,
+            pool_id,
+            amount0,
+            amount1
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [
+          chainId,
+          blockNumber,
+          0,
+          3,
+          "6003",
+          "5000",
+          null,
+          "9999",
+          "11",
+          "0",
+        ],
+      ),
+    ).rejects.toThrow();
 
     await client.query(
       `DELETE FROM ve33_pool_fees_accounted
