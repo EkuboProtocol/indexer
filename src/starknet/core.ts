@@ -2,6 +2,7 @@ import {
   combineParsers,
   parseAddress,
   parseBoolean,
+  parseFelt252,
   parseI129,
   parseU128,
   parseU256,
@@ -95,6 +96,19 @@ export const parseProtocolFeesPaidEvent = combineParsers({
 });
 export type ProtocolFeesPaidEvent = GetParserType<
   typeof parseProtocolFeesPaidEvent
+>;
+
+export const parseSavedBalanceKey = combineParsers({
+  owner: { index: 0, parser: parseAddress },
+  token: { index: 1, parser: parseAddress },
+  salt: { index: 2, parser: parseFelt252 },
+});
+export const parseSavedBalanceEvent = combineParsers({
+  key: { index: 0, parser: parseSavedBalanceKey },
+  amount: { index: 1, parser: parseU128 },
+});
+export type SavedBalanceEvent = GetParserType<
+  typeof parseSavedBalanceEvent
 >;
 
 export const parseFeesAccumulatedEvent = combineParsers({

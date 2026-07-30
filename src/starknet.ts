@@ -58,6 +58,7 @@ export function createStarknetEntrypoint(): NetworkEntrypoint<StarknetBlock> {
   const starknetAddressConfig = loadHexAddresses({
     nftAddress: "NFT_ADDRESS",
     coreAddress: "CORE_ADDRESS",
+    positionsAddress: "POSITIONS_ADDRESS",
     tokenRegistryAddress: "TOKEN_REGISTRY_ADDRESS",
     tokenRegistryV2Address: "TOKEN_REGISTRY_V2_ADDRESS",
     tokenRegistryV3Address: "TOKEN_REGISTRY_V3_ADDRESS",

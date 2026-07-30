@@ -51,6 +51,7 @@ interface StarknetConfig extends CommonConfiguration {
   APIBARA_URL: string;
 
   CORE_ADDRESS: `0x${string}`;
+  POSITIONS_ADDRESS: `0x${string}`;
   NFT_ADDRESS: `0x${string}`;
   TWAMM_ADDRESS: `0x${string}`;
   STAKER_ADDRESS: `0x${string}`;

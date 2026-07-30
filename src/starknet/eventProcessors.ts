@@ -8,6 +8,7 @@ import {
   parsePositionUpdatedEvent,
   parseProtocolFeesPaidEvent,
   parseProtocolFeesWithdrawnEvent,
+  parseSavedBalanceEvent,
   parseSwappedEvent,
 } from "./core";
 import type {
@@ -18,6 +19,7 @@ import type {
   PositionUpdatedEvent,
   ProtocolFeesPaidEvent,
   ProtocolFeesWithdrawnEvent,
+  SavedBalanceEvent,
   SwappedEvent,
 } from "./core";
 import {
@@ -88,6 +90,7 @@ export interface StarknetEventProcessor<T> {
 export interface StarknetEventProcessorConfig {
   nftAddress: `0x${string}`;
   coreAddress: `0x${string}`;
+  positionsAddress: `0x${string}`;
   tokenRegistryAddress: `0x${string}`;
   tokenRegistryV2Address: `0x${string}`;
   tokenRegistryV3Address: `0x${string}`;
@@ -102,6 +105,7 @@ export interface StarknetEventProcessorConfig {
 const STARKNET_POOL_FEE_DENOMINATOR = 1n << 128n;
 const LIMIT_ORDER_TICK_SPACING = 128n;
 const MAX_TICK_SPACING = 354892n;
+const PROTOCOL_FEES_SALT = 0x50524f544f434f4c5f46454553n;
 
 function poolKeyToPoolId(pool_key: PoolKey): `0x${string}` {
   return `0x${computeKeyHash(pool_key).toString(16)}`;
@@ -110,6 +114,7 @@ function poolKeyToPoolId(pool_key: PoolKey): `0x${string}` {
 export function createEventProcessors({
   nftAddress,
   coreAddress,
+  positionsAddress,
   tokenRegistryAddress,
   tokenRegistryV2Address,
   tokenRegistryV3Address,
@@ -120,6 +125,14 @@ export function createEventProcessors({
   limitOrdersAddress,
   splineLiquidityProviderAddress,
 }: StarknetEventProcessorConfig): readonly StarknetEventProcessor<any>[] {
+  let pendingPositionFeesCollected:
+    | {
+        blockNumber: number;
+        transactionIndex: number;
+        event: PositionFeesCollectedEvent;
+      }
+    | undefined;
+
   return [
     <StarknetEventProcessor<TransferEvent>>{
       filter: {
@@ -200,6 +213,12 @@ export function createEventProcessors({
           },
           key
         );
+
+        pendingPositionFeesCollected = {
+          blockNumber: key.blockNumber,
+          transactionIndex: key.transactionIndex,
+          event: parsed,
+        };
       },
     },
     <StarknetEventProcessor<SwappedEvent>>{
@@ -299,6 +318,49 @@ export function createEventProcessors({
             },
             delta0: parsed.delta.amount0,
             delta1: parsed.delta.amount1,
+          },
+          key
+        );
+      },
+    },
+    <StarknetEventProcessor<SavedBalanceEvent>>{
+      filter: {
+        fromAddress: coreAddress,
+        keys: [
+          // SavedBalance
+          "0x0048796a25e5ceac9caf95a4618ebfd1516b51e5d994a49d28e22f09c64ad2ee",
+        ],
+      },
+      parser: parseSavedBalanceEvent,
+      async handle(dao, { parsed, key }): Promise<void> {
+        const pending = pendingPositionFeesCollected;
+        if (
+          !pending ||
+          pending.blockNumber !== key.blockNumber ||
+          pending.transactionIndex !== key.transactionIndex ||
+          parsed.key.owner !== BigInt(positionsAddress) ||
+          parsed.key.owner !== pending.event.position_key.owner ||
+          parsed.key.salt !== PROTOCOL_FEES_SALT
+        ) {
+          return;
+        }
+
+        const isToken0 = parsed.key.token === pending.event.pool_key.token0;
+        const isToken1 = parsed.key.token === pending.event.pool_key.token1;
+        if (!isToken0 && !isToken1) return;
+
+        logger.debug("Positions protocol fees saved", { parsed, key });
+        await dao.insertPositionFeesWithheld(
+          {
+            poolId: poolKeyToPoolId(pending.event.pool_key),
+            locker: pending.event.position_key.owner,
+            salt: pending.event.position_key.salt,
+            bounds: {
+              lower: Number(pending.event.position_key.bounds.lower),
+              upper: Number(pending.event.position_key.bounds.upper),
+            },
+            amount0: isToken0 ? parsed.amount : 0n,
+            amount1: isToken1 ? parsed.amount : 0n,
           },
           key
         );
