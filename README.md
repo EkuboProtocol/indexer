@@ -95,6 +95,16 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-07-31: Ve33 fee component added to fee stats
+
+`hourly_volume_by_token` now tracks the Ve33 portion of its total `fees` in a
+dedicated `ve33_fees` column. The 24-hour pool stats views expose
+`ve33_fees0_24h` and `ve33_fees1_24h` as components of the existing inclusive
+`fees0_24h` and `fees1_24h` totals. The migration backfills the breakdown from
+indexed `PoolFeesAccounted` events and keeps both totals reorg-safe. Apply the
+indexer migration before deploying API code that selects the new columns; no
+manual backfill is required.
+
 ### 2026-07-31: Token price history covering index
 
 `erc20_tokens_usd_prices` now has a covering index on
