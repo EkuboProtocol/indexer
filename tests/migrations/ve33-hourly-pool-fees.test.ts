@@ -47,13 +47,13 @@ async function seedPool(client: PGlite, chainId: number) {
         pool_extension
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING pool_key_id`,
-    [chainId, "2000", "3000", "4000", "4001", "0", "1000000", 64, "5000"],
+    [chainId, "2000", "3000", "4000", "4001", "10000", "1000000", 64, "5000"],
   );
 
   return poolKeyId.toString();
 }
 
-test("ve33 fees are backfilled and kept reorg-safe in hourly pool stats", async () => {
+test("ve33 fees are tracked within total fees and kept reorg-safe", async () => {
   const client = await createClient({
     files: [...PRE_VE33_HOURLY_FEES_MIGRATIONS],
   });
@@ -111,24 +111,14 @@ test("ve33 fees are backfilled and kept reorg-safe in hourly pool stats", async 
           amount0,
           amount1
        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-      [
-        chainId,
-        blockNumber,
-        0,
-        1,
-        "6001",
-        "5000",
-        poolKeyId,
-        "3000",
-        "5",
-        "0",
-      ],
+      [chainId, blockNumber, 0, 1, "6001", "5000", poolKeyId, "3000", "5", "0"],
     );
 
     await runMigrations(client, {
       files: [
         "00108_ve33_hourly_pool_fees",
         "00109_require_ve33_pool_fees_pool_key",
+        "00113_split_ve33_hourly_fees",
       ],
     });
 
@@ -136,15 +126,16 @@ test("ve33 fees are backfilled and kept reorg-safe in hourly pool stats", async 
       token: string;
       volume: string;
       fees: string;
+      ve33_fees: string;
     }>(
-      `SELECT token, volume, fees
+      `SELECT token, volume, fees, ve33_fees
        FROM hourly_volume_by_token
        WHERE pool_key_id = $1
        ORDER BY token`,
       [poolKeyId],
     );
     expect(backfilledRows).toEqual([
-      { token: "4000", volume: "100", fees: "5" },
+      { token: "4000", volume: "100", fees: "6", ve33_fees: "5" },
     ]);
 
     const {
@@ -163,18 +154,7 @@ test("ve33 fees are backfilled and kept reorg-safe in hourly pool stats", async 
           amount1
        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING event_id, block_time`,
-      [
-        chainId,
-        blockNumber,
-        0,
-        2,
-        "6002",
-        "5000",
-        poolKeyId,
-        "3000",
-        "0",
-        "7",
-      ],
+      [chainId, blockNumber, 0, 2, "6002", "5000", poolKeyId, "3000", "0", "7"],
     );
     expect(new Date(insertedBlockTime)).toEqual(blockTime);
 
@@ -182,16 +162,17 @@ test("ve33 fees are backfilled and kept reorg-safe in hourly pool stats", async 
       token: string;
       volume: string;
       fees: string;
+      ve33_fees: string;
     }>(
-      `SELECT token, volume, fees
+      `SELECT token, volume, fees, ve33_fees
        FROM hourly_volume_by_token
        WHERE pool_key_id = $1
        ORDER BY token`,
       [poolKeyId],
     );
     expect(insertedRows).toEqual([
-      { token: "4000", volume: "100", fees: "5" },
-      { token: "4001", volume: "0", fees: "7" },
+      { token: "4000", volume: "100", fees: "6", ve33_fees: "5" },
+      { token: "4001", volume: "0", fees: "7", ve33_fees: "7" },
     ]);
 
     await client.exec(
@@ -201,15 +182,37 @@ test("ve33 fees are backfilled and kept reorg-safe in hourly pool stats", async 
       volume0_24h: string;
       fees0_24h: string;
       fees1_24h: string;
+      ve33_fees0_24h: string;
+      ve33_fees1_24h: string;
     }>(
-      `SELECT volume0_24h, fees0_24h, fees1_24h
+      `SELECT volume0_24h,
+              fees0_24h,
+              fees1_24h,
+              ve33_fees0_24h,
+              ve33_fees1_24h
        FROM last_24h_pool_stats_materialized
        WHERE pool_key_id = $1`,
       [poolKeyId],
     );
     expect(apiStatsRows).toEqual([
-      { volume0_24h: "100", fees0_24h: "5", fees1_24h: "7" },
+      {
+        volume0_24h: "100",
+        fees0_24h: "6",
+        fees1_24h: "7",
+        ve33_fees0_24h: "5",
+        ve33_fees1_24h: "7",
+      },
     ]);
+
+    const {
+      rows: [{ count: materializedViewIndexes }],
+    } = await client.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count
+       FROM pg_indexes
+       WHERE tablename = 'last_24h_pool_stats_materialized'
+         AND indexdef LIKE 'CREATE UNIQUE INDEX% (pool_key_id)'`,
+    );
+    expect(materializedViewIndexes).toBe(1);
 
     await expect(
       client.query(
@@ -225,18 +228,7 @@ test("ve33 fees are backfilled and kept reorg-safe in hourly pool stats", async 
             amount0,
             amount1
          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-        [
-          chainId,
-          blockNumber,
-          0,
-          3,
-          "6003",
-          "5000",
-          null,
-          "9999",
-          "11",
-          "0",
-        ],
+        [chainId, blockNumber, 0, 3, "6003", "5000", null, "9999", "11", "0"],
       ),
     ).rejects.toThrow();
 
@@ -250,15 +242,16 @@ test("ve33 fees are backfilled and kept reorg-safe in hourly pool stats", async 
       token: string;
       volume: string;
       fees: string;
+      ve33_fees: string;
     }>(
-      `SELECT token, volume, fees
+      `SELECT token, volume, fees, ve33_fees
        FROM hourly_volume_by_token
        WHERE pool_key_id = $1
        ORDER BY token`,
       [poolKeyId],
     );
     expect(rowsAfterFeeDelete).toEqual([
-      { token: "4000", volume: "100", fees: "5" },
+      { token: "4000", volume: "100", fees: "6", ve33_fees: "5" },
     ]);
 
     await client.query(
