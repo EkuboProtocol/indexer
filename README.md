@@ -95,6 +95,16 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-07-31: Token circulating supply
+
+`erc20_tokens` now has a nullable, non-negative integer `circulating_supply`
+column.
+Like `total_supply`, the value is stored in the token's indivisible units so
+consumers must divide by `10 ^ token_decimals` before multiplying by a per-token
+USD price. Apply this migration before deploying the `default-tokens` database
+sync that writes the new field. Existing rows remain `NULL` until that sync
+finds a supply source; no manual backfill is required.
+
 ### 2026-07-31: Ve33 fee component added to fee stats
 
 `hourly_volume_by_token` now tracks the Ve33 portion of its total `fees` in a
