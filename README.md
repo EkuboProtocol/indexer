@@ -95,6 +95,13 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-07-30: Pool token-pair lookup index
+
+`pool_keys` now has an index on `(chain_id, token0, token1)` so API queries can
+find every configuration for a token pair without scanning all pool keys.
+Apply migrations before deploying the optimized pair-events API query. No
+backfill or manual intervention is required beyond running the migration.
+
 ### 2026-07-30: Ve33 fees included in hourly pool stats
 
 EVM V3 `PoolFeesAccounted` events now contribute to
