@@ -95,6 +95,14 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-07-31: Token price history covering index
+
+`erc20_tokens_usd_prices` now has a covering index on
+`(chain_id, token_address, timestamp DESC)` that includes the price value and
+source. Apply migrations before deploying the token price-history API to keep
+its bounded chart queries index-only. No backfill or manual intervention is
+required beyond running the migration.
+
 ### 2026-07-31: Reorg-safe per-tick liquidity aggregation
 
 The `per_pool_per_tick_liquidity` triggers now retain transient rows until both
