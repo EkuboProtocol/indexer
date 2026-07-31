@@ -95,6 +95,15 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-07-31: Reorg-safe per-tick liquidity aggregation
+
+The `per_pool_per_tick_liquidity` triggers now retain transient rows until both
+the net liquidity delta and total liquidity are zero. This prevents
+order-dependent corruption when position updates are cascade-deleted during a
+reorg. The migration atomically rebuilds every tick aggregate from canonical
+`position_updates`; no manual backfill is required beyond running the
+migration.
+
 ### 2026-07-30: Pool token-pair lookup index
 
 `pool_keys` now has an index on `(chain_id, token0, token1)` so API queries can
