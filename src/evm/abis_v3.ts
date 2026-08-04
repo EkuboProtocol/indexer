@@ -7077,3 +7077,1047 @@ export const AUCTIONS_ABI = [
     inputs: [],
   },
 ] as const;
+
+export const VE_TOKEN_BRIBES_ABI = [
+  {
+    type: "constructor",
+    inputs: [
+      {
+        name: "veToken",
+        type: "address",
+        internalType: "contract VeToken",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "VE_TOKEN",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "contract VeToken",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "accrueRewards",
+    inputs: [
+      {
+        name: "key",
+        type: "tuple",
+        internalType: "struct BribeKey",
+        components: [
+          {
+            name: "poolKey",
+            type: "tuple",
+            internalType: "struct PoolKey",
+            components: [
+              {
+                name: "token0",
+                type: "address",
+                internalType: "address",
+              },
+              {
+                name: "token1",
+                type: "address",
+                internalType: "address",
+              },
+              {
+                name: "config",
+                type: "bytes32",
+                internalType: "PoolConfig",
+              },
+            ],
+          },
+          {
+            name: "rewardToken",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "votingFee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+        ],
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "claimReward",
+    inputs: [
+      {
+        name: "key",
+        type: "tuple",
+        internalType: "struct BribeKey",
+        components: [
+          {
+            name: "poolKey",
+            type: "tuple",
+            internalType: "struct PoolKey",
+            components: [
+              {
+                name: "token0",
+                type: "address",
+                internalType: "address",
+              },
+              {
+                name: "token1",
+                type: "address",
+                internalType: "address",
+              },
+              {
+                name: "config",
+                type: "bytes32",
+                internalType: "PoolConfig",
+              },
+            ],
+          },
+          {
+            name: "rewardToken",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "votingFee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+        ],
+      },
+      {
+        name: "veId",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "amount",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "claimVotingFees",
+    inputs: [
+      {
+        name: "key",
+        type: "tuple",
+        internalType: "struct BribeKey",
+        components: [
+          {
+            name: "poolKey",
+            type: "tuple",
+            internalType: "struct PoolKey",
+            components: [
+              {
+                name: "token0",
+                type: "address",
+                internalType: "address",
+              },
+              {
+                name: "token1",
+                type: "address",
+                internalType: "address",
+              },
+              {
+                name: "config",
+                type: "bytes32",
+                internalType: "PoolConfig",
+              },
+            ],
+          },
+          {
+            name: "rewardToken",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "votingFee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+        ],
+      },
+      {
+        name: "veId",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "recipient",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    outputs: [
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "deposits",
+    inputs: [
+      {
+        name: "veId",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "owner",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "weight",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "bribeId",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+      {
+        name: "rewardGrowthGlobalX128Snapshot",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "accruedReward",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "earned",
+    inputs: [
+      {
+        name: "veId",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "amount",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "isCreated",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bool",
+        internalType: "bool",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "nextRewardRateChangeTime",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+      {
+        name: "fromTime",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "time",
+        type: "uint64",
+        internalType: "uint64",
+      },
+      {
+        name: "delta",
+        type: "int256",
+        internalType: "int256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "refreshVote",
+    inputs: [
+      {
+        name: "key",
+        type: "tuple",
+        internalType: "struct BribeKey",
+        components: [
+          {
+            name: "poolKey",
+            type: "tuple",
+            internalType: "struct PoolKey",
+            components: [
+              {
+                name: "token0",
+                type: "address",
+                internalType: "address",
+              },
+              {
+                name: "token1",
+                type: "address",
+                internalType: "address",
+              },
+              {
+                name: "config",
+                type: "bytes32",
+                internalType: "PoolConfig",
+              },
+            ],
+          },
+          {
+            name: "rewardToken",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "votingFee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+        ],
+      },
+      {
+        name: "veId",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "rewardGrowthGlobalX128",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "growth",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "rewardInitializedTimeBitmap",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+      {
+        name: "word",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "rewardRate",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "rate",
+        type: "uint160",
+        internalType: "uint160",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "rewardRateDeltaAtTime",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+      {
+        name: "time",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "int256",
+        internalType: "int256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "rewardsLastAccrued",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "uint32",
+        internalType: "uint32",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "scheduleRewards",
+    inputs: [
+      {
+        name: "key",
+        type: "tuple",
+        internalType: "struct BribeKey",
+        components: [
+          {
+            name: "poolKey",
+            type: "tuple",
+            internalType: "struct PoolKey",
+            components: [
+              {
+                name: "token0",
+                type: "address",
+                internalType: "address",
+              },
+              {
+                name: "token1",
+                type: "address",
+                internalType: "address",
+              },
+              {
+                name: "config",
+                type: "bytes32",
+                internalType: "PoolConfig",
+              },
+            ],
+          },
+          {
+            name: "rewardToken",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "votingFee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+        ],
+      },
+      {
+        name: "startTime",
+        type: "uint64",
+        internalType: "uint64",
+      },
+      {
+        name: "endTime",
+        type: "uint64",
+        internalType: "uint64",
+      },
+      {
+        name: "rate",
+        type: "uint160",
+        internalType: "uint160",
+      },
+    ],
+    outputs: [
+      {
+        name: "amount",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "stake",
+    inputs: [
+      {
+        name: "key",
+        type: "tuple",
+        internalType: "struct BribeKey",
+        components: [
+          {
+            name: "poolKey",
+            type: "tuple",
+            internalType: "struct PoolKey",
+            components: [
+              {
+                name: "token0",
+                type: "address",
+                internalType: "address",
+              },
+              {
+                name: "token1",
+                type: "address",
+                internalType: "address",
+              },
+              {
+                name: "config",
+                type: "bytes32",
+                internalType: "PoolConfig",
+              },
+            ],
+          },
+          {
+            name: "rewardToken",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "votingFee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+        ],
+      },
+      {
+        name: "veId",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "totalWeight",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "unstake",
+    inputs: [
+      {
+        name: "key",
+        type: "tuple",
+        internalType: "struct BribeKey",
+        components: [
+          {
+            name: "poolKey",
+            type: "tuple",
+            internalType: "struct PoolKey",
+            components: [
+              {
+                name: "token0",
+                type: "address",
+                internalType: "address",
+              },
+              {
+                name: "token1",
+                type: "address",
+                internalType: "address",
+              },
+              {
+                name: "config",
+                type: "bytes32",
+                internalType: "PoolConfig",
+              },
+            ],
+          },
+          {
+            name: "rewardToken",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "votingFee",
+            type: "uint64",
+            internalType: "uint64",
+          },
+        ],
+      },
+      {
+        name: "veId",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [
+      {
+        name: "reward",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "votingFees0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "votingFees1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "unstakeWithoutClaiming",
+    inputs: [
+      {
+        name: "veId",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "event",
+    name: "BribeCreated",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "bytes32",
+      },
+      {
+        name: "poolId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "PoolId",
+      },
+      {
+        name: "rewardToken",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "poolKey",
+        type: "tuple",
+        indexed: false,
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
+      },
+      {
+        name: "votingFee",
+        type: "uint64",
+        indexed: false,
+        internalType: "uint64",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "RewardPaid",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "bytes32",
+      },
+      {
+        name: "owner",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "veId",
+        type: "uint256",
+        indexed: true,
+        internalType: "uint256",
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "RewardsScheduled",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "bytes32",
+      },
+      {
+        name: "funder",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "startTime",
+        type: "uint64",
+        indexed: false,
+        internalType: "uint64",
+      },
+      {
+        name: "endTime",
+        type: "uint64",
+        indexed: false,
+        internalType: "uint64",
+      },
+      {
+        name: "rewardRate",
+        type: "uint160",
+        indexed: false,
+        internalType: "uint160",
+      },
+      {
+        name: "amount",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "Staked",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "bytes32",
+      },
+      {
+        name: "owner",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "veId",
+        type: "uint256",
+        indexed: true,
+        internalType: "uint256",
+      },
+      {
+        name: "weight",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "Unstaked",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "bytes32",
+      },
+      {
+        name: "owner",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "veId",
+        type: "uint256",
+        indexed: true,
+        internalType: "uint256",
+      },
+      {
+        name: "weight",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "VoteRefreshed",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "bytes32",
+      },
+      {
+        name: "owner",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "veId",
+        type: "uint256",
+        indexed: true,
+        internalType: "uint256",
+      },
+      {
+        name: "previousWeight",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+      {
+        name: "weight",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "VotingFeesClaimed",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "bytes32",
+      },
+      {
+        name: "owner",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "veId",
+        type: "uint256",
+        indexed: true,
+        internalType: "uint256",
+      },
+      {
+        name: "recipient",
+        type: "address",
+        indexed: false,
+        internalType: "address",
+      },
+      {
+        name: "amount0",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "error",
+    name: "AlreadyDeposited",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "BribeKeyMismatch",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "DepositOwnerOnly",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "IncompatibleExistingVote",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "InvalidAddress",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "InvalidCenterTick",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "InvalidPool",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "InvalidStableswapAmplification",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "InvalidTickSpacing",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "InvalidTimestamps",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "MaxRewardRateDeltaPerTime",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "NoVotingPower",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "NotDeposited",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "RewardFundingOverflow",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "TokensMustBeSorted",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "UnexpectedRewardAmount",
+    inputs: [
+      {
+        name: "expected",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      {
+        name: "received",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+  },
+] as const;

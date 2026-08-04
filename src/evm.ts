@@ -105,6 +105,7 @@ export async function createEvmEntrypoint(
   const evmV3Ve33AddressConfig = {
     ve33Address: loadOptionalHexAddress("VE33_V3_ADDRESS"),
     veTokenAddress: loadOptionalHexAddress("VE_TOKEN_V3_ADDRESS"),
+    veTokenBribesAddress: loadOptionalHexAddress("VE_TOKEN_BRIBES_V3_ADDRESS"),
     ve33PositionsAddress: loadOptionalHexAddress("VE33_POSITIONS_V3_ADDRESS"),
   };
 
@@ -123,6 +124,7 @@ export async function createEvmEntrypoint(
   if (
     evmV3Ve33AddressConfig.ve33Address ||
     evmV3Ve33AddressConfig.veTokenAddress ||
+    evmV3Ve33AddressConfig.veTokenBribesAddress ||
     evmV3Ve33AddressConfig.ve33PositionsAddress
   )
     logger.info(`Indexing V3 Ve33 contracts`, { evmV3Ve33AddressConfig });

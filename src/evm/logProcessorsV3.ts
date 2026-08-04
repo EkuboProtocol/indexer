@@ -30,6 +30,7 @@ import {
   TOKEN_WRAPPER_FACTORY_ABI as TOKEN_WRAPPER_FACTORY_ABI_V3,
   TWAMM_ABI as TWAMM_ABI_V3,
   VE33_ABI as VE33_ABI_V3,
+  VE_TOKEN_BRIBES_ABI as VE_TOKEN_BRIBES_ABI_V3,
   BOOSTED_FEES_ABI as BOOSTED_FEES_ABI_V3,
 } from "./abis_v3";
 
@@ -46,6 +47,7 @@ export interface LogProcessorConfigV3 {
   auctionsAddress: `0x${string}`;
   ve33Address?: `0x${string}`;
   veTokenAddress?: `0x${string}`;
+  veTokenBribesAddress?: `0x${string}`;
   ve33PositionsAddress?: `0x${string}`;
   positionsContracts: PositionsContractProtocolFeeConfig[];
 }
@@ -60,6 +62,7 @@ type ProcessorDefinitionsV3 = {
   Auctions?: ContractHandlers<typeof AUCTIONS_ABI_V3>;
   Ve33?: ContractHandlers<typeof VE33_ABI_V3>;
   VeToken?: ContractHandlers<typeof POSITIONS_ABI_V3>;
+  VeTokenBribes?: ContractHandlers<typeof VE_TOKEN_BRIBES_ABI_V3>;
   Ve33Positions?: ContractHandlers<typeof POSITIONS_ABI_V3>;
 } & ContractHandlerDefinitions;
 
@@ -86,6 +89,7 @@ export function createLogProcessorsV3({
   auctionsAddress,
   ve33Address,
   veTokenAddress,
+  veTokenBribesAddress,
   ve33PositionsAddress,
   positionsContracts,
 }: LogProcessorConfigV3): EvmLogProcessor[] {
@@ -531,6 +535,78 @@ export function createLogProcessorsV3({
             handlers: {
               async Transfer(dao, key, parsed) {
                 await dao.insertNonfungibleTokenTransferEvent(parsed, key);
+              },
+            },
+          },
+        }
+      : {}),
+    ...(veTokenBribesAddress
+      ? {
+          VeTokenBribes: {
+            address: veTokenBribesAddress,
+            abi: VE_TOKEN_BRIBES_ABI_V3,
+            handlers: {
+              async BribeCreated(dao, key, parsed) {
+                await dao.insertVeTokenBribesCreatedEvent(key, {
+                  coreAddress,
+                  bribeId: parsed.bribeId,
+                  poolId: parsed.poolId,
+                  rewardToken: parsed.rewardToken,
+                  votingFee: parsed.votingFee,
+                });
+              },
+              async Staked(dao, key, parsed) {
+                await dao.insertVeTokenBribesStakedEvent(key, {
+                  bribeId: parsed.bribeId,
+                  owner: parsed.owner,
+                  veId: parsed.veId,
+                  weight: parsed.weight,
+                });
+              },
+              async Unstaked(dao, key, parsed) {
+                await dao.insertVeTokenBribesUnstakedEvent(key, {
+                  bribeId: parsed.bribeId,
+                  owner: parsed.owner,
+                  veId: parsed.veId,
+                  weight: parsed.weight,
+                });
+              },
+              async VoteRefreshed(dao, key, parsed) {
+                await dao.insertVeTokenBribesVoteRefreshedEvent(key, {
+                  bribeId: parsed.bribeId,
+                  owner: parsed.owner,
+                  veId: parsed.veId,
+                  previousWeight: parsed.previousWeight,
+                  weight: parsed.weight,
+                });
+              },
+              async RewardPaid(dao, key, parsed) {
+                await dao.insertVeTokenBribesRewardPaidEvent(key, {
+                  bribeId: parsed.bribeId,
+                  owner: parsed.owner,
+                  veId: parsed.veId,
+                  amount: parsed.amount,
+                });
+              },
+              async RewardsScheduled(dao, key, parsed) {
+                await dao.insertVeTokenBribesRewardsScheduledEvent(key, {
+                  bribeId: parsed.bribeId,
+                  funder: parsed.funder,
+                  startTime: parsed.startTime,
+                  endTime: parsed.endTime,
+                  rewardRate: parsed.rewardRate,
+                  amount: parsed.amount,
+                });
+              },
+              async VotingFeesClaimed(dao, key, parsed) {
+                await dao.insertVeTokenBribesVotingFeesClaimedEvent(key, {
+                  bribeId: parsed.bribeId,
+                  owner: parsed.owner,
+                  veId: parsed.veId,
+                  recipient: parsed.recipient,
+                  amount0: parsed.amount0,
+                  amount1: parsed.amount1,
+                });
               },
             },
           },

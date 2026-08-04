@@ -95,6 +95,18 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-08-03: VeToken bribes event indexing
+
+Adds seven event tables for the new `VeTokenBribes` singleton contract:
+`ve_token_bribes_created`, `ve_token_bribes_staked`, `ve_token_bribes_unstaked`,
+`ve_token_bribes_vote_refreshed`, `ve_token_bribes_reward_paid`,
+`ve_token_bribes_rewards_scheduled`, and `ve_token_bribes_voting_fees_claimed`.
+Bribes are identified by `bribe_id` (hash of the pool, reward token, and voting
+fee); `ve_token_bribes_created` records the full key once per bribe and resolves
+`pool_key_id` when the pool is known. Indexing is enabled per network by
+setting `VE_TOKEN_BRIBES_V3_ADDRESS`. Schema-only change: run the migration
+before deploying workers; no manual backfill is required.
+
 ### 2026-07-31: Token circulating supply
 
 `erc20_tokens` now has a nullable, non-negative integer `circulating_supply`
