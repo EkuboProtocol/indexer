@@ -5,7 +5,7 @@ export const logger = createLogger({
   format: format.combine(
     format.errors({ stack: true }),
     format.splat(),
-    format.json()
+    format.json(),
   ),
   defaultMeta: { service: "ekubo-indexer" },
   transports: [new transports.Console()],

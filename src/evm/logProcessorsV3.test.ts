@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
 import { encodeAbiParameters, encodeEventTopics } from "viem";
-import { VE33_ABI } from "./abis_v3";
+import { VE33_ABI, VE_TOKEN_BRIBES_ABI } from "./abis_v3";
 import { createLogProcessorsV3 } from "./logProcessorsV3";
 
 const config = {
@@ -56,15 +56,165 @@ describe("createLogProcessorsV3", () => {
       ve33PositionsAddress,
     });
 
-    expect(processors.filter((p) => p.address === ve33Address)).toHaveLength(
-      7,
+    expect(processors.filter((p) => p.address === ve33Address)).toHaveLength(7);
+    expect(processors.filter((p) => p.address === veTokenAddress)).toHaveLength(
+      1,
     );
-    expect(
-      processors.filter((p) => p.address === veTokenAddress),
-    ).toHaveLength(1);
     expect(
       processors.filter((p) => p.address === ve33PositionsAddress),
     ).toHaveLength(1);
+  });
+
+  it("adds VeTokenBribes processors when the bribes address is configured", () => {
+    const veTokenBribesAddress = "0x0000000000000000000000000000000000000023";
+
+    const processors = createLogProcessorsV3({
+      ...config,
+      twammAddresses: [],
+      ordersAddresses: [],
+      veTokenBribesAddress,
+    });
+
+    expect(
+      processors.filter((p) => p.address === veTokenBribesAddress),
+    ).toHaveLength(8);
+  });
+
+  it("indexes bribe creations with the full bribe key", async () => {
+    const veTokenBribesAddress = "0x0000000000000000000000000000000000000023";
+    const processors = createLogProcessorsV3({
+      ...config,
+      twammAddresses: [],
+      ordersAddresses: [],
+      veTokenBribesAddress,
+    });
+
+    const bribeId = `0x${"60".padStart(64, "0")}` as const;
+    const poolId = `0x${"40".padStart(64, "0")}` as const;
+    const rewardToken = "0x0000000000000000000000000000000000000031";
+    const topics = encodeEventTopics({
+      abi: VE_TOKEN_BRIBES_ABI,
+      eventName: "BribeCreated",
+      args: { bribeId, poolId, rewardToken },
+    });
+    const processor = processors.find(
+      (candidate) =>
+        candidate.address === veTokenBribesAddress &&
+        candidate.filter.topics[0] === topics[0],
+    );
+    expect(processor).toBeDefined();
+
+    const insertVeTokenBribesCreatedEvent = mock(async () => {});
+
+    await processor!.handler(
+      { insertVeTokenBribesCreatedEvent } as never,
+      {
+        blockNumber: 1,
+        transactionIndex: 2,
+        eventIndex: 3,
+        emitter: veTokenBribesAddress,
+        transactionHash: `0x${"50".padStart(64, "0")}`,
+      },
+      {
+        topics,
+        data: encodeAbiParameters(
+          [
+            { type: "address" },
+            {
+              type: "tuple",
+              components: [
+                { type: "address" },
+                { type: "address" },
+                { type: "bytes32" },
+              ],
+            },
+            { type: "uint64" },
+          ],
+          [
+            "0x0000000000000000000000000000000000000035",
+            [
+              "0x0000000000000000000000000000000000000032",
+              "0x0000000000000000000000000000000000000033",
+              `0x${"00".padStart(64, "0")}`,
+            ],
+            17n,
+          ],
+        ),
+      },
+    );
+
+    expect(insertVeTokenBribesCreatedEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        coreAddress: config.coreAddress,
+        bribeId,
+        poolId,
+        rewardToken,
+        owner: "0x0000000000000000000000000000000000000035",
+        votingFee: 17n,
+      },
+    );
+  });
+
+  it("indexes bribe reward schedules", async () => {
+    const veTokenBribesAddress = "0x0000000000000000000000000000000000000023";
+    const processors = createLogProcessorsV3({
+      ...config,
+      twammAddresses: [],
+      ordersAddresses: [],
+      veTokenBribesAddress,
+    });
+
+    const bribeId = `0x${"60".padStart(64, "0")}` as const;
+    const funder = "0x0000000000000000000000000000000000000034";
+    const topics = encodeEventTopics({
+      abi: VE_TOKEN_BRIBES_ABI,
+      eventName: "RewardsScheduled",
+      args: { bribeId, funder },
+    });
+    const processor = processors.find(
+      (candidate) =>
+        candidate.address === veTokenBribesAddress &&
+        candidate.filter.topics[0] === topics[0],
+    );
+    expect(processor).toBeDefined();
+
+    const insertVeTokenBribesRewardsScheduledEvent = mock(async () => {});
+
+    await processor!.handler(
+      { insertVeTokenBribesRewardsScheduledEvent } as never,
+      {
+        blockNumber: 1,
+        transactionIndex: 2,
+        eventIndex: 3,
+        emitter: veTokenBribesAddress,
+        transactionHash: `0x${"50".padStart(64, "0")}`,
+      },
+      {
+        topics,
+        data: encodeAbiParameters(
+          [
+            { type: "uint64" },
+            { type: "uint64" },
+            { type: "uint160" },
+            { type: "uint128" },
+          ],
+          [1_800_000_000n, 1_800_604_800n, 123n << 32n, 700n],
+        ),
+      },
+    );
+
+    expect(insertVeTokenBribesRewardsScheduledEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        bribeId,
+        funder,
+        startTime: 1_800_000_000n,
+        endTime: 1_800_604_800n,
+        rewardRate: 123n << 32n,
+        amount: 700n,
+      },
+    );
   });
 
   it("deduplicates Ve33 positions transfers from protocol fee config", () => {
@@ -110,7 +260,8 @@ describe("createLogProcessorsV3", () => {
 
     const insertVe33VoteWeightAppliedEvent = mock(async () => {});
     const owner = "0x0000000000000000000000000000000000000030";
-    const stakeId = `0x${((12n << 64n) | 1_800_000_000n).toString(16).padStart(64, "0")}` as const;
+    const stakeId =
+      `0x${((12n << 64n) | 1_800_000_000n).toString(16).padStart(64, "0")}` as const;
     const poolId = `0x${"40".padStart(64, "0")}` as const;
 
     await processor!.handler(

@@ -79,7 +79,7 @@ async function seedBlock({
   await client.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
      VALUES ($1, $2, $3, $4, 0)`,
-    [chainId, blockNumber, blockHash, blockTime]
+    [chainId, blockNumber, blockHash, blockTime],
   );
 }
 
@@ -99,7 +99,7 @@ async function insertPoolKey(chainId: number) {
         pool_extension
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING pool_key_id`,
-    [chainId, "1000", "2000", "4000", "5000", "10", "1000", 60, "6000"]
+    [chainId, "1000", "2000", "4000", "5000", "10", "1000", 60, "6000"],
   );
 
   return Number(poolKeyId);
@@ -145,7 +145,7 @@ async function getOrderCurrentSaleRate({
        AND start_time = $4
        AND end_time = $5
        AND is_selling_token1 = $6`,
-    [poolKeyId, locker, salt, startTime, endTime, isSellingToken1]
+    [poolKeyId, locker, salt, startTime, endTime, isSellingToken1],
   );
 
   return rows[0];
@@ -189,11 +189,11 @@ test("twamm event tables generate event ids, forbid updates, and cascade on bloc
       poolKeyId,
       token0SaleRate,
       token1SaleRate,
-    ]
+    ],
   );
 
   expect(eventId).toBe(
-    computeEventId({ blockNumber, transactionIndex: txIndex, eventIndex })
+    computeEventId({ blockNumber, transactionIndex: txIndex, eventIndex }),
   );
 
   await expect(
@@ -201,8 +201,8 @@ test("twamm event tables generate event ids, forbid updates, and cascade on bloc
       `UPDATE twamm_virtual_order_executions
        SET token0_sale_rate = token0_sale_rate + 1
        WHERE chain_id = $1 AND event_id = $2`,
-      [chainId, eventId]
-    )
+      [chainId, eventId],
+    ),
   ).rejects.toThrow(/Updates are not allowed/);
 
   const orderStartTime = new Date(blockTime.getTime() - 60000);
@@ -246,7 +246,7 @@ test("twamm event tables generate event ids, forbid updates, and cascade on bloc
       orderStartTime,
       orderEndTime,
       true,
-    ]
+    ],
   );
 
   await expect(
@@ -254,8 +254,8 @@ test("twamm event tables generate event ids, forbid updates, and cascade on bloc
       `UPDATE twamm_order_updates
        SET sale_rate_delta0 = sale_rate_delta0 + 1
        WHERE chain_id = $1 AND event_id = $2`,
-      [chainId, orderUpdateEventId]
-    )
+      [chainId, orderUpdateEventId],
+    ),
   ).rejects.toThrow(/Updates are not allowed/);
 
   const withdrawalStart = orderStartTime;
@@ -296,7 +296,7 @@ test("twamm event tables generate event ids, forbid updates, and cascade on bloc
       "11",
       "0",
       true,
-    ]
+    ],
   );
 
   await expect(
@@ -304,29 +304,29 @@ test("twamm event tables generate event ids, forbid updates, and cascade on bloc
       `UPDATE twamm_proceeds_withdrawals
        SET amount0 = amount0 + 1
        WHERE chain_id = $1 AND event_id = $2`,
-      [chainId, withdrawalEventId]
-    )
+      [chainId, withdrawalEventId],
+    ),
   ).rejects.toThrow(/Updates are not allowed/);
 
   await client.query(
     `DELETE FROM blocks WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, blockNumber]
+    [chainId, blockNumber],
   );
 
   const { rows: voeRows } = await client.query(
     `SELECT 1 FROM twamm_virtual_order_executions
      WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, eventId]
+    [chainId, eventId],
   );
   const { rows: ouRows } = await client.query(
     `SELECT 1 FROM twamm_order_updates
      WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, orderUpdateEventId]
+    [chainId, orderUpdateEventId],
   );
   const { rows: withdrawalRows } = await client.query(
     `SELECT 1 FROM twamm_proceeds_withdrawals
      WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, withdrawalEventId]
+    [chainId, withdrawalEventId],
   );
 
   expect(voeRows.length).toBe(0);
@@ -382,7 +382,7 @@ test("twamm order updates maintain sparse sale rate deltas", async () => {
       startTime,
       endTime,
       delta1 !== "0",
-    ]
+    ],
   );
 
   expect(typeof eventId).toBe("bigint");
@@ -396,7 +396,7 @@ test("twamm order updates maintain sparse sale rate deltas", async () => {
      FROM twamm_sale_rate_deltas
      WHERE pool_key_id = $1
      ORDER BY "time" ASC`,
-    [poolKeyId]
+    [poolKeyId],
   );
 
   const formattedDeltas = deltaRows.map((row) => ({
@@ -420,12 +420,12 @@ test("twamm order updates maintain sparse sale rate deltas", async () => {
 
   await client.query(
     `DELETE FROM twamm_order_updates WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, eventId]
+    [chainId, eventId],
   );
 
   const { rows: afterDeleteRows } = await client.query(
     `SELECT 1 FROM twamm_sale_rate_deltas WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
   expect(afterDeleteRows.length).toBe(0);
 });
@@ -476,7 +476,7 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
       token0Order.start,
       token0Order.end,
       false,
-    ]
+    ],
   );
 
   let token0State = await getOrderCurrentSaleRate({
@@ -495,7 +495,7 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
   expect(token0State.amount0_sold_last).toBe("0");
   expect(token0State.amount1_sold_last).toBe("0");
   expect(new Date(token0State.amount_sold_last_block_time).toISOString()).toBe(
-    token0Order.start.toISOString()
+    token0Order.start.toISOString(),
   );
 
   await client.query(
@@ -530,7 +530,7 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
       token0Order.start,
       token0Order.end,
       false,
-    ]
+    ],
   );
 
   token0State = await getOrderCurrentSaleRate({
@@ -578,7 +578,7 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
       "0",
       "5",
       false,
-    ]
+    ],
   );
 
   token0State = await getOrderCurrentSaleRate({
@@ -595,7 +595,7 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
 
   await client.query(
     `DELETE FROM twamm_proceeds_withdrawals WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, token0WithdrawalId]
+    [chainId, token0WithdrawalId],
   );
 
   token0State = await getOrderCurrentSaleRate({
@@ -649,7 +649,7 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
       token1Order.start,
       token1Order.end,
       true,
-    ]
+    ],
   );
 
   let token1State = await getOrderCurrentSaleRate({
@@ -696,7 +696,7 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
       "7",
       "0",
       true,
-    ]
+    ],
   );
 
   token1State = await getOrderCurrentSaleRate({
@@ -743,7 +743,7 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
       "0",
       "0",
       true,
-    ]
+    ],
   );
 
   token1State = await getOrderCurrentSaleRate({
@@ -799,7 +799,7 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
       "3",
       "0",
       true,
-    ]
+    ],
   );
 
   let orphanState = await getOrderCurrentSaleRate({
@@ -848,7 +848,7 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
       orphanOrder.start,
       orphanOrder.end,
       true,
-    ]
+    ],
   );
 
   orphanState = await getOrderCurrentSaleRate({
@@ -865,7 +865,7 @@ test("order_current_sale_rate captures proceeds totals and token side", async ()
 
   await client.query(
     `DELETE FROM twamm_proceeds_withdrawals WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, orphanWithdrawalId]
+    [chainId, orphanWithdrawalId],
   );
 
   orphanState = await getOrderCurrentSaleRate({
@@ -930,7 +930,7 @@ test("order_current_sale_rate tracks amount sold and recomputes on reorgs", asyn
       startTime,
       endTime,
       false,
-    ]
+    ],
   );
 
   let state = await getOrderCurrentSaleRate({
@@ -944,7 +944,7 @@ test("order_current_sale_rate tracks amount sold and recomputes on reorgs", asyn
   expect(state.amount0_sold_last).toBe("0");
   expect(state.amount1_sold_last).toBe("0");
   expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
-    startTime.toISOString()
+    startTime.toISOString(),
   );
 
   const {
@@ -982,7 +982,7 @@ test("order_current_sale_rate tracks amount sold and recomputes on reorgs", asyn
       startTime,
       endTime,
       false,
-    ]
+    ],
   );
 
   state = await getOrderCurrentSaleRate({
@@ -995,17 +995,17 @@ test("order_current_sale_rate tracks amount sold and recomputes on reorgs", asyn
   });
 
   const elapsedSeconds = Math.floor(
-    (secondTime.getTime() - startTime.getTime()) / 1000
+    (secondTime.getTime() - startTime.getTime()) / 1000,
   ).toString();
   expect(state.amount0_sold_last).toBe(elapsedSeconds);
   expect(state.amount1_sold_last).toBe("0");
   expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
-    secondTime.toISOString()
+    secondTime.toISOString(),
   );
 
   await client.query(
     `DELETE FROM twamm_order_updates WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, closeEventId]
+    [chainId, closeEventId],
   );
 
   state = await getOrderCurrentSaleRate({
@@ -1018,7 +1018,7 @@ test("order_current_sale_rate tracks amount sold and recomputes on reorgs", asyn
   });
   expect(state.amount0_sold_last).toBe("0");
   expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
-    startTime.toISOString()
+    startTime.toISOString(),
   );
 });
 
@@ -1078,7 +1078,7 @@ test("order_current_sale_rate clamps last block time to the order start when upd
       startTime,
       endTime,
       false,
-    ]
+    ],
   );
 
   let state = await getOrderCurrentSaleRate({
@@ -1091,7 +1091,7 @@ test("order_current_sale_rate clamps last block time to the order start when upd
   });
   expect(state.amount0_sold_last).toBe("0");
   expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
-    startTime.toISOString()
+    startTime.toISOString(),
   );
 
   await client.query(
@@ -1126,7 +1126,7 @@ test("order_current_sale_rate clamps last block time to the order start when upd
       startTime,
       endTime,
       false,
-    ]
+    ],
   );
 
   state = await getOrderCurrentSaleRate({
@@ -1138,11 +1138,11 @@ test("order_current_sale_rate clamps last block time to the order start when upd
     isSellingToken1: false,
   });
   const elapsedSinceStart = Math.floor(
-    (blockDuringTime.getTime() - startTime.getTime()) / 1000
+    (blockDuringTime.getTime() - startTime.getTime()) / 1000,
   ).toString();
   expect(state.amount0_sold_last).toBe(elapsedSinceStart);
   expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
-    blockDuringTime.toISOString()
+    blockDuringTime.toISOString(),
   );
 });
 
@@ -1201,7 +1201,7 @@ test("order_current_sale_rate clamps last block time to the order end when updat
       startTime,
       endTime,
       false,
-    ]
+    ],
   );
 
   await client.query(
@@ -1236,7 +1236,7 @@ test("order_current_sale_rate clamps last block time to the order end when updat
       startTime,
       endTime,
       false,
-    ]
+    ],
   );
 
   const state = await getOrderCurrentSaleRate({
@@ -1248,11 +1248,11 @@ test("order_current_sale_rate clamps last block time to the order end when updat
     isSellingToken1: false,
   });
   const totalWindowSeconds = Math.floor(
-    (endTime.getTime() - startTime.getTime()) / 1000
+    (endTime.getTime() - startTime.getTime()) / 1000,
   ).toString();
   expect(state.amount0_sold_last).toBe(totalWindowSeconds);
   expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
-    endTime.toISOString()
+    endTime.toISOString(),
   );
 });
 
@@ -1312,7 +1312,7 @@ test("order_current_sale_rate skips accumulation when an order is entirely in th
       startTime,
       endTime,
       false,
-    ]
+    ],
   );
 
   let state = await getOrderCurrentSaleRate({
@@ -1325,7 +1325,7 @@ test("order_current_sale_rate skips accumulation when an order is entirely in th
   });
   expect(state.amount0_sold_last).toBe("0");
   expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
-    endTime.toISOString()
+    endTime.toISOString(),
   );
 
   await client.query(
@@ -1360,7 +1360,7 @@ test("order_current_sale_rate skips accumulation when an order is entirely in th
       startTime,
       endTime,
       false,
-    ]
+    ],
   );
 
   state = await getOrderCurrentSaleRate({
@@ -1373,7 +1373,7 @@ test("order_current_sale_rate skips accumulation when an order is entirely in th
   });
   expect(state.amount0_sold_last).toBe("0");
   expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
-    endTime.toISOString()
+    endTime.toISOString(),
   );
 });
 
@@ -1427,7 +1427,7 @@ test("order_current_sale_rate accumulates token0 amounts across sequential updat
       startTime,
       endTime,
       false,
-    ]
+    ],
   );
 
   await client.query(
@@ -1462,7 +1462,7 @@ test("order_current_sale_rate accumulates token0 amounts across sequential updat
       startTime,
       endTime,
       false,
-    ]
+    ],
   );
 
   let state = await getOrderCurrentSaleRate({
@@ -1474,12 +1474,12 @@ test("order_current_sale_rate accumulates token0 amounts across sequential updat
     isSellingToken1: false,
   });
   const secondsToMid = Math.floor(
-    (midTime.getTime() - startTime.getTime()) / 1000
+    (midTime.getTime() - startTime.getTime()) / 1000,
   ).toString();
   expect(state.amount0_sold_last).toBe(secondsToMid);
   expect(state.sale_rate0).toBe(onePerSecond);
   expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
-    midTime.toISOString()
+    midTime.toISOString(),
   );
 
   await client.query(
@@ -1514,7 +1514,7 @@ test("order_current_sale_rate accumulates token0 amounts across sequential updat
       startTime,
       endTime,
       false,
-    ]
+    ],
   );
 
   state = await getOrderCurrentSaleRate({
@@ -1526,13 +1526,13 @@ test("order_current_sale_rate accumulates token0 amounts across sequential updat
     isSellingToken1: false,
   });
   const secondsToClose = Math.floor(
-    (closeTime.getTime() - startTime.getTime()) / 1000
+    (closeTime.getTime() - startTime.getTime()) / 1000,
   ).toString();
   expect(state.amount0_sold_last).toBe(secondsToClose);
   expect(state.sale_rate0).toBe("0");
   expect(state.amount1_sold_last).toBe("0");
   expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
-    closeTime.toISOString()
+    closeTime.toISOString(),
   );
 });
 
@@ -1586,7 +1586,7 @@ test("order_current_sale_rate accumulates token1 amounts and recompute matches i
       startTime,
       endTime,
       true,
-    ]
+    ],
   );
 
   await client.query(
@@ -1621,7 +1621,7 @@ test("order_current_sale_rate accumulates token1 amounts and recompute matches i
       startTime,
       endTime,
       true,
-    ]
+    ],
   );
 
   let state = await getOrderCurrentSaleRate({
@@ -1633,7 +1633,7 @@ test("order_current_sale_rate accumulates token1 amounts and recompute matches i
     isSellingToken1: true,
   });
   const secondsToMid = Math.floor(
-    (midTime.getTime() - startTime.getTime()) / 1000
+    (midTime.getTime() - startTime.getTime()) / 1000,
   );
   expect(state.amount1_sold_last).toBe((secondsToMid * 2).toString());
   expect(state.amount0_sold_last).toBe("0");
@@ -1671,7 +1671,7 @@ test("order_current_sale_rate accumulates token1 amounts and recompute matches i
       startTime,
       endTime,
       true,
-    ]
+    ],
   );
 
   state = await getOrderCurrentSaleRate({
@@ -1683,17 +1683,17 @@ test("order_current_sale_rate accumulates token1 amounts and recompute matches i
     isSellingToken1: true,
   });
   const secondsToClose = Math.floor(
-    (closeTime.getTime() - startTime.getTime()) / 1000
+    (closeTime.getTime() - startTime.getTime()) / 1000,
   );
   expect(state.amount1_sold_last).toBe((secondsToClose * 2).toString());
   expect(state.sale_rate1).toBe("0");
   expect(new Date(state.amount_sold_last_block_time).toISOString()).toBe(
-    closeTime.toISOString()
+    closeTime.toISOString(),
   );
 
   await client.query(
     `SELECT order_current_sale_rate_recompute_amounts($1,$2,$3,$4,$5,$6)`,
-    [poolKeyId, locker, salt, startTime, endTime, true]
+    [poolKeyId, locker, salt, startTime, endTime, true],
   );
 
   state = await getOrderCurrentSaleRate({
@@ -1728,7 +1728,7 @@ async function getTwammPoolState(poolKeyId: number) {
         last_event_id
      FROM twamm_pool_states
      WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
   return rows[0];
 }
@@ -1773,7 +1773,7 @@ test("twamm pool states stay in sync with VOE and order update events", async ()
         sqrt_ratio
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING event_id AS pool_state_event_id`,
-    [chainId, baseBlockNumber, 0, 0, "9000", "9100", poolKeyId, 10, "1000"]
+    [chainId, baseBlockNumber, 0, 0, "9000", "9100", poolKeyId, 10, "1000"],
   );
 
   const basePoolStateEventId = poolStateEventId;
@@ -1806,7 +1806,7 @@ test("twamm pool states stay in sync with VOE and order update events", async ()
       poolKeyId,
       baseToken0,
       baseToken1,
-    ]
+    ],
   );
 
   const initialState = await getTwammPoolState(poolKeyId);
@@ -1815,13 +1815,13 @@ test("twamm pool states stay in sync with VOE and order update events", async ()
   expect(initialState.token1_sale_rate).toBe(baseToken1);
   expect(initialState.last_order_update_event_id).toBeNull();
   expect(new Date(initialState.last_virtual_execution_time).toISOString()).toBe(
-    voeTime.toISOString()
+    voeTime.toISOString(),
   );
   expect(
-    valueToBigInt(initialState.last_virtual_order_execution_event_id)
+    valueToBigInt(initialState.last_virtual_order_execution_event_id),
   ).toBe(voeEventId);
   expect(valueToBigInt(initialState.last_event_id)).toBe(
-    voeEventId > basePoolStateEventId ? voeEventId : basePoolStateEventId
+    voeEventId > basePoolStateEventId ? voeEventId : basePoolStateEventId,
   );
 
   const delta0 = "50";
@@ -1862,7 +1862,7 @@ test("twamm pool states stay in sync with VOE and order update events", async ()
       orderStartTime,
       orderEndTime,
       false,
-    ]
+    ],
   );
 
   const {
@@ -1900,34 +1900,34 @@ test("twamm pool states stay in sync with VOE and order update events", async ()
       orderStartTime,
       orderEndTime,
       true,
-    ]
+    ],
   );
 
   const orderUpdateEventId = orderUpdateEventId1;
 
   const updatedState = await getTwammPoolState(poolKeyId);
   expect(updatedState.token0_sale_rate).toBe(
-    (BigInt(baseToken0) + BigInt(delta0)).toString()
+    (BigInt(baseToken0) + BigInt(delta0)).toString(),
   );
   expect(updatedState.token1_sale_rate).toBe(
-    (BigInt(baseToken1) + BigInt(delta1)).toString()
+    (BigInt(baseToken1) + BigInt(delta1)).toString(),
   );
   expect(nullableBigInt(updatedState.last_order_update_event_id)).toBe(
-    orderUpdateEventId
+    orderUpdateEventId,
   );
   expect(valueToBigInt(updatedState.last_event_id)).toBe(
     orderUpdateEventId > basePoolStateEventId
       ? orderUpdateEventId
-      : basePoolStateEventId
+      : basePoolStateEventId,
   );
 
   await client.query(
     `DELETE FROM twamm_order_updates WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, orderUpdateEventId0]
+    [chainId, orderUpdateEventId0],
   );
   await client.query(
     `DELETE FROM twamm_order_updates WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, orderUpdateEventId1]
+    [chainId, orderUpdateEventId1],
   );
 
   const stateAfterDelete = await getTwammPoolState(poolKeyId);
@@ -1935,17 +1935,17 @@ test("twamm pool states stay in sync with VOE and order update events", async ()
   expect(stateAfterDelete.token1_sale_rate).toBe(baseToken1);
   expect(stateAfterDelete.last_order_update_event_id).toBeNull();
   expect(valueToBigInt(stateAfterDelete.last_event_id)).toBe(
-    voeEventId > basePoolStateEventId ? voeEventId : basePoolStateEventId
+    voeEventId > basePoolStateEventId ? voeEventId : basePoolStateEventId,
   );
 
   await client.query(
     `DELETE FROM twamm_virtual_order_executions WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, voeEventId]
+    [chainId, voeEventId],
   );
 
   const { rows: finalRows } = await client.query(
     `SELECT 1 FROM twamm_pool_states WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
   expect(finalRows.length).toBe(0);
 });

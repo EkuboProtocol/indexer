@@ -28,7 +28,7 @@ async function seedBlock(client: PGlite, chainId: number) {
   await client.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
      VALUES ($1, $2, $3, $4, 0)`,
-    [chainId, blockNumber, blockHash, blockTime]
+    [chainId, blockNumber, blockHash, blockTime],
   );
 
   return { chainId, blockNumber };
@@ -78,7 +78,7 @@ async function insertTransfer({
       tokenId,
       fromAddress,
       toAddress,
-    ]
+    ],
   );
 
   return eventId;
@@ -104,7 +104,7 @@ test("inserting transfers updates nonfungible_token_owners", async () => {
     `SELECT last_transfer_event_id, current_owner, previous_owner
      FROM nonfungible_token_owners
      WHERE chain_id = $1 AND nft_address = $2 AND token_id = $3`,
-    [chainId, emitter, tokenId]
+    [chainId, emitter, tokenId],
   );
 
   expect(firstOwnerRows.length).toBe(1);
@@ -129,7 +129,7 @@ test("inserting transfers updates nonfungible_token_owners", async () => {
     `SELECT last_transfer_event_id, current_owner, previous_owner
      FROM nonfungible_token_owners
      WHERE chain_id = $1 AND nft_address = $2 AND token_id = $3`,
-    [chainId, emitter, tokenId]
+    [chainId, emitter, tokenId],
   );
 
   expect(secondOwnerRows.length).toBe(1);
@@ -169,14 +169,14 @@ test("deleting transfers rewinds and removes owner records", async () => {
 
   await client.query(
     `DELETE FROM nonfungible_token_transfers WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, secondEventId.toString()]
+    [chainId, secondEventId.toString()],
   );
 
   const { rows: rewindRows } = await client.query(
     `SELECT last_transfer_event_id, current_owner, previous_owner
      FROM nonfungible_token_owners
      WHERE chain_id = $1 AND nft_address = $2 AND token_id = $3`,
-    [chainId, emitter, tokenId]
+    [chainId, emitter, tokenId],
   );
 
   expect(rewindRows.length).toBe(1);
@@ -188,12 +188,12 @@ test("deleting transfers rewinds and removes owner records", async () => {
 
   await client.query(
     `DELETE FROM nonfungible_token_transfers WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, firstEventId.toString()]
+    [chainId, firstEventId.toString()],
   );
 
   const { rows: emptyRows } = await client.query(
     `SELECT 1 FROM nonfungible_token_owners WHERE chain_id = $1 AND nft_address = $2 AND token_id = $3`,
-    [chainId, emitter, tokenId]
+    [chainId, emitter, tokenId],
   );
 
   expect(emptyRows.length).toBe(0);
@@ -213,7 +213,7 @@ test("deleting blocks cascades NFT transfer history and rewinds ownership", asyn
       secondBlock,
       `${chainId}${secondBlock}`,
       new Date("2024-02-02T00:00:00Z"),
-    ]
+    ],
   );
 
   const firstEventId = await insertTransfer({
@@ -242,7 +242,7 @@ test("deleting blocks cascades NFT transfer history and rewinds ownership", asyn
     `SELECT last_transfer_event_id, current_owner, previous_owner
      FROM nonfungible_token_owners
      WHERE chain_id = $1 AND nft_address = $2 AND token_id = $3`,
-    [chainId, emitter, tokenId]
+    [chainId, emitter, tokenId],
   );
   expect(beforeDelete.length).toBe(1);
   expect(beforeDelete[0]).toMatchObject({
@@ -253,14 +253,14 @@ test("deleting blocks cascades NFT transfer history and rewinds ownership", asyn
 
   await client.query(
     `DELETE FROM blocks WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, secondBlock]
+    [chainId, secondBlock],
   );
 
   const { rows: afterDelete } = await client.query(
     `SELECT last_transfer_event_id, current_owner, previous_owner
      FROM nonfungible_token_owners
      WHERE chain_id = $1 AND nft_address = $2 AND token_id = $3`,
-    [chainId, emitter, tokenId]
+    [chainId, emitter, tokenId],
   );
 
   expect(afterDelete.length).toBe(1);
@@ -272,7 +272,7 @@ test("deleting blocks cascades NFT transfer history and rewinds ownership", asyn
 
   const { rows: remainingTransfers } = await client.query(
     `SELECT 1 FROM nonfungible_token_transfers WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, secondBlock]
+    [chainId, secondBlock],
   );
   expect(remainingTransfers.length).toBe(0);
 });
