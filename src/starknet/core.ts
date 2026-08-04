@@ -107,9 +107,7 @@ export const parseSavedBalanceEvent = combineParsers({
   key: { index: 0, parser: parseSavedBalanceKey },
   amount: { index: 1, parser: parseU128 },
 });
-export type SavedBalanceEvent = GetParserType<
-  typeof parseSavedBalanceEvent
->;
+export type SavedBalanceEvent = GetParserType<typeof parseSavedBalanceEvent>;
 
 export const parseFeesAccumulatedEvent = combineParsers({
   pool_key: { index: 0, parser: parsePoolKey },

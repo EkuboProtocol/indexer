@@ -97,13 +97,15 @@ This log records indexer deployments that:
 
 ### 2026-08-03: VeToken bribes event indexing
 
-Adds seven event tables for the new `VeTokenBribes` singleton contract:
+Adds eight event tables for the new `VeTokenBribes` singleton contract:
 `ve_token_bribes_created`, `ve_token_bribes_staked`, `ve_token_bribes_unstaked`,
 `ve_token_bribes_vote_refreshed`, `ve_token_bribes_reward_paid`,
-`ve_token_bribes_rewards_scheduled`, and `ve_token_bribes_voting_fees_claimed`.
-Bribes are identified by `bribe_id` (hash of the pool, reward token, and voting
-fee); `ve_token_bribes_created` records the full key once per bribe and resolves
-`pool_key_id` when the pool is known. Indexing is enabled per network by
+`ve_token_bribes_rewards_scheduled`, `ve_token_bribes_voting_fee_updated`, and
+`ve_token_bribes_voting_fees_claimed`. Bribes are identified by `bribe_id`
+(hash of the pool, reward token, and owner); `ve_token_bribes_created` records
+the full key and initial voting fee once per bribe and resolves `pool_key_id`
+when the pool is known, and the bribe owner's fee changes are recorded in
+`ve_token_bribes_voting_fee_updated`. Indexing is enabled per network by
 setting `VE_TOKEN_BRIBES_V3_ADDRESS`. Schema-only change: run the migration
 before deploying workers; no manual backfill is required.
 

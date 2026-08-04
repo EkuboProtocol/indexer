@@ -7108,43 +7108,9 @@ export const VE_TOKEN_BRIBES_ABI = [
     name: "accrueRewards",
     inputs: [
       {
-        name: "key",
-        type: "tuple",
-        internalType: "struct BribeKey",
-        components: [
-          {
-            name: "poolKey",
-            type: "tuple",
-            internalType: "struct PoolKey",
-            components: [
-              {
-                name: "token0",
-                type: "address",
-                internalType: "address",
-              },
-              {
-                name: "token1",
-                type: "address",
-                internalType: "address",
-              },
-              {
-                name: "config",
-                type: "bytes32",
-                internalType: "PoolConfig",
-              },
-            ],
-          },
-          {
-            name: "rewardToken",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "votingFee",
-            type: "uint64",
-            internalType: "uint64",
-          },
-        ],
+        name: "bribeId",
+        type: "bytes32",
+        internalType: "bytes32",
       },
     ],
     outputs: [],
@@ -7187,9 +7153,9 @@ export const VE_TOKEN_BRIBES_ABI = [
             internalType: "address",
           },
           {
-            name: "votingFee",
-            type: "uint64",
-            internalType: "uint64",
+            name: "owner",
+            type: "address",
+            internalType: "address",
           },
         ],
       },
@@ -7245,9 +7211,9 @@ export const VE_TOKEN_BRIBES_ABI = [
             internalType: "address",
           },
           {
-            name: "votingFee",
-            type: "uint64",
-            internalType: "uint64",
+            name: "owner",
+            type: "address",
+            internalType: "address",
           },
         ],
       },
@@ -7272,6 +7238,52 @@ export const VE_TOKEN_BRIBES_ABI = [
         name: "amount1",
         type: "uint128",
         internalType: "uint128",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "createBribe",
+    inputs: [
+      {
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
+      },
+      {
+        name: "rewardToken",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "initialVotingFee",
+        type: "uint64",
+        internalType: "uint64",
+      },
+    ],
+    outputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        internalType: "bytes32",
       },
     ],
     stateMutability: "nonpayable",
@@ -7419,9 +7431,9 @@ export const VE_TOKEN_BRIBES_ABI = [
             internalType: "address",
           },
           {
-            name: "votingFee",
-            type: "uint64",
-            internalType: "uint64",
+            name: "owner",
+            type: "address",
+            internalType: "address",
           },
         ],
       },
@@ -7576,9 +7588,9 @@ export const VE_TOKEN_BRIBES_ABI = [
             internalType: "address",
           },
           {
-            name: "votingFee",
-            type: "uint64",
-            internalType: "uint64",
+            name: "owner",
+            type: "address",
+            internalType: "address",
           },
         ],
       },
@@ -7603,6 +7615,52 @@ export const VE_TOKEN_BRIBES_ABI = [
         name: "amount",
         type: "uint128",
         internalType: "uint128",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "setVotingFee",
+    inputs: [
+      {
+        name: "poolKey",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
+      },
+      {
+        name: "rewardToken",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "newVotingFee",
+        type: "uint64",
+        internalType: "uint64",
+      },
+    ],
+    outputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        internalType: "bytes32",
       },
     ],
     stateMutability: "nonpayable",
@@ -7644,9 +7702,9 @@ export const VE_TOKEN_BRIBES_ABI = [
             internalType: "address",
           },
           {
-            name: "votingFee",
-            type: "uint64",
-            internalType: "uint64",
+            name: "owner",
+            type: "address",
+            internalType: "address",
           },
         ],
       },
@@ -7715,9 +7773,9 @@ export const VE_TOKEN_BRIBES_ABI = [
             internalType: "address",
           },
           {
-            name: "votingFee",
-            type: "uint64",
-            internalType: "uint64",
+            name: "owner",
+            type: "address",
+            internalType: "address",
           },
         ],
       },
@@ -7760,6 +7818,25 @@ export const VE_TOKEN_BRIBES_ABI = [
     stateMutability: "nonpayable",
   },
   {
+    type: "function",
+    name: "votingFee",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "uint64",
+        internalType: "uint64",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
     type: "event",
     name: "BribeCreated",
     inputs: [
@@ -7779,6 +7856,12 @@ export const VE_TOKEN_BRIBES_ABI = [
         name: "rewardToken",
         type: "address",
         indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "owner",
+        type: "address",
+        indexed: false,
         internalType: "address",
       },
       {
@@ -7988,6 +8071,25 @@ export const VE_TOKEN_BRIBES_ABI = [
   },
   {
     type: "event",
+    name: "VotingFeeUpdated",
+    inputs: [
+      {
+        name: "bribeId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "bytes32",
+      },
+      {
+        name: "votingFee",
+        type: "uint64",
+        indexed: false,
+        internalType: "uint64",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
     name: "VotingFeesClaimed",
     inputs: [
       {
@@ -8031,12 +8133,22 @@ export const VE_TOKEN_BRIBES_ABI = [
   },
   {
     type: "error",
+    name: "AlreadyCreated",
+    inputs: [],
+  },
+  {
+    type: "error",
     name: "AlreadyDeposited",
     inputs: [],
   },
   {
     type: "error",
     name: "BribeKeyMismatch",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "BribeNotCreated",
     inputs: [],
   },
   {
@@ -8092,6 +8204,11 @@ export const VE_TOKEN_BRIBES_ABI = [
   {
     type: "error",
     name: "NotDeposited",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "Reentrancy",
     inputs: [],
   },
   {

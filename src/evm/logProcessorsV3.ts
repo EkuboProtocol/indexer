@@ -552,6 +552,13 @@ export function createLogProcessorsV3({
                   bribeId: parsed.bribeId,
                   poolId: parsed.poolId,
                   rewardToken: parsed.rewardToken,
+                  owner: parsed.owner,
+                  votingFee: parsed.votingFee,
+                });
+              },
+              async VotingFeeUpdated(dao, key, parsed) {
+                await dao.insertVeTokenBribesVotingFeeUpdatedEvent(key, {
+                  bribeId: parsed.bribeId,
                   votingFee: parsed.votingFee,
                 });
               },

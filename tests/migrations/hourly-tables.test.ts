@@ -24,7 +24,7 @@ afterAll(async () => {
 
 async function seedPool(
   pgClient: PGlite,
-  options: { chainId: number; blockNumber: number; blockTime?: Date }
+  options: { chainId: number; blockNumber: number; blockTime?: Date },
 ) {
   const { chainId, blockNumber } = options;
   await ensureIndexerCursor(pgClient, chainId);
@@ -34,7 +34,7 @@ async function seedPool(
   await pgClient.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
      VALUES ($1, $2, $3, $4, 0)`,
-    [chainId, blockNumber, blockHash, blockTime]
+    [chainId, blockNumber, blockHash, blockTime],
   );
 
   const {
@@ -52,7 +52,7 @@ async function seedPool(
         pool_extension
      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING pool_key_id`,
-    [chainId, "2000", "3000", "4000", "4001", "100", "1000000", 60, "5000"]
+    [chainId, "2000", "3000", "4000", "4001", "100", "1000000", 60, "5000"],
   );
 
   return {
@@ -65,7 +65,7 @@ async function seedPool(
 function computeEventId(
   blockNumber: number,
   transactionIndex: number,
-  eventIndex: number
+  eventIndex: number,
 ) {
   const blockLimit = 2n ** 32n;
   const indexLimit = 2n ** 16n;
@@ -116,7 +116,7 @@ test("swap trigger updates hourly volume and price data", async () => {
       "9101112",
       15,
       "100000",
-    ]
+    ],
   );
 
   const {
@@ -125,7 +125,7 @@ test("swap trigger updates hourly volume and price data", async () => {
     `SELECT block_time::text AS block_time
      FROM swaps
      WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, firstEventId]
+    [chainId, firstEventId],
   );
   expect(firstSwapBlockTime).toBe("2024-01-01 00:00:00+00");
 
@@ -136,7 +136,7 @@ test("swap trigger updates hourly volume and price data", async () => {
     `SELECT volume, fees
      FROM hourly_volume_by_token
      WHERE pool_key_id = $1 AND token = $2`,
-    [poolKeyId, "4000"]
+    [poolKeyId, "4000"],
   );
 
   expect(volumeRows.rows.length).toBe(1);
@@ -152,7 +152,7 @@ test("swap trigger updates hourly volume and price data", async () => {
     `SELECT k_volume, total
      FROM hourly_price_data
      WHERE chain_id = $1 AND token0 = $2 AND token1 = $3`,
-    [chainId, "4000", "4001"]
+    [chainId, "4000", "4001"],
   );
 
   expect(priceRows.rows.length).toBe(1);
@@ -194,14 +194,14 @@ test("swap trigger updates hourly volume and price data", async () => {
       "9101113",
       16,
       "100001",
-    ]
+    ],
   );
 
   volumeRows = await client.query(
     `SELECT volume, fees
      FROM hourly_volume_by_token
      WHERE pool_key_id = $1 AND token = $2`,
-    [poolKeyId, "4000"]
+    [poolKeyId, "4000"],
   );
 
   expect(volumeRows.rows.length).toBe(1);
@@ -214,7 +214,7 @@ test("swap trigger updates hourly volume and price data", async () => {
     `SELECT k_volume, total
      FROM hourly_price_data
      WHERE chain_id = $1 AND token0 = $2 AND token1 = $3`,
-    [chainId, "4000", "4001"]
+    [chainId, "4000", "4001"],
   );
 
   expect(priceRows.rows.length).toBe(1);
@@ -225,14 +225,14 @@ test("swap trigger updates hourly volume and price data", async () => {
 
   await client.query(
     `DELETE FROM swaps WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, secondEventId]
+    [chainId, secondEventId],
   );
 
   volumeRows = await client.query(
     `SELECT volume, fees
      FROM hourly_volume_by_token
      WHERE pool_key_id = $1 AND token = $2`,
-    [poolKeyId, "4000"]
+    [poolKeyId, "4000"],
   );
 
   expect(volumeRows.rows.length).toBe(1);
@@ -245,7 +245,7 @@ test("swap trigger updates hourly volume and price data", async () => {
     `SELECT k_volume, total
      FROM hourly_price_data
      WHERE chain_id = $1 AND token0 = $2 AND token1 = $3`,
-    [chainId, "4000", "4001"]
+    [chainId, "4000", "4001"],
   );
 
   expect(priceRows.rows.length).toBe(1);
@@ -256,14 +256,14 @@ test("swap trigger updates hourly volume and price data", async () => {
 
   await client.query(
     `DELETE FROM swaps WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, firstEventId]
+    [chainId, firstEventId],
   );
 
   const remainingVolume = await client.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count
      FROM hourly_volume_by_token
      WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
   expect(remainingVolume.rows[0].count).toBe("0");
 
@@ -271,7 +271,7 @@ test("swap trigger updates hourly volume and price data", async () => {
     `SELECT COUNT(*)::text AS count
      FROM hourly_price_data
      WHERE chain_id = $1`,
-    [chainId]
+    [chainId],
   );
   expect(remainingPrice.rows[0].count).toBe("0");
 });
@@ -312,14 +312,14 @@ test("swap trigger ignores zero-volume events", async () => {
       "9101114",
       17,
       "100002",
-    ]
+    ],
   );
 
   const volumeCount = await client.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count
      FROM hourly_volume_by_token
      WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
 
   expect(volumeCount.rows[0].count).toBe("0");
@@ -328,7 +328,7 @@ test("swap trigger ignores zero-volume events", async () => {
     `SELECT COUNT(*)::text AS count
      FROM hourly_price_data
      WHERE chain_id = $1`,
-    [chainId]
+    [chainId],
   );
 
   expect(priceCount.rows[0].count).toBe("0");
@@ -355,7 +355,7 @@ test("fees accumulated trigger upserts hourly fees", async () => {
         delta1
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
       RETURNING event_id`,
-    [chainId, blockNumber, 0, 0, "6300", "7300", poolKeyId, "15", "25"]
+    [chainId, blockNumber, 0, 0, "6300", "7300", poolKeyId, "15", "25"],
   );
 
   const {
@@ -364,7 +364,7 @@ test("fees accumulated trigger upserts hourly fees", async () => {
     `SELECT block_time::text AS block_time
      FROM fees_accumulated
      WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, event_id]
+    [chainId, event_id],
   );
 
   expect(block_time).toBe("2024-01-01 00:00:00+00");
@@ -376,7 +376,7 @@ test("fees accumulated trigger upserts hourly fees", async () => {
     `SELECT volume, fees
      FROM hourly_volume_by_token
      WHERE pool_key_id = $1 AND token = $2`,
-    [poolKeyId, "4000"]
+    [poolKeyId, "4000"],
   );
 
   expect(token0Rows.rows.length).toBe(1);
@@ -392,7 +392,7 @@ test("fees accumulated trigger upserts hourly fees", async () => {
     `SELECT volume, fees
      FROM hourly_volume_by_token
      WHERE pool_key_id = $1 AND token = $2`,
-    [poolKeyId, "4001"]
+    [poolKeyId, "4001"],
   );
 
   expect(token1Rows.rows.length).toBe(1);
@@ -403,14 +403,14 @@ test("fees accumulated trigger upserts hourly fees", async () => {
 
   await client.query(
     `DELETE FROM fees_accumulated WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, event_id]
+    [chainId, event_id],
   );
 
   const remaining = await client.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count
      FROM hourly_volume_by_token
      WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
 
   expect(remaining.rows[0].count).toBe("0");
@@ -455,7 +455,7 @@ test("protocol fees trigger aggregates revenue and latest event id", async () =>
       100,
       "-5",
       "0",
-    ]
+    ],
   );
 
   const {
@@ -491,7 +491,7 @@ test("protocol fees trigger aggregates revenue and latest event id", async () =>
       110,
       "-7",
       "0",
-    ]
+    ],
   );
 
   const revenueRows = await client.query<{
@@ -500,7 +500,7 @@ test("protocol fees trigger aggregates revenue and latest event id", async () =>
     `SELECT revenue
      FROM hourly_revenue_by_token
      WHERE pool_key_id = $1 AND token = $2`,
-    [poolKeyId, "4000"]
+    [poolKeyId, "4000"],
   );
 
   expect(revenueRows.rows.length).toBe(1);
@@ -509,7 +509,7 @@ test("protocol fees trigger aggregates revenue and latest event id", async () =>
   await client.query(
     `DELETE FROM protocol_fees_paid
      WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, secondFeeEventId]
+    [chainId, secondFeeEventId],
   );
 
   const revenueAfterSecondDelete = await client.query<{
@@ -518,7 +518,7 @@ test("protocol fees trigger aggregates revenue and latest event id", async () =>
     `SELECT revenue
      FROM hourly_revenue_by_token
      WHERE pool_key_id = $1 AND token = $2`,
-    [poolKeyId, "4000"]
+    [poolKeyId, "4000"],
   );
 
   expect(revenueAfterSecondDelete.rows.length).toBe(1);
@@ -527,14 +527,14 @@ test("protocol fees trigger aggregates revenue and latest event id", async () =>
   await client.query(
     `DELETE FROM protocol_fees_paid
      WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, firstFeeEventId]
+    [chainId, firstFeeEventId],
   );
 
   const revenueAfterAllDeletes = await client.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count
      FROM hourly_revenue_by_token
      WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
 
   expect(revenueAfterAllDeletes.rows[0].count).toBe("0");
@@ -579,14 +579,14 @@ test("positions protocol fees aggregate revenue without changing tvl", async () 
       120,
       "6",
       "0",
-    ]
+    ],
   );
 
   const revenueRows = await client.query<{ revenue: string }>(
     `SELECT revenue
      FROM hourly_revenue_by_token
      WHERE pool_key_id = $1 AND token = $2`,
-    [poolKeyId, "4000"]
+    [poolKeyId, "4000"],
   );
 
   expect(revenueRows.rows.length).toBe(1);
@@ -596,7 +596,7 @@ test("positions protocol fees aggregate revenue without changing tvl", async () 
     `SELECT COUNT(*)::text AS count
      FROM hourly_tvl_delta_by_token
      WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
 
   expect(tvlDeltaCount.rows[0].count).toBe("0");
@@ -604,14 +604,14 @@ test("positions protocol fees aggregate revenue without changing tvl", async () 
   await client.query(
     `DELETE FROM position_fees_withheld
      WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, event_id]
+    [chainId, event_id],
   );
 
   const revenueAfterDelete = await client.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count
      FROM hourly_revenue_by_token
      WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
 
   expect(revenueAfterDelete.rows[0].count).toBe("0");
@@ -650,7 +650,7 @@ test("pool balance change trigger updates tvl delta and latest event id", async 
       poolKeyId,
       "12",
       "0",
-    ]
+    ],
   );
 
   await client.query(
@@ -677,7 +677,7 @@ test("pool balance change trigger updates tvl delta and latest event id", async 
       poolKeyId,
       "-2",
       "4",
-    ]
+    ],
   );
 
   const tvlRows = await client.query<{
@@ -688,7 +688,7 @@ test("pool balance change trigger updates tvl delta and latest event id", async 
      FROM hourly_tvl_delta_by_token
      WHERE pool_key_id = $1
      ORDER BY token`,
-    [poolKeyId]
+    [poolKeyId],
   );
 
   expect(tvlRows.rows.length).toBe(2);
@@ -704,7 +704,7 @@ test("pool balance change trigger updates tvl delta and latest event id", async 
   await client.query(
     `DELETE FROM pool_balance_change
      WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, secondEventId.toString()]
+    [chainId, secondEventId.toString()],
   );
 
   const tvlAfterSecondDelete = await client.query<{
@@ -715,7 +715,7 @@ test("pool balance change trigger updates tvl delta and latest event id", async 
      FROM hourly_tvl_delta_by_token
      WHERE pool_key_id = $1
      ORDER BY token`,
-    [poolKeyId]
+    [poolKeyId],
   );
 
   expect(tvlAfterSecondDelete.rows.length).toBe(1);
@@ -727,14 +727,14 @@ test("pool balance change trigger updates tvl delta and latest event id", async 
   await client.query(
     `DELETE FROM pool_balance_change
      WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, firstEventId.toString()]
+    [chainId, firstEventId.toString()],
   );
 
   const tvlAfterAllDeletes = await client.query<{ count: string }>(
     `SELECT COUNT(*)::text AS count
      FROM hourly_tvl_delta_by_token
      WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
 
   expect(tvlAfterAllDeletes.rows[0].count).toBe("0");

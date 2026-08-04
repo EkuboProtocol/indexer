@@ -11,6 +11,7 @@ CREATE TABLE ve_token_bribes_created
     pool_key_id       int8 REFERENCES pool_keys (pool_key_id),
     pool_id           NUMERIC NOT NULL,
     reward_token      NUMERIC NOT NULL,
+    owner             NUMERIC NOT NULL,
     voting_fee        NUMERIC NOT NULL,
     PRIMARY KEY (chain_id, event_id),
     FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
@@ -183,5 +184,28 @@ CREATE INDEX ON ve_token_bribes_voting_fees_claimed (chain_id, emitter, owner, v
 CREATE TRIGGER no_updates_ve_token_bribes_voting_fees_claimed
     BEFORE UPDATE
     ON ve_token_bribes_voting_fees_claimed
+    FOR EACH ROW
+EXECUTE FUNCTION block_updates();
+
+CREATE TABLE ve_token_bribes_voting_fee_updated
+(
+    chain_id          int8    NOT NULL,
+    block_number      int8    NOT NULL,
+    transaction_index int4    NOT NULL,
+    event_index       int4    NOT NULL,
+    transaction_hash  NUMERIC NOT NULL,
+    emitter           NUMERIC NOT NULL,
+    event_id          int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
+    bribe_id          NUMERIC NOT NULL,
+    voting_fee        NUMERIC NOT NULL,
+    PRIMARY KEY (chain_id, event_id),
+    FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
+);
+
+CREATE INDEX ON ve_token_bribes_voting_fee_updated (chain_id, emitter, bribe_id, event_id DESC);
+
+CREATE TRIGGER no_updates_ve_token_bribes_voting_fee_updated
+    BEFORE UPDATE
+    ON ve_token_bribes_voting_fee_updated
     FOR EACH ROW
 EXECUTE FUNCTION block_updates();

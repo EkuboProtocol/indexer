@@ -77,7 +77,7 @@ describe("createLogProcessorsV3", () => {
 
     expect(
       processors.filter((p) => p.address === veTokenBribesAddress),
-    ).toHaveLength(7);
+    ).toHaveLength(8);
   });
 
   it("indexes bribe creations with the full bribe key", async () => {
@@ -119,6 +119,7 @@ describe("createLogProcessorsV3", () => {
         topics,
         data: encodeAbiParameters(
           [
+            { type: "address" },
             {
               type: "tuple",
               components: [
@@ -130,6 +131,7 @@ describe("createLogProcessorsV3", () => {
             { type: "uint64" },
           ],
           [
+            "0x0000000000000000000000000000000000000035",
             [
               "0x0000000000000000000000000000000000000032",
               "0x0000000000000000000000000000000000000033",
@@ -148,6 +150,7 @@ describe("createLogProcessorsV3", () => {
         bribeId,
         poolId,
         rewardToken,
+        owner: "0x0000000000000000000000000000000000000035",
         votingFee: 17n,
       },
     );

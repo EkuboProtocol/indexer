@@ -306,6 +306,12 @@ export interface VeTokenBribesCreatedInsert {
   bribeId: `0x${string}`;
   poolId: `0x${string}`;
   rewardToken: AddressValue;
+  owner: AddressValue;
+  votingFee: NumericValue;
+}
+
+export interface VeTokenBribesVotingFeeUpdatedInsert {
+  bribeId: `0x${string}`;
   votingFee: NumericValue;
 }
 
@@ -2175,7 +2181,7 @@ export class DAO {
     await this.sql`
       INSERT INTO ve_token_bribes_created
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-         bribe_id, pool_key_id, pool_id, reward_token, voting_fee)
+         bribe_id, pool_key_id, pool_id, reward_token, owner, voting_fee)
       VALUES (
         ${this.chainId},
         ${key.blockNumber},
@@ -2193,6 +2199,28 @@ export class DAO {
         ),
         ${this.numeric(parsed.poolId)},
         ${this.numeric(parsed.rewardToken)},
+        ${this.numeric(parsed.owner)},
+        ${this.numeric(parsed.votingFee)}
+      );
+    `;
+  }
+
+  async insertVeTokenBribesVotingFeeUpdatedEvent(
+    key: EventKey,
+    parsed: VeTokenBribesVotingFeeUpdatedInsert,
+  ) {
+    await this.sql`
+      INSERT INTO ve_token_bribes_voting_fee_updated
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         bribe_id, voting_fee)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(parsed.bribeId)},
         ${this.numeric(parsed.votingFee)}
       );
     `;

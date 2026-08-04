@@ -16,8 +16,8 @@ test("all migrations apply successfully", async () => {
   const {
     rows: [{ result }],
   } = await client.query<{ result: number }>(
-    `SELECT count(1) as result FROM information_schema.tables WHERE table_schema = 'public'`
+    `SELECT count(1) as result FROM information_schema.tables WHERE table_schema = 'public'`,
   );
 
-  expect(result).toBe(89);
+  expect(result).toBe(90);
 });

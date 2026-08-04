@@ -4,14 +4,14 @@ import { createClient } from "../helpers/db.js";
 async function insertToken(
   client: Awaited<ReturnType<typeof createClient>>,
   chainId: bigint,
-  tokenAddress: bigint
+  tokenAddress: bigint,
 ) {
   await client.query(
     `INSERT INTO erc20_tokens (
         chain_id, token_address, token_symbol, token_name, token_decimals,
         visibility_priority, sort_order
      ) VALUES ($1, $2, 'SYM', 'Token', 18, 1, 1)`,
-    [chainId, tokenAddress]
+    [chainId, tokenAddress],
   );
 }
 
@@ -26,13 +26,13 @@ test("insert trigger tracks latest price by chain/token", async () => {
     await client.query(
       `INSERT INTO erc20_tokens_usd_prices (chain_id, token_address, source, "timestamp", value)
        VALUES ($1, $2, 'SRC', '2024-01-01T00:00:00Z', 1.0)`,
-      [chainId, token]
+      [chainId, token],
     );
 
     await client.query(
       `INSERT INTO erc20_tokens_usd_prices (chain_id, token_address, source, "timestamp", value)
        VALUES ($1, $2, 'SRC', '2024-01-02T00:00:00Z', 2.5)`,
-      [chainId, token]
+      [chainId, token],
     );
 
     const {
@@ -51,7 +51,7 @@ test("insert trigger tracks latest price by chain/token", async () => {
               value::text
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
 
     expect(latest).toEqual({
@@ -78,12 +78,12 @@ test("equal-timestamp insert replaces latest value and source", async () => {
     await client.query(
       `INSERT INTO erc20_tokens_usd_prices (chain_id, token_address, source, "timestamp", value)
        VALUES ($1, $2, 'SRC', $3, 1.0)`,
-      [chainId, token, ts]
+      [chainId, token, ts],
     );
     await client.query(
       `INSERT INTO erc20_tokens_usd_prices (chain_id, token_address, source, "timestamp", value)
        VALUES ($1, $2, 'ALT', $3, 3.0)`,
-      [chainId, token, ts]
+      [chainId, token, ts],
     );
 
     const {
@@ -95,7 +95,7 @@ test("equal-timestamp insert replaces latest value and source", async () => {
       `SELECT source, value::text
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
 
     expect(latest).toEqual({ source: "ALT", value: "3" });
@@ -116,13 +116,13 @@ test("delete trigger backfills the next-latest price", async () => {
       `INSERT INTO erc20_tokens_usd_prices (chain_id, token_address, source, "timestamp", value)
        VALUES ($1, $2, 'SRC', '2024-01-01T00:00:00Z', 1.0),
               ($1, $2, 'SRC', '2024-01-02T00:00:00Z', 2.0)`,
-      [chainId, token]
+      [chainId, token],
     );
 
     await client.query(
       `DELETE FROM erc20_tokens_usd_prices
        WHERE chain_id = $1 AND token_address = $2 AND "timestamp" = '2024-01-02T00:00:00Z'`,
-      [chainId, token]
+      [chainId, token],
     );
 
     const {
@@ -134,7 +134,7 @@ test("delete trigger backfills the next-latest price", async () => {
       `SELECT "timestamp"::text AS timestamp, value::text
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
 
     expect(latestAfterDelete).toEqual({
@@ -145,12 +145,12 @@ test("delete trigger backfills the next-latest price", async () => {
     await client.query(
       `DELETE FROM erc20_tokens_usd_prices
        WHERE chain_id = $1 AND token_address = $2 AND "timestamp" = '2024-01-01T00:00:00Z'`,
-      [chainId, token]
+      [chainId, token],
     );
 
     const { rows: remainingRows } = await client.query(
       `SELECT 1 FROM erc20_tokens_latest_price WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
     expect(remainingRows.length).toBe(0);
   } finally {
@@ -170,13 +170,13 @@ test("deleting non-latest price leaves latest untouched", async () => {
       `INSERT INTO erc20_tokens_usd_prices (chain_id, token_address, source, "timestamp", value)
        VALUES ($1, $2, 'SRC', '2024-01-01T00:00:00Z', 1.0),
               ($1, $2, 'SRC', '2024-01-03T00:00:00Z', 3.0)`,
-      [chainId, token]
+      [chainId, token],
     );
 
     await client.query(
       `DELETE FROM erc20_tokens_usd_prices
        WHERE chain_id = $1 AND token_address = $2 AND "timestamp" = '2024-01-01T00:00:00Z'`,
-      [chainId, token]
+      [chainId, token],
     );
 
     const {
@@ -188,7 +188,7 @@ test("deleting non-latest price leaves latest untouched", async () => {
       `SELECT "timestamp"::text AS timestamp, value::text
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
 
     expect(latest).toEqual({

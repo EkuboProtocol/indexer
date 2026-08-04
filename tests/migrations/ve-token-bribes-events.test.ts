@@ -72,11 +72,12 @@ test("bribe creations resolve the pool key and store the bribe key", async () =>
         pool_key_id,
         pool_id,
         reward_token,
+        owner,
         voting_fee
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,
         (SELECT pk.pool_key_id FROM pool_keys pk
          WHERE pk.chain_id = $1 AND pk.core_address = $8 AND pk.pool_id = $9),
-        $9,$10,$11)`,
+        $9,$10,$11,$12)`,
     [
       chainId,
       blockNumber,
@@ -88,17 +89,27 @@ test("bribe creations resolve the pool key and store the bribe key", async () =>
       "1000",
       "2000",
       "3000",
+      "5500",
       "17",
     ],
+  );
+
+  await client.query(
+    `INSERT INTO ve_token_bribes_voting_fee_updated (
+        chain_id, block_number, transaction_index, event_index,
+        transaction_hash, emitter, bribe_id, voting_fee
+     ) VALUES ($1,$2,0,1,$3,$4,$5,$6)`,
+    [chainId, blockNumber, "9010", "6000", "1234", "42"],
   );
 
   const { rows } = await client.query<{
     pool_key_id: string;
     bribe_id: string;
     reward_token: string;
+    owner: string;
     voting_fee: string;
   }>(
-    `SELECT pool_key_id, bribe_id, reward_token, voting_fee
+    `SELECT pool_key_id, bribe_id, reward_token, owner, voting_fee
      FROM ve_token_bribes_created
      WHERE chain_id = $1`,
     [chainId],
@@ -111,9 +122,21 @@ test("bribe creations resolve the pool key and store the bribe key", async () =>
       pool_key_id: poolKeyId,
       bribe_id: "1234",
       reward_token: "3000",
+      owner: "5500",
       voting_fee: "17",
     },
   ]);
+
+  const { rows: feeRows } = await client.query<{ voting_fee: string }>(
+    `SELECT u.voting_fee
+     FROM ve_token_bribes_voting_fee_updated u
+     JOIN ve_token_bribes_created c
+       ON c.chain_id = u.chain_id AND c.emitter = u.emitter AND c.bribe_id = u.bribe_id
+     WHERE u.chain_id = $1
+     ORDER BY u.event_id DESC`,
+    [chainId],
+  );
+  expect(feeRows).toEqual([{ voting_fee: "42" }]);
 });
 
 test("bribe stake and schedule events join on the bribe id", async () => {

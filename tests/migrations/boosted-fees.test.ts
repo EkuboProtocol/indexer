@@ -67,7 +67,7 @@ async function seedBlock({
   await client.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
      VALUES ($1, $2, $3, $4, 0)`,
-    [chainId, blockNumber, blockHash, blockTime]
+    [chainId, blockNumber, blockHash, blockTime],
   );
 }
 
@@ -87,7 +87,7 @@ async function insertPoolKey(chainId: number, poolId: string) {
         pool_extension
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING pool_key_id`,
-    [chainId, "1000", poolId, "4000", "5000", "10", "1000", 60, "6000"]
+    [chainId, "1000", poolId, "4000", "5000", "10", "1000", 60, "6000"],
   );
 
   return Number(poolKeyId);
@@ -103,7 +103,7 @@ test("boosted fee deltas track stored and actual rates", async () => {
   await client.query(
     `INSERT INTO pool_states (pool_key_id, sqrt_ratio, tick, liquidity, last_event_id)
      VALUES ($1, $2, $3, $4, $5)`,
-    [poolKeyId, "1", 0, "0", "1"]
+    [poolKeyId, "1", 0, "0", "1"],
   );
   const startTime = new Date("2023-12-31T23:00:00.000Z");
   const endTime = new Date("2024-01-01T02:00:00.000Z");
@@ -134,7 +134,7 @@ test("boosted fee deltas track stored and actual rates", async () => {
       endTime,
       "100",
       "200",
-    ]
+    ],
   );
 
   const { rows } = await client.query<{
@@ -148,7 +148,7 @@ test("boosted fee deltas track stored and actual rates", async () => {
      FROM boosted_fees_donate_rate_deltas
      WHERE pool_key_id = $1
      ORDER BY "time"`,
-    [poolKeyId]
+    [poolKeyId],
   );
 
   const expectedTimes = [startTime.toISOString(), endTime.toISOString()];
@@ -178,7 +178,7 @@ test("boosted fee deltas track stored and actual rates", async () => {
         donate_rate0,
         donate_rate1
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-    [chainId, blockNumber, 0, 1, "123", "222", poolKeyId, "0", "0"]
+    [chainId, blockNumber, 0, 1, "123", "222", poolKeyId, "0", "0"],
   );
   const { rows: viewRows } = await client.query<{
     boosted_fees_donate_rate0: string | null;
@@ -190,7 +190,7 @@ test("boosted fee deltas track stored and actual rates", async () => {
             boosted_fees_donations
      FROM all_pool_states_view
      WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
   expect(viewRows).toHaveLength(1);
   expect(viewRows[0]?.boosted_fees_donate_rate0).toBe("0");
@@ -212,12 +212,12 @@ test("boosted fee deltas track stored and actual rates", async () => {
   });
   await client.query(
     `DELETE FROM boosted_fees_events WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, eventId.toString()]
+    [chainId, eventId.toString()],
   );
 
   const { rows: deletedRows } = await client.query(
     `SELECT 1 FROM boosted_fees_donate_rate_deltas WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
   expect(deletedRows).toHaveLength(0);
 });
@@ -258,7 +258,7 @@ test("actual boosted fee deltas skip boosts entirely in the past", async () => {
       endTime,
       "50",
       "75",
-    ]
+    ],
   );
 
   const { rows } = await client.query<{
@@ -272,7 +272,7 @@ test("actual boosted fee deltas skip boosts entirely in the past", async () => {
      FROM boosted_fees_donate_rate_deltas
      WHERE pool_key_id = $1
      ORDER BY "time"`,
-    [poolKeyId]
+    [poolKeyId],
   );
 
   expect(rows).toHaveLength(2);
@@ -308,7 +308,7 @@ test("boosted fee pool state recomputes when later boost is active at last donat
   await client.query(
     `INSERT INTO pool_states (pool_key_id, sqrt_ratio, tick, liquidity, last_event_id)
      VALUES ($1, $2, $3, $4, $5)`,
-    [poolKeyId, "1", 0, "0", "1"]
+    [poolKeyId, "1", 0, "0", "1"],
   );
 
   await client.query(
@@ -323,7 +323,7 @@ test("boosted fee pool state recomputes when later boost is active at last donat
         donate_rate0,
         donate_rate1
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-    [chainId, donatedBlockNumber, 0, 0, "123", "222", poolKeyId, "0", "0"]
+    [chainId, donatedBlockNumber, 0, 0, "123", "222", poolKeyId, "0", "0"],
   );
 
   await client.query(
@@ -352,7 +352,7 @@ test("boosted fee pool state recomputes when later boost is active at last donat
       new Date("2024-01-03T02:00:00.000Z"),
       "10",
       "20",
-    ]
+    ],
   );
 
   const { rows } = await client.query<{
@@ -362,7 +362,7 @@ test("boosted fee pool state recomputes when later boost is active at last donat
     `SELECT donate_rate0, donate_rate1
      FROM boosted_fees_pool_states
      WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
 
   expect(rows).toHaveLength(1);
@@ -376,7 +376,7 @@ test("boosted fee pool state recomputes when later boost is active at last donat
   });
   await client.query(
     `DELETE FROM boosted_fees_events WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, boostedEventId.toString()]
+    [chainId, boostedEventId.toString()],
   );
 
   const { rows: afterDeleteRows } = await client.query<{
@@ -386,7 +386,7 @@ test("boosted fee pool state recomputes when later boost is active at last donat
     `SELECT donate_rate0, donate_rate1
      FROM boosted_fees_pool_states
      WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
   expect(afterDeleteRows).toHaveLength(1);
   expect(afterDeleteRows[0]?.donate_rate0).toBe("0");
