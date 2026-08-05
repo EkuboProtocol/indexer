@@ -132,6 +132,13 @@ reorg. The migration atomically rebuilds every tick aggregate from canonical
 `position_updates`; no manual backfill is required beyond running the
 migration.
 
+### 2026-08-05: Ve33 active voter lookup index
+
+`ve33_pool_vote_states` now has a partial covering index for active votes by
+chain and Ve33 extension. Apply migrations before deploying API consumers that
+aggregate active voting weight by voter. No backfill or manual intervention is
+required beyond running the migration.
+
 ### 2026-07-30: Pool token-pair lookup index
 
 `pool_keys` now has an index on `(chain_id, token0, token1)` so API queries can
