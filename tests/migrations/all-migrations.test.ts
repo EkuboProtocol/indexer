@@ -23,15 +23,15 @@ test("all migrations apply successfully", async () => {
 });
 
 test("ve33 active voter lookup uses a partial covering index", async () => {
-  const {
-    rows: [{ indexdef }],
-  } = await client.query<{ indexdef: string }>(
+  const { rows } = await client.query<{ indexdef: string }>(
     `SELECT indexdef
      FROM pg_indexes
      WHERE schemaname = 'public'
        AND indexname = 've33_pool_vote_states_active_by_extension'`,
   );
 
+  expect(rows).toHaveLength(1);
+  const [{ indexdef }] = rows;
   expect(indexdef).toContain("(chain_id, emitter)");
   expect(indexdef).toContain("INCLUDE (owner, event_id, weight)");
   expect(indexdef).toContain("WHERE (weight > (0)::numeric)");
