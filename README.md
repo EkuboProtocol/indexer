@@ -95,6 +95,14 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-08-05: Pool-key discovery indexes
+
+Adds two indexes on `pool_keys` — `(chain_id, token1)` and
+`(chain_id, pool_extension)` — so the API's new `/poolKeys` discovery route
+can filter by a single token (either side) or by extension without scanning a
+chain's whole pool set. Schema-only change: run the migration; no manual
+backfill is required and no existing structure changes.
+
 ### 2026-07-31: Token circulating supply
 
 `erc20_tokens` now has a nullable, non-negative integer `circulating_supply`
