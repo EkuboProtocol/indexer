@@ -301,6 +301,33 @@ workers:
         scope: RUN_TIME
         value: eth-hoodi
     run_command: scripts/restart.sh bun src/evm.ts
+  - name: zksync-sepolia
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: NETWORK
+        scope: RUN_TIME
+        value: zksync-sepolia
+    run_command: scripts/restart.sh bun src/evm.ts
+  - name: megaeth-testnet
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: NETWORK
+        scope: RUN_TIME
+        value: megaeth-testnet
+    run_command: scripts/restart.sh bun src/evm.ts
+  - name: abstract-testnet
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: NETWORK
+        scope: RUN_TIME
+        value: abstract-testnet
+    run_command: scripts/restart.sh bun src/evm.ts
   - name: token-price-sync
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
