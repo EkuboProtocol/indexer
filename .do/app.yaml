@@ -130,6 +130,177 @@ workers:
         scope: RUN_TIME
         value: arb-mainnet
     run_command: scripts/restart.sh bun src/evm.ts
+  - name: opt-mainnet
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: EVM_RPC_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: "https://mainnet.optimism.io,https://opt-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+      - key: NETWORK
+        scope: RUN_TIME
+        value: opt-mainnet
+    run_command: scripts/restart.sh bun src/evm.ts
+  - name: bsc-mainnet
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: EVM_RPC_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: "https://bnb-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+      - key: NETWORK
+        scope: RUN_TIME
+        value: bsc-mainnet
+    run_command: scripts/restart.sh bun src/evm.ts
+  - name: gnosis-mainnet
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: EVM_RPC_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: "https://rpc.gnosischain.com,https://gnosis-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+      - key: NETWORK
+        scope: RUN_TIME
+        value: gnosis-mainnet
+    run_command: scripts/restart.sh bun src/evm.ts
+  - name: unichain-mainnet
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: EVM_RPC_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: "https://mainnet.unichain.org,https://unichain-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+      - key: NETWORK
+        scope: RUN_TIME
+        value: unichain-mainnet
+    run_command: scripts/restart.sh bun src/evm.ts
+  - name: polygon-mainnet
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: EVM_RPC_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: "https://polygon-rpc.com,https://polygon-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+      - key: NETWORK
+        scope: RUN_TIME
+        value: polygon-mainnet
+    run_command: scripts/restart.sh bun src/evm.ts
+  - name: monad-mainnet
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: EVM_RPC_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: "https://rpc.monad.xyz,https://monad-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+      - key: NETWORK
+        scope: RUN_TIME
+        value: monad
+    run_command: scripts/restart.sh bun src/evm.ts
+  - name: worldchain-mainnet
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: EVM_RPC_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: "https://worldchain-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+      - key: NETWORK
+        scope: RUN_TIME
+        value: worldchain-mainnet
+    run_command: scripts/restart.sh bun src/evm.ts
+  - name: megaeth-mainnet
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: EVM_RPC_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: "https://mainnet.megaeth.com/rpc,https://megaeth-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+      - key: NETWORK
+        scope: RUN_TIME
+        value: megaeth
+    run_command: scripts/restart.sh bun src/evm.ts
+  - name: ink-mainnet
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: EVM_RPC_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: "https://rpc-gel.inkonchain.com,https://ink-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+      - key: NETWORK
+        scope: RUN_TIME
+        value: ink-mainnet
+    run_command: scripts/restart.sh bun src/evm.ts
+  - name: opt-sepolia
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: NETWORK
+        scope: RUN_TIME
+        value: opt-sepolia
+    run_command: scripts/restart.sh bun src/evm.ts
+  - name: unichain-sepolia
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: NETWORK
+        scope: RUN_TIME
+        value: unichain-sepolia
+    run_command: scripts/restart.sh bun src/evm.ts
+  - name: worldchain-sepolia
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: NETWORK
+        scope: RUN_TIME
+        value: worldchain-sepolia
+    run_command: scripts/restart.sh bun src/evm.ts
+  - name: ink-sepolia
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: NETWORK
+        scope: RUN_TIME
+        value: ink-sepolia
+    run_command: scripts/restart.sh bun src/evm.ts
+  - name: polygon-amoy
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: NETWORK
+        scope: RUN_TIME
+        value: polygon-amoy
+    run_command: scripts/restart.sh bun src/evm.ts
+  - name: eth-hoodi
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    envs:
+      - key: NETWORK
+        scope: RUN_TIME
+        value: eth-hoodi
+    run_command: scripts/restart.sh bun src/evm.ts
   - name: token-price-sync
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
