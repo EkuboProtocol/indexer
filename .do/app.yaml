@@ -145,9 +145,11 @@ workers:
         scope: RUN_TIME
         type: SECRET
         value: ${COINGECKO_API_KEY}
+      # The Ekubo quoter and Sushi fetchers cover liquid tokens every minute;
+      # CoinGecko is the fallback for the illiquid tail, where this is plenty.
       - key: COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS
         scope: RUN_TIME
-        value: "300"
+        value: "900"
     run_command: bun src/price-sync/index.ts
 jobs:
   - name: run-migrations
