@@ -18,12 +18,13 @@ export async function runPriceSyncJob(
   let batchCount = 0;
   let updateCount = 0;
   let insertedCount = 0;
+  const allowedChainIds = new Set(job.chainIds);
 
   for await (const updates of job.fetch()) {
     if (updates.length === 0) continue;
 
     for (const update of updates) {
-      if (update.chainId !== job.chainId) {
+      if (!allowedChainIds.has(update.chainId)) {
         throw new Error(
           `Price sync job ${priceSyncJobId(
             job,
