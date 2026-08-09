@@ -253,6 +253,63 @@ test("expiration refresh promotes the next fresh confidence tier", async () => {
   }
 });
 
+test("duplicate observations from one source do not break the cache", async () => {
+  // erc20_tokens_usd_prices has no unique constraint (migration 00073 drops
+  // the primary key), so a source may write the same timestamp twice. Both
+  // the same-statement and separate-statement cases must survive: the former
+  // would otherwise raise a cardinality violation in the insert trigger.
+  const client = await createClient();
+  try {
+    const chainId = 1n;
+    const sameStatement = 313233n;
+    const separateStatements = 343536n;
+    await insertToken(client, chainId, sameStatement);
+    await insertToken(client, chainId, separateStatements);
+    await insertSource(client, "DUP", 1);
+
+    await client.query(
+      `INSERT INTO erc20_tokens_usd_prices
+          (chain_id, token_address, source, "timestamp", value)
+       VALUES ($1, $2, 'DUP', CURRENT_TIMESTAMP, 5),
+              ($1, $2, 'DUP', CURRENT_TIMESTAMP, 5)`,
+      [chainId, sameStatement]
+    );
+
+    await client.query(
+      `INSERT INTO erc20_tokens_usd_prices
+          (chain_id, token_address, source, "timestamp", value)
+       VALUES ($1, $2, 'DUP', '2026-08-09T00:00:00Z', 7)`,
+      [chainId, separateStatements]
+    );
+    await client.query(
+      `INSERT INTO erc20_tokens_usd_prices
+          (chain_id, token_address, source, "timestamp", value)
+       VALUES ($1, $2, 'DUP', '2026-08-09T00:00:00Z', 7)`,
+      [chainId, separateStatements]
+    );
+
+    const {
+      rows: [sameStatementRow],
+    } = await client.query<{ value: number; count: number }>(
+      `SELECT value FROM erc20_tokens_latest_price
+       WHERE chain_id = $1 AND token_address = $2`,
+      [chainId, sameStatement]
+    );
+    const { rows: cacheRows } = await client.query(
+      `SELECT 1 FROM erc20_tokens_latest_price_by_source
+       WHERE chain_id = $1 AND token_address = $2`,
+      [chainId, sameStatement]
+    );
+
+    expect(sameStatementRow.value).toBe(5);
+    // DISTINCT ON collapses the duplicate before the upsert, so the per-source
+    // cache still holds exactly one row.
+    expect(cacheRows).toHaveLength(1);
+  } finally {
+    await client.close();
+  }
+});
+
 test("cache tracks only the latest observation from each source", async () => {
   const client = await createClient();
   try {
