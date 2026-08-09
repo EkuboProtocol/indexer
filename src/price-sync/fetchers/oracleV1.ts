@@ -20,7 +20,7 @@ export function oracleV1PriceFetcher({
   twapDurationSeconds,
 }: OracleV1PriceFetcherOptions): PriceSyncJob {
   return {
-    chainId,
+    chainIds: [chainId],
     source: "ov1",
     intervalMs,
     fetch: async function* () {
