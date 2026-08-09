@@ -5,7 +5,7 @@ import {
   parseChainlinkPriceConfig,
   readChainlinkFeedPrice,
   type ChainlinkFeedConfig,
-} from "./chainlinkTokenPrices";
+} from "./chainlinkFeeds";
 
 const tokenAddress = "0x0000000000000000000000000000000000000001";
 const feedAddress = "0x0000000000000000000000000000000000000002";
@@ -89,8 +89,7 @@ describe("discoverChainlinkFeeds", () => {
           ...standardFeed,
           path: "eth-usd-svr",
           proxyAddress: "0x0000000000000000000000000000000000000005",
-          secondaryProxyAddress:
-            "0x0000000000000000000000000000000000000006",
+          secondaryProxyAddress: "0x0000000000000000000000000000000000000006",
         },
         {
           ...standardFeed,
@@ -122,22 +121,24 @@ describe("discoverChainlinkFeeds", () => {
   });
 
   test("supports shared-SVR underlying proxies and tokenized prices", () => {
-    const feed = (baseAsset: string, productTypeCode: string, address: string) =>
-      ({
-        proxyAddress: address,
-        secondaryProxyAddress:
-          "0x0000000000000000000000000000000000000008",
-        heartbeat: 3600,
-        path: `${baseAsset.toLowerCase()}-usd-shared-svr`,
-        feedCategory: "low",
-        docs: {
-          baseAsset,
-          quoteAsset: "USD",
-          deliveryChannelCode: "DF",
-          productType: "Price",
-          productTypeCode,
-        },
-      });
+    const feed = (
+      baseAsset: string,
+      productTypeCode: string,
+      address: string,
+    ) => ({
+      proxyAddress: address,
+      secondaryProxyAddress: "0x0000000000000000000000000000000000000008",
+      heartbeat: 3600,
+      path: `${baseAsset.toLowerCase()}-usd-shared-svr`,
+      feedCategory: "low",
+      docs: {
+        baseAsset,
+        quoteAsset: "USD",
+        deliveryChannelCode: "DF",
+        productType: "Price",
+        productTypeCode,
+      },
+    });
 
     expect(
       discoverChainlinkFeeds(
@@ -179,7 +180,9 @@ describe("readChainlinkFeedPrice", () => {
     maxAgeSeconds: 3600,
   };
 
-  function reader(roundData: readonly [bigint, bigint, bigint, bigint, bigint]) {
+  function reader(
+    roundData: readonly [bigint, bigint, bigint, bigint, bigint],
+  ) {
     return {
       async readContract({ functionName }: { functionName: string }) {
         return functionName === "decimals" ? 8 : roundData;
@@ -211,10 +214,7 @@ describe("readChainlinkFeedPrice", () => {
 
   test("rejects incomplete and superseded rounds", async () => {
     await expect(
-      readChainlinkFeedPrice(
-        reader([10n, 123_456_789n, 0n, 0n, 10n]),
-        feed,
-      ),
+      readChainlinkFeedPrice(reader([10n, 123_456_789n, 0n, 0n, 10n]), feed),
     ).rejects.toThrow("incomplete");
     await expect(
       readChainlinkFeedPrice(
@@ -248,21 +248,17 @@ describe("fetchChainlinkTokenPricesWithMulticall", () => {
       },
     };
 
-    const prices = await fetchChainlinkTokenPricesWithMulticall(
-      reader,
-      "1",
-      {
-        rpcUrls: ["https://rpc.example"],
-        feeds: [
-          { tokenAddress, feedAddress, maxAgeSeconds: 3600 },
-          {
-            tokenAddress: "0x0000000000000000000000000000000000000003",
-            feedAddress: "0x0000000000000000000000000000000000000004",
-            maxAgeSeconds: 3600,
-          },
-        ],
-      },
-    );
+    const prices = await fetchChainlinkTokenPricesWithMulticall(reader, "1", {
+      rpcUrls: ["https://rpc.example"],
+      feeds: [
+        { tokenAddress, feedAddress, maxAgeSeconds: 3600 },
+        {
+          tokenAddress: "0x0000000000000000000000000000000000000003",
+          feedAddress: "0x0000000000000000000000000000000000000004",
+          maxAgeSeconds: 3600,
+        },
+      ],
+    });
 
     expect(Object.keys(prices)).toHaveLength(2);
     expect(multicallArgs).toHaveLength(1);

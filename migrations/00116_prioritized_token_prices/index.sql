@@ -17,6 +17,7 @@ INSERT INTO erc20_token_price_sources (source, freshness_time, confidence)
 VALUES ('cl1', INTERVAL '5 minutes', 4),
        ('qp1', INTERVAL '5 minutes', 3),
        ('cg1', INTERVAL '5 minutes', 2),
+       ('cgn', INTERVAL '5 minutes', 2),
        ('ss1', INTERVAL '5 minutes', 1),
        ('ov1', INTERVAL '5 minutes', 0),
        ('LEG', INTERVAL '5 minutes', 0);

@@ -16,6 +16,8 @@ interface CommonConfiguration {
   CHAINLINK_TOKEN_PRICE_CONFIG?: string; // JSON map of chain IDs to RPC URLs, catalog URLs, and optional feed overrides
   CHAINLINK_TOKEN_PRICE_SYNC_INTERVAL_SECONDS?: string; // Zero or unset disables Chainlink price syncing
   CHAINLINK_FEED_CATALOG_REFRESH_INTERVAL_SECONDS?: string; // Defaults to one hour
+  EKUBO_QUOTER_URL?: string;
+  MAX_QUOTER_REQUESTS_PER_MINUTE?: string;
 }
 
 interface EvmConfig extends CommonConfiguration {
@@ -52,6 +54,7 @@ interface StarknetConfig extends CommonConfiguration {
   APIBARA_URL: string;
 
   CORE_ADDRESS: `0x${string}`;
+  POSITIONS_ADDRESS: `0x${string}`;
   NFT_ADDRESS: `0x${string}`;
   TWAMM_ADDRESS: `0x${string}`;
   STAKER_ADDRESS: `0x${string}`;

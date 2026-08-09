@@ -1,12 +1,21 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { PGlite } from "@electric-sql/pglite";
-import { createClient, ensureIndexerCursor } from "../helpers/db.js";
+import {
+  createClient,
+  ensureIndexerCursor,
+  runMigrations,
+} from "../helpers/db.js";
 
-const MIGRATION_FILES = [
+const LEGACY_MIGRATION_FILES = [
   "00001_chain_tables",
   "00002_core_tables",
   "00005_per_pool_per_tick_liquidity",
   "00060_pool_config_v2",
+] as const;
+
+const MIGRATION_FILES = [
+  ...LEGACY_MIGRATION_FILES,
+  "00111_fix_per_pool_per_tick_liquidity_reorg",
 ] as const;
 
 let client: PGlite;
@@ -19,22 +28,26 @@ afterAll(async () => {
   await client.close();
 });
 
-async function seedBlock(chainId: number, blockNumber: number) {
-  await ensureIndexerCursor(client, chainId);
+async function seedBlock(
+  chainId: number,
+  blockNumber: number,
+  database = client
+) {
+  await ensureIndexerCursor(database, chainId);
   const blockHash = `${chainId}${blockNumber}${Date.now()}`;
   const blockTime = new Date("2024-01-01T00:00:00Z");
 
-  await client.query(
+  await database.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
      VALUES ($1, $2, $3, $4, 0)`,
     [chainId, blockNumber, blockHash, blockTime]
   );
 }
 
-async function insertPoolKey(chainId: number) {
+async function insertPoolKey(chainId: number, database = client) {
   const {
     rows: [{ pool_key_id: poolKeyId }],
-  } = await client.query<{ pool_key_id: bigint }>(
+  } = await database.query<{ pool_key_id: bigint }>(
     `INSERT INTO pool_keys (
         chain_id,
         core_address,
@@ -53,28 +66,31 @@ async function insertPoolKey(chainId: number) {
   return poolKeyId;
 }
 
-async function insertPositionUpdate({
-  chainId,
-  blockNumber,
-  transactionIndex,
-  eventIndex,
-  poolKeyId,
-  lowerBound,
-  upperBound,
-  liquidityDelta,
-}: {
-  chainId: number;
-  blockNumber: number;
-  transactionIndex: number;
-  eventIndex: number;
-  poolKeyId: bigint;
-  lowerBound: number;
-  upperBound: number;
-  liquidityDelta: string;
-}) {
+async function insertPositionUpdate(
+  {
+    chainId,
+    blockNumber,
+    transactionIndex,
+    eventIndex,
+    poolKeyId,
+    lowerBound,
+    upperBound,
+    liquidityDelta,
+  }: {
+    chainId: number;
+    blockNumber: number;
+    transactionIndex: number;
+    eventIndex: number;
+    poolKeyId: bigint;
+    lowerBound: number;
+    upperBound: number;
+    liquidityDelta: string;
+  },
+  database = client
+) {
   const {
     rows: [{ event_id: eventId }],
-  } = await client.query<{ event_id: bigint }>(
+  } = await database.query<{ event_id: bigint }>(
     `INSERT INTO position_updates (
         chain_id,
         block_number,
@@ -370,6 +386,171 @@ test("deleting blocks cascades position updates and rewinds tick liquidity state
     [chainId, secondBlock]
   );
   expect(remainingPositionUpdates.length).toBe(0);
+});
+
+test("migration repairs and prevents order-dependent reorg corruption", async () => {
+  const legacyClient = await createClient({
+    files: [...LEGACY_MIGRATION_FILES],
+  });
+
+  try {
+    const chainId = 205;
+    const persistentBlock = 6200;
+    const temporaryAddBlock = 6201;
+    const temporaryRemoveBlock = 6202;
+    const liquidity = "880000424966";
+
+    await seedBlock(chainId, persistentBlock, legacyClient);
+    await seedBlock(chainId, temporaryAddBlock, legacyClient);
+    await seedBlock(chainId, temporaryRemoveBlock, legacyClient);
+    const poolKeyId = await insertPoolKey(chainId, legacyClient);
+
+    await insertPositionUpdate(
+      {
+        chainId,
+        blockNumber: persistentBlock,
+        transactionIndex: 0,
+        eventIndex: 0,
+        poolKeyId,
+        lowerBound: 450,
+        upperBound: 600,
+        liquidityDelta: liquidity,
+      },
+      legacyClient
+    );
+    await insertPositionUpdate(
+      {
+        chainId,
+        blockNumber: temporaryAddBlock,
+        transactionIndex: 0,
+        eventIndex: 0,
+        poolKeyId,
+        lowerBound: 300,
+        upperBound: 450,
+        liquidityDelta: liquidity,
+      },
+      legacyClient
+    );
+    await insertPositionUpdate(
+      {
+        chainId,
+        blockNumber: temporaryRemoveBlock,
+        transactionIndex: 0,
+        eventIndex: 0,
+        poolKeyId,
+        lowerBound: 300,
+        upperBound: 450,
+        liquidityDelta: `-${liquidity}`,
+      },
+      legacyClient
+    );
+
+    await legacyClient.query(
+      `DELETE FROM blocks
+       WHERE chain_id = $1
+         AND block_number >= $2`,
+      [chainId, temporaryAddBlock]
+    );
+
+    const beforeMigration = await legacyClient.query<{
+      net_liquidity_delta_diff: string;
+      total_liquidity_on_tick: string;
+    }>(
+      `SELECT net_liquidity_delta_diff, total_liquidity_on_tick
+       FROM per_pool_per_tick_liquidity
+       WHERE pool_key_id = $1
+         AND tick = 450`,
+      [poolKeyId.toString()]
+    );
+
+    expect(beforeMigration.rows).toEqual([
+      {
+        net_liquidity_delta_diff: `-${liquidity}`,
+        total_liquidity_on_tick: liquidity,
+      },
+    ]);
+
+    await runMigrations(legacyClient, {
+      files: ["00111_fix_per_pool_per_tick_liquidity_reorg"],
+    });
+
+    const afterMigration = await legacyClient.query<{
+      tick: number;
+      net_liquidity_delta_diff: string;
+      total_liquidity_on_tick: string;
+    }>(
+      `SELECT tick, net_liquidity_delta_diff, total_liquidity_on_tick
+       FROM per_pool_per_tick_liquidity
+       WHERE pool_key_id = $1
+       ORDER BY tick`,
+      [poolKeyId.toString()]
+    );
+
+    expect(afterMigration.rows).toEqual([
+      {
+        tick: 450,
+        net_liquidity_delta_diff: liquidity,
+        total_liquidity_on_tick: liquidity,
+      },
+      {
+        tick: 600,
+        net_liquidity_delta_diff: `-${liquidity}`,
+        total_liquidity_on_tick: liquidity,
+      },
+    ]);
+
+    await seedBlock(chainId, temporaryAddBlock, legacyClient);
+    await seedBlock(chainId, temporaryRemoveBlock, legacyClient);
+    await insertPositionUpdate(
+      {
+        chainId,
+        blockNumber: temporaryAddBlock,
+        transactionIndex: 0,
+        eventIndex: 0,
+        poolKeyId,
+        lowerBound: 300,
+        upperBound: 450,
+        liquidityDelta: liquidity,
+      },
+      legacyClient
+    );
+    await insertPositionUpdate(
+      {
+        chainId,
+        blockNumber: temporaryRemoveBlock,
+        transactionIndex: 0,
+        eventIndex: 0,
+        poolKeyId,
+        lowerBound: 300,
+        upperBound: 450,
+        liquidityDelta: `-${liquidity}`,
+      },
+      legacyClient
+    );
+
+    await legacyClient.query(
+      `DELETE FROM blocks
+       WHERE chain_id = $1
+         AND block_number >= $2`,
+      [chainId, temporaryAddBlock]
+    );
+
+    const afterSecondRewind = await legacyClient.query<{
+      tick: number;
+      net_liquidity_delta_diff: string;
+      total_liquidity_on_tick: string;
+    }>(
+      `SELECT tick, net_liquidity_delta_diff, total_liquidity_on_tick
+       FROM per_pool_per_tick_liquidity
+       WHERE pool_key_id = $1
+       ORDER BY tick`,
+      [poolKeyId.toString()]
+    );
+
+    expect(afterSecondRewind.rows).toEqual(afterMigration.rows);
+  } finally {
+    await legacyClient.close();
+  }
 });
 
 test("position_updates rows cannot be updated", async () => {

@@ -17,8 +17,7 @@
     "eth:sepolia": "NETWORK=sepolia bun src/evm.ts",
     "starknet:mainnet": "NETWORK=mainnet bun src/starknet.ts",
     "starknet:sepolia": "NETWORK=sepolia bun src/starknet.ts",
-    "sync-tokens": "bun scripts/sync-tokens.ts",
-    "sync-token-prices": "bun scripts/sync-token-prices.ts",
+    "sync-token-prices": "bun src/price-sync/index.ts",
     "migrate": "bun scripts/migrate.ts"
   },
   "author": "Moody Salem",
@@ -27,8 +26,8 @@
     "bun": ">=1.3"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.3.16",
-    "@types/bun": "^1.3.13"
+    "@electric-sql/pglite": "^0.4.6",
+    "@types/bun": "^1.3.14"
   },
   "dependencies": {
     "@apibara/evm": "^2.1.4",
@@ -39,7 +38,7 @@
     "dotenv": "^17.4.2",
     "postgres": "^3.4.9",
     "postgres-shift": "^0.1.0",
-    "viem": "^2.48.11",
+    "viem": "^2.52.0",
     "winston": "^3.19.0"
   }
 }

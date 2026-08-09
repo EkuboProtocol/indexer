@@ -8,8 +8,7 @@ import {
   type Address,
 } from "viem";
 
-const DEFAULT_MULTICALL3_ADDRESS =
-  "0xcA11bde05977b3631167028862bE2a173976CA11";
+const DEFAULT_MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11";
 
 const CHAINLINK_AGGREGATOR_ABI = [
   {
@@ -161,7 +160,10 @@ export function parseChainlinkPriceConfig(
         );
       }
 
-      const chain = assertObject(value, `Chainlink config for chain ${chainId}`);
+      const chain = assertObject(
+        value,
+        `Chainlink config for chain ${chainId}`,
+      );
       let rawFeeds: unknown[] = [];
       if (chain.feeds !== undefined) {
         if (!Array.isArray(chain.feeds)) {
@@ -415,8 +417,7 @@ export async function fetchChainlinkTokenPricesWithMulticall(
     contracts,
     allowFailure: true,
     batchSize: Number.MAX_SAFE_INTEGER,
-    multicallAddress:
-      config.multicallAddress ?? DEFAULT_MULTICALL3_ADDRESS,
+    multicallAddress: config.multicallAddress ?? DEFAULT_MULTICALL3_ADDRESS,
   });
 
   const prices: Record<string, ChainlinkPriceObservation> = {};
@@ -452,9 +453,7 @@ export async function fetchChainlinkTokenPrices(
   config: ChainlinkChainConfig,
 ): Promise<Record<string, ChainlinkPriceObservation>> {
   const client = createPublicClient({
-    transport: fallback(
-      config.rpcUrls.map((rpcUrl) => http(rpcUrl)),
-    ),
+    transport: fallback(config.rpcUrls.map((rpcUrl) => http(rpcUrl))),
   }) as unknown as ChainlinkReader & ChainlinkMulticallReader;
 
   const rpcChainId = await client.getChainId();
