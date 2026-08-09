@@ -1,4 +1,6 @@
 [test]
-# PGlite 0.4 runs initdb during startup, which can exceed Bun's 5-second
-# default on slower CI runners for migration-heavy tests.
-timeout = 15000
+# PGlite runs initdb during startup, which can far exceed Bun's 5-second
+# default on slower CI runners for migration-heavy tests. This is the single
+# source of truth for the test timeout, so CI does not pass --timeout and
+# local runs get the same headroom.
+timeout = 30000
