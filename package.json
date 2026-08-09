@@ -18,7 +18,8 @@
     "starknet:mainnet": "NETWORK=mainnet bun src/starknet.ts",
     "starknet:sepolia": "NETWORK=sepolia bun src/starknet.ts",
     "sync-token-prices": "bun src/price-sync/index.ts",
-    "migrate": "bun scripts/migrate.ts"
+    "migrate": "bun scripts/migrate.ts",
+    "test": "bun test --timeout 30000"
   },
   "author": "Moody Salem",
   "type": "module",

@@ -29,7 +29,7 @@ test("runPriceSyncJob writes each yielded batch and reports totals", async () =>
     ],
   ];
   const job: PriceSyncJob = {
-    chainId: 1n,
+    chainIds: [1n],
     source: "tst",
     intervalMs: 1_000,
     fetch: async function* () {
@@ -58,7 +58,7 @@ test("runPriceSyncJob writes each yielded batch and reports totals", async () =>
 
 test("runPriceSyncJob rejects updates for a different chain", async () => {
   const priceJob: PriceSyncJob = {
-    chainId: 1n,
+    chainIds: [1n],
     source: "tst",
     intervalMs: 1_000,
     fetch: async function* () {
@@ -76,4 +76,23 @@ test("runPriceSyncJob rejects updates for a different chain", async () => {
   await expect(runPriceSyncJob(priceJob, async () => 1)).rejects.toThrow(
     "Price sync job 1:tst yielded an update for chain 8453",
   );
+});
+
+test("runPriceSyncJob accepts every chain a multi-chain job declares", async () => {
+  const timestamp = new Date("2026-07-28T12:00:00.000Z");
+  const priceJob: PriceSyncJob = {
+    chainIds: [1n, 8453n],
+    source: "tst",
+    intervalMs: 1_000,
+    fetch: async function* () {
+      yield [{ chainId: 1n, tokenAddress: "0x0", timestamp, usdPrice: 3_000 }];
+      yield [
+        { chainId: 8453n, tokenAddress: "0x0", timestamp, usdPrice: 3_000 },
+      ];
+    },
+  };
+
+  const result = await runPriceSyncJob(priceJob, async () => 1);
+
+  expect(result).toEqual({ batchCount: 2, updateCount: 2, insertedCount: 2 });
 });

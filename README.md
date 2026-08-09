@@ -68,7 +68,12 @@ Token metadata generation and database synchronization are owned by the
 [`EkuboProtocol/default-tokens`](https://github.com/EkuboProtocol/default-tokens)
 repository. The indexer image does not fetch or write token metadata.
 
-The price-sync process runs every configured chain/source pair as an independent recurring job. A job is uniquely identified by its chain ID and three-character source identifier; startup fails if that pair is configured twice. `TOKEN_PRICE_SYNC_INTERVAL_MS` controls the default cadence in milliseconds (default: `60000`). CoinGecko jobs use `COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS`; set it to a positive number and provide `COINGECKO_API_KEY` to enable them. Zero or an unset value disables those jobs.
+The price-sync process runs every configured job as an independent recurring loop. A job declares the chains it may write prices for plus a three-character source identifier; startup fails if two jobs claim the same chain and source. Most jobs price one chain, but a job may price several when one upstream request covers them all. `TOKEN_PRICE_SYNC_INTERVAL_MS` controls the default cadence in milliseconds (default: `60000`). CoinGecko jobs use `COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS`; set it to a positive number and provide `COINGECKO_API_KEY` to enable them. Zero or an unset value disables those jobs.
+
+Two properties keep CoinGecko request volume flat rather than growing with `erc20_tokens`:
+
+- Native currency prices for every chain come from a single `cgn` job. Chains sharing a CoinGecko coin ID cost one request between them, not one apiece.
+- The per-chain `cg1` jobs request only the tokens CoinGecko has actually priced. Everything else is re-probed on a slow rotation (a full pass per day), so a chain with thousands of unlisted tokens does not pay for them every cycle. This state is held in the worker process, so a restart replays one full sweep before settling back down.
 
 ## Database migrations
 
@@ -94,6 +99,51 @@ This log records indexer deployments that:
 
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
+
+### 2026-08-05: Pool-key discovery indexes
+
+Adds two indexes on `pool_keys` — `(chain_id, token1)` and
+`(chain_id, pool_extension)` — so the API's new `/poolKeys` discovery route
+can filter by a single token (either side) or by extension without scanning a
+chain's whole pool set. Schema-only change: run the migration; no manual
+backfill is required and no existing structure changes.
+
+### 2026-07-31: Token circulating supply
+
+`erc20_tokens` now has a nullable, non-negative integer `circulating_supply`
+column.
+Like `total_supply`, the value is stored in the token's indivisible units so
+consumers must divide by `10 ^ token_decimals` before multiplying by a per-token
+USD price. Apply this migration before deploying the `default-tokens` database
+sync that writes the new field. Existing rows remain `NULL` until that sync
+finds a supply source; no manual backfill is required.
+
+### 2026-07-31: Ve33 fee component added to fee stats
+
+`hourly_volume_by_token` now tracks the Ve33 portion of its total `fees` in a
+dedicated `ve33_fees` column. The 24-hour pool stats views expose
+`ve33_fees0_24h` and `ve33_fees1_24h` as components of the existing inclusive
+`fees0_24h` and `fees1_24h` totals. The migration backfills the breakdown from
+indexed `PoolFeesAccounted` events and keeps both totals reorg-safe. Apply the
+indexer migration before deploying API code that selects the new columns; no
+manual backfill is required.
+
+### 2026-07-31: Token price history covering index
+
+`erc20_tokens_usd_prices` now has a covering index on
+`(chain_id, token_address, timestamp DESC)` that includes the price value and
+source. Apply migrations before deploying the token price-history API to keep
+its bounded chart queries index-only. No backfill or manual intervention is
+required beyond running the migration.
+
+### 2026-07-31: Reorg-safe per-tick liquidity aggregation
+
+The `per_pool_per_tick_liquidity` triggers now retain transient rows until both
+the net liquidity delta and total liquidity are zero. This prevents
+order-dependent corruption when position updates are cascade-deleted during a
+reorg. The migration atomically rebuilds every tick aggregate from canonical
+`position_updates`; no manual backfill is required beyond running the
+migration.
 
 ### 2026-07-30: Pool token-pair lookup index
 
