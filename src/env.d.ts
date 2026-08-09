@@ -15,7 +15,7 @@ interface CommonConfiguration {
   COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS?: string; // Zero or unset disables CoinGecko price syncing
   CHAINLINK_TOKEN_PRICE_CONFIG?: string; // JSON map of chain IDs to RPC URLs, catalog URLs, and optional feed overrides
   CHAINLINK_TOKEN_PRICE_SYNC_INTERVAL_SECONDS?: string; // Zero or unset disables Chainlink price syncing
-  CHAINLINK_FEED_CATALOG_REFRESH_INTERVAL_SECONDS?: string; // Defaults to one hour
+  CHAINLINK_FEED_CATALOG_REFRESH_INTERVAL_SECONDS?: string; // Defaults to one hour; zero never re-fetches a catalog
   EKUBO_QUOTER_URL?: string;
   MAX_QUOTER_REQUESTS_PER_MINUTE?: string;
 }

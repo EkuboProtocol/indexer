@@ -37,6 +37,19 @@ const sql = postgres(process.env.PG_CONNECTION_STRING!, {
   },
 });
 
+const chainlinkCatalogRefreshSeconds = Number(
+  process.env.CHAINLINK_FEED_CATALOG_REFRESH_INTERVAL_SECONDS ?? 3600,
+);
+if (
+  !Number.isFinite(chainlinkCatalogRefreshSeconds) ||
+  !Number.isInteger(chainlinkCatalogRefreshSeconds) ||
+  chainlinkCatalogRefreshSeconds < 0
+) {
+  throw new Error(
+    "CHAINLINK_FEED_CATALOG_REFRESH_INTERVAL_SECONDS must be a non-negative integer",
+  );
+}
+
 // Each entry is an independent recurring job. An interval of zero disables it.
 const PRICE_SYNC_JOBS = createPriceSyncJobs({
   sql,
@@ -53,11 +66,13 @@ const PRICE_SYNC_JOBS = createPriceSyncJobs({
   chainlinkConfig: parseChainlinkPriceConfig(
     process.env.CHAINLINK_TOKEN_PRICE_CONFIG,
   ),
-  chainlinkCatalogRefreshIntervalMs:
-    readPositiveInterval(
-      "CHAINLINK_FEED_CATALOG_REFRESH_INTERVAL_SECONDS",
-      3600,
-    ) * 1_000,
+  // Follows the sibling *_SECONDS convention where zero disables: here that
+  // means never re-fetch a catalog after the first success. Parsing this as a
+  // strictly positive value would turn an operator's disable into a crash loop
+  // that takes down every price source, not just Chainlink.
+  chainlinkCatalogRefreshIntervalMs: chainlinkCatalogRefreshSeconds
+    ? chainlinkCatalogRefreshSeconds * 1_000
+    : Number.POSITIVE_INFINITY,
 });
 validatePriceSyncJobs(PRICE_SYNC_JOBS);
 

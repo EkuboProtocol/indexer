@@ -10,6 +10,12 @@ import {
 
 const DEFAULT_MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11";
 
+// Real reference feeds publish at most daily. Bounding the catalog's heartbeat
+// to a week keeps a garbage entry from producing a staleness window so large
+// that downstream date arithmetic overflows, which would discard a whole
+// chain's batch rather than just skipping the bad feed.
+const MAX_CHAINLINK_HEARTBEAT_SECONDS = 7 * 24 * 60 * 60;
+
 const CHAINLINK_AGGREGATOR_ABI = [
   {
     type: "function",
@@ -288,7 +294,7 @@ export function discoverChainlinkFeeds(
       typeof value.heartbeat !== "number" ||
       !Number.isSafeInteger(value.heartbeat) ||
       value.heartbeat <= 0 ||
-      value.heartbeat > Number.MAX_SAFE_INTEGER / 2
+      value.heartbeat > MAX_CHAINLINK_HEARTBEAT_SECONDS
     ) {
       continue;
     }
@@ -336,7 +342,15 @@ export async function fetchChainlinkFeedCatalog(
       `Chainlink catalog request failed: ${response.status} ${response.statusText}`,
     );
   }
-  return response.json();
+
+  // Validate the shape here rather than at use, so a 200 response carrying an
+  // error object is treated as a failed fetch: callers fall back to the last
+  // good catalog instead of caching a body that throws on every read.
+  const catalog = await response.json();
+  if (!Array.isArray(catalog)) {
+    throw new Error(`Chainlink catalog ${catalogUrl} did not return an array`);
+  }
+  return catalog;
 }
 
 export async function readChainlinkFeedPrice(

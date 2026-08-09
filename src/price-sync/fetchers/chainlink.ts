@@ -26,6 +26,9 @@ type ChainlinkTokenRow = {
   token_symbol: string;
 };
 
+// An upper bound on how long any single observation may be considered fresh.
+const MAX_PRICE_VALIDITY_MS = 30 * 24 * 60 * 60 * 1_000;
+
 // Feed discovery and the on-chain reads both need full-width EVM addresses,
 // unlike the numeric form the database stores prices under.
 function toEvmAddress(address: string): `0x${string}` {
@@ -98,14 +101,23 @@ export function chainlinkPriceFetcher({
       );
 
       if (config.catalogUrl) {
-        const tokens = await fetchChainlinkTokens(sql, chainId);
-        const catalog = await getCatalog(
-          config.catalogUrl,
-          catalogRefreshIntervalMs,
-        );
-        for (const feed of discoverChainlinkFeeds(catalog, tokens)) {
-          const key = feed.tokenAddress.toLowerCase();
-          if (!feedsByToken.has(key)) feedsByToken.set(key, feed);
+        // Discovery is best-effort: explicitly configured feeds must keep
+        // reporting through a catalog outage rather than depending on it.
+        try {
+          const tokens = await fetchChainlinkTokens(sql, chainId);
+          const catalog = await getCatalog(
+            config.catalogUrl,
+            catalogRefreshIntervalMs,
+          );
+          for (const feed of discoverChainlinkFeeds(catalog, tokens)) {
+            const key = feed.tokenAddress.toLowerCase();
+            if (!feedsByToken.has(key)) feedsByToken.set(key, feed);
+          }
+        } catch (error) {
+          console.warn(
+            `Chainlink feed discovery failed for chain ${chainId}; using ${feedsByToken.size} configured feeds`,
+            error,
+          );
         }
       }
 
@@ -128,9 +140,15 @@ export function chainlinkPriceFetcher({
       const updates: PriceUpdate[] = Object.entries(observations).map(
         ([tokenAddress, { usdPrice, timestamp }]) => {
           const feed = feedsByToken.get(tokenAddress.toLowerCase());
-          const validityMs = Math.max(
-            (feed?.maxAgeSeconds ?? 0) * 1_000,
-            defaultPriceValidityMs(intervalMs),
+          // Clamped because maxAgeSeconds also arrives from operator config,
+          // where an implausible value would otherwise overflow the Date range
+          // and cost the whole batch instead of this one feed.
+          const validityMs = Math.min(
+            Math.max(
+              (feed?.maxAgeSeconds ?? 0) * 1_000,
+              defaultPriceValidityMs(intervalMs),
+            ),
+            MAX_PRICE_VALIDITY_MS,
           );
           return {
             chainId,

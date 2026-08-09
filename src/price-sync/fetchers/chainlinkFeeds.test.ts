@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   discoverChainlinkFeeds,
+  fetchChainlinkFeedCatalog,
   fetchChainlinkTokenPricesWithMulticall,
   parseChainlinkPriceConfig,
   readChainlinkFeedPrice,
@@ -120,6 +121,31 @@ describe("discoverChainlinkFeeds", () => {
     ]);
   });
 
+  test("skips entries whose heartbeat is implausibly large", () => {
+    // A heartbeat this size would produce a validity horizon beyond the JS
+    // Date range, costing the chain's whole batch rather than one feed.
+    expect(
+      discoverChainlinkFeeds(
+        [
+          {
+            proxyAddress: feedAddress,
+            heartbeat: 1e13,
+            path: "eth-usd",
+            feedCategory: "low",
+            docs: {
+              baseAsset: "ETH",
+              quoteAsset: "USD",
+              deliveryChannelCode: "DF",
+              productType: "Price",
+              productTypeCode: "RefPrice",
+            },
+          },
+        ],
+        [{ address: tokenAddress, symbol: "ETH" }],
+      ),
+    ).toEqual([]);
+  });
+
   test("supports shared-SVR underlying proxies and tokenized prices", () => {
     const feed = (
       baseAsset: string,
@@ -170,6 +196,37 @@ describe("discoverChainlinkFeeds", () => {
         maxAgeSeconds: 7200,
       },
     ]);
+  });
+});
+
+describe("fetchChainlinkFeedCatalog", () => {
+  function response(body: unknown, ok = true) {
+    return async () =>
+      ({
+        ok,
+        status: ok ? 200 : 500,
+        statusText: ok ? "OK" : "Server Error",
+        json: async () => body,
+      }) as unknown as Response;
+  }
+
+  test("rejects a 200 response that is not an array", async () => {
+    // Otherwise the body is cached and throws on every read until it expires.
+    await expect(
+      fetchChainlinkFeedCatalog(
+        "https://catalog.example/feeds.json",
+        response({ error: "temporarily unavailable" }),
+      ),
+    ).rejects.toThrow("did not return an array");
+  });
+
+  test("returns the catalog array unchanged", async () => {
+    await expect(
+      fetchChainlinkFeedCatalog(
+        "https://catalog.example/feeds.json",
+        response([{ path: "eth-usd" }]),
+      ),
+    ).resolves.toEqual([{ path: "eth-usd" }]);
   });
 });
 
