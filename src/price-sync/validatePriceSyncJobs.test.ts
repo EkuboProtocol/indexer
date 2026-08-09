@@ -3,16 +3,16 @@ import type { PriceSyncJob } from "./fetchers/types";
 import { priceSyncJobId, validatePriceSyncJobs } from "./validatePriceSyncJobs";
 
 function job({
-  chainId,
+  chainIds,
   source,
   intervalMs = 1_000,
 }: {
-  chainId: bigint;
+  chainIds: readonly bigint[];
   source: string;
   intervalMs?: number;
 }): PriceSyncJob {
   return {
-    chainId,
+    chainIds,
     source,
     intervalMs,
     fetch: async function* () {},
@@ -20,26 +20,51 @@ function job({
 }
 
 test("priceSyncJobId derives the semantic chain and source identity", () => {
-  expect(priceSyncJobId(job({ chainId: 4663n, source: "cg1" }))).toBe(
+  expect(priceSyncJobId(job({ chainIds: [4663n], source: "cg1" }))).toBe(
     "4663:cg1",
+  );
+  expect(priceSyncJobId(job({ chainIds: [1n, 8453n], source: "cgn" }))).toBe(
+    "1+8453:cgn",
   );
 });
 
 test("validatePriceSyncJobs rejects duplicate chain and source jobs", () => {
   expect(() =>
     validatePriceSyncJobs([
-      job({ chainId: 4663n, source: "cg1" }),
-      job({ chainId: 4663n, source: "cg1", intervalMs: 5_000 }),
+      job({ chainIds: [4663n], source: "cg1" }),
+      job({ chainIds: [4663n], source: "cg1", intervalMs: 5_000 }),
     ]),
   ).toThrow("Duplicate price sync job: 4663:cg1");
+});
+
+test("validatePriceSyncJobs rejects a chain claimed by a multi-chain job", () => {
+  expect(() =>
+    validatePriceSyncJobs([
+      job({ chainIds: [1n, 8453n], source: "cgn" }),
+      job({ chainIds: [8453n], source: "cgn" }),
+    ]),
+  ).toThrow("Duplicate price sync job: 8453:cgn");
+});
+
+test("validatePriceSyncJobs rejects a job that repeats a chain", () => {
+  expect(() =>
+    validatePriceSyncJobs([job({ chainIds: [1n, 1n], source: "cgn" })]),
+  ).toThrow("repeats a chain ID");
+});
+
+test("validatePriceSyncJobs rejects a job with no chains", () => {
+  expect(() =>
+    validatePriceSyncJobs([job({ chainIds: [], source: "cgn" })]),
+  ).toThrow("must price at least one chain");
 });
 
 test("validatePriceSyncJobs accepts the same source on different chains", () => {
   expect(() =>
     validatePriceSyncJobs([
-      job({ chainId: 1n, source: "cg1" }),
-      job({ chainId: 4663n, source: "cg1" }),
-      job({ chainId: 4663n, source: "ss1" }),
+      job({ chainIds: [1n], source: "cg1" }),
+      job({ chainIds: [4663n], source: "cg1" }),
+      job({ chainIds: [4663n], source: "ss1" }),
+      job({ chainIds: [1n, 4663n], source: "cgn" }),
     ]),
   ).not.toThrow();
 });

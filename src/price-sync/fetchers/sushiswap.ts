@@ -7,7 +7,7 @@ export function sushiswapPriceFetcher({
   intervalMs,
 }: PriceSyncJobOptions): PriceSyncJob {
   return {
-    chainId,
+    chainIds: [chainId],
     source: "ss1",
     intervalMs,
     fetch: async function* () {

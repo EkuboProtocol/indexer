@@ -150,7 +150,7 @@ export function quoterPriceFetcher({
   ).replace(/\/+$/, "");
 
   return {
-    chainId,
+    chainIds: [chainId],
     source: "qp1",
     intervalMs,
     fetch: async function* () {

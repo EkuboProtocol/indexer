@@ -1,13 +1,15 @@
 import type { PriceSyncJob } from "./fetchers/types";
 
 export function priceSyncJobId(
-  job: Pick<PriceSyncJob, "chainId" | "source">,
+  job: Pick<PriceSyncJob, "chainIds" | "source">,
 ): string {
-  return `${job.chainId}:${job.source}`;
+  return `${job.chainIds.join("+")}:${job.source}`;
 }
 
 export function validatePriceSyncJobs(jobs: readonly PriceSyncJob[]): void {
-  const jobIds = new Set<string>();
+  // A source may price many chains and a chain may have many sources, but two
+  // jobs writing the same source on the same chain would race each other.
+  const claimedChainSources = new Set<string>();
 
   for (const job of jobs) {
     const jobId = priceSyncJobId(job);
@@ -17,8 +19,14 @@ export function validatePriceSyncJobs(jobs: readonly PriceSyncJob[]): void {
         `Price sync job ${jobId} must use a three-character source identifier`,
       );
     }
-    if (job.chainId <= 0n) {
-      throw new Error(`Price sync job ${jobId} must use a positive chain ID`);
+    if (job.chainIds.length === 0) {
+      throw new Error(`Price sync job ${jobId} must price at least one chain`);
+    }
+    if (new Set(job.chainIds).size !== job.chainIds.length) {
+      throw new Error(`Price sync job ${jobId} repeats a chain ID`);
+    }
+    if (job.chainIds.some((chainId) => chainId <= 0n)) {
+      throw new Error(`Price sync job ${jobId} must use positive chain IDs`);
     }
     if (
       !Number.isFinite(job.intervalMs) ||
@@ -29,10 +37,13 @@ export function validatePriceSyncJobs(jobs: readonly PriceSyncJob[]): void {
         `Price sync job ${jobId} must use a non-negative integer interval`,
       );
     }
-    if (jobIds.has(jobId)) {
-      throw new Error(`Duplicate price sync job: ${jobId}`);
-    }
 
-    jobIds.add(jobId);
+    for (const chainId of job.chainIds) {
+      const chainSource = `${chainId}:${job.source}`;
+      if (claimedChainSources.has(chainSource)) {
+        throw new Error(`Duplicate price sync job: ${chainSource}`);
+      }
+      claimedChainSources.add(chainSource);
+    }
   }
 }
