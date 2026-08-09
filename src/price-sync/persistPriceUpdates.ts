@@ -85,8 +85,7 @@ export async function persistPriceUpdates(
         )
         JOIN erc20_tokens AS t
           ON t.chain_id = data.chain_id::int8
-         AND t.token_address = data.token_address::numeric
-        ON CONFLICT (chain_id, token_address, "timestamp", source) DO NOTHING;
+         AND t.token_address = data.token_address::numeric;
       `;
       insertedCount += count;
     }
