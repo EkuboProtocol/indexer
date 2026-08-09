@@ -1,5 +1,8 @@
 import type { Sql } from "postgres";
-import { coingeckoPriceFetcher } from "./fetchers/coingecko";
+import {
+  coingeckoNativePriceFetcher,
+  coingeckoPriceFetcher,
+} from "./fetchers/coingecko";
 import { quoterPriceFetcher } from "./fetchers/ekuboQuoter";
 // import { oracleV1PriceFetcher } from "./fetchers/oracleV1";
 import { sushiswapPriceFetcher } from "./fetchers/sushiswap";
@@ -17,6 +20,21 @@ export function createPriceSyncJobs({
   coingeckoIntervalMs,
 }: CreatePriceSyncJobsOptions): PriceSyncJob[] {
   return [
+    // Every chain whose native currency CoinGecko prices, in one request. Chains
+    // sharing a coin ID cost nothing extra, so add them here rather than giving
+    // each chain its own CoinGecko job.
+    coingeckoNativePriceFetcher({
+      intervalMs: coingeckoIntervalMs,
+      chainIdsByCoinId: {
+        ethereum: [
+          1n, // eth mainnet
+          8453n, // base
+          4663n, // robinhood
+          42161n, // arbitrum one
+        ],
+      },
+    }),
+
     // eth mainnet
     sushiswapPriceFetcher({
       chainId: 1n,
@@ -41,13 +59,6 @@ export function createPriceSyncJobs({
       twapDurationSeconds: 60,
     }),
     */
-    coingeckoPriceFetcher({
-      sql,
-      chainId: 1n,
-      intervalMs: coingeckoIntervalMs,
-      nativeCoinId: "ethereum",
-    }),
-
     // eth sepolia
     sushiswapPriceFetcher({
       chainId: 11155111n,
@@ -72,7 +83,6 @@ export function createPriceSyncJobs({
       chainId: 8453n,
       intervalMs: coingeckoIntervalMs,
       platform: "base",
-      nativeCoinId: "ethereum",
     }),
 
     // monad
@@ -103,7 +113,6 @@ export function createPriceSyncJobs({
       chainId: 4663n,
       intervalMs: coingeckoIntervalMs,
       platform: "robinhood",
-      nativeCoinId: "ethereum",
     }),
 
     // fake robinhood chain
@@ -126,7 +135,6 @@ export function createPriceSyncJobs({
       chainId: 42161n,
       intervalMs: coingeckoIntervalMs,
       platform: "arbitrum-one",
-      nativeCoinId: "ethereum",
     }),
 
     // arbitrum sepolia
