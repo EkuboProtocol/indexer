@@ -31,7 +31,7 @@ afterAll(async () => {
 async function seedBlock(
   chainId: number,
   blockNumber: number,
-  database = client
+  database = client,
 ) {
   await ensureIndexerCursor(database, chainId);
   const blockHash = `${chainId}${blockNumber}${Date.now()}`;
@@ -40,7 +40,7 @@ async function seedBlock(
   await database.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
      VALUES ($1, $2, $3, $4, 0)`,
-    [chainId, blockNumber, blockHash, blockTime]
+    [chainId, blockNumber, blockHash, blockTime],
   );
 }
 
@@ -60,7 +60,7 @@ async function insertPoolKey(chainId: number, database = client) {
         pool_extension
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING pool_key_id`,
-    [chainId, "1000", "2000", "1", "2", "10", "1000", 60, "5000"]
+    [chainId, "1000", "2000", "1", "2", "10", "1000", 60, "5000"],
   );
 
   return poolKeyId;
@@ -86,7 +86,7 @@ async function insertPositionUpdate(
     upperBound: number;
     liquidityDelta: string;
   },
-  database = client
+  database = client,
 ) {
   const {
     rows: [{ event_id: eventId }],
@@ -123,7 +123,7 @@ async function insertPositionUpdate(
       liquidityDelta,
       "0",
       "0",
-    ]
+    ],
   );
 
   return eventId;
@@ -158,7 +158,7 @@ test("position inserts update per_pool_per_tick_liquidity rows", async () => {
      FROM per_pool_per_tick_liquidity
      WHERE pool_key_id = $1
      ORDER BY tick ASC`,
-    [poolKeyId.toString()]
+    [poolKeyId.toString()],
   );
 
   expect(rows).toEqual([
@@ -222,7 +222,7 @@ test("position deletes adjust per_pool_per_tick_liquidity aggregates", async () 
      FROM per_pool_per_tick_liquidity
      WHERE pool_key_id = $1
      ORDER BY tick ASC`,
-    [poolKeyId.toString()]
+    [poolKeyId.toString()],
   );
 
   expect(afterInsert.rows).toEqual([
@@ -240,7 +240,7 @@ test("position deletes adjust per_pool_per_tick_liquidity aggregates", async () 
 
   await client.query(
     `DELETE FROM position_updates WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, firstEventId.toString()]
+    [chainId, firstEventId.toString()],
   );
 
   const afterFirstDelete = await client.query<{
@@ -252,7 +252,7 @@ test("position deletes adjust per_pool_per_tick_liquidity aggregates", async () 
      FROM per_pool_per_tick_liquidity
      WHERE pool_key_id = $1
      ORDER BY tick ASC`,
-    [poolKeyId.toString()]
+    [poolKeyId.toString()],
   );
 
   expect(afterFirstDelete.rows).toEqual([
@@ -270,7 +270,7 @@ test("position deletes adjust per_pool_per_tick_liquidity aggregates", async () 
 
   await client.query(
     `DELETE FROM position_updates WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, secondEventId.toString()]
+    [chainId, secondEventId.toString()],
   );
 
   const afterSecondDelete = await client.query<{
@@ -281,7 +281,7 @@ test("position deletes adjust per_pool_per_tick_liquidity aggregates", async () 
     `SELECT tick, net_liquidity_delta_diff, total_liquidity_on_tick
      FROM per_pool_per_tick_liquidity
      WHERE pool_key_id = $1`,
-    [poolKeyId.toString()]
+    [poolKeyId.toString()],
   );
 
   expect(afterSecondDelete.rows).toHaveLength(0);
@@ -333,7 +333,7 @@ test("deleting blocks cascades position updates and rewinds tick liquidity state
      FROM per_pool_per_tick_liquidity
      WHERE pool_key_id = $1
      ORDER BY tick ASC`,
-    [poolKeyId.toString()]
+    [poolKeyId.toString()],
   );
 
   expect(beforeDelete.rows).toEqual([
@@ -351,7 +351,7 @@ test("deleting blocks cascades position updates and rewinds tick liquidity state
 
   await client.query(
     `DELETE FROM blocks WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, secondBlock]
+    [chainId, secondBlock],
   );
 
   const afterDelete = await client.query<{
@@ -363,7 +363,7 @@ test("deleting blocks cascades position updates and rewinds tick liquidity state
      FROM per_pool_per_tick_liquidity
      WHERE pool_key_id = $1
      ORDER BY tick ASC`,
-    [poolKeyId.toString()]
+    [poolKeyId.toString()],
   );
 
   expect(afterDelete.rows).toEqual([
@@ -383,7 +383,7 @@ test("deleting blocks cascades position updates and rewinds tick liquidity state
     `SELECT 1
      FROM position_updates
      WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, secondBlock]
+    [chainId, secondBlock],
   );
   expect(remainingPositionUpdates.length).toBe(0);
 });
@@ -416,7 +416,7 @@ test("migration repairs and prevents order-dependent reorg corruption", async ()
         upperBound: 600,
         liquidityDelta: liquidity,
       },
-      legacyClient
+      legacyClient,
     );
     await insertPositionUpdate(
       {
@@ -429,7 +429,7 @@ test("migration repairs and prevents order-dependent reorg corruption", async ()
         upperBound: 450,
         liquidityDelta: liquidity,
       },
-      legacyClient
+      legacyClient,
     );
     await insertPositionUpdate(
       {
@@ -442,14 +442,14 @@ test("migration repairs and prevents order-dependent reorg corruption", async ()
         upperBound: 450,
         liquidityDelta: `-${liquidity}`,
       },
-      legacyClient
+      legacyClient,
     );
 
     await legacyClient.query(
       `DELETE FROM blocks
        WHERE chain_id = $1
          AND block_number >= $2`,
-      [chainId, temporaryAddBlock]
+      [chainId, temporaryAddBlock],
     );
 
     const beforeMigration = await legacyClient.query<{
@@ -460,7 +460,7 @@ test("migration repairs and prevents order-dependent reorg corruption", async ()
        FROM per_pool_per_tick_liquidity
        WHERE pool_key_id = $1
          AND tick = 450`,
-      [poolKeyId.toString()]
+      [poolKeyId.toString()],
     );
 
     expect(beforeMigration.rows).toEqual([
@@ -483,7 +483,7 @@ test("migration repairs and prevents order-dependent reorg corruption", async ()
        FROM per_pool_per_tick_liquidity
        WHERE pool_key_id = $1
        ORDER BY tick`,
-      [poolKeyId.toString()]
+      [poolKeyId.toString()],
     );
 
     expect(afterMigration.rows).toEqual([
@@ -512,7 +512,7 @@ test("migration repairs and prevents order-dependent reorg corruption", async ()
         upperBound: 450,
         liquidityDelta: liquidity,
       },
-      legacyClient
+      legacyClient,
     );
     await insertPositionUpdate(
       {
@@ -525,14 +525,14 @@ test("migration repairs and prevents order-dependent reorg corruption", async ()
         upperBound: 450,
         liquidityDelta: `-${liquidity}`,
       },
-      legacyClient
+      legacyClient,
     );
 
     await legacyClient.query(
       `DELETE FROM blocks
        WHERE chain_id = $1
          AND block_number >= $2`,
-      [chainId, temporaryAddBlock]
+      [chainId, temporaryAddBlock],
     );
 
     const afterSecondRewind = await legacyClient.query<{
@@ -544,7 +544,7 @@ test("migration repairs and prevents order-dependent reorg corruption", async ()
        FROM per_pool_per_tick_liquidity
        WHERE pool_key_id = $1
        ORDER BY tick`,
-      [poolKeyId.toString()]
+      [poolKeyId.toString()],
     );
 
     expect(afterSecondRewind.rows).toEqual(afterMigration.rows);
@@ -578,7 +578,7 @@ test("position_updates rows cannot be updated", async () => {
       `UPDATE position_updates
        SET liquidity_delta = $1
        WHERE chain_id = $2 AND event_id = $3`,
-      ["500", chainId, eventId.toString()]
-    )
+      ["500", chainId, eventId.toString()],
+    ),
   ).rejects.toThrow(/Updates are not allowed on position_updates/);
 });

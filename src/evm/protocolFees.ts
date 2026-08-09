@@ -4,7 +4,7 @@ export const EVM_POOL_FEE_DENOMINATOR = 1n << 64n;
 export function computeFee(
   amount: bigint,
   fee: bigint,
-  feeDenominator: bigint = EVM_POOL_FEE_DENOMINATOR
+  feeDenominator: bigint = EVM_POOL_FEE_DENOMINATOR,
 ): bigint {
   if (fee >= feeDenominator) throw new Error("fee == feeDenominator");
 
@@ -15,7 +15,7 @@ export function calculateWithdrawalProtocolFeeDelta(
   amount: bigint,
   poolSwapFee: bigint,
   withdrawalProtocolFee: bigint,
-  feeDenominator: bigint = EVM_POOL_FEE_DENOMINATOR
+  feeDenominator: bigint = EVM_POOL_FEE_DENOMINATOR,
 ): bigint {
   if (amount < 0n) throw new Error("Amount should not be negative");
   if (poolSwapFee === 0n || withdrawalProtocolFee === 0n) return 0n;
@@ -23,6 +23,6 @@ export function calculateWithdrawalProtocolFeeDelta(
   return computeFee(
     amount,
     poolSwapFee / withdrawalProtocolFee,
-    feeDenominator
+    feeDenominator,
   );
 }

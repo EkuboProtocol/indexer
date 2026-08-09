@@ -12,7 +12,7 @@ function parseHexAddress(value: string): HexAddress | undefined {
 
 export function loadOptionalHexAddress(
   envName: string,
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
 ): HexAddress | undefined {
   const rawValue = env[envName];
 
@@ -31,16 +31,16 @@ export function loadOptionalHexAddress(
 
 export function loadHexAddresses<
   EnvType extends Record<string, string | undefined>,
-  T extends Record<string, keyof EnvType>
+  T extends Record<string, keyof EnvType>,
 >(
   envMap: T,
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
 ): { [K in keyof T]: HexAddress } | undefined {
   const resolved = {} as { [K in keyof T]: HexAddress };
 
   for (const [alias, envName] of Object.entries(envMap) as [
     keyof T,
-    T[keyof T]
+    T[keyof T],
   ][]) {
     const rawValue = env[envName as string];
     const address =

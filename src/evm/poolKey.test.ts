@@ -25,10 +25,7 @@ function encodeConcentratedPoolConfig({
   const feeMasked = BigInt.asUintN(64, fee);
   const spacingMasked = BigInt(tickSpacing & 0x7fffffff);
   return (
-    (extensionBig << 96n) +
-    (feeMasked << 32n) +
-    spacingMasked +
-    (1n << 31n)
+    (extensionBig << 96n) + (feeMasked << 32n) + spacingMasked + (1n << 31n)
   );
 }
 
@@ -141,8 +138,7 @@ describe("parseV2PoolKeyConfig", () => {
           centerTick,
         });
         const parsed = parseV2PoolKeyConfig(toHex(word));
-        const expectedCenterTick =
-          Number((BigInt(centerTick) / 16n) * 16n);
+        const expectedCenterTick = Number((BigInt(centerTick) / 16n) * 16n);
 
         expect(parsed).toEqual({
           fee: BigInt.asUintN(64, fee),
@@ -151,7 +147,7 @@ describe("parseV2PoolKeyConfig", () => {
           extension: checksumAddress(extension),
         });
       });
-    }
+    },
   );
 });
 
@@ -166,8 +162,7 @@ describe("parsePoolBalanceUpdate", () => {
   cases.forEach(({ delta0, delta1 }, idx) => {
     it(`unpacks signed deltas #${idx + 1}`, () => {
       const packed =
-        (BigInt.asUintN(128, delta0) << 128n) |
-        BigInt.asUintN(128, delta1);
+        (BigInt.asUintN(128, delta0) << 128n) | BigInt.asUintN(128, delta1);
       expect(parsePoolBalanceUpdate(toHex(packed))).toEqual({
         delta0,
         delta1,

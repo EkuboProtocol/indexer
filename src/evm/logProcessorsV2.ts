@@ -97,7 +97,7 @@ export function createLogProcessorsV2({
       handlers: {
         async PoolInitialized(dao, key, parsed) {
           const { fee, tickSpacing, extension } = parsePoolKeyConfig(
-            parsed.poolKey.config
+            parsed.poolKey.config,
           );
           const poolConfigWord = BigInt(parsed.poolKey.config);
           const poolInitialized: PoolInitializedInsert = {
@@ -126,7 +126,7 @@ export function createLogProcessorsV2({
         async PositionUpdated(dao, key, parsed) {
           await dao.insertPositionUpdatedEventWithSyntheticProtocolFeesPaid(
             parsed,
-            key
+            key,
           );
         },
         async PositionFeesCollected(dao, key, parsed) {
@@ -168,7 +168,7 @@ export function createLogProcessorsV2({
             tickCumulative: event.tickCumulative,
             timestamp: event.timestamp,
           },
-          key
+          key,
         );
       },
     },
@@ -180,7 +180,7 @@ export function createLogProcessorsV2({
         const event = parseTwammVirtualOrdersExecuted(data);
         await dao.insertTWAMMVirtualOrdersExecutedEvent(
           { ...event, coreAddress },
-          key
+          key,
         );
       },
       handlers: {
@@ -207,7 +207,7 @@ export function createLogProcessorsV2({
                 BigInt(parsed.orderKey.sellToken) >
                 BigInt(parsed.orderKey.buyToken),
             },
-            key
+            key,
           );
         },
         async OrderProceedsWithdrawn(dao, key, parsed) {
@@ -233,7 +233,7 @@ export function createLogProcessorsV2({
                 BigInt(parsed.orderKey.sellToken) >
                 BigInt(parsed.orderKey.buyToken),
             },
-            key
+            key,
           );
         },
       },

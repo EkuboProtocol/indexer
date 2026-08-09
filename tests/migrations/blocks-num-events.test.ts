@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { createClient, ensureIndexerCursor, runMigrations } from "../helpers/db.js";
+import {
+  createClient,
+  ensureIndexerCursor,
+  runMigrations,
+} from "../helpers/db.js";
 
 const BASE_MIGRATIONS = ["00001_chain_tables", "00002_core_tables"] as const;
 
@@ -24,7 +28,7 @@ test("migration backfills block event counts and cleans up old empty blocks", as
         3,
         "1003",
         new Date("2024-01-02T00:00:00Z"), // old but with events
-      ]
+      ],
     );
 
     const {
@@ -34,14 +38,14 @@ test("migration backfills block event counts and cleans up old empty blocks", as
          chain_id, core_address, pool_id, token0, token1, fee, fee_denominator, tick_spacing, pool_extension
        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING pool_key_id`,
-      [chainId, "1", "10", "2", "3", "1", "1000", 1, "0"]
+      [chainId, "1", "10", "2", "3", "1", "1000", 1, "0"],
     );
 
     await client.query(
       `INSERT INTO pool_initializations (
          chain_id, block_number, transaction_index, event_index, transaction_hash, emitter, pool_key_id, tick, sqrt_ratio
        ) VALUES ($1, $2, 0, 0, $3, $4, $5, 1, 1)`,
-      [chainId, 3, "2001", "3001", poolKeyId]
+      [chainId, 3, "2001", "3001", poolKeyId],
     );
 
     await client.query(
@@ -49,7 +53,7 @@ test("migration backfills block event counts and cleans up old empty blocks", as
          chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
          pool_key_id, locker, salt, lower_bound, upper_bound, liquidity_delta, delta0, delta1
        ) VALUES ($1, $2, 1, 0, $3, $4, $5, $6, $7, 0, 1, 0, 0, 0)`,
-      [chainId, 3, "2002", "3002", poolKeyId, "4001", "5001"]
+      [chainId, 3, "2002", "3002", poolKeyId, "4001", "5001"],
     );
 
     await runMigrations(client, { files: ["00087_blocks_num_events"] });
@@ -62,7 +66,7 @@ test("migration backfills block event counts and cleans up old empty blocks", as
        FROM blocks
        WHERE chain_id = $1
        ORDER BY block_number`,
-      [chainId]
+      [chainId],
     );
 
     expect(rows).toEqual([
@@ -74,7 +78,7 @@ test("migration backfills block event counts and cleans up old empty blocks", as
     const {
       rows: [{ deleted }],
     } = await client.query<{ deleted: number }>(
-      `SELECT delete_old_empty_blocks() AS deleted`
+      `SELECT delete_old_empty_blocks() AS deleted`,
     );
 
     expect(deleted).toBe(1);

@@ -15,7 +15,7 @@ import {
 
 export type ContractEvent<
   abi extends Abi,
-  N extends ExtractAbiEventNames<abi>
+  N extends ExtractAbiEventNames<abi>,
 > = {
   [P in ExtractAbiEvent<abi, N>["inputs"][number] as P extends {
     name: infer N extends string;
@@ -38,7 +38,7 @@ export interface EvmLogProcessor {
     event: {
       topics: readonly `0x${string}`[];
       data: `0x${string}` | undefined;
-    }
+    },
   ) => Promise<void>;
 }
 
@@ -55,20 +55,17 @@ export type ContractHandlers<T extends Abi> = {
   noTopics?: (
     dao: DAO,
     key: EventKey,
-    data: `0x${string}` | undefined
+    data: `0x${string}` | undefined,
   ) => Promise<void>;
 };
 
-export type ContractHandlerDefinitions = Record<
-  string,
-  ContractHandlers<Abi>
->;
+export type ContractHandlerDefinitions = Record<string, ContractHandlers<Abi>>;
 
 type EventTopicsParameters = Parameters<typeof encodeEventTopics>[0];
 
 export function createContractEventProcessor<
   T extends Abi,
-  N extends ContractEventName<T>
+  N extends ContractEventName<T>,
 >({
   contractName,
   address,
@@ -113,7 +110,7 @@ export function createContractEventProcessor<
 }
 
 export function createProcessorsFromHandlers(
-  processors: ContractHandlerDefinitions
+  processors: ContractHandlerDefinitions,
 ): EvmLogProcessor[] {
   return Object.entries(processors).flatMap(
     ([contractName, { address, abi, handlers, noTopics }]) =>
@@ -134,7 +131,7 @@ export function createProcessorsFromHandlers(
       ).concat(
         handlers
           ? Object.entries(handlers).map(
-            ([eventName, handler]): EvmLogProcessor =>
+              ([eventName, handler]): EvmLogProcessor =>
                 createContractEventProcessor({
                   contractName,
                   address,
@@ -146,9 +143,9 @@ export function createProcessorsFromHandlers(
                       ExtractAbiEventNames<typeof abi>
                     >
                   >[0]["handler"],
-                })
+                }),
             )
-          : []
-      )
+          : [],
+      ),
   ) as EvmLogProcessor[];
 }

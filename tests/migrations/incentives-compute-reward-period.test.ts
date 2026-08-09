@@ -8,7 +8,7 @@ test("compute reward period function is registered", async () => {
     const {
       rows: [{ exists }],
     } = await client.query<{ exists: boolean }>(
-      `SELECT to_regprocedure('incentives.compute_rewards_for_period_v1(bigint)') IS NOT NULL AS exists`
+      `SELECT to_regprocedure('incentives.compute_rewards_for_period_v1(bigint)') IS NOT NULL AS exists`,
     );
 
     expect(exists).toBe(true);
@@ -30,7 +30,7 @@ test("compute reward period distributes rewards across lockers", async () => {
       rows: [{ rows_inserted }],
     } = await client.query<{ rows_inserted: string }>(
       `SELECT incentives.compute_rewards_for_period_v1($1)::bigint AS rows_inserted`,
-      [rewardPeriodId]
+      [rewardPeriodId],
     );
 
     expect(Number(rows_inserted)).toBe(2);
@@ -46,7 +46,7 @@ test("compute reward period distributes rewards across lockers", async () => {
        FROM incentives.computed_rewards
        WHERE campaign_reward_period_id = $1
        ORDER BY locker`,
-      [rewardPeriodId]
+      [rewardPeriodId],
     );
 
     expect(rewards).toEqual([
@@ -60,7 +60,7 @@ test("compute reward period distributes rewards across lockers", async () => {
       `SELECT sum(reward_amount)::text AS total
        FROM incentives.computed_rewards
        WHERE campaign_reward_period_id = $1`,
-      [rewardPeriodId]
+      [rewardPeriodId],
     );
     expect(total).toBe("1000");
 
@@ -68,7 +68,7 @@ test("compute reward period distributes rewards across lockers", async () => {
       rows: [{ recomputed }],
     } = await client.query<{ recomputed: string }>(
       `SELECT incentives.compute_rewards_for_period_v1($1)::bigint AS recomputed`,
-      [rewardPeriodId]
+      [rewardPeriodId],
     );
     expect(Number(recomputed)).toBe(2);
 
@@ -78,7 +78,7 @@ test("compute reward period distributes rewards across lockers", async () => {
       `SELECT rewards_last_computed_at::text AS lastComputed
        FROM incentives.campaign_reward_periods
        WHERE id = $1`,
-      [rewardPeriodId]
+      [rewardPeriodId],
     );
     expect(lastComputed).not.toBeNull();
   } finally {
@@ -102,7 +102,7 @@ test("compute reward period filters allowed lockers", async () => {
       rows: [{ rows_inserted }],
     } = await client.query<{ rows_inserted: string }>(
       `SELECT incentives.compute_rewards_for_period_v1($1)::bigint AS rows_inserted`,
-      [rewardPeriodId]
+      [rewardPeriodId],
     );
     expect(Number(rows_inserted)).toBe(1);
 
@@ -117,7 +117,7 @@ test("compute reward period filters allowed lockers", async () => {
        FROM incentives.computed_rewards
        WHERE campaign_reward_period_id = $1
        ORDER BY locker`,
-      [rewardPeriodId]
+      [rewardPeriodId],
     );
 
     expect(rewards).toEqual([
@@ -161,7 +161,7 @@ test("compute reward period filters campaign core address", async () => {
       rows: [{ rows_inserted }],
     } = await client.query<{ rows_inserted: string }>(
       `SELECT incentives.compute_rewards_for_period_v1($1)::bigint AS rows_inserted`,
-      [rewardPeriodId]
+      [rewardPeriodId],
     );
     expect(Number(rows_inserted)).toBe(1);
 
@@ -176,7 +176,7 @@ test("compute reward period filters campaign core address", async () => {
        FROM incentives.computed_rewards
        WHERE campaign_reward_period_id = $1
        ORDER BY locker`,
-      [rewardPeriodId]
+      [rewardPeriodId],
     );
 
     expect(rewards).toEqual([
@@ -203,7 +203,7 @@ test("compute pending reward periods processes outstanding rows", async () => {
     const {
       rows: [{ computed_rows }],
     } = await client.query<{ computed_rows: string }>(
-      `SELECT incentives.compute_pending_reward_periods()::bigint AS computed_rows`
+      `SELECT incentives.compute_pending_reward_periods()::bigint AS computed_rows`,
     );
     expect(Number(computed_rows)).toBe(2);
 
@@ -213,7 +213,7 @@ test("compute pending reward periods processes outstanding rows", async () => {
       `SELECT COUNT(*)::bigint AS pending_count
        FROM incentives.pending_reward_periods
        WHERE reward_period_id = $1`,
-      [rewardPeriodId]
+      [rewardPeriodId],
     );
     expect(Number(pending_count)).toBe(0);
 
@@ -223,7 +223,7 @@ test("compute pending reward periods processes outstanding rows", async () => {
       `SELECT rewards_last_computed_at::text AS lastComputed
        FROM incentives.campaign_reward_periods
        WHERE id = $1`,
-      [rewardPeriodId]
+      [rewardPeriodId],
     );
     expect(lastComputed).not.toBeNull();
   } finally {
@@ -244,7 +244,7 @@ test("computed rewards materialized view aggregates totals and pending amounts",
       rewardPeriodId,
     ]);
     await client.query(
-      `REFRESH MATERIALIZED VIEW incentives.computed_rewards_by_position_materialized`
+      `REFRESH MATERIALIZED VIEW incentives.computed_rewards_by_position_materialized`,
     );
 
     const { rows: initialRows } = await client.query<{
@@ -264,7 +264,7 @@ test("computed rewards materialized view aggregates totals and pending amounts",
        FROM incentives.computed_rewards_by_position_materialized
        WHERE campaign_id = $1
        ORDER BY locker`,
-      [campaignId]
+      [campaignId],
     );
 
     expect(initialRows).toEqual([
@@ -291,16 +291,16 @@ test("computed rewards materialized view aggregates totals and pending amounts",
     } = await client.query<{ id: number }>(
       `INSERT INTO incentives.generated_drop (root)
        VALUES (123456)
-       RETURNING id`
+       RETURNING id`,
     );
     await client.query(
       `INSERT INTO incentives.generated_drop_reward_periods (drop_id, campaign_reward_period_id)
        VALUES ($1, $2)`,
-      [dropId, rewardPeriodId]
+      [dropId, rewardPeriodId],
     );
 
     await client.query(
-      `REFRESH MATERIALIZED VIEW incentives.computed_rewards_by_position_materialized`
+      `REFRESH MATERIALIZED VIEW incentives.computed_rewards_by_position_materialized`,
     );
 
     const { rows: refreshedRows } = await client.query<{
@@ -320,7 +320,7 @@ test("computed rewards materialized view aggregates totals and pending amounts",
        FROM incentives.computed_rewards_by_position_materialized
        WHERE campaign_id = $1
        ORDER BY locker`,
-      [campaignId]
+      [campaignId],
     );
 
     expect(refreshedRows).toEqual([
@@ -391,7 +391,7 @@ async function seedPoolKey(client: PGlite, options: PoolKeyOptions = {}) {
         pool_extension
      ) VALUES (1, $1, $2, 10, 11, $3, $4, $5, $6)
      RETURNING pool_key_id`,
-    [coreAddress, poolId, fee, feeDenominator, tickSpacing, extension]
+    [coreAddress, poolId, fee, feeDenominator, tickSpacing, extension],
   );
 
   return pool_key_id;
@@ -400,7 +400,7 @@ async function seedPoolKey(client: PGlite, options: PoolKeyOptions = {}) {
 async function seedSwaps(
   client: PGlite,
   poolKeyId: number,
-  options: { eventIndexOffset?: number } = {}
+  options: { eventIndexOffset?: number } = {},
 ) {
   const { eventIndexOffset = 0 } = options;
   await client.query(
@@ -422,7 +422,7 @@ async function seedSwaps(
         (1,  99, 0, $2, 6000, 7000, $1, 0, 0, 0, 1, 0, 100000),
         (1, 100, 0, $2, 6001, 7000, $1, 0, 0, 0, 1, 1, 100000),
         (1, 101, 0, $2, 6002, 7000, $1, 0, 0, 0, 1, -1, 100000)`,
-    [poolKeyId, eventIndexOffset]
+    [poolKeyId, eventIndexOffset],
   );
 }
 
@@ -440,12 +440,24 @@ type PositionSeed = {
 async function seedPositions(
   client: PGlite,
   poolKeyId: number,
-  options: { positions?: PositionSeed[]; eventIndexStart?: number } = {}
+  options: { positions?: PositionSeed[]; eventIndexStart?: number } = {},
 ) {
   const {
     positions = [
-      { locker: 2000, salt: 1, liquidityDelta: 100000, lowerBound: -120, upperBound: 120 },
-      { locker: 3000, salt: 2, liquidityDelta: 100000, lowerBound: -120, upperBound: 120 },
+      {
+        locker: 2000,
+        salt: 1,
+        liquidityDelta: 100000,
+        lowerBound: -120,
+        upperBound: 120,
+      },
+      {
+        locker: 3000,
+        salt: 2,
+        liquidityDelta: 100000,
+        lowerBound: -120,
+        upperBound: 120,
+      },
     ],
     eventIndexStart = 0,
   } = options;
@@ -498,7 +510,7 @@ async function seedPositions(
         position.liquidityDelta ?? 100000,
         position.delta0 ?? 0,
         position.delta1 ?? 0,
-      ]
+      ],
     );
   }
 }
@@ -509,7 +521,7 @@ async function seedCampaign(
     allowedLockers?: number[] | null;
     coreAddress?: number;
     slug?: string;
-  } = {}
+  } = {},
 ) {
   const {
     allowedLockers = null,
@@ -551,7 +563,7 @@ async function seedCampaign(
         $3::numeric[]
      )
      RETURNING id`,
-    [slug, coreAddress, allowedLockers]
+    [slug, coreAddress, allowedLockers],
   );
 
   const {
@@ -579,7 +591,7 @@ async function seedCampaign(
         NULL
      )
      RETURNING id`,
-    [campaignId]
+    [campaignId],
   );
 
   return { campaignId, rewardPeriodId };

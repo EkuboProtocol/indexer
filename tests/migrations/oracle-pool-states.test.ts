@@ -63,7 +63,7 @@ async function seedBlock({
   await client.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
      VALUES ($1, $2, $3, $4, 0)`,
-    [chainId, blockNumber, blockHash, blockTime]
+    [chainId, blockNumber, blockHash, blockTime],
   );
 }
 
@@ -93,7 +93,7 @@ async function insertPoolKey({
         pool_extension
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING pool_key_id`,
-    [chainId, "1000", "2000", token0, token1, "10", "1000", 60, emitter]
+    [chainId, "1000", "2000", token0, token1, "10", "1000", 60, emitter],
   );
 
   return Number(poolKeyId);
@@ -106,7 +106,7 @@ async function getOraclePoolState(poolKeyId: number) {
     `SELECT last_snapshot_block_timestamp
      FROM oracle_pool_states
      WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
   return rows[0];
 }
@@ -152,17 +152,17 @@ test("oracle snapshots generate event ids, forbid updates, and cascade cleanup k
       snapshotTimestamp.toString(),
       "9000",
       null,
-    ]
+    ],
   );
 
   expect(snapshotEventId).toBe(
-    computeEventId({ blockNumber, transactionIndex: 0, eventIndex: 0 })
+    computeEventId({ blockNumber, transactionIndex: 0, eventIndex: 0 }),
   );
 
   const poolState = await getOraclePoolState(poolKeyId);
   expect(poolState).toBeDefined();
   expect(valueToBigInt(poolState.last_snapshot_block_timestamp)).toBe(
-    snapshotTimestamp
+    snapshotTimestamp,
   );
 
   await expect(
@@ -170,24 +170,24 @@ test("oracle snapshots generate event ids, forbid updates, and cascade cleanup k
       `UPDATE oracle_snapshots
        SET snapshot_tick_cumulative = snapshot_tick_cumulative + 1
        WHERE chain_id = $1 AND event_id = $2`,
-      [chainId, snapshotEventId]
-    )
+      [chainId, snapshotEventId],
+    ),
   ).rejects.toThrow(/Updates are not allowed/);
 
   await client.query(
     `DELETE FROM blocks WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, blockNumber]
+    [chainId, blockNumber],
   );
 
   const { rows: remainingSnapshots } = await client.query(
     `SELECT 1 FROM oracle_snapshots WHERE chain_id = $1`,
-    [chainId]
+    [chainId],
   );
   expect(remainingSnapshots.length).toBe(0);
 
   const { rows: remainingStates } = await client.query(
     `SELECT 1 FROM oracle_pool_states WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
   expect(remainingStates.length).toBe(0);
 });
@@ -241,7 +241,7 @@ test("deleting blocks rewinds oracle pool state to the previous snapshot", async
       firstTimestamp.toString(),
       "5000",
       "6000",
-    ]
+    ],
   );
 
   await client.query(
@@ -270,31 +270,31 @@ test("deleting blocks rewinds oracle pool state to the previous snapshot", async
       secondTimestamp.toString(),
       "5001",
       "6001",
-    ]
+    ],
   );
 
   let state = await getOraclePoolState(poolKeyId);
   expect(state).toBeDefined();
   expect(valueToBigInt(state.last_snapshot_block_timestamp)).toBe(
-    secondTimestamp
+    secondTimestamp,
   );
 
   await client.query(
     `DELETE FROM blocks WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, reorgBlock]
+    [chainId, reorgBlock],
   );
 
   state = await getOraclePoolState(poolKeyId);
   expect(state).toBeDefined();
   expect(valueToBigInt(state.last_snapshot_block_timestamp)).toBe(
-    firstTimestamp
+    firstTimestamp,
   );
 
   const { rows: remainingSnapshots } = await client.query(
     `SELECT 1
      FROM oracle_snapshots
      WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, reorgBlock]
+    [chainId, reorgBlock],
   );
   expect(remainingSnapshots.length).toBe(0);
 });
@@ -361,7 +361,7 @@ test("oracle pool states track latest snapshot and roll back when snapshots are 
         timestamp.toString(),
         `100${txSuffix}`,
         `200${txSuffix}`,
-      ]
+      ],
     );
   }
 
@@ -375,7 +375,7 @@ test("oracle pool states track latest snapshot and roll back when snapshots are 
   let state = await getOraclePoolState(poolKeyId);
   expect(state).toBeDefined();
   expect(valueToBigInt(state.last_snapshot_block_timestamp)).toBe(
-    timestamps[0]
+    timestamps[0],
   );
 
   await insertSnapshot({
@@ -387,7 +387,7 @@ test("oracle pool states track latest snapshot and roll back when snapshots are 
 
   state = await getOraclePoolState(poolKeyId);
   expect(valueToBigInt(state.last_snapshot_block_timestamp)).toBe(
-    timestamps[1]
+    timestamps[1],
   );
 
   await insertSnapshot({
@@ -399,37 +399,37 @@ test("oracle pool states track latest snapshot and roll back when snapshots are 
 
   state = await getOraclePoolState(poolKeyId);
   expect(valueToBigInt(state.last_snapshot_block_timestamp)).toBe(
-    timestamps[1]
+    timestamps[1],
   );
 
   await client.query(
     `DELETE FROM blocks WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, 101]
+    [chainId, 101],
   );
 
   state = await getOraclePoolState(poolKeyId);
   expect(valueToBigInt(state.last_snapshot_block_timestamp)).toBe(
-    timestamps[2]
+    timestamps[2],
   );
 
   await client.query(
     `DELETE FROM blocks WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, 102]
+    [chainId, 102],
   );
 
   state = await getOraclePoolState(poolKeyId);
   expect(valueToBigInt(state.last_snapshot_block_timestamp)).toBe(
-    timestamps[0]
+    timestamps[0],
   );
 
   await client.query(
     `DELETE FROM blocks WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, 100]
+    [chainId, 100],
   );
 
   const { rows: stateRows } = await client.query(
     `SELECT 1 FROM oracle_pool_states WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
   expect(stateRows.length).toBe(0);
 });

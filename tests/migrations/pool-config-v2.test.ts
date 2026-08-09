@@ -61,18 +61,21 @@ test("pool_config metadata is backfilled for existing pools", async () => {
         EVM_POOL_FEE_DENOMINATOR.toString(),
         Number(tickSpacing),
         poolExtension.toString(),
-      ]
+      ],
     );
 
     await runMigrations(client, { files: ["00060_pool_config_v2"] });
 
     const {
       rows: [{ pool_config, pool_config_type }],
-    } = await client.query<{ pool_config: string | bigint; pool_config_type: string }>(
+    } = await client.query<{
+      pool_config: string | bigint;
+      pool_config_type: string;
+    }>(
       `SELECT pool_config, pool_config_type
        FROM pool_keys
        WHERE pool_key_id = $1`,
-      [pool_key_id]
+      [pool_key_id],
     );
 
     const poolConfigValue =
@@ -85,7 +88,7 @@ test("pool_config metadata is backfilled for existing pools", async () => {
         fee,
         tickSpacing,
         extension: poolExtension,
-      })
+      }),
     );
     expect(pool_config_type).toBe("concentrated");
   } finally {
@@ -123,7 +126,7 @@ test("starknet pools keep pool_config null after the migration", async () => {
         STARKNET_POOL_FEE_DENOMINATOR.toString(),
         60,
         "5000",
-      ]
+      ],
     );
 
     await runMigrations(client, { files: ["00060_pool_config_v2"] });
@@ -134,7 +137,7 @@ test("starknet pools keep pool_config null after the migration", async () => {
       `SELECT pool_config, pool_config_type
        FROM pool_keys
        WHERE pool_key_id = $1`,
-      [pool_key_id]
+      [pool_key_id],
     );
 
     expect(rows).toHaveLength(1);
@@ -176,8 +179,8 @@ test("stableswap amplification constraint enforces bounds", async () => {
           60,
           "4000",
           30, // invalid amplification (>26)
-        ]
-      )
+        ],
+      ),
     ).rejects.toThrow(/stableswap_amplification_bounds/);
   } finally {
     await client.close();
@@ -213,8 +216,8 @@ test("concentrated pools must provide tick spacing", async () => {
           EVM_POOL_FEE_DENOMINATOR.toString(),
           null,
           "4000",
-        ]
-      )
+        ],
+      ),
     ).rejects.toThrow(/pool_keys_tick_spacing_required/);
   } finally {
     await client.close();
@@ -258,7 +261,7 @@ test("stableswap pools allow null tick spacing", async () => {
         "stableswap",
         0,
         10,
-      ]
+      ],
     );
 
     expect(pool_key_id).toBeDefined();
@@ -268,7 +271,9 @@ test("stableswap pools allow null tick spacing", async () => {
 });
 
 test("concentrated pools must keep stableswap fields null", async () => {
-  const client = new PGlite("memory://pool-config-v2-concentrated-stableswap-fields");
+  const client = new PGlite(
+    "memory://pool-config-v2-concentrated-stableswap-fields",
+  );
   try {
     await runMigrations(client, { files: [...BASE_MIGRATIONS] });
     await runMigrations(client, { files: ["00060_pool_config_v2"] });
@@ -300,8 +305,8 @@ test("concentrated pools must keep stableswap fields null", async () => {
           "4000",
           0,
           5,
-        ]
-      )
+        ],
+      ),
     ).rejects.toThrow(/pool_keys_tick_spacing_required/);
   } finally {
     await client.close();
@@ -343,8 +348,8 @@ test("stableswap pools require center tick and amplification", async () => {
           "stableswap",
           null,
           5,
-        ]
-      )
+        ],
+      ),
     ).rejects.toThrow(/pool_keys_tick_spacing_required/);
 
     await expect(
@@ -376,8 +381,8 @@ test("stableswap pools require center tick and amplification", async () => {
           "stableswap",
           0,
           null,
-        ]
-      )
+        ],
+      ),
     ).rejects.toThrow(/pool_keys_tick_spacing_required/);
   } finally {
     await client.close();

@@ -83,7 +83,7 @@ const LOG_DATA_LENGTH_V2 = 116; // bytes
 function sliceHex(
   hex: string,
   startBytes: number,
-  lengthBytes: number
+  lengthBytes: number,
 ): string {
   const start = startBytes * 2;
   return hex.slice(start, start + lengthBytes * 2);
@@ -99,7 +99,7 @@ export function parseSwapEventV3(data: `0x${string}`): CoreSwapped {
     throw new Error(
       `Unexpected swap event length: expected ${
         LOG_DATA_LENGTH_V2 * 2
-      } hex chars, received ${hex.length}`
+      } hex chars, received ${hex.length}`,
     );
   }
 

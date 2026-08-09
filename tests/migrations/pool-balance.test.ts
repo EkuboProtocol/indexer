@@ -27,7 +27,7 @@ async function seedPool(client: PGlite, chainId: number) {
   await client.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
      VALUES ($1, $2, $3, $4, 0)`,
-    [chainId, blockNumber, blockHash, blockTime]
+    [chainId, blockNumber, blockHash, blockTime],
   );
 
   const {
@@ -45,7 +45,7 @@ async function seedPool(client: PGlite, chainId: number) {
         pool_extension
      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING pool_key_id`,
-    [chainId, "2000", "3000", "4000", "4001", "100", "1000000", 60, "5000"]
+    [chainId, "2000", "3000", "4000", "4001", "100", "1000000", 60, "5000"],
   );
 
   return { chainId, blockNumber, poolKeyId: Number(poolKeyId) };
@@ -84,19 +84,19 @@ test("swap insert creates matching pool_balance_change row", async () => {
       "9101112",
       15,
       "100000",
-    ]
+    ],
   );
 
   const {
     rows: [{ event_id: eventId }],
   } = await client.query<{ event_id: bigint }>(
     `SELECT event_id FROM swaps WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, blockNumber]
+    [chainId, blockNumber],
   );
 
   const { rows } = await client.query(
     `SELECT delta0, delta1 FROM pool_balance_change WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, eventId]
+    [chainId, eventId],
   );
 
   expect(rows.length).toBe(1);
@@ -143,12 +143,12 @@ test("position_updates insert mirrors liquidity delta in pool_balance_change", a
       "5000",
       "321.00",
       "-654.00",
-    ]
+    ],
   );
 
   const { rows } = await client.query(
     `SELECT delta0, delta1 FROM pool_balance_change WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, eventId]
+    [chainId, eventId],
   );
 
   expect(rows.length).toBe(1);
@@ -193,7 +193,7 @@ test("inserts into multiple tables create separate pool_balance_change rows", as
       "111111",
       20,
       "200000",
-    ]
+    ],
   );
 
   const {
@@ -230,12 +230,12 @@ test("inserts into multiple tables create separate pool_balance_change rows", as
       "6000",
       "20",
       "-7",
-    ]
+    ],
   );
 
   const { rows } = await client.query(
     `SELECT event_id, delta0, delta1 FROM pool_balance_change WHERE chain_id = $1 ORDER BY event_id`,
-    [chainId]
+    [chainId],
   );
 
   expect(rows.length).toBe(2);
@@ -251,7 +251,7 @@ test("inserts into multiple tables create separate pool_balance_change rows", as
         delta0: "20",
         delta1: "-7",
       }),
-    ])
+    ]),
   );
 });
 
@@ -290,17 +290,17 @@ test("deleting a source row removes its pool_balance_change entry", async () => 
       "121212",
       25,
       "300000",
-    ]
+    ],
   );
 
   await client.query(
     `DELETE FROM swaps WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, eventId]
+    [chainId, eventId],
   );
 
   const { rows } = await client.query(
     `SELECT 1 FROM pool_balance_change WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, eventId]
+    [chainId, eventId],
   );
 
   expect(rows.length).toBe(0);

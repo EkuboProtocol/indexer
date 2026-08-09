@@ -16,7 +16,7 @@ describe("loadHexAddresses", () => {
         coreAddress: "CORE_ADDRESS",
         twammAddress: "TWAMM_ADDRESS",
       },
-      env
+      env,
     );
 
     expect(result).toEqual({
@@ -35,7 +35,7 @@ describe("loadHexAddresses", () => {
         coreAddress: "CORE_ADDRESS",
         twammAddress: "TWAMM_ADDRESS",
       },
-      env
+      env,
     );
 
     expect(result).toBeUndefined();
@@ -52,7 +52,7 @@ describe("loadHexAddresses", () => {
         coreAddress: "CORE_ADDRESS",
         twammAddress: "TWAMM_ADDRESS",
       },
-      env
+      env,
     );
 
     expect(result).toBeUndefined();
@@ -62,11 +62,11 @@ describe("loadHexAddresses", () => {
     expect(
       loadOptionalHexAddress("LEGACY_TWAMM_V3_ADDRESS", {
         LEGACY_TWAMM_V3_ADDRESS: "  0xabc123  ",
-      })
+      }),
     ).toBe("0xabc123");
 
     expect(loadOptionalHexAddress("LEGACY_TWAMM_V3_ADDRESS", {})).toBe(
-      undefined
+      undefined,
     );
   });
 
@@ -74,7 +74,7 @@ describe("loadHexAddresses", () => {
     expect(() =>
       loadOptionalHexAddress("LEGACY_TWAMM_V3_ADDRESS", {
         LEGACY_TWAMM_V3_ADDRESS: "not-hex",
-      })
+      }),
     ).toThrow('Invalid hex address for LEGACY_TWAMM_V3_ADDRESS: "not-hex"');
   });
 });

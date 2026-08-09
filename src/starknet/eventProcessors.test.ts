@@ -60,7 +60,7 @@ function findProcessor<T>(
   selector: `0x${string}`,
 ): StarknetEventProcessor<T> {
   const processor = processors.find(({ filter }) =>
-    filter.keys.includes(selector)
+    filter.keys.includes(selector),
   );
   if (!processor) throw new Error(`Missing processor for ${selector}`);
   return processor;
@@ -77,11 +77,11 @@ describe("Starknet v5 positions protocol fees", () => {
     const processors = createEventProcessors(config);
     const collected = findProcessor<PositionFeesCollectedEvent>(
       processors,
-      "0x96982abd597114bdaa4a60612f87fabfcc7206aa12d61c50e7ba1e6c291100"
+      "0x96982abd597114bdaa4a60612f87fabfcc7206aa12d61c50e7ba1e6c291100",
     );
     const saved = findProcessor<SavedBalanceEvent>(
       processors,
-      "0x0048796a25e5ceac9caf95a4618ebfd1516b51e5d994a49d28e22f09c64ad2ee"
+      "0x0048796a25e5ceac9caf95a4618ebfd1516b51e5d994a49d28e22f09c64ad2ee",
     );
 
     await collected.handle(dao, {
@@ -116,12 +116,12 @@ describe("Starknet v5 positions protocol fees", () => {
     expect(insertPositionFeesWithheld).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({ amount0: 11n, amount1: 0n }),
-      eventKey(11)
+      eventKey(11),
     );
     expect(insertPositionFeesWithheld).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ amount0: 0n, amount1: 17n }),
-      eventKey(12)
+      eventKey(12),
     );
   });
 
@@ -134,11 +134,11 @@ describe("Starknet v5 positions protocol fees", () => {
     const processors = createEventProcessors(config);
     const collected = findProcessor<PositionFeesCollectedEvent>(
       processors,
-      "0x96982abd597114bdaa4a60612f87fabfcc7206aa12d61c50e7ba1e6c291100"
+      "0x96982abd597114bdaa4a60612f87fabfcc7206aa12d61c50e7ba1e6c291100",
     );
     const saved = findProcessor<SavedBalanceEvent>(
       processors,
-      "0x0048796a25e5ceac9caf95a4618ebfd1516b51e5d994a49d28e22f09c64ad2ee"
+      "0x0048796a25e5ceac9caf95a4618ebfd1516b51e5d994a49d28e22f09c64ad2ee",
     );
 
     await collected.handle(dao, {

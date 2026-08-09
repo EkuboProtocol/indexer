@@ -47,6 +47,7 @@ interface EvmConfig extends CommonConfiguration {
   POSITIONS_V3_PROTOCOL_FEE_CONFIGS?: string;
   VE33_V3_ADDRESS?: `0x${string}`;
   VE_TOKEN_V3_ADDRESS?: `0x${string}`;
+  VE_TOKEN_BRIBES_V3_ADDRESS?: `0x${string}`;
   VE33_POSITIONS_V3_ADDRESS?: `0x${string}`;
 }
 

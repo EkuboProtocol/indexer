@@ -13,13 +13,13 @@ test("blocks insert fills fork_counter from indexer_cursor when null", async () 
   await client.query(
     `INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated, fork_counter)
      VALUES ($1, $2, $3, $4, $5)`,
-    [1, 0, null, new Date(), 7]
+    [1, 0, null, new Date(), 7],
   );
 
   await client.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events, fork_counter)
      VALUES ($1, $2, $3, $4, $5, NULL)`,
-    [1, 1, "1001", new Date("2024-01-01T00:00:00Z"), 0]
+    [1, 1, "1001", new Date("2024-01-01T00:00:00Z"), 0],
   );
 
   const {
@@ -28,7 +28,7 @@ test("blocks insert fills fork_counter from indexer_cursor when null", async () 
     `SELECT fork_counter::text AS fork_counter
      FROM blocks
      WHERE chain_id = $1 AND block_number = $2`,
-    [1, 1]
+    [1, 1],
   );
 
   expect(fork_counter).toBe("7");
@@ -40,7 +40,7 @@ test("blocks delete bumps fork_counter once per statement per chain", async () =
   await client.query(
     `INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated, fork_counter)
      VALUES ($1, 0, NULL, $2, $3), ($4, 0, NULL, $2, $5)`,
-    [1, new Date(), 1, 2, 10]
+    [1, new Date(), 1, 2, 10],
   );
 
   await client.query(
@@ -50,16 +50,32 @@ test("blocks delete bumps fork_counter once per statement per chain", async () =
        ($1, $6, $7, $4, $9),
        ($8, $6, $10, $4, $5),
        ($8, $11, $12, $4, $9)`,
-    [1, 1, "1001", new Date("2024-01-01T00:00:00Z"), 0, 2, "1002", 2, 3, "2002", 3, "2003"]
+    [
+      1,
+      1,
+      "1001",
+      new Date("2024-01-01T00:00:00Z"),
+      0,
+      2,
+      "1002",
+      2,
+      3,
+      "2002",
+      3,
+      "2003",
+    ],
   );
 
   await client.query(`DELETE FROM blocks WHERE block_number >= 2`);
 
-  const { rows } = await client.query<{ chain_id: number; fork_counter: string }>(
+  const { rows } = await client.query<{
+    chain_id: number;
+    fork_counter: string;
+  }>(
     `SELECT chain_id, fork_counter::text AS fork_counter
      FROM indexer_cursor
      WHERE chain_id IN (1, 2)
-     ORDER BY chain_id`
+     ORDER BY chain_id`,
   );
 
   expect(rows).toEqual([
@@ -76,7 +92,7 @@ test("blocks delete bumps fork_counter once per statement per chain", async () =
     `SELECT chain_id, fork_counter::text AS fork_counter
      FROM indexer_cursor
      WHERE chain_id IN (1, 2)
-     ORDER BY chain_id`
+     ORDER BY chain_id`,
   );
 
   expect(unchanged).toEqual(rows);
@@ -88,7 +104,7 @@ test("blocks delete skips fork_counter when only empty blocks are deleted", asyn
   await client.query(
     `INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated, fork_counter)
      VALUES ($1, 0, NULL, $2, $3)`,
-    [1, new Date(), 5]
+    [1, new Date(), 5],
   );
 
   await client.query(
@@ -96,7 +112,7 @@ test("blocks delete skips fork_counter when only empty blocks are deleted", asyn
      VALUES
        ($1, $2, $3, $4, $5),
        ($1, $6, $7, $4, $5)`,
-    [1, 1, "1001", new Date("2024-01-01T00:00:00Z"), 0, 2, "1002"]
+    [1, 1, "1001", new Date("2024-01-01T00:00:00Z"), 0, 2, "1002"],
   );
 
   await client.query(`DELETE FROM blocks WHERE block_number >= 1`);
@@ -107,7 +123,7 @@ test("blocks delete skips fork_counter when only empty blocks are deleted", asyn
     `SELECT fork_counter::text AS fork_counter
      FROM indexer_cursor
      WHERE chain_id = $1`,
-    [1]
+    [1],
   );
 
   expect(fork_counter).toBe("5");

@@ -103,10 +103,8 @@ export interface PositionFeesWithheldInsert {
   amount1: bigint;
 }
 
-export interface PositionWithdrawalFeesWithheldInsert extends Omit<
-  PositionFeesWithheldInsert,
-  "amount0" | "amount1"
-> {
+export interface PositionWithdrawalFeesWithheldInsert
+  extends Omit<PositionFeesWithheldInsert, "amount0" | "amount1"> {
   amount0: bigint;
   amount1: bigint;
   withdrawalProtocolFeeDivisor: bigint;
@@ -290,7 +288,8 @@ export interface Ve33EmissionsScheduledInsert {
   amount: NumericValue;
 }
 
-export interface Ve33PoolEmissionsAccruedInsert extends Ve33PoolEventDescriptor {
+export interface Ve33PoolEmissionsAccruedInsert
+  extends Ve33PoolEventDescriptor {
   amount: NumericValue;
 }
 
@@ -300,6 +299,60 @@ export interface Ve33RewardsClaimedInsert extends Ve33PoolEventDescriptor {
   salt: NumericValue;
   bounds: BoundsDescriptor;
   amount: NumericValue;
+}
+
+export interface VeTokenBribesCreatedInsert {
+  coreAddress: `0x${string}`;
+  bribeId: `0x${string}`;
+  poolId: `0x${string}`;
+  rewardToken: AddressValue;
+  owner: AddressValue;
+  votingFee: NumericValue;
+}
+
+export interface VeTokenBribesVotingFeeUpdatedInsert {
+  bribeId: `0x${string}`;
+  votingFee: NumericValue;
+}
+
+export interface VeTokenBribesStakeInsert {
+  bribeId: `0x${string}`;
+  owner: AddressValue;
+  veId: NumericValue;
+  weight: NumericValue;
+}
+
+export interface VeTokenBribesVoteRefreshedInsert {
+  bribeId: `0x${string}`;
+  owner: AddressValue;
+  veId: NumericValue;
+  previousWeight: NumericValue;
+  weight: NumericValue;
+}
+
+export interface VeTokenBribesRewardPaidInsert {
+  bribeId: `0x${string}`;
+  owner: AddressValue;
+  veId: NumericValue;
+  amount: NumericValue;
+}
+
+export interface VeTokenBribesRewardsScheduledInsert {
+  bribeId: `0x${string}`;
+  funder: AddressValue;
+  startTime: NumericValue;
+  endTime: NumericValue;
+  rewardRate: NumericValue;
+  amount: NumericValue;
+}
+
+export interface VeTokenBribesVotingFeesClaimedInsert {
+  bribeId: `0x${string}`;
+  owner: AddressValue;
+  veId: NumericValue;
+  recipient: AddressValue;
+  amount0: NumericValue;
+  amount1: NumericValue;
 }
 
 export interface TokenRegistrationInsert {
@@ -2117,6 +2170,201 @@ export class DAO {
         ${lower},
         ${upper},
         ${this.numeric(parsed.amount)}
+      );
+    `;
+  }
+
+  async insertVeTokenBribesCreatedEvent(
+    key: EventKey,
+    parsed: VeTokenBribesCreatedInsert,
+  ) {
+    await this.sql`
+      INSERT INTO ve_token_bribes_created
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         bribe_id, pool_key_id, pool_id, reward_token, owner, voting_fee)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(parsed.bribeId)},
+        (
+          SELECT pk.pool_key_id
+          FROM pool_keys pk
+          WHERE pk.chain_id = ${this.chainId}
+            AND pk.core_address = ${this.numeric(parsed.coreAddress)}
+            AND pk.pool_id = ${this.numeric(parsed.poolId)}
+        ),
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.rewardToken)},
+        ${this.numeric(parsed.owner)},
+        ${this.numeric(parsed.votingFee)}
+      );
+    `;
+  }
+
+  async insertVeTokenBribesVotingFeeUpdatedEvent(
+    key: EventKey,
+    parsed: VeTokenBribesVotingFeeUpdatedInsert,
+  ) {
+    await this.sql`
+      INSERT INTO ve_token_bribes_voting_fee_updated
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         bribe_id, voting_fee)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(parsed.bribeId)},
+        ${this.numeric(parsed.votingFee)}
+      );
+    `;
+  }
+
+  async insertVeTokenBribesStakedEvent(
+    key: EventKey,
+    parsed: VeTokenBribesStakeInsert,
+  ) {
+    await this.sql`
+      INSERT INTO ve_token_bribes_staked
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         bribe_id, owner, ve_id, weight)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(parsed.bribeId)},
+        ${this.numeric(parsed.owner)},
+        ${this.numeric(parsed.veId)},
+        ${this.numeric(parsed.weight)}
+      );
+    `;
+  }
+
+  async insertVeTokenBribesUnstakedEvent(
+    key: EventKey,
+    parsed: VeTokenBribesStakeInsert,
+  ) {
+    await this.sql`
+      INSERT INTO ve_token_bribes_unstaked
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         bribe_id, owner, ve_id, weight)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(parsed.bribeId)},
+        ${this.numeric(parsed.owner)},
+        ${this.numeric(parsed.veId)},
+        ${this.numeric(parsed.weight)}
+      );
+    `;
+  }
+
+  async insertVeTokenBribesVoteRefreshedEvent(
+    key: EventKey,
+    parsed: VeTokenBribesVoteRefreshedInsert,
+  ) {
+    await this.sql`
+      INSERT INTO ve_token_bribes_vote_refreshed
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         bribe_id, owner, ve_id, previous_weight, weight)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(parsed.bribeId)},
+        ${this.numeric(parsed.owner)},
+        ${this.numeric(parsed.veId)},
+        ${this.numeric(parsed.previousWeight)},
+        ${this.numeric(parsed.weight)}
+      );
+    `;
+  }
+
+  async insertVeTokenBribesRewardPaidEvent(
+    key: EventKey,
+    parsed: VeTokenBribesRewardPaidInsert,
+  ) {
+    await this.sql`
+      INSERT INTO ve_token_bribes_reward_paid
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         bribe_id, owner, ve_id, amount)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(parsed.bribeId)},
+        ${this.numeric(parsed.owner)},
+        ${this.numeric(parsed.veId)},
+        ${this.numeric(parsed.amount)}
+      );
+    `;
+  }
+
+  async insertVeTokenBribesRewardsScheduledEvent(
+    key: EventKey,
+    parsed: VeTokenBribesRewardsScheduledInsert,
+  ) {
+    await this.sql`
+      INSERT INTO ve_token_bribes_rewards_scheduled
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         bribe_id, funder, start_time, end_time, reward_rate, amount)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(parsed.bribeId)},
+        ${this.numeric(parsed.funder)},
+        ${new Date(Number(BigInt(parsed.startTime) * 1000n))},
+        ${new Date(Number(BigInt(parsed.endTime) * 1000n))},
+        ${this.numeric(parsed.rewardRate)},
+        ${this.numeric(parsed.amount)}
+      );
+    `;
+  }
+
+  async insertVeTokenBribesVotingFeesClaimedEvent(
+    key: EventKey,
+    parsed: VeTokenBribesVotingFeesClaimedInsert,
+  ) {
+    await this.sql`
+      INSERT INTO ve_token_bribes_voting_fees_claimed
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         bribe_id, owner, ve_id, recipient, amount0, amount1)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        ${this.numeric(parsed.bribeId)},
+        ${this.numeric(parsed.owner)},
+        ${this.numeric(parsed.veId)},
+        ${this.numeric(parsed.recipient)},
+        ${this.numeric(parsed.amount0)},
+        ${this.numeric(parsed.amount1)}
       );
     `;
   }
