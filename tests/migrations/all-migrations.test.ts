@@ -19,7 +19,7 @@ test("all migrations apply successfully", async () => {
     `SELECT count(1) as result FROM information_schema.tables WHERE table_schema = 'public'`,
   );
 
-  expect(result).toBe(82);
+  expect(result).toBe(84);
 });
 
 test("ve33 active voter lookup uses a partial covering index", async () => {

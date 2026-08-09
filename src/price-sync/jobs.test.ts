@@ -13,3 +13,32 @@ test("configured price sync jobs have unique semantic IDs", () => {
   expect(() => validatePriceSyncJobs(jobs)).not.toThrow();
   expect(new Set(jobs.map(priceSyncJobId)).size).toBe(jobs.length);
 });
+
+test("Chainlink jobs are only created for configured chains", () => {
+  const withoutChainlink = createPriceSyncJobs({
+    sql: {} as Sql<{ bigint: bigint }>,
+    defaultIntervalMs: 60_000,
+    coingeckoIntervalMs: 300_000,
+  });
+  expect(withoutChainlink.some((job) => job.source === "cl1")).toBe(false);
+
+  const withChainlink = createPriceSyncJobs({
+    sql: {} as Sql<{ bigint: bigint }>,
+    defaultIntervalMs: 60_000,
+    coingeckoIntervalMs: 300_000,
+    chainlinkIntervalMs: 60_000,
+    chainlinkConfig: {
+      "1": {
+        rpcUrls: ["https://eth-mainnet.example"],
+        feeds: [],
+        catalogUrl: "https://catalog.example/feeds-mainnet.json",
+      },
+    },
+    chainlinkCatalogRefreshIntervalMs: 3_600_000,
+  });
+
+  expect(() => validatePriceSyncJobs(withChainlink)).not.toThrow();
+  expect(
+    withChainlink.filter((job) => job.source === "cl1").map(priceSyncJobId),
+  ).toEqual(["1:cl1"]);
+});

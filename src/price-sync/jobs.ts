@@ -1,4 +1,6 @@
 import type { Sql } from "postgres";
+import { chainlinkPriceFetcher } from "./fetchers/chainlink";
+import type { ChainlinkPriceConfig } from "./fetchers/chainlinkFeeds";
 import {
   coingeckoNativePriceFetcher,
   coingeckoPriceFetcher,
@@ -12,14 +14,32 @@ interface CreatePriceSyncJobsOptions {
   sql: Sql<{ bigint: bigint }>;
   defaultIntervalMs: number;
   coingeckoIntervalMs: number;
+  chainlinkIntervalMs?: number;
+  chainlinkConfig?: ChainlinkPriceConfig;
+  chainlinkCatalogRefreshIntervalMs?: number;
 }
 
 export function createPriceSyncJobs({
   sql,
   defaultIntervalMs,
   coingeckoIntervalMs,
+  chainlinkIntervalMs = 0,
+  chainlinkConfig = {},
+  chainlinkCatalogRefreshIntervalMs = 3_600_000,
 }: CreatePriceSyncJobsOptions): PriceSyncJob[] {
   return [
+    // One job per chain configured with Chainlink feeds. Absent configuration
+    // yields no jobs at all, so Chainlink stays inert until it is set up.
+    ...Object.entries(chainlinkConfig).map(([chainId, config]) =>
+      chainlinkPriceFetcher({
+        sql,
+        chainId: BigInt(chainId),
+        intervalMs: chainlinkIntervalMs,
+        config,
+        catalogRefreshIntervalMs: chainlinkCatalogRefreshIntervalMs,
+      }),
+    ),
+
     // Every chain whose native currency CoinGecko prices, in one request. Chains
     // sharing a coin ID cost nothing extra, so add them here rather than giving
     // each chain its own CoinGecko job.
