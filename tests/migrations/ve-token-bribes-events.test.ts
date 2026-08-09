@@ -5,7 +5,7 @@ import { createClient, ensureIndexerCursor } from "../helpers/db.js";
 const MIGRATION_FILES = [
   "00001_chain_tables",
   "00002_core_tables",
-  "00116_ve_token_bribes_events",
+  "00117_ve_token_bribes_events",
 ] as const;
 
 let client: PGlite;
