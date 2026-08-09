@@ -75,6 +75,27 @@ Two properties keep CoinGecko request volume flat rather than growing with `erc2
 - Native currency prices for every chain come from a single `cgn` job. Chains sharing a CoinGecko coin ID cost one request between them, not one apiece.
 - The per-chain `cg1` jobs request only the tokens CoinGecko has actually priced. Everything else is re-probed on a slow rotation (a full pass per day), so a chain with thousands of unlisted tokens does not pay for them every cycle. This state is held in the worker process, so a restart replays one full sweep before settling back down.
 
+### Price source prioritization
+
+Per-source `confidence` lives in `erc20_token_price_sources`, seeded once by the migration — the worker never writes that table, so policy adjustments (made in a later migration) survive deploys. Freshness is per observation instead: each price row carries a `valid_until`, stamped by the job as three of its own sync intervals (one-minute floor), except Chainlink, which uses the feed's heartbeat window anchored at the round's `updatedAt`. Rows predating the column fall back to five minutes past their timestamp. The latest-price cache prefers the quoter (the interface derives price-impact loss from it), then Chainlink, then CoinGecko, then SushiSwap; it averages sources tied at the highest confidence, records the result under the synthetic `AVG` source, and reconciles expiration once per second so a lower-confidence source is promoted when the leader goes stale.
+
+### Chainlink feeds
+
+Chainlink token/USD feeds supplement those sources over EVM RPC. Set `CHAINLINK_TOKEN_PRICE_SYNC_INTERVAL_SECONDS` to a positive number and provide `CHAINLINK_TOKEN_PRICE_CONFIG` as a JSON object keyed by chain ID. Each chain declares fallback RPC URLs and a Chainlink Reference Data Directory `catalogUrl`. The catalog supplies token/USD proxy addresses and heartbeats; feeds are matched only when an eligible indexed token and catalog base asset have a unique symbol. Discovery prefers standard reference-price proxies, falls back to the underlying proxy associated with a shared SVR feed on networks that only publish that variant, and also supports primary tokenized-price feeds. Secondary SVR proxies, ambiguous symbols, and hidden, deprecating, or non-USD feeds are skipped. An optional `feeds` array can override or supplement discovery for exceptional mappings.
+
+Catalogs are refreshed hourly by default, controlled by `CHAINLINK_FEED_CATALOG_REFRESH_INTERVAL_SECONDS`, and the last successful response remains usable during a catalog outage. All discovered feed reads for a chain are aggregated into one on-chain Multicall3 call, which the RPC provider accounts for as a single `eth_call`; `multicallAddress` can override the standard `0xcA11...CA11` deployment for a chain. Stale, incomplete, non-positive, and superseded rounds are skipped. The RPC-reported chain ID is also checked before reading feeds.
+
+```json
+{
+  "1": {
+    "rpcUrls": ["https://eth-mainnet.example/v1/API_KEY"],
+    "catalogUrl": "https://reference-data-directory.vercel.app/feeds-mainnet.json"
+  }
+}
+```
+
+Chainlink jobs are disabled when the interval is zero/unset or the config is empty. Valid observations are stored under the `cl1` source using the feed round's `updatedAt` timestamp, and unchanged rounds are not inserted repeatedly. One failing feed does not prevent fresh observations from other configured feeds on that chain.
+
 ## Database migrations
 
 - Local: `bun run migrate` or `bun scripts/migrate.ts` (both invoke `scripts/migrate.ts`).
@@ -89,7 +110,7 @@ The DigitalOcean Apps spec in `.do/app.yaml` documents the full production stack
 
 - Workers for each network (e.g.: `starknet-sepolia`, `starknet-mainnet`, `eth-sepolia`, `eth-mainnet`) that run the corresponding network entrypoint (`bun src/starknet.ts` or `bun src/evm.ts`) with the appropriate `NETWORK` value, pulling the published Docker image (`ghcr.io/ekuboprotocol/indexer:${IMAGE_TAG}`).
 - Managed Postgres (`indexer-db-nyc1`) wired in via the `PG_CONNECTION_STRING` env var along with secrets such as `DNA_TOKEN`.
-- A `run-migrations` pre-deploy job and the long-running `src/price-sync/index.ts` process. Each price source/chain job has an independent timer, with a separately configured CoinGecko cadence.
+- A `run-migrations` pre-deploy job and the long-running `src/price-sync/index.ts` process. Each price source/chain job has an independent timer, with separately configured CoinGecko and Chainlink cadences. The app spec discovers Chainlink feeds for eligible tokens on Ethereum, Base, Arbitrum, and Robinhood through Chainlink's multi-network catalogs and the existing Alchemy API key secret.
 
 Use this file as a base to recreate the stack in a new DigitalOcean App Platform project or as a reference for configuring similar infrastructure elsewhere.
 
@@ -99,6 +120,12 @@ This log records indexer deployments that:
 
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
+
+### 2026-08-09: Freshness-aware prioritized token prices
+
+Per-source `confidence` now lives in `erc20_token_price_sources`, seeded by the migration and never written by the worker, with the quoter ranked highest. `erc20_tokens_usd_prices` gains a nullable `valid_until` that each observation carries (legacy rows are treated as valid for five minutes past their timestamp). The compact `erc20_tokens_latest_price_by_source` cache tracks those expirations, while the physical, primary-keyed `erc20_tokens_latest_price` table stores the fresh maximum-confidence aggregate for fast quoter reads. The price worker reconciles expirations once per second, promoting a lower-confidence source when needed. The `all_pool_states_view` definition remains unchanged. Apply migrations before deploying the updated price-sync worker. Consumers selecting every column from `erc20_tokens_latest_price` must account for its new `confidence` and `valid_until` columns and the synthetic `AVG` source on tied values; consumers of `erc20_tokens_usd_prices` gain a nullable column. No manual backfill is required.
+
+This release also adds the `cl1` Chainlink price source, which reads token/USD reference feeds over EVM RPC and is seeded above the aggregator APIs (the quoter ranks highest). It is inert until `CHAINLINK_TOKEN_PRICE_SYNC_INTERVAL_SECONDS` and `CHAINLINK_TOKEN_PRICE_CONFIG` are set, so no manual intervention is required to deploy without it.
 
 ### 2026-08-05: Pool-key discovery indexes
 

@@ -3,6 +3,10 @@ export interface PriceUpdate {
   readonly tokenAddress: `0x${string}`;
   readonly timestamp: Date;
   readonly usdPrice: number;
+  // How long this observation may serve as a latest price. Fetchers with a
+  // source-native staleness contract (e.g. Chainlink heartbeats) set it
+  // per row; others leave it unset and get the job's default validity.
+  readonly validUntil?: Date;
 }
 
 export interface PriceFetcher {
@@ -17,6 +21,13 @@ export interface PriceSyncJob {
   readonly source: string;
   readonly intervalMs: number;
   readonly fetch: PriceFetcher;
+}
+
+// Default validity stamped on observations that carry no horizon of their own:
+// three sync intervals keeps a price usable across two missed runs, with a
+// one-minute floor for deliberately aggressive development cadences.
+export function defaultPriceValidityMs(intervalMs: number): number {
+  return Math.max(intervalMs * 3, 60_000);
 }
 
 export interface PriceSyncJobOptions {
