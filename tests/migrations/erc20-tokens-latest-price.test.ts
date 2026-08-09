@@ -20,16 +20,14 @@ async function insertToken(
 async function insertSource(
   client: Client,
   source: string,
-  confidence: number,
-  freshnessTime: string = "1 hour"
+  confidence: number
 ) {
   await client.query(
-    `INSERT INTO erc20_token_price_sources (source, confidence, freshness_time)
-     VALUES ($1, $2, $3::interval)
+    `INSERT INTO erc20_token_price_sources (source, confidence)
+     VALUES ($1, $2)
      ON CONFLICT (source) DO UPDATE
-       SET confidence = excluded.confidence,
-           freshness_time = excluded.freshness_time`,
-    [source, confidence, freshnessTime]
+       SET confidence = excluded.confidence`,
+    [source, confidence]
   );
 }
 
@@ -150,14 +148,16 @@ test("stale sources are excluded before selecting maximum confidence", async () 
     const chainId = 1n;
     const token = 789n;
     await insertToken(client, chainId, token);
-    await insertSource(client, "OLD", 10, "5 minutes");
-    await insertSource(client, "NEW", 1, "5 minutes");
+    await insertSource(client, "OLD", 10);
+    await insertSource(client, "NEW", 1);
 
     await client.query(
       `INSERT INTO erc20_tokens_usd_prices
-          (chain_id, token_address, source, "timestamp", value)
-       VALUES ($1, $2, 'OLD', CURRENT_TIMESTAMP - INTERVAL '6 minutes', 100),
-              ($1, $2, 'NEW', CURRENT_TIMESTAMP - INTERVAL '1 minute', 7)`,
+          (chain_id, token_address, source, "timestamp", value, valid_until)
+       VALUES ($1, $2, 'OLD', CURRENT_TIMESTAMP - INTERVAL '6 minutes', 100,
+               CURRENT_TIMESTAMP - INTERVAL '1 minute'),
+              ($1, $2, 'NEW', CURRENT_TIMESTAMP - INTERVAL '1 minute', 7,
+               CURRENT_TIMESTAMP + INTERVAL '1 hour')`,
       [chainId, token]
     );
 
@@ -182,12 +182,13 @@ test("tokens with no fresh source have no latest price", async () => {
     const chainId = 1n;
     const token = 101112n;
     await insertToken(client, chainId, token);
-    await insertSource(client, "OLD", 1, "5 minutes");
+    await insertSource(client, "OLD", 1);
 
     await client.query(
       `INSERT INTO erc20_tokens_usd_prices
-          (chain_id, token_address, source, "timestamp", value)
-       VALUES ($1, $2, 'OLD', CURRENT_TIMESTAMP - INTERVAL '6 minutes', 100)`,
+          (chain_id, token_address, source, "timestamp", value, valid_until)
+       VALUES ($1, $2, 'OLD', CURRENT_TIMESTAMP - INTERVAL '6 minutes', 100,
+               CURRENT_TIMESTAMP - INTERVAL '1 minute')`,
       [chainId, token]
     );
 
@@ -209,14 +210,16 @@ test("expiration refresh promotes the next fresh confidence tier", async () => {
     const chainId = 1n;
     const token = 111213n;
     await insertToken(client, chainId, token);
-    await insertSource(client, "TOP", 2, "5 minutes");
-    await insertSource(client, "LOW", 1, "1 hour");
+    await insertSource(client, "TOP", 2);
+    await insertSource(client, "LOW", 1);
 
     await client.query(
       `INSERT INTO erc20_tokens_usd_prices
-          (chain_id, token_address, source, "timestamp", value)
-       VALUES ($1, $2, 'TOP', CURRENT_TIMESTAMP - INTERVAL '4 minutes', 20),
-              ($1, $2, 'LOW', CURRENT_TIMESTAMP, 10)`,
+          (chain_id, token_address, source, "timestamp", value, valid_until)
+       VALUES ($1, $2, 'TOP', CURRENT_TIMESTAMP - INTERVAL '4 minutes', 20,
+               CURRENT_TIMESTAMP + INTERVAL '1 minute'),
+              ($1, $2, 'LOW', CURRENT_TIMESTAMP, 10,
+               CURRENT_TIMESTAMP + INTERVAL '1 hour')`,
       [chainId, token]
     );
 
@@ -343,7 +346,7 @@ test("deleting a source's latest observation backfills that source", async () =>
   }
 });
 
-test("source policy uses compact bounded types without widening history", async () => {
+test("source policy is confidence-only and observations carry their validity", async () => {
   const client = await createClient();
   try {
     const { rows: sourceColumns } = await client.query<{ column_name: string }>(
@@ -361,11 +364,10 @@ test("source policy uses compact bounded types without widening history", async 
 
     expect(sourceColumns.map(({ column_name }) => column_name)).toEqual([
       "source",
-      "freshness_time",
       "confidence",
     ]);
-    expect(historyColumns.map(({ column_name }) => column_name)).not.toContain(
-      "freshness_time"
+    expect(historyColumns.map(({ column_name }) => column_name)).toContain(
+      "valid_until"
     );
     expect(historyColumns.map(({ column_name }) => column_name)).not.toContain(
       "confidence"
@@ -373,11 +375,48 @@ test("source policy uses compact bounded types without widening history", async 
 
     await expect(
       client.query(
-        `INSERT INTO erc20_token_price_sources
-            (source, freshness_time, confidence)
-         VALUES ('BAD', INTERVAL '1 minute', 256)`
+        `INSERT INTO erc20_token_price_sources (source, confidence)
+         VALUES ('BAD', 256)`
       )
     ).rejects.toThrow();
+  } finally {
+    await client.close();
+  }
+});
+
+test("rows without an explicit validity fall back to five minutes", async () => {
+  const client = await createClient();
+  try {
+    const chainId = 1n;
+    const freshToken = 192021n;
+    const staleToken = 222324n;
+    await insertToken(client, chainId, freshToken);
+    await insertToken(client, chainId, staleToken);
+    await insertSource(client, "SRC", 1);
+
+    await client.query(
+      `INSERT INTO erc20_tokens_usd_prices
+          (chain_id, token_address, source, "timestamp", value)
+       VALUES ($1, $2, 'SRC', CURRENT_TIMESTAMP - INTERVAL '4 minutes', 5),
+              ($1, $3, 'SRC', CURRENT_TIMESTAMP - INTERVAL '6 minutes', 9)`,
+      [chainId, freshToken, staleToken]
+    );
+
+    const { rows: freshRows } = await client.query(
+      `SELECT 1
+       FROM erc20_tokens_latest_price
+       WHERE chain_id = $1 AND token_address = $2`,
+      [chainId, freshToken]
+    );
+    const { rows: staleRows } = await client.query(
+      `SELECT 1
+       FROM erc20_tokens_latest_price
+       WHERE chain_id = $1 AND token_address = $2`,
+      [chainId, staleToken]
+    );
+
+    expect(freshRows).toHaveLength(1);
+    expect(staleRows).toHaveLength(0);
   } finally {
     await client.close();
   }

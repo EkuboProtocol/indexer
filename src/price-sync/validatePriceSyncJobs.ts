@@ -29,15 +29,6 @@ export function validatePriceSyncJobs(jobs: readonly PriceSyncJob[]): void {
       throw new Error(`Price sync job ${jobId} must use positive chain IDs`);
     }
     if (
-      !Number.isInteger(job.confidence) ||
-      job.confidence < 0 ||
-      job.confidence > 255
-    ) {
-      throw new Error(
-        `Price sync job ${jobId} must use a confidence between 0 and 255`,
-      );
-    }
-    if (
       !Number.isFinite(job.intervalMs) ||
       !Number.isInteger(job.intervalMs) ||
       job.intervalMs < 0

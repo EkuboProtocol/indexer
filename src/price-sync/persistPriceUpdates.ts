@@ -9,14 +9,28 @@ type PriceRow = [
   timestamp: string,
   source: string,
   usdPrice: number,
+  validUntil: string,
 ];
 
-function toPriceRow(source: string, update: PriceUpdate): PriceRow {
+function toPriceRow(
+  source: string,
+  update: PriceUpdate,
+  defaultValidityMs: number,
+): PriceRow {
   if (!Number.isFinite(update.usdPrice) || update.usdPrice <= 0) {
     throw new Error(`Invalid USD price: ${update.usdPrice}`);
   }
   if (Number.isNaN(update.timestamp.getTime())) {
     throw new Error("Invalid price update timestamp");
+  }
+
+  // Validity is anchored at the observation timestamp so a source reporting an
+  // already-old measurement does not have its age laundered away.
+  const validUntil =
+    update.validUntil ??
+    new Date(update.timestamp.getTime() + defaultValidityMs);
+  if (Number.isNaN(validUntil.getTime()) || validUntil <= update.timestamp) {
+    throw new Error("Invalid price update validity horizon");
   }
 
   return [
@@ -25,6 +39,7 @@ function toPriceRow(source: string, update: PriceUpdate): PriceRow {
     update.timestamp.toISOString(),
     source,
     update.usdPrice,
+    validUntil.toISOString(),
   ];
 }
 
@@ -32,10 +47,13 @@ export async function persistPriceUpdates(
   sql: Sql<{ bigint: bigint }>,
   source: string,
   updates: readonly PriceUpdate[],
+  defaultValidityMs: number,
 ): Promise<number> {
   if (updates.length === 0) return 0;
 
-  const rows = updates.map((update) => toPriceRow(source, update));
+  const rows = updates.map((update) =>
+    toPriceRow(source, update, defaultValidityMs),
+  );
   let insertedCount = 0;
 
   await sql.begin(async (sql) => {
@@ -46,13 +64,15 @@ export async function persistPriceUpdates(
           token_address,
           "timestamp",
           source,
-          value
+          value,
+          valid_until
         )
         SELECT data.chain_id::int8,
                data.token_address::numeric,
                data.timestamp::timestamptz,
                data.source,
-               data.usd_price::double precision
+               data.usd_price::double precision,
+               data.valid_until::timestamptz
         FROM (values ${sql(
           rows.slice(offset, offset + INSERT_BATCH_SIZE),
         )}) as data (
@@ -60,7 +80,8 @@ export async function persistPriceUpdates(
           token_address,
           timestamp,
           source,
-          usd_price
+          usd_price,
+          valid_until
         )
         JOIN erc20_tokens AS t
           ON t.chain_id = data.chain_id::int8

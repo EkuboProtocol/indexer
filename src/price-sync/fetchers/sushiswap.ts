@@ -9,7 +9,6 @@ export function sushiswapPriceFetcher({
   return {
     chainIds: [chainId],
     source: "ss1",
-    confidence: 1,
     intervalMs,
     fetch: async function* () {
       const url = `https://api.sushi.com/price/v1/${chainId}`;

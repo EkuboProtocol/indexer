@@ -42,15 +42,3 @@ test("Chainlink jobs are only created for configured chains", () => {
     withChainlink.filter((job) => job.source === "cl1").map(priceSyncJobId),
   ).toEqual(["1:cl1"]);
 });
-
-test("every job declares a confidence the sources table can store", () => {
-  for (const job of createPriceSyncJobs({
-    sql: {} as Sql<{ bigint: bigint }>,
-    defaultIntervalMs: 60_000,
-    coingeckoIntervalMs: 300_000,
-  })) {
-    expect(Number.isInteger(job.confidence)).toBe(true);
-    expect(job.confidence).toBeGreaterThanOrEqual(0);
-    expect(job.confidence).toBeLessThanOrEqual(255);
-  }
-});

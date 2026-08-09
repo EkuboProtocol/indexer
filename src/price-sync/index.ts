@@ -2,10 +2,9 @@ import Bottleneck from "bottleneck";
 import postgres from "postgres";
 import { loadConfig } from "../config";
 import { parseChainlinkPriceConfig } from "./fetchers/chainlinkFeeds";
-import type { PriceSyncJob } from "./fetchers/types";
+import { defaultPriceValidityMs, type PriceSyncJob } from "./fetchers/types";
 import { createPriceSyncJobs } from "./jobs";
 import { persistPriceUpdates } from "./persistPriceUpdates";
-import { publishPriceSourcePolicy } from "./publishPriceSourcePolicy";
 import { runPriceSyncJob } from "./runPriceSyncJob";
 import { priceSyncJobId, validatePriceSyncJobs } from "./validatePriceSyncJobs";
 
@@ -69,7 +68,12 @@ async function main() {
 
     try {
       const result = await runPriceSyncJob(job, (source, updates) =>
-        persistPriceUpdates(sql, source, updates),
+        persistPriceUpdates(
+          sql,
+          source,
+          updates,
+          defaultPriceValidityMs(job.intervalMs),
+        ),
       );
       console.log(
         `Price sync job ${jobId} completed in ${Math.round(
@@ -159,8 +163,6 @@ async function main() {
     await sql.end({ timeout: 0 });
     return;
   }
-
-  await publishPriceSourcePolicy(sql, activeJobs);
 
   await Promise.all([
     ...activeJobs.map((job) => {

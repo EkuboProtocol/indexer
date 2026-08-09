@@ -22,7 +22,6 @@ export function oracleV1PriceFetcher({
   return {
     chainIds: [chainId],
     source: "ov1",
-    confidence: 0,
     intervalMs,
     fetch: async function* () {
       const prices = await sql<{ token_address: string; usd_price: string }[]>`

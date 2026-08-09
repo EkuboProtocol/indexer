@@ -102,7 +102,6 @@ export function coingeckoNativePriceFetcher({
   return {
     chainIds,
     source: "cgn",
-    confidence: 2,
     intervalMs,
     fetch: async function* () {
       if (coinIds.length === 0) return;
@@ -163,7 +162,6 @@ export function coingeckoPriceFetcher({
   return {
     chainIds: [chainId],
     source: "cg1",
-    confidence: 2,
     intervalMs,
     fetch: async function* () {
       const apiKey = requireApiKey();

@@ -152,7 +152,6 @@ export function quoterPriceFetcher({
   return {
     chainIds: [chainId],
     source: "qp1",
-    confidence: 3,
     intervalMs,
     fetch: async function* () {
       const tokens = await fetchTokensWithTvl(sql, chainId);

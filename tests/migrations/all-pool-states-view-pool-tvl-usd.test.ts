@@ -7,8 +7,8 @@ let client: PGlite;
 beforeAll(async () => {
   client = await createClient();
   await client.query(
-    `INSERT INTO erc20_token_price_sources (source, freshness_time, confidence)
-     VALUES ('SRC', INTERVAL '1 hour', 1)`
+    `INSERT INTO erc20_token_price_sources (source, confidence)
+     VALUES ('SRC', 1)`
   );
 });
 

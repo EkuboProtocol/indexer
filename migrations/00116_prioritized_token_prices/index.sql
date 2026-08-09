@@ -3,24 +3,31 @@ DROP TRIGGER IF EXISTS erc20_tokens_usd_prices_latest_on_delete ON erc20_tokens_
 DROP FUNCTION IF EXISTS erc20_tokens_latest_price_on_insert();
 DROP FUNCTION IF EXISTS erc20_tokens_latest_price_on_delete();
 
--- Price source policy is normalized because history is the high-volume table.
--- Keeping these values here adds no per-observation storage overhead and lets
--- operators adjust future source policy without rewriting price history.
+-- Per-source confidence policy. Seeded here and nowhere else: the price worker
+-- never writes this table, so adjustments (made in a later migration) survive
+-- deploys. The quoter ranks first because the interface derives price-impact
+-- loss from it; Chainlink reference feeds outrank the aggregator APIs.
 CREATE TABLE erc20_token_price_sources
 (
-    source         CHAR(3)  PRIMARY KEY,
-    freshness_time INTERVAL NOT NULL CHECK (freshness_time > INTERVAL '0 seconds'),
-    confidence     SMALLINT NOT NULL CHECK (confidence BETWEEN 0 AND 255)
+    source     CHAR(3)  PRIMARY KEY,
+    confidence SMALLINT NOT NULL CHECK (confidence BETWEEN 0 AND 255)
 );
 
-INSERT INTO erc20_token_price_sources (source, freshness_time, confidence)
-VALUES ('cl1', INTERVAL '5 minutes', 4),
-       ('qp1', INTERVAL '5 minutes', 3),
-       ('cg1', INTERVAL '5 minutes', 2),
-       ('cgn', INTERVAL '5 minutes', 2),
-       ('ss1', INTERVAL '5 minutes', 1),
-       ('ov1', INTERVAL '5 minutes', 0),
-       ('LEG', INTERVAL '5 minutes', 0);
+INSERT INTO erc20_token_price_sources (source, confidence)
+VALUES ('qp1', 4),
+       ('cl1', 3),
+       ('cg1', 2),
+       ('cgn', 2),
+       ('ss1', 1),
+       ('ov1', 0),
+       ('LEG', 0);
+
+-- Freshness is a property of the observation, not the source: sync jobs stamp
+-- three of their own sync intervals, and Chainlink stamps the feed's heartbeat
+-- window anchored at the round's updatedAt. Rows predating this column fall
+-- back to five minutes past their timestamp.
+ALTER TABLE erc20_tokens_usd_prices
+    ADD COLUMN valid_until timestamptz;
 
 -- Cache one observation per token/source. Confidence and expiry are copied
 -- here when an observation arrives so the high-volume history remains narrow.
@@ -45,7 +52,7 @@ SELECT DISTINCT ON (up.chain_id, up.token_address, up.source)
        up."timestamp",
        up.value,
        s.confidence,
-       up."timestamp" + s.freshness_time
+       COALESCE(up.valid_until, up."timestamp" + INTERVAL '5 minutes')
 FROM erc20_tokens_usd_prices up
          JOIN erc20_token_price_sources s USING (source)
 ORDER BY up.chain_id, up.token_address, up.source, up."timestamp" DESC;
@@ -172,7 +179,8 @@ BEGIN
                new_prices."timestamp",
                new_prices.value,
                s.confidence,
-               new_prices."timestamp" + s.freshness_time AS valid_until
+               COALESCE(new_prices.valid_until,
+                        new_prices."timestamp" + INTERVAL '5 minutes') AS valid_until
         FROM inserted_prices new_prices
                  JOIN erc20_token_price_sources s USING (source)
         ORDER BY new_prices.chain_id,
@@ -242,7 +250,7 @@ BEGIN
                up."timestamp",
                up.value,
                s.confidence,
-               up."timestamp" + s.freshness_time
+               COALESCE(up.valid_until, up."timestamp" + INTERVAL '5 minutes')
         FROM erc20_tokens_usd_prices up
                  JOIN erc20_token_price_sources s USING (source)
         WHERE up.chain_id = affected.chain_id

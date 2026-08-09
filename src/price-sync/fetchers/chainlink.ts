@@ -6,7 +6,11 @@ import {
   type ChainlinkChainConfig,
   type ChainlinkToken,
 } from "./chainlinkFeeds";
-import type { PriceSyncJob, PriceUpdate } from "./types";
+import {
+  defaultPriceValidityMs,
+  type PriceSyncJob,
+  type PriceUpdate,
+} from "./types";
 import { toHexTokenAddress } from "./utils";
 
 interface ChainlinkPriceFetcherOptions {
@@ -87,9 +91,6 @@ export function chainlinkPriceFetcher({
   return {
     chainIds: [chainId],
     source: "cl1",
-    // Chainlink reference feeds are the most trustworthy source available, so
-    // they outrank the quoter and the aggregator APIs.
-    confidence: 4,
     intervalMs,
     fetch: async function* () {
       const feedsByToken = new Map(
@@ -121,13 +122,24 @@ export function chainlinkPriceFetcher({
 
       // Each observation carries the round's own updatedAt, so an unchanged
       // round produces a row that already exists and is discarded on insert.
+      // Validity is anchored at that updatedAt and extends through the feed's
+      // staleness window — mirroring the read-side contract — floored at the
+      // job's default so a fast-heartbeat feed cannot expire between syncs.
       const updates: PriceUpdate[] = Object.entries(observations).map(
-        ([tokenAddress, { usdPrice, timestamp }]) => ({
-          chainId,
-          tokenAddress: toHexTokenAddress(tokenAddress),
-          timestamp,
-          usdPrice,
-        }),
+        ([tokenAddress, { usdPrice, timestamp }]) => {
+          const feed = feedsByToken.get(tokenAddress.toLowerCase());
+          const validityMs = Math.max(
+            (feed?.maxAgeSeconds ?? 0) * 1_000,
+            defaultPriceValidityMs(intervalMs),
+          );
+          return {
+            chainId,
+            tokenAddress: toHexTokenAddress(tokenAddress),
+            timestamp,
+            usdPrice,
+            validUntil: new Date(timestamp.getTime() + validityMs),
+          };
+        },
       );
 
       if (updates.length > 0) yield updates;

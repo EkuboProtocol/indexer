@@ -6,17 +6,14 @@ function job({
   chainIds,
   source,
   intervalMs = 1_000,
-  confidence = 1,
 }: {
   chainIds: readonly bigint[];
   source: string;
   intervalMs?: number;
-  confidence?: number;
 }): PriceSyncJob {
   return {
     chainIds,
     source,
-    confidence,
     intervalMs,
     fetch: async function* () {},
   };
