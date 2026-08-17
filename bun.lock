@@ -12,7 +12,7 @@
         "bottleneck": "^2.19.5",
         "dotenv": "^17.4.2",
         "postgres": "^3.4.9",
-        "postgres-shift": "^0.1.0",
+        "postgres-shift": "^1.0.1",
         "viem": "^2.55.10",
         "winston": "^3.19.0",
       },
@@ -173,7 +173,7 @@
 
     "postgres": ["postgres@3.4.9", "", {}, "sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw=="],
 
-    "postgres-shift": ["postgres-shift@0.1.0", "", {}, "sha512-/375iG0Kveh1Spk3kFtaTdGT9FUxtXYDDabGw/9/Jkk3f93dYM2R8ZgQzbknCG+ZpfoR114gZ71oR+lRr6XY3A=="],
+    "postgres-shift": ["postgres-shift@1.0.1", "", {}, "sha512-pbM9URM7NxIhWPErzji/Cs1Iv6oJ6wwCJYHmza00+Pd/0b90b2inHgsYtaJ8+2jfj4hnmzNp2pXDZcRTeFKnrw=="],
 
     "protobufjs": ["protobufjs@7.5.1", "", { "dependencies": { "@protobufjs/aspromise": "^1.1.2", "@protobufjs/base64": "^1.1.2", "@protobufjs/codegen": "^2.0.4", "@protobufjs/eventemitter": "^1.1.0", "@protobufjs/fetch": "^1.1.0", "@protobufjs/float": "^1.0.2", "@protobufjs/inquire": "^1.1.0", "@protobufjs/path": "^1.1.2", "@protobufjs/pool": "^1.1.0", "@protobufjs/utf8": "^1.1.0", "@types/node": ">=13.7.0", "long": "^5.0.0" } }, "sha512-3qx3IRjR9WPQKagdwrKjO3Gu8RgQR2qqw+1KnigWhoVjFqegIj1K3bP11sGqhxrO46/XL7lekuG4jmjL+4cLsw=="],
 
