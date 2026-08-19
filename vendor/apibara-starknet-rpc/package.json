@@ -1,0 +1,20 @@
+{
+  "name": "@apibara/starknet-rpc",
+  "version": "2.1.4",
+  "description": "Vendored @apibara/starknet-rpc from software-mansion-labs/apibara-typescript-sdk@fc2c48e (branch maciektr/live-reorg-fix). Consumed as TypeScript source, which Bun executes directly, so no build step is required.",
+  "repository": "software-mansion-labs/apibara-typescript-sdk",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@apibara/protocol": "file:../apibara-protocol",
+    "@apibara/starknet": "^2.1.4",
+    "@opentelemetry/api": "^1.9.0",
+    "async-sema": "^3.1.1",
+    "semver": "^7.8.5"
+  }
+}

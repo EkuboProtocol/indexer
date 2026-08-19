@@ -1,0 +1,615 @@
+import type { StreamDataOptions } from "../client";
+import type { Cursor } from "../common";
+import type {
+  DataFinality,
+  StreamDataRequest,
+  StreamDataResponse,
+} from "../stream";
+import { type ChainTracker, createChainTracker } from "./chain-tracker";
+import type { RpcStreamConfig } from "./config";
+import { blockInfoToCursor, sleep } from "./helpers";
+import { createTracer } from "./otel";
+
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
+
+const tracer = createTracer();
+
+type State<TFilter, TBlock> = {
+  // The network-specific config.
+  config: RpcStreamConfig<TFilter, TBlock>;
+  // The current cursor, that is the last block that was filtered.
+  cursor: Cursor;
+  // When the finalized block was last refreshed.
+  lastFinalizedRefresh: number;
+  // When the head was last refreshed.
+  lastHeadRefresh: number;
+  // When the last heartbeat was sent.
+  lastHeartbeat: number;
+  // When the last backfill message was sent.
+  lastBackfillMessage: number;
+  // The last empty header sent.
+  lastEmptyBlockNumber: bigint | undefined;
+  // Track the chain's state.
+  chainTracker: ChainTracker;
+  // Heartbeat interval in milliseconds.
+  heartbeatIntervalMs: number;
+  // The request filters.
+  filters: readonly TFilter[];
+  // Requested finality.
+  finality: DataFinality;
+  // Last mutable pending revision emitted.
+  lastPendingRevision: string | undefined;
+  // The request options.
+  options?: StreamDataOptions;
+};
+
+export class RpcDataStream<TFilter, TBlock> {
+  private heartbeatIntervalMs: number;
+
+  constructor(
+    private config: RpcStreamConfig<TFilter, TBlock>,
+    private request: StreamDataRequest<TFilter>,
+    private options?: StreamDataOptions,
+  ) {
+    this.heartbeatIntervalMs = request.heartbeatInterval
+      ? Number(request.heartbeatInterval.seconds) * 1000
+      : DEFAULT_HEARTBEAT_INTERVAL_MS;
+  }
+
+  async *[Symbol.asyncIterator](): AsyncIterator<StreamDataResponse<TBlock>> {
+    const startingState = await this.initialize();
+    yield* dataStreamLoop(startingState);
+  }
+
+  private async initialize(): Promise<State<TFilter, TBlock>> {
+    if (this.request.filter.length === 0) {
+      throw new Error("Request.filter: empty.");
+    }
+
+    const finality = this.request.finality ?? "accepted";
+    if (finality === "unknown") {
+      throw new Error("Request.finality: unknown finality is not supported.");
+    }
+    await this.config.initializeRequest(this.request.filter, finality);
+
+    const [head, finalized] = await Promise.all([
+      this.config.fetchCursor({ blockTag: "latest" }),
+      this.config.fetchCursor({ blockTag: "finalized" }),
+    ]);
+
+    if (finalized === null) {
+      throw new Error("RPC stream requires a finalized block");
+    }
+
+    if (head === null) {
+      throw new Error("RPC stream requires a chain with blocks.");
+    }
+
+    const chainTracker = createChainTracker({
+      head,
+      finalized,
+      batchSize: 20n,
+    });
+
+    let cursor: Cursor;
+    if (this.request.startingCursor) {
+      cursor = this.request.startingCursor;
+
+      const { canonical, reason, fullCursor } =
+        await chainTracker.initializeStartingCursor({
+          cursor,
+          fetchCursor: (blockNumber) =>
+            this.config.fetchCursor({ blockNumber }),
+        });
+
+      if (!canonical) {
+        throw new Error(`Starting cursor is not canonical: ${reason}`);
+      }
+
+      cursor = fullCursor;
+    } else {
+      cursor = { orderKey: -1n };
+    }
+
+    return {
+      cursor,
+      lastHeartbeat: Date.now(),
+      lastFinalizedRefresh: Date.now(),
+      lastHeadRefresh: Date.now(),
+      lastBackfillMessage: Date.now(),
+      lastEmptyBlockNumber: undefined,
+      chainTracker,
+      config: this.config,
+      heartbeatIntervalMs: this.heartbeatIntervalMs,
+      filters: this.request.filter,
+      finality,
+      lastPendingRevision: undefined,
+      options: this.options,
+    };
+  }
+}
+
+async function* dataStreamLoop<TFilter, TBlock>(
+  state: State<TFilter, TBlock>,
+): AsyncGenerator<StreamDataResponse<TBlock>> {
+  while (shouldContinue(state)) {
+    const messages = await tracer.startActiveSpan(
+      "data-stream.loop",
+      async (span) => {
+        try {
+          const { cursor, chainTracker } = state;
+
+          const attributes: Record<string, string | number | boolean> = {
+            cursor: cursor.orderKey.toString(),
+            head: chainTracker.head().orderKey.toString(),
+            finalized: chainTracker.finalized().orderKey.toString(),
+            actionSendHeartbeat: false,
+            actionRefreshFinalized: false,
+            actionBackfillFinalized: false,
+            actionWaitForHeadChange: false,
+            actionProduceLiveBlocks: false,
+          };
+
+          const messages: StreamDataResponse<TBlock>[] = [];
+
+          if (shouldSendHeartbeat(state)) {
+            state.lastHeartbeat = Date.now();
+            attributes.actionSendHeartbeat = true;
+            messages.push({ _tag: "heartbeat" });
+          }
+
+          if (shouldRefreshFinalized(state)) {
+            attributes.actionRefreshFinalized = true;
+            const finalizedInfo = await state.config.fetchCursor({
+              blockTag: "finalized",
+            });
+
+            if (finalizedInfo === null) {
+              throw new Error("Failed to fetch finalized cursor");
+            }
+
+            const finalized = blockInfoToCursor(finalizedInfo);
+            const finalizedChanged =
+              state.chainTracker.updateFinalized(finalizedInfo);
+
+            if (
+              finalizedChanged &&
+              state.cursor.orderKey > finalized.orderKey
+            ) {
+              messages.push({
+                _tag: "finalize",
+                finalize: { cursor: finalized },
+              });
+            }
+
+            state.lastFinalizedRefresh = Date.now();
+          }
+
+          const finalized = chainTracker.finalized();
+
+          if (cursor.orderKey < finalized.orderKey) {
+            attributes.actionBackfillFinalized = true;
+            for await (const msg of backfillFinalizedBlocks(state)) {
+              messages.push(msg);
+            }
+          } else if (state.finality === "finalized") {
+            await waitForFinalizedRefresh(state);
+          } else {
+            if (isAtHead(state)) {
+              if (state.finality === "pending") {
+                attributes.actionWaitForHeadChange = true;
+                for await (const msg of pollPending(state)) {
+                  messages.push(msg);
+                }
+              } else {
+                attributes.actionWaitForHeadChange = true;
+                for await (const msg of waitForHeadChange(state)) {
+                  messages.push(msg);
+                }
+              }
+            } else {
+              attributes.actionProduceLiveBlocks = true;
+              for await (const msg of produceLiveBlocks(state)) {
+                messages.push(msg);
+              }
+            }
+          }
+
+          span.setAttributes(attributes);
+
+          return messages;
+        } catch (error) {
+          span.recordException(error as Error);
+          throw error;
+        } finally {
+          span.end();
+        }
+      },
+    );
+
+    for (const message of messages) {
+      yield message;
+    }
+  }
+}
+
+async function* backfillFinalizedBlocks<TFilter, TBlock>(
+  state: State<TFilter, TBlock>,
+): AsyncGenerator<StreamDataResponse<TBlock>> {
+  const { cursor, chainTracker, config, filters } = state;
+  const finalized = chainTracker.finalized();
+
+  // While backfilling we want to regularly send some blocks (even if empty) so
+  // that the client can store the cursor.
+  const force = shouldForceBackfill(state);
+
+  const filterData = await config.fetchBlockRangeMany({
+    startBlock: cursor.orderKey + 1n,
+    maxBlock: requestedMaxBlock(state, finalized.orderKey),
+    force,
+    clampAllowed: true,
+    filters,
+  });
+
+  if (filterData.endBlock > finalized.orderKey) {
+    throw new Error(
+      "Network-specific stream returned invalid data, crossing the finalized block.",
+    );
+  }
+
+  for (const data of filterData.data) {
+    state.lastHeartbeat = Date.now();
+    state.lastBackfillMessage = Date.now();
+    yield {
+      _tag: "data",
+      data: {
+        cursor: data.cursor,
+        endCursor: data.endCursor,
+        data: data.blocks,
+        finality: "finalized",
+        production: "backfill",
+      },
+    };
+  }
+
+  // Notice that we check that filteredData.endBlock <= finalized.orderKey above.
+  if (filterData.endBlock === finalized.orderKey) {
+    // Prepare for transition to non-finalized data.
+    state.cursor = finalized;
+  } else {
+    state.cursor = { orderKey: filterData.endBlock };
+  }
+}
+
+// This is a generator to possibly produce data for live blocks.
+//
+// It's a generator because it's not guaranteed to produce data for the next block.
+async function* produceLiveBlocks<TFilter, TBlock>(
+  state: State<TFilter, TBlock>,
+): AsyncGenerator<StreamDataResponse<TBlock>> {
+  const { config, cursor, chainTracker, filters } = state;
+
+  if (shouldRefreshHead(state)) {
+    const maybeNewHead = await config.fetchCursor({ blockTag: "latest" });
+    if (maybeNewHead === null) {
+      throw new Error("Failed to fetch the latest block");
+    }
+
+    const result = await chainTracker.updateHead({
+      newHead: maybeNewHead,
+      fetchCursorByHash: (blockHash) => config.fetchCursor({ blockHash }),
+      fetchCursorRange: (args) => config.fetchCursorRange(args),
+    });
+
+    state.lastHeadRefresh = Date.now();
+
+    if (result.status === "reorg") {
+      const { cursor } = result;
+      // Only handle reorgs if they involve blocks already processed.
+      if (shouldInvalidateProcessedLiveData(state, cursor)) {
+        state.cursor = cursor;
+        state.lastEmptyBlockNumber = undefined;
+
+        yield {
+          _tag: "invalidate",
+          invalidate: { cursor },
+        };
+
+        return;
+      }
+    }
+  }
+
+  const head = chainTracker.head();
+
+  // A reorg moves the head back to the common ancestor, which can be the block
+  // this stream last produced. There's nothing to fetch until the chain grows
+  // again: requesting `cursor + 1 .. head` would be an inverted range and the
+  // empty-head branch below would re-send an already processed block.
+  if (head.orderKey <= cursor.orderKey) {
+    return;
+  }
+
+  const filterData = await config.fetchBlockRangeMany({
+    startBlock: cursor.orderKey + 1n,
+    maxBlock: requestedMaxBlock(state, head.orderKey),
+    force: false,
+    clampAllowed: false,
+    filters,
+  });
+
+  if (filterData.data.length === 0 && head.uniqueKey !== undefined) {
+    // Send an empty block if we reached the head, but don't update the cursor.
+    if (
+      state.lastEmptyBlockNumber === undefined ||
+      head.orderKey > state.lastEmptyBlockNumber
+    ) {
+      const { data } = await config.fetchHeaderByHashMany({
+        blockHash: head.uniqueKey,
+        filters,
+      });
+
+      yield {
+        _tag: "data",
+        data: {
+          cursor: data.cursor,
+          endCursor: data.endCursor,
+          data: data.blocks,
+          finality: "accepted",
+          production: "live",
+        },
+      };
+
+      state.lastEmptyBlockNumber = head.orderKey;
+    }
+  }
+
+  for (const { cursor, endCursor, blocks } of filterData.data) {
+    if (!chainTracker.isCanonical(endCursor)) {
+      throw new Error("Trying to process non-canonical block");
+    }
+
+    if (blocks.some((block) => block !== null)) {
+      state.lastHeartbeat = Date.now();
+      const production = isAtHead(state) ? "live" : "backfill";
+
+      yield {
+        _tag: "data",
+        data: {
+          cursor,
+          endCursor,
+          data: blocks,
+          finality: "accepted",
+          production,
+        },
+      };
+    }
+
+    state.cursor = {
+      orderKey: endCursor.orderKey,
+      uniqueKey: endCursor.uniqueKey,
+    };
+    state.lastPendingRevision = undefined;
+  }
+}
+
+async function* pollPending<TFilter, TBlock>(
+  state: State<TFilter, TBlock>,
+): AsyncGenerator<StreamDataResponse<TBlock>> {
+  const maybeNewHead = await state.config.fetchCursor({ blockTag: "latest" });
+  if (maybeNewHead === null) {
+    throw new Error("Failed to fetch the latest block");
+  }
+  const headResult = await state.chainTracker.updateHead({
+    newHead: maybeNewHead,
+    fetchCursorByHash: (blockHash) => state.config.fetchCursor({ blockHash }),
+    fetchCursorRange: (args) => state.config.fetchCursorRange(args),
+  });
+  state.lastHeadRefresh = Date.now();
+
+  if (headResult.status !== "unchanged") {
+    if (state.lastPendingRevision !== undefined) {
+      yield {
+        _tag: "invalidate",
+        invalidate: { cursor: state.cursor },
+      };
+    }
+    state.lastPendingRevision = undefined;
+    if (
+      headResult.status === "reorg" &&
+      shouldInvalidateProcessedLiveData(state, headResult.cursor)
+    ) {
+      state.cursor = headResult.cursor;
+      state.lastEmptyBlockNumber = undefined;
+      yield {
+        _tag: "invalidate",
+        invalidate: { cursor: headResult.cursor },
+      };
+    }
+    return;
+  }
+
+  const pending = await state.config.fetchPendingBlocks(state.filters);
+  if (!pending) {
+    await sleep(state.config.pendingRefreshIntervalMs());
+    return;
+  }
+  if (pending.blocks.length !== state.filters.length) {
+    throw new Error(
+      "Network-specific pending stream returned misaligned filter data",
+    );
+  }
+  if (pending.revision === state.lastPendingRevision) {
+    await sleep(state.config.pendingRefreshIntervalMs());
+    return;
+  }
+  if (state.lastPendingRevision !== undefined) {
+    yield {
+      _tag: "invalidate",
+      invalidate: { cursor: state.cursor },
+    };
+  }
+  state.lastPendingRevision = pending.revision;
+  state.lastHeartbeat = Date.now();
+  yield {
+    _tag: "data",
+    data: {
+      cursor: state.cursor,
+      endCursor: pending.endCursor,
+      data: pending.blocks,
+      finality: "pending",
+      production: "live",
+    },
+  };
+}
+
+async function* waitForHeadChange<TBlock>(
+  state: State<unknown, TBlock>,
+): AsyncGenerator<StreamDataResponse<TBlock>> {
+  const { chainTracker, config } = state;
+
+  const heartbeatDeadline = state.lastHeartbeat + state.heartbeatIntervalMs;
+  const finalizedRefreshDeadline =
+    state.lastFinalizedRefresh + config.finalizedRefreshIntervalMs();
+
+  while (true) {
+    const now = Date.now();
+    // Allow the outer loop to send the heartbeat message or refresh finalized blocks.
+    if (now >= heartbeatDeadline || now >= finalizedRefreshDeadline) {
+      return;
+    }
+
+    const maybeNewHead = await config.fetchCursor({ blockTag: "latest" });
+
+    if (maybeNewHead === null) {
+      throw new Error("Failed to fetch the latest block");
+    }
+
+    const result = await chainTracker.updateHead({
+      newHead: maybeNewHead,
+      fetchCursorByHash: (blockHash) => config.fetchCursor({ blockHash }),
+      fetchCursorRange: (args) => config.fetchCursorRange(args),
+    });
+
+    switch (result.status) {
+      case "unchanged": {
+        const heartbeatTimeout = heartbeatDeadline - now;
+        const finalizedTimeout = finalizedRefreshDeadline - now;
+
+        // Wait until whatever happens next.
+        await config.waitForHeadChange(
+          Math.min(
+            heartbeatTimeout,
+            finalizedTimeout,
+            config.headRefreshIntervalMs(),
+          ),
+        );
+
+        break;
+      }
+      case "reorg": {
+        const { cursor } = result;
+        // Only handle reorgs if they involve blocks already processed.
+        if (shouldInvalidateProcessedLiveData(state, cursor)) {
+          state.cursor = cursor;
+          state.lastEmptyBlockNumber = undefined;
+
+          yield {
+            _tag: "invalidate",
+            invalidate: { cursor },
+          };
+        }
+
+        break;
+      }
+      case "success": {
+        // Chain grew without any issues. Go back to the top-level loop to produce data.
+        return;
+      }
+    }
+  }
+}
+
+function shouldSendHeartbeat(state: State<unknown, unknown>): boolean {
+  const { heartbeatIntervalMs, lastHeartbeat } = state;
+  const now = Date.now();
+  return now - lastHeartbeat >= heartbeatIntervalMs;
+}
+
+function shouldForceBackfill(state: State<unknown, unknown>): boolean {
+  const { lastBackfillMessage, heartbeatIntervalMs } = state;
+  const now = Date.now();
+  return now - lastBackfillMessage >= heartbeatIntervalMs;
+}
+
+function shouldContinue(state: State<unknown, unknown>): boolean {
+  if (state.options?.signal?.aborted) return false;
+  const { endingCursor } = state.options || {};
+  if (endingCursor === undefined) return true;
+
+  return state.cursor.orderKey < endingCursor.orderKey;
+}
+
+/** Bound each network fetch as well as the outer stream loop. */
+function requestedMaxBlock(
+  state: State<unknown, unknown>,
+  availableMaxBlock: bigint,
+): bigint {
+  const endingBlock = state.options?.endingCursor?.orderKey;
+  return endingBlock !== undefined && endingBlock < availableMaxBlock
+    ? endingBlock
+    : availableMaxBlock;
+}
+
+function shouldRefreshFinalized(state: State<unknown, unknown>): boolean {
+  const { lastFinalizedRefresh, config } = state;
+  const now = Date.now();
+  return now - lastFinalizedRefresh >= config.finalizedRefreshIntervalMs();
+}
+
+function shouldRefreshHead(state: State<unknown, unknown>): boolean {
+  const { lastHeadRefresh, config } = state;
+  const now = Date.now();
+  return now - lastHeadRefresh >= config.headRefreshIntervalMs();
+}
+
+function isAtHead(state: State<unknown, unknown>): boolean {
+  const head = state.chainTracker.head();
+  return (
+    state.cursor.orderKey === head.orderKey ||
+    state.lastEmptyBlockNumber === head.orderKey
+  );
+}
+
+function shouldInvalidateProcessedLiveData(
+  state: State<unknown, unknown>,
+  cursor: Cursor,
+): boolean {
+  return (
+    cursor.orderKey < state.cursor.orderKey ||
+    (state.lastEmptyBlockNumber !== undefined &&
+      cursor.orderKey < state.lastEmptyBlockNumber)
+  );
+}
+
+function lastProcessedLiveBlock(state: State<unknown, unknown>): bigint {
+  if (
+    state.lastEmptyBlockNumber !== undefined &&
+    state.lastEmptyBlockNumber > state.cursor.orderKey
+  ) {
+    return state.lastEmptyBlockNumber;
+  }
+
+  return state.cursor.orderKey;
+}
+
+async function waitForFinalizedRefresh(
+  state: State<unknown, unknown>,
+): Promise<void> {
+  const heartbeatDeadline = state.lastHeartbeat + state.heartbeatIntervalMs;
+  const finalizedDeadline =
+    state.lastFinalizedRefresh + state.config.finalizedRefreshIntervalMs();
+  await sleep(
+    Math.max(1, Math.min(heartbeatDeadline, finalizedDeadline) - Date.now()),
+  );
+}

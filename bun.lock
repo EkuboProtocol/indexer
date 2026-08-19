@@ -7,8 +7,9 @@
       "dependencies": {
         "@apibara/evm": "^2.1.4",
         "@apibara/evm-rpc": "^2.1.4",
-        "@apibara/protocol": "^2.1.3",
+        "@apibara/protocol": "file:./vendor/apibara-protocol",
         "@apibara/starknet": "^2.1.4",
+        "@apibara/starknet-rpc": "file:./vendor/apibara-starknet-rpc",
         "bottleneck": "^2.19.5",
         "dotenv": "^17.4.2",
         "postgres": "^3.4.9",
@@ -22,6 +23,9 @@
       },
     },
   },
+  "overrides": {
+    "@apibara/protocol": "file:./vendor/apibara-protocol",
+  },
   "packages": {
     "@adraffy/ens-normalize": ["@adraffy/ens-normalize@1.11.0", "", {}, ""],
 
@@ -29,9 +33,11 @@
 
     "@apibara/evm-rpc": ["@apibara/evm-rpc@2.1.4", "", { "dependencies": { "@apibara/evm": "2.1.4", "@apibara/protocol": "2.1.3", "@opentelemetry/api": "^1.9.0", "viem": "^2.40.3" } }, "sha512-cYsM8HF4aN9uKiv7JJRh/s7Gc/uw4VZEZO8Su/URAtiMZvbNlNhHFP4SaOMrAhNsX0AMg+xvimOJ6g7RXU17rQ=="],
 
-    "@apibara/protocol": ["@apibara/protocol@2.1.3", "", { "dependencies": { "@opentelemetry/api": "^1.9.0", "consola": "^3.4.2", "long": "^5.2.3", "nice-grpc": "^2.1.8", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.3.0", "viem": "^2.13.2" } }, "sha512-udzmoY1yd6wpbLBX6+iJmspo6x+WNfr4RasW3YcagMyYM7iYFD/zOjFTd/2z2m25bVqdkeVUsIMz6ivuRc5A9Q=="],
+    "@apibara/protocol": ["@apibara/protocol@file:vendor/apibara-protocol", { "dependencies": { "@opentelemetry/api": "^1.9.0", "consola": "^3.4.2", "long": "^5.2.3", "nice-grpc": "^2.1.8", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.3.0", "viem": "^2.13.2" } }],
 
     "@apibara/starknet": ["@apibara/starknet@2.1.4", "", { "dependencies": { "@apibara/protocol": "2.1.3", "@scure/starknet": "^1.1.0", "abi-wan-kanabi": "^2.2.4", "long": "^5.2.1", "nice-grpc-common": "^2.0.2", "protobufjs": "^7.1.2" } }, "sha512-k9reE+blXCjI9YoAKkibDfsa5oAJNUUMZc0I5AGufJPRBLgkVDirnaVTJ/Y+47EQmz5DkT0rBHWu1T243Z18KQ=="],
+
+    "@apibara/starknet-rpc": ["@apibara/starknet-rpc@file:vendor/apibara-starknet-rpc", { "dependencies": { "@apibara/protocol": "file:../apibara-protocol", "@apibara/starknet": "^2.1.4", "@opentelemetry/api": "^1.9.0", "async-sema": "^3.1.1", "semver": "^7.8.5" } }],
 
     "@colors/colors": ["@colors/colors@1.6.0", "", {}, ""],
 
@@ -102,6 +108,8 @@
     "ansicolors": ["ansicolors@0.3.2", "", {}, "sha512-QXu7BPrP29VllRxH8GwB7x5iX5qWKAAMLqKQGWTeLWVlNHNOpVMJ91dsxQAIWXpjuW5wqvxu3Jd/nRjrJ+0pqg=="],
 
     "async": ["async@3.2.5", "", {}, ""],
+
+    "async-sema": ["async-sema@3.1.1", "", {}, "sha512-tLRNUXati5MFePdAk8dw7Qt7DpxPB60ofAgn8WRhW6a2rcimZnYBP9oxHiv0OHy+Wz7kPMG+t4LGdt31+4EmGg=="],
 
     "bottleneck": ["bottleneck@2.19.5", "", {}, "sha512-VHiNCbI1lKdl44tGrhNfU3lup0Tj/ZBMJB5/2ZbNXRCPuRCO7ed2mgcK4r17y+KB2EfuYuRaVlwNbAeaWGSpbw=="],
 
@@ -187,6 +195,8 @@
 
     "safe-stable-stringify": ["safe-stable-stringify@2.4.3", "", {}, ""],
 
+    "semver": ["semver@7.8.5", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA=="],
+
     "stack-trace": ["stack-trace@0.0.10", "", {}, ""],
 
     "string-width": ["string-width@4.2.3", "", { "dependencies": { "emoji-regex": "^8.0.0", "is-fullwidth-code-point": "^3.0.0", "strip-ansi": "^6.0.1" } }, "sha512-wKyQRQpjJ0sIp62ErSZdGsjMJWsap5oRNihHhu6G7JVO/9jIB6UyevL+tXuOqrng8j/cxKTWyWUwvSTriiZz/g=="],
@@ -223,11 +233,17 @@
 
     "yargs-parser": ["yargs-parser@21.1.1", "", {}, "sha512-tVpsJW7DdjecAiFpbIB1e3qxIQsE6NoPc5/eTdrbbIC4h0LVsWhnoa3g+m2HclBIujHzsxZ4VJVA+GUuc2/LBw=="],
 
+    "@apibara/evm/@apibara/protocol": ["@apibara/protocol@file:./vendor/apibara-protocol", {}],
+
     "@apibara/evm/viem": ["viem@2.48.11", "", { "dependencies": { "@noble/curves": "1.9.1", "@noble/hashes": "1.8.0", "@scure/bip32": "1.7.0", "@scure/bip39": "1.6.0", "abitype": "1.2.3", "isows": "1.0.7", "ox": "0.14.20", "ws": "8.18.3" }, "peerDependencies": { "typescript": ">=5.0.4" }, "optionalPeers": ["typescript"] }, "sha512-+WZ5E0dBS6GtKb+1wEk5DeYRRRW42+pFnXCo67Ydodf42sBwO+hu3wnQy66lc4MKmHz+llPVdbyehYr9oTE2iw=="],
+
+    "@apibara/evm-rpc/@apibara/protocol": ["@apibara/protocol@file:./vendor/apibara-protocol", {}],
 
     "@apibara/evm-rpc/viem": ["viem@2.48.11", "", { "dependencies": { "@noble/curves": "1.9.1", "@noble/hashes": "1.8.0", "@scure/bip32": "1.7.0", "@scure/bip39": "1.6.0", "abitype": "1.2.3", "isows": "1.0.7", "ox": "0.14.20", "ws": "8.18.3" }, "peerDependencies": { "typescript": ">=5.0.4" }, "optionalPeers": ["typescript"] }, "sha512-+WZ5E0dBS6GtKb+1wEk5DeYRRRW42+pFnXCo67Ydodf42sBwO+hu3wnQy66lc4MKmHz+llPVdbyehYr9oTE2iw=="],
 
-    "@apibara/protocol/viem": ["viem@2.48.11", "", { "dependencies": { "@noble/curves": "1.9.1", "@noble/hashes": "1.8.0", "@scure/bip32": "1.7.0", "@scure/bip39": "1.6.0", "abitype": "1.2.3", "isows": "1.0.7", "ox": "0.14.20", "ws": "8.18.3" }, "peerDependencies": { "typescript": ">=5.0.4" }, "optionalPeers": ["typescript"] }, "sha512-+WZ5E0dBS6GtKb+1wEk5DeYRRRW42+pFnXCo67Ydodf42sBwO+hu3wnQy66lc4MKmHz+llPVdbyehYr9oTE2iw=="],
+    "@apibara/starknet/@apibara/protocol": ["@apibara/protocol@file:./vendor/apibara-protocol", {}],
+
+    "@apibara/starknet-rpc/@apibara/protocol": ["@apibara/protocol@file:./vendor/apibara-protocol", {}],
 
     "@scure/bip32/@noble/curves": ["@noble/curves@1.9.7", "", { "dependencies": { "@noble/hashes": "1.8.0" } }, "sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw=="],
 
@@ -242,10 +258,6 @@
     "@apibara/evm/viem/ox": ["ox@0.14.20", "", { "dependencies": { "@adraffy/ens-normalize": "^1.11.0", "@noble/ciphers": "^1.3.0", "@noble/curves": "1.9.1", "@noble/hashes": "^1.8.0", "@scure/bip32": "^1.7.0", "@scure/bip39": "^1.6.0", "abitype": "^1.2.3", "eventemitter3": "5.0.1" }, "peerDependencies": { "typescript": ">=5.4.0" }, "optionalPeers": ["typescript"] }, "sha512-rby38C3nDn8eQkf29Zgw4hkCZJ64Qqi0zRPWL8ENUQ7JVuoITqrVtwWQgM/He19SCMUEc7hS/Sjw0jIOSLJhOw=="],
 
     "@apibara/evm/viem/ws": ["ws@8.18.3", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-PEIGCY5tSlUt50cqyMXfCzX+oOPqN0vuGqWzbcJ2xvnkzkq46oOpz7dQaTDBdfICb4N14+GARUDw2XV2N4tvzg=="],
-
-    "@apibara/protocol/viem/ox": ["ox@0.14.20", "", { "dependencies": { "@adraffy/ens-normalize": "^1.11.0", "@noble/ciphers": "^1.3.0", "@noble/curves": "1.9.1", "@noble/hashes": "^1.8.0", "@scure/bip32": "^1.7.0", "@scure/bip39": "^1.6.0", "abitype": "^1.2.3", "eventemitter3": "5.0.1" }, "peerDependencies": { "typescript": ">=5.4.0" }, "optionalPeers": ["typescript"] }, "sha512-rby38C3nDn8eQkf29Zgw4hkCZJ64Qqi0zRPWL8ENUQ7JVuoITqrVtwWQgM/He19SCMUEc7hS/Sjw0jIOSLJhOw=="],
-
-    "@apibara/protocol/viem/ws": ["ws@8.18.3", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-PEIGCY5tSlUt50cqyMXfCzX+oOPqN0vuGqWzbcJ2xvnkzkq46oOpz7dQaTDBdfICb4N14+GARUDw2XV2N4tvzg=="],
 
     "ansi-styles/color-convert/color-name": ["color-name@1.1.4", "", {}, "sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA=="],
   }

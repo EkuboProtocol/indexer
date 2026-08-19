@@ -30,11 +30,15 @@
     "@electric-sql/pglite": "^0.5.4",
     "@types/bun": "^1.3.14"
   },
+  "overrides": {
+    "@apibara/protocol": "file:./vendor/apibara-protocol"
+  },
   "dependencies": {
     "@apibara/evm": "^2.1.4",
     "@apibara/evm-rpc": "^2.1.4",
-    "@apibara/protocol": "^2.1.3",
+    "@apibara/protocol": "file:./vendor/apibara-protocol",
     "@apibara/starknet": "^2.1.4",
+    "@apibara/starknet-rpc": "file:./vendor/apibara-starknet-rpc",
     "bottleneck": "^2.19.5",
     "dotenv": "^17.4.2",
     "postgres": "^3.4.9",

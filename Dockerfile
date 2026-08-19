@@ -6,8 +6,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NODE_OPTIONS=--enable-source-maps
 
-# Install only production dependencies
-COPY package*.json ./
+# Install only production dependencies. The vendored Apibara packages are
+# `file:` dependencies, so they have to be present before the install runs.
+COPY package*.json bun.lock ./
+COPY vendor ./vendor
 RUN bun ci --omit=dev
 
 # Copy source files that Bun can execute directly
