@@ -24,6 +24,54 @@ During restore you may see warnings or errors about the DigitalOcean `doadmin` r
 
 Join the [Discord](https://discord.ekubo.org) and ask in the `#devs` channel if you need support.
 
+### Restoring a dump from the command line
+
+The sequence below goes from an empty (or stale) local database to a warm one without opening a browser, and is safe to run unattended. It assumes the `gh` CLI is authenticated against this repository.
+
+**1. Find the newest successful dump.** Artifacts are kept for 7 days, so the most recent run is usually the only one still downloadable:
+
+```bash
+gh run list --repo EkuboProtocol/indexer --workflow pg-dump.yaml \
+  --status success --limit 1 --json databaseId,createdAt
+```
+
+**2. Download it.** The artifact is named `db-backup-<run_id>` and contains a single `db-backup-<timestamp>.dump`:
+
+```bash
+gh run download <run_id> --repo EkuboProtocol/indexer --dir ./dump
+```
+
+The dump is on the order of 8 GB. `gh` buffers the whole artifact into `$TMPDIR` before extracting it, so budget roughly twice its size in free space, plus room for the restored data. Expect the download to take several minutes.
+
+**3. Check the archive before touching the database.** This only reads the table of contents, so it is fast and catches a truncated download:
+
+```bash
+pg_restore --list ./dump/db-backup-*/db-backup-*.dump | head
+```
+
+**4. Restore.** CI dumps with PostgreSQL 18, so the local client must be 18 or newer — verify with `pg_restore --version`. `--clean --if-exists` drops each object the dump recreates, so a database with an older copy of the schema does not need to be emptied by hand:
+
+```bash
+pg_restore --clean --if-exists --no-owner --no-privileges -j 8 \
+  --dbname postgres://postgres:postgres@localhost:5432/postgres \
+  ./dump/db-backup-*/db-backup-*.dump
+```
+
+**`pg_restore` exits non-zero on a restore that worked.** The dump carries the production `doadmin` role and the `pg_cron` extension along with its scheduled jobs; locally those statements fail, which only means scheduled jobs will not run. Do not gate on the exit code — confirm the data instead:
+
+```bash
+psql -d postgres -c "select chain_id, order_key from indexer_cursor order by chain_id"
+psql -d postgres -c "select count(*) from pool_keys"
+```
+
+Every chain in the snapshot should have an `indexer_cursor` row, and that block number is where an indexer started against this database will resume from.
+
+**5. Apply any migrations newer than the snapshot**, since the dump reflects production at the time it was taken:
+
+```bash
+bun run migrate
+```
+
 ### Automated database dumps
 
 Nightly backups run through `.github/workflows/pg-dump.yaml`, which connects to the production database using repository secrets, runs `pg_dump -Fc`, and uploads the resulting `db-backup-<timestamp>.dump` as a GitHub Actions artifact (retained for 7 days, named `db-backup-<run_id>`). These artifacts let you bootstrap a new node quickly without waiting for a multi-day sync—grab the latest run from the Actions tab when you need a fresh snapshot.

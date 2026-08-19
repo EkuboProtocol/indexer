@@ -26,7 +26,7 @@ Commits follow short, action-oriented summaries (see `git log`, e.g. `increase n
 
 ## Environment & Deployment Tips
 
-`src/config.ts` loads cascading `.env` files: `.env`, `.env.<networkType>`, `.env.<networkType>.<network>`, plus optional `.local` overrides. Keep secrets in untracked `.local` files. Production deployments rely on the Docker image described in `Dockerfile`/`README.md`, the DigitalOcean App spec in `.do/app.yaml`, and nightly Postgres dumps from `.github/workflows/pg-dump.yaml` for rapid restores. Token metadata is owned and synchronized by the `EkuboProtocol/default-tokens` repository. Align local env vars with the DO spec, and prefer `bun` commands for any long-running workers or one-off scripts.
+`src/config.ts` loads cascading `.env` files: `.env`, `.env.<networkType>`, `.env.<networkType>.<network>`, plus optional `.local` overrides. Keep secrets in untracked `.local` files. Production deployments rely on the Docker image described in `Dockerfile`/`README.md`, the DigitalOcean App spec in `.do/app.yaml`, and nightly Postgres dumps from `.github/workflows/pg-dump.yaml` for rapid restores. To load one into a local database non-interactively, follow "Restoring a dump from the command line" in the README; it covers finding the newest artifact with `gh`, the restore flags, and why `pg_restore`'s exit code cannot be used to judge success. Token metadata is owned and synchronized by the `EkuboProtocol/default-tokens` repository. Align local env vars with the DO spec, and prefer `bun` commands for any long-running workers or one-off scripts.
 
 ## Breaking Change Documentation
 
