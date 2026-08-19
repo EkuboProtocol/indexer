@@ -6,7 +6,6 @@ interface CommonConfiguration {
 
   STARTING_CURSOR_BLOCK_NUMBER: string;
 
-  DNA_TOKEN: string;
   PG_CONNECTION_STRING: string;
 
   NO_BLOCKS_TIMEOUT_MS: string; // Time in milliseconds before exiting if no blocks are received
@@ -51,7 +50,10 @@ interface EvmConfig extends CommonConfiguration {
 }
 
 interface StarknetConfig extends CommonConfiguration {
-  APIBARA_URL: string;
+  STARKNET_RPC_URL: string; // Starknet JSON-RPC endpoint speaking spec 0.9.x or 0.10.x
+  STARKNET_RPC_WS_URL?: string; // Optional websocket endpoint used for head notifications
+  STARKNET_RPC_REQUESTS_PER_SECOND?: string; // Defaults to 10 in @apibara/starknet-rpc
+  STARKNET_RPC_MAX_CONCURRENCY?: string; // Defaults to 8 in @apibara/starknet-rpc
 
   CORE_ADDRESS: `0x${string}`;
   POSITIONS_ADDRESS: `0x${string}`;

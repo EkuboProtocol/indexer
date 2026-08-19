@@ -121,6 +121,32 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-08-19: Starknet indexes from a JSON-RPC provider
+
+The Starknet indexer no longer streams from Apibara DNA. It uses
+`@apibara/starknet-rpc` against a plain Starknet JSON-RPC endpoint, the same
+way the EVM indexer already uses `@apibara/evm-rpc`. Affects `starknet-mainnet`
+and `starknet-sepolia`; no schema change and no migration.
+
+Operator actions:
+
+- Set `STARKNET_RPC_URL` for both Starknet workers. It must be an endpoint
+  reporting `starknet_specVersion` `0.9.x` or `0.10.x`; the committed defaults
+  in `.env.starknet.mainnet` / `.env.starknet.sepolia` point at the public
+  Cartridge endpoints. Optional: `STARKNET_RPC_WS_URL` (websocket head
+  notifications instead of 3s polling), `STARKNET_RPC_REQUESTS_PER_SECOND`
+  (default 10) and `STARKNET_RPC_MAX_CONCURRENCY` (default 8) for backfill
+  throughput.
+- `APIBARA_URL` and `DNA_TOKEN` are no longer read by the Starknet indexer.
+  The `DNA_TOKEN` secret is still wired in `.do/app.yaml` and can be retired
+  once this has been validated in production.
+- The `@apibara/starknet-rpc` and `@apibara/protocol` packages are vendored
+  from an unreleased upstream branch (see `vendor/README.md`); the vendored
+  `@apibara/protocol` is also forced onto `@apibara/evm-rpc` via `overrides`,
+  so **EVM workers run the branch protocol too** and should be watched after
+  the rollout. Because the vendored packages are `file:` dependencies, the
+  Docker image now copies `vendor/` before installing.
+
 ### 2026-08-09: Freshness-aware prioritized token prices
 
 Per-source `confidence` now lives in `erc20_token_price_sources`, seeded by the migration and never written by the worker, with the quoter ranked highest. `erc20_tokens_usd_prices` gains a nullable `valid_until` that each observation carries (legacy rows are treated as valid for five minutes past their timestamp). The compact `erc20_tokens_latest_price_by_source` cache tracks those expirations, while the physical, primary-keyed `erc20_tokens_latest_price` table stores the fresh maximum-confidence aggregate for fast quoter reads. The price worker reconciles expirations once per second, promoting a lower-confidence source when needed. The `all_pool_states_view` definition remains unchanged. Apply migrations before deploying the updated price-sync worker. Consumers selecting every column from `erc20_tokens_latest_price` must account for its new `confidence` and `valid_until` columns and the synthetic `AVG` source on tied values; consumers of `erc20_tokens_usd_prices` gain a nullable column. No manual backfill is required.

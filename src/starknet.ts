@@ -1,19 +1,26 @@
-import { Metadata, createClient } from "@apibara/protocol";
-import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
+import { createRpcClient } from "@apibara/protocol/rpc";
+import {
+  StarknetRpcStream,
+  type StarknetRpcBlock,
+} from "@apibara/starknet-rpc";
 import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
 import { loadHexAddresses } from "./_shared/loadHexAddresses";
-import { requireStarknetApibaraUrl } from "./_shared/streamEndpoints";
+import {
+  parseOptionalPositiveInteger,
+  parseOptionalUrl,
+  requireStarknetRpcUrl,
+} from "./_shared/streamEndpoints";
 import { runIndexer, type ParsedRuntimeBlock } from "./runtime";
 import { createEventProcessors } from "./starknet/eventProcessors";
 import type { NetworkEntrypoint, StreamOptions } from "./types";
 
 export function parseStarknetBlockHeader(
   block: unknown,
-): ParsedRuntimeBlock<StarknetBlock> | null {
+): ParsedRuntimeBlock<StarknetRpcBlock> | null {
   if (!block || typeof block !== "object") return null;
 
-  const starknetBlock = block as Partial<StarknetBlock>;
+  const starknetBlock = block as Partial<StarknetRpcBlock>;
   if (!starknetBlock.header || !Array.isArray(starknetBlock.events)) {
     return null;
   }
@@ -44,7 +51,7 @@ export function parseStarknetBlockHeader(
   }
 
   return {
-    block: starknetBlock as StarknetBlock,
+    block: starknetBlock as StarknetRpcBlock,
     header: {
       number: blockNumber,
       hash,
@@ -54,7 +61,7 @@ export function parseStarknetBlockHeader(
   };
 }
 
-export function createStarknetEntrypoint(): NetworkEntrypoint<StarknetBlock> {
+export function createStarknetEntrypoint(): NetworkEntrypoint<StarknetRpcBlock> {
   const starknetAddressConfig = loadHexAddresses({
     nftAddress: "NFT_ADDRESS",
     coreAddress: "CORE_ADDRESS",
@@ -77,19 +84,38 @@ export function createStarknetEntrypoint(): NetworkEntrypoint<StarknetBlock> {
   logger.info(`Indexing Starknet contracts`, { starknetAddressConfig });
 
   const processors = createEventProcessors(starknetAddressConfig);
-  const starknetApibaraUrl = requireStarknetApibaraUrl(process.env.APIBARA_URL);
+
+  const url = requireStarknetRpcUrl(process.env.STARKNET_RPC_URL);
+  const wsUrl = parseOptionalUrl(process.env.STARKNET_RPC_WS_URL);
+  const requestsPerSecond = parseOptionalPositiveInteger(
+    process.env.STARKNET_RPC_REQUESTS_PER_SECOND,
+    "STARKNET_RPC_REQUESTS_PER_SECOND",
+  );
+  const maxConcurrency = parseOptionalPositiveInteger(
+    process.env.STARKNET_RPC_MAX_CONCURRENCY,
+    "STARKNET_RPC_MAX_CONCURRENCY",
+  );
+
+  logger.info(`Streaming Starknet blocks from JSON-RPC`, {
+    url,
+    wsUrl: wsUrl ?? null,
+    requestsPerSecond: requestsPerSecond ?? null,
+    maxConcurrency: maxConcurrency ?? null,
+  });
+
+  // The stream owns the capability probe results, the accepted block caches and
+  // (when a websocket URL is configured) the head subscription, so it is built
+  // once and reused across stream restarts.
+  const stream = new StarknetRpcStream({
+    url,
+    wsUrl,
+    requestsPerSecond,
+    maxConcurrency,
+  });
 
   return {
     createStream(streamOptions: StreamOptions) {
-      return createClient(StarknetStream, starknetApibaraUrl, {
-        defaultCallOptions: {
-          "*": {
-            metadata: Metadata({
-              Authorization: `Bearer ${process.env.DNA_TOKEN}`,
-            }),
-          },
-        },
-      }).streamData({
+      return createRpcClient(stream).streamData({
         ...streamOptions,
         filter: [
           {
@@ -102,7 +128,7 @@ export function createStarknetEntrypoint(): NetworkEntrypoint<StarknetBlock> {
         ],
       });
     },
-    getPlannedEvents(block: StarknetBlock) {
+    getPlannedEvents(block: StarknetRpcBlock) {
       return block.events.reduce(
         (total, event) => total + (event.filterIds?.length ?? 0),
         0,
