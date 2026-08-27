@@ -2,6 +2,7 @@ import { Metadata, createClient } from "@apibara/protocol";
 import { Block as StarknetBlock, StarknetStream } from "@apibara/starknet";
 import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
+import { parseCommonBlockHeader } from "./_shared/parseBlockHeader";
 import { loadHexAddresses } from "./_shared/loadHexAddresses";
 import { requireStarknetApibaraUrl } from "./_shared/streamEndpoints";
 import { runIndexer, type ParsedRuntimeBlock } from "./runtime";
@@ -19,23 +20,13 @@ export function parseStarknetBlockHeader(
   }
 
   const { header } = starknetBlock;
-  if (
-    typeof header.blockNumber !== "bigint" ||
-    !(header.timestamp instanceof Date)
-  ) {
-    return null;
-  }
+  const common = parseCommonBlockHeader(header);
+  if (!common) return null;
 
-  const blockNumber = Number(header.blockNumber);
-  const timestamp = header.timestamp.getTime();
-  if (!Number.isSafeInteger(blockNumber) || !Number.isFinite(timestamp)) {
-    return null;
-  }
-
-  let hash: bigint;
+  // A malformed L2 gas price is treated the same as a malformed hash: the block
+  // is unusable rather than indexed with a missing fee.
   let baseFeePerGas: bigint | null = null;
   try {
-    hash = BigInt(header.blockHash ?? "0x0");
     if (header.l2GasPrice?.priceInFri) {
       baseFeePerGas = BigInt(header.l2GasPrice.priceInFri);
     }
@@ -45,12 +36,7 @@ export function parseStarknetBlockHeader(
 
   return {
     block: starknetBlock as StarknetBlock,
-    header: {
-      number: blockNumber,
-      hash,
-      timestamp,
-      baseFeePerGas,
-    },
+    header: { ...common, baseFeePerGas },
   };
 }
 
