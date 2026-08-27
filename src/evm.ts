@@ -4,6 +4,7 @@ import { createRpcClient } from "@apibara/protocol/rpc";
 import { createPublicClient, fallback } from "viem";
 import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
+import { parseCommonBlockHeader } from "./_shared/parseBlockHeader";
 import {
   loadHexAddresses,
   loadOptionalHexAddress,
@@ -42,35 +43,51 @@ export function parseEvmBlockHeader(
   if (!evmBlock.header || !Array.isArray(evmBlock.logs)) return null;
 
   const { header } = evmBlock;
-  if (
-    typeof header.blockNumber !== "bigint" ||
-    !(header.timestamp instanceof Date)
-  ) {
-    return null;
-  }
-
-  const blockNumber = Number(header.blockNumber);
-  const timestamp = header.timestamp.getTime();
-  if (!Number.isSafeInteger(blockNumber) || !Number.isFinite(timestamp)) {
-    return null;
-  }
-
-  let hash: bigint;
-  try {
-    hash = BigInt(header.blockHash ?? "0x0");
-  } catch {
-    return null;
-  }
+  const common = parseCommonBlockHeader(header);
+  if (!common) return null;
 
   return {
     block: evmBlock as EvmBlock,
     header: {
-      number: blockNumber,
-      hash,
-      timestamp,
+      ...common,
       baseFeePerGas: header.baseFeePerGas ?? null,
     },
   };
+}
+
+// Announces which of the optional contract sets this process ended up indexing.
+// Purely diagnostic, and lifted out of createEvmEntrypoint because it is four
+// independent "did we get this one?" checks that have nothing to do with the
+// wiring around them.
+function logIndexedContracts({
+  evmV2AddressConfig,
+  evmV3AddressConfig,
+  positionsV3ProtocolFeeConfigs,
+  evmV3Ve33AddressConfig,
+}: {
+  evmV2AddressConfig: unknown;
+  evmV3AddressConfig: unknown;
+  positionsV3ProtocolFeeConfigs: { length: number } | null | undefined;
+  evmV3Ve33AddressConfig: {
+    ve33Address: unknown;
+    veTokenAddress: unknown;
+    ve33PositionsAddress: unknown;
+  };
+}): void {
+  if (evmV2AddressConfig)
+    logger.info(`Indexing V2 EVM contracts`, { evmV2AddressConfig });
+  if (evmV3AddressConfig)
+    logger.info(`Indexing V3 EVM contracts`, { evmV3AddressConfig });
+  if (positionsV3ProtocolFeeConfigs?.length)
+    logger.info(`Loaded V3 positions protocol fee configs`, {
+      positionsV3ProtocolFeeConfigs,
+    });
+  if (
+    evmV3Ve33AddressConfig.ve33Address ||
+    evmV3Ve33AddressConfig.veTokenAddress ||
+    evmV3Ve33AddressConfig.ve33PositionsAddress
+  )
+    logger.info(`Indexing V3 Ve33 contracts`, { evmV3Ve33AddressConfig });
 }
 
 export async function createEvmEntrypoint(
@@ -112,20 +129,12 @@ export async function createEvmEntrypoint(
     throw new Error("No config for either V2 or V3 contracts");
   }
 
-  if (evmV2AddressConfig)
-    logger.info(`Indexing V2 EVM contracts`, { evmV2AddressConfig });
-  if (evmV3AddressConfig)
-    logger.info(`Indexing V3 EVM contracts`, { evmV3AddressConfig });
-  if (positionsV3ProtocolFeeConfigs?.length)
-    logger.info(`Loaded V3 positions protocol fee configs`, {
-      positionsV3ProtocolFeeConfigs,
-    });
-  if (
-    evmV3Ve33AddressConfig.ve33Address ||
-    evmV3Ve33AddressConfig.veTokenAddress ||
-    evmV3Ve33AddressConfig.ve33PositionsAddress
-  )
-    logger.info(`Indexing V3 Ve33 contracts`, { evmV3Ve33AddressConfig });
+  logIndexedContracts({
+    evmV2AddressConfig,
+    evmV3AddressConfig,
+    positionsV3ProtocolFeeConfigs,
+    evmV3Ve33AddressConfig,
+  });
 
   const processors = [
     ...(evmV2AddressConfig ? createLogProcessorsV2(evmV2AddressConfig) : []),

@@ -437,6 +437,19 @@ type PositionSeed = {
   blockNumber?: number;
 };
 
+// The seed defaults live here rather than inline at the call site so
+// seedPositions is about the insert and this is about the fixture shape.
+function withPositionDefaults(position: PositionSeed) {
+  return {
+    blockNumber: position.blockNumber ?? 99,
+    lowerBound: position.lowerBound ?? -120,
+    upperBound: position.upperBound ?? 120,
+    liquidityDelta: position.liquidityDelta ?? 100000,
+    delta0: position.delta0 ?? 0,
+    delta1: position.delta1 ?? 0,
+  };
+}
+
 async function seedPositions(
   client: PGlite,
   poolKeyId: number,
@@ -451,7 +464,14 @@ async function seedPositions(
   } = options;
 
   for (const [index, position] of positions.entries()) {
-    const blockNumber = position.blockNumber ?? 99;
+    const {
+      blockNumber,
+      lowerBound,
+      upperBound,
+      liquidityDelta,
+      delta0,
+      delta1,
+    } = withPositionDefaults(position);
     const eventIndex = eventIndexStart + index;
     const transactionHash = 7001 + eventIndex;
     await client.query(
@@ -493,11 +513,11 @@ async function seedPositions(
         poolKeyId,
         position.locker,
         position.salt,
-        position.lowerBound ?? -120,
-        position.upperBound ?? 120,
-        position.liquidityDelta ?? 100000,
-        position.delta0 ?? 0,
-        position.delta1 ?? 0,
+        lowerBound,
+        upperBound,
+        liquidityDelta,
+        delta0,
+        delta1,
       ]
     );
   }

@@ -125,13 +125,32 @@ export function createEventProcessors({
   limitOrdersAddress,
   splineLiquidityProviderAddress,
 }: StarknetEventProcessorConfig): readonly StarknetEventProcessor<any>[] {
-  let pendingPositionFeesCollected:
-    | {
-        blockNumber: number;
-        transactionIndex: number;
-        event: PositionFeesCollectedEvent;
-      }
-    | undefined;
+  type PendingPositionFeesCollected = {
+    blockNumber: number;
+    transactionIndex: number;
+    event: PositionFeesCollectedEvent;
+  };
+
+  let pendingPositionFeesCollected: PendingPositionFeesCollected | undefined;
+
+  // A SavedBalance only records withheld protocol fees when it is the one the
+  // Positions contract emitted in the same transaction as the preceding
+  // PositionFeesCollected, under the protocol-fee salt. Anything else is an
+  // unrelated saved balance that happens to be passing through.
+  function isProtocolFeeWithholding(
+    pending: PendingPositionFeesCollected | undefined,
+    parsed: SavedBalanceEvent,
+    key: { blockNumber: number; transactionIndex: number },
+  ): pending is PendingPositionFeesCollected {
+    return (
+      !!pending &&
+      pending.blockNumber === key.blockNumber &&
+      pending.transactionIndex === key.transactionIndex &&
+      parsed.key.owner === BigInt(positionsAddress) &&
+      parsed.key.owner === pending.event.position_key.owner &&
+      parsed.key.salt === PROTOCOL_FEES_SALT
+    );
+  }
 
   return [
     <StarknetEventProcessor<TransferEvent>>{
@@ -334,16 +353,7 @@ export function createEventProcessors({
       parser: parseSavedBalanceEvent,
       async handle(dao, { parsed, key }): Promise<void> {
         const pending = pendingPositionFeesCollected;
-        if (
-          !pending ||
-          pending.blockNumber !== key.blockNumber ||
-          pending.transactionIndex !== key.transactionIndex ||
-          parsed.key.owner !== BigInt(positionsAddress) ||
-          parsed.key.owner !== pending.event.position_key.owner ||
-          parsed.key.salt !== PROTOCOL_FEES_SALT
-        ) {
-          return;
-        }
+        if (!isProtocolFeeWithholding(pending, parsed, key)) return;
 
         const isToken0 = parsed.key.token === pending.event.pool_key.token0;
         const isToken1 = parsed.key.token === pending.event.pool_key.token1;

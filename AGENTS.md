@@ -31,3 +31,15 @@ Commits follow short, action-oriented summaries (see `git log`, e.g. `increase n
 ## Breaking Change Documentation
 
 Any deployment that requires manual intervention or alters the database schema must be recorded in the README’s breaking changelog section. Include the date, affected networks, necessary operator actions, and downstream compatibility notes so future contributors know how to prepare for rollouts.
+
+## Complexity Policy
+- Run `bun run lint` before considering a change done. CI runs it on every push,
+  before the tests.
+- The only rule is ESLint's `complexity`, capped at 10 per function.
+- One exemption exists: the stream loop in `src/runtime.ts`. Three of its switch arms
+  reassign `currentCursor` and the retry loop reads it again after a failure, so
+  splitting the arms out means threading that reassignment back through every return
+  path — and there is no test coverage over that loop to catch a mistake. Getting the
+  cursor wrong means reprocessing blocks or silently skipping them. Extract the arms
+  when the loop is being reworked for other reasons, behind tests.
+- Any new disable needs a reason on the same line. Otherwise, split the function.

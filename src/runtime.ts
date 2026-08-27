@@ -70,6 +70,19 @@ export async function runIndexer<TBlock>({
     }
   }
 
+  // This is the indexer's stream loop: acquire the lock, initialise the cursor,
+  // then dispatch heartbeat / systemMessage / finalize / invalidate / data
+  // messages until the stream ends, retrying on a non-canonical cursor.
+  //
+  // Left over the complexity limit deliberately. Three of the switch arms
+  // reassign `currentCursor`, and the retry loop reads it again after a
+  // failure, so splitting the arms into functions means threading that
+  // reassignment back out through every return path. There is no test coverage
+  // over this loop, so that restructuring would be unverifiable -- and getting
+  // the cursor wrong here means either reprocessing blocks or silently skipping
+  // them. If this function is being reworked for other reasons, extracting the
+  // arms is worth doing then, behind tests.
+  // eslint-disable-next-line complexity -- indexer stream loop; see the note above before restructuring
   return (async function () {
     logger.info({ message: `Acquiring lock for chain ID ${chainId}` });
     const lockTimer = logger.startTimer();
