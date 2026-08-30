@@ -16,6 +16,25 @@ const DEFAULT_MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11";
 // chain's batch rather than just skipping the bad feed.
 const MAX_CHAINLINK_HEARTBEAT_SECONDS = 7 * 24 * 60 * 60;
 
+// A daily heartbeat means an equity feed: it publishes only while its market is
+// open, so the longest gap between rounds is a market closure, not the
+// heartbeat. Doubling the heartbeat gives 48h, which a plain weekend already
+// outlives -- Friday's close is unreadable by Sunday evening while the market
+// does not reopen until Monday. Five days clears a holiday weekend (Friday
+// close to Tuesday open is about 89h) and still catches a genuinely dead feed
+// within the week. Sub-daily feeds are continuous, so they keep the tight
+// window that doubling gives them.
+const CONTINUOUS_FEED_MAX_HEARTBEAT_SECONDS = 24 * 60 * 60;
+const MARKET_CLOSURE_MAX_AGE_SECONDS = 5 * 24 * 60 * 60;
+
+// Exported for the tests that pin the weekend behaviour.
+export function chainlinkFeedMaxAgeSeconds(heartbeatSeconds: number): number {
+  const doubled = heartbeatSeconds * 2;
+  return heartbeatSeconds >= CONTINUOUS_FEED_MAX_HEARTBEAT_SECONDS
+    ? Math.max(doubled, MARKET_CLOSURE_MAX_AGE_SECONDS)
+    : doubled;
+}
+
 const CHAINLINK_AGGREGATOR_ABI = [
   {
     type: "function",
@@ -337,7 +356,7 @@ export function discoverChainlinkFeeds(
     const feed: ChainlinkFeedConfig = {
       tokenAddress: matchingTokens[0].address,
       feedAddress: getAddress(value.proxyAddress),
-      maxAgeSeconds: value.heartbeat * 2,
+      maxAgeSeconds: chainlinkFeedMaxAgeSeconds(value.heartbeat),
     };
     const feeds = catalogFeedsBySymbol.get(symbol) ?? [];
     feeds.push({ feed, rank: feedRank(value) });
