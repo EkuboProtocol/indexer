@@ -123,6 +123,10 @@ export function createPriceSyncJobs({
       address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
       decimals: 6,
       quoteAmount: 1000n,
+      // Pools here carry fees as high as 22%, and the quoter counts the fee
+      // toward price_impact, so the default 0.2 cap rejects otherwise good
+      // quotes -- STONX among them.
+      maxImpact: 0.5,
     }),
     sushiswapPriceFetcher({
       chainId: 4663n,
