@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  chainlinkFeedMaxAgeSeconds,
   discoverChainlinkFeeds,
   fetchChainlinkFeedCatalog,
   fetchChainlinkTokenPricesWithMulticall,
@@ -65,6 +66,30 @@ describe("parseChainlinkPriceConfig", () => {
           "https://reference-data-directory.vercel.app/feeds-ethereum-mainnet-base-1.json",
       },
     });
+  });
+});
+
+describe("chainlinkFeedMaxAgeSeconds", () => {
+  test("doubles a sub-daily heartbeat", () => {
+    expect(chainlinkFeedMaxAgeSeconds(1200)).toBe(2400);
+    expect(chainlinkFeedMaxAgeSeconds(3600)).toBe(7200);
+  });
+
+  test("carries a daily-heartbeat feed across a holiday weekend", () => {
+    // An equity feed publishes only while its market is open. Friday's close
+    // to Tuesday's open is about 89 hours, which doubling the heartbeat (48h)
+    // does not survive.
+    const holidayWeekendSeconds = 89 * 60 * 60;
+    expect(chainlinkFeedMaxAgeSeconds(86400)).toBeGreaterThan(
+      holidayWeekendSeconds,
+    );
+    expect(chainlinkFeedMaxAgeSeconds(86400)).toBe(5 * 24 * 60 * 60);
+  });
+
+  test("keeps doubling when that already exceeds the closure floor", () => {
+    expect(chainlinkFeedMaxAgeSeconds(4 * 24 * 60 * 60)).toBe(
+      8 * 24 * 60 * 60,
+    );
   });
 });
 
