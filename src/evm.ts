@@ -10,6 +10,7 @@ import {
   loadOptionalHexAddress,
   type HexAddress,
 } from "./_shared/loadHexAddresses";
+import { withNullBlockRetry } from "./_shared/nullBlockRetry";
 import { parseEvmRpcUrls } from "./_shared/streamEndpoints";
 import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
 import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
@@ -156,7 +157,9 @@ export async function createEvmEntrypoint(
   ];
 
   const createTransportFromUrl = (url: string) =>
-    rateLimitedHttp(url, { rps: 100, retryCount: 0 });
+    withNullBlockRetry(rateLimitedHttp(url, { rps: 100, retryCount: 0 }), {
+      url,
+    });
 
   const evmRpcUrls = parseEvmRpcUrls(process.env.EVM_RPC_URL);
 
