@@ -119,6 +119,13 @@ ALTER TABLE pool_tvl
 -- it is barely filtering, and FOR UPDATE forces the heap access anyway. On a
 -- table this small a sequential scan is the better plan. Nothing in the API
 -- filters on valid_until.
+--
+-- ORDERING REQUIREMENT: "a table this small" means once the heap matches its
+-- live rows. Against the bloated 46,147-page heap the same lookup measured
+-- 46,147 buffers / 103.6 ms by seq scan versus 50 buffers / 0.14 ms via the
+-- index. The repack described in the README's breaking changelog must happen
+-- BEFORE this migration is deployed, or a once-a-second query gets 750x more
+-- expensive until it does.
 DROP INDEX IF EXISTS erc20_tokens_latest_price_valid_until_idx;
 
 ALTER TABLE erc20_tokens_latest_price
