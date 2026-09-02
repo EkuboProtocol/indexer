@@ -12,7 +12,7 @@
         "bottleneck": "^2.19.5",
         "dotenv": "^17.4.2",
         "postgres": "^3.4.9",
-        "postgres-shift": "^0.1.0",
+        "postgres-shift": "^1.0.2",
         "viem": "^2.55.19",
         "winston": "^3.19.0",
       },
@@ -309,7 +309,7 @@
 
     "postgres": ["postgres@3.4.9", "", {}, "sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw=="],
 
-    "postgres-shift": ["postgres-shift@0.1.0", "", {}, "sha512-/375iG0Kveh1Spk3kFtaTdGT9FUxtXYDDabGw/9/Jkk3f93dYM2R8ZgQzbknCG+ZpfoR114gZ71oR+lRr6XY3A=="],
+    "postgres-shift": ["postgres-shift@1.0.2", "", {}, "sha512-b8NiyzsIye1X4mvdt9VLRBkPd1j3R1MkygHPma8CdGeiJAUCll7wWNOmXbNm1jebTcsbXHD3bZoF3/oPwXaGCA=="],
 
     "prelude-ls": ["prelude-ls@1.2.1", "", {}, "sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g=="],
 
