@@ -11,6 +11,7 @@ import {
   type HexAddress,
 } from "./_shared/loadHexAddresses";
 import { withNullBlockRetry } from "./_shared/nullBlockRetry";
+import { assertRpcChainIds } from "./_shared/rpcChainId";
 import { parseEvmRpcUrls } from "./_shared/streamEndpoints";
 import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
 import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
@@ -176,34 +177,22 @@ export async function createEvmEntrypoint(
     transport: fallback(evmRpcTransports.map(({ transport }) => transport)),
   });
 
-  const [clientChainId, transportChainIds] = await Promise.all([
-    publicClient.getChainId(),
-    Promise.all(
-      evmRpcTransports.map(async ({ url, transport }) => ({
-        url,
-        chainId: BigInt(
-          await createPublicClient({
-            transport,
-          }).getChainId(),
-        ),
-      })),
-    ),
-  ]);
-
-  const uniqueChainIds = new Set<bigint>([
-    BigInt(clientChainId),
-    ...transportChainIds.map(({ chainId }) => chainId),
-  ]);
-
-  if (uniqueChainIds.size !== 1 || !uniqueChainIds.has(chainId)) {
-    const transportDetails = transportChainIds
-      .map(({ url, chainId }) => `${url}=${chainId}`)
-      .join(", ");
-
-    throw new Error(
-      `EVM_RPC_URL transports return chain IDs [${transportDetails}] which conflict with environment chain ID ${chainId}`,
-    );
-  }
+  await assertRpcChainIds(
+    evmRpcTransports.map(({ url, transport }) => ({
+      url,
+      getChainId: async () =>
+        BigInt(await createPublicClient({ transport }).getChainId()),
+    })),
+    chainId,
+    {
+      onUnreachable: (url, error) =>
+        logger.warn({
+          message: `RPC could not report a chain ID; continuing without it`,
+          url,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+    },
+  );
 
   const mergeGetLogsFilter = process.env.MERGE_GET_LOGS_FILTER;
 

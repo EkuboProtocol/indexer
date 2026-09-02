@@ -48,6 +48,13 @@ workers:
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
+      # Overrides the list in .env.evm.sepolia, whose first entry
+      # (https://sepolia.drpc.org) began returning "chain is not available on
+      # free plan" and stalled this indexer from 2026-07-31. Both endpoints
+      # below were verified answering eth_chainId with 11155111 at the head.
+      - key: EVM_RPC_URL
+        scope: RUN_TIME
+        value: "https://ethereum-sepolia-rpc.publicnode.com,https://0xrpc.io/sep"
       - key: NETWORK
         scope: RUN_TIME
         value: sepolia
