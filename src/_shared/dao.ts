@@ -1,6 +1,8 @@
 import type { Sql } from "postgres";
 import { type EventKey } from "./eventKey";
 import postgres from "postgres";
+import { pollForAdvisoryLock } from "./advisoryLockPoll";
+import { logger } from "./logger";
 
 export type NumericValue = bigint | number | `0x${string}`;
 export type AddressValue = bigint | `0x${string}`;
@@ -471,10 +473,25 @@ export class DAO {
   }
 
   public async acquireLock(): Promise<void> {
-    const rows = await this
-      .sql`SELECT pg_advisory_lock(hashtext('ekubo-indexer-' || ${this.chainId}));`;
-    if (!rows.length)
-      throw new Error(`Failed to acquire lock for chain ID ${this.chainId}`);
+    // Deliberately pg_try_advisory_lock in a poll rather than pg_advisory_lock:
+    // blocking in the server holds an open transaction, which pins the vacuum
+    // horizon for the whole wait. See advisoryLockPoll.ts.
+    await pollForAdvisoryLock(
+      async () => {
+        const [row] = await this.sql<{ acquired: boolean }[]>`
+            SELECT pg_try_advisory_lock(hashtext('ekubo-indexer-' || ${this.chainId})) AS acquired;`;
+        return row?.acquired === true;
+      },
+      {
+        description: `the indexer lock for chain ID ${this.chainId}`,
+        onContended: (attempt) =>
+          logger.warn({
+            message: `Indexer lock for chain ID ${this.chainId} is held by another process; retrying`,
+            chainId: this.chainId.toString(),
+            attempt,
+          }),
+      },
+    );
   }
 
   public async releaseLock(): Promise<void> {
