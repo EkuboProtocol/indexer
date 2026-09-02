@@ -96,6 +96,14 @@ ALTER TABLE pool_tvl
 --     47,897,002 updates, 0 HOT, 7,360 live rows vs 749,363 dead (99% dead),
 --     75 MB heap + 63 MB indexes, 10,617 autovacuum runs in the window.
 --
+-- Caveat on those dead-tuple figures: the measurement window overlapped an
+-- incident on 2026-09-01 in which a duplicate chain-46630 worker blocked on
+-- pg_advisory_lock inside an open transaction for 22 h, pinning the vacuum
+-- horizon 486,642 XIDs back. The dead-tuple ratio is therefore inflated and is
+-- not the steady state. The cumulative counters (47.9M updates, 0 HOT) and the
+-- HOT-blocking mechanism below are unaffected -- those are what motivate this
+-- change.
+--
 -- A HOT update requires that no indexed column change. 00116 added an index on
 -- valid_until, and recompute_erc20_token_latest_price writes valid_until on
 -- every price refresh (it derives from the observation timestamp, so it moves

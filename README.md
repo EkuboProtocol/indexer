@@ -199,7 +199,9 @@ transaction, so the rewrite cannot live in the migration. After migrating, run
 against all networks sharing the database:
 
 ```sql
--- ~5,000 live rows each; currently 22 MB, 15 MB and 75 MB.
+-- pool_states/pool_tvl hold ~5,000 live rows in 22 MB and 15 MB.
+-- erc20_tokens_latest_price holds ~7,700 live rows in 361 MB heap
+-- + 280 MB indexes as of 2026-09-02, so it is the one that matters.
 VACUUM (FULL, ANALYZE) pool_states;
 VACUUM (FULL, ANALYZE) pool_tvl;
 VACUUM (FULL, ANALYZE) erc20_tokens_latest_price;
