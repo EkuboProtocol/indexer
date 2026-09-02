@@ -191,33 +191,40 @@ broken expression was reaching for; minute 5 leaves four minutes after
 `compute_incentive_rewards` (minute 1) for the boundary blocks to be indexed.
 24 runs/day of ~100 s is ~40m/day.
 
-**Manual intervention required — the migration alone does not recover the
-CPU.** `fillfactor` only applies to pages written after a rewrite, and lowering
-the scale factor lets autovacuum reclaim space in place but never shrinks an
-already-bloated heap. `scripts/migrate.ts` runs each migration inside a
-transaction, so the rewrite cannot live in the migration. After migrating, run
-against all networks sharing the database:
+**Manual intervention required, BEFORE this migration is deployed.** The
+migration drops `erc20_tokens_latest_price_valid_until_idx`, and
+`refresh_expired_erc20_token_latest_prices` (~1 call/sec) then has to find
+expired rows by sequential scan. That is only cheap once the heap matches its
+live rows. Measured on 2026-09-02 against the bloated 46,147-page heap:
 
-```sql
--- pool_states/pool_tvl hold ~5,000 live rows in 22 MB and 15 MB.
--- erc20_tokens_latest_price holds ~7,700 live rows in 361 MB heap
--- + 280 MB indexes as of 2026-09-02, so it is the one that matters.
-VACUUM (FULL, ANALYZE) pool_states;
-VACUUM (FULL, ANALYZE) pool_tvl;
-VACUUM (FULL, ANALYZE) erc20_tokens_latest_price;
-```
+| | buffers | time |
+|---|---|---|
+| index scan (today) | 50 | 0.14 ms |
+| seq scan on bloated heap | 46,147 (45,155 read from disk) | 103.6 ms |
+| seq scan after repack (~250 pages) | ~250 | sub-ms |
 
-Each takes seconds at these sizes but holds `ACCESS EXCLUSIVE`, which stalls the
-indexer and price-sync for the duration. `pg_repack` 1.5.2 is available on the
-managed instance and does the same rewrite without the exclusive lock if a stall
-is unacceptable:
+**Repack first, then deploy.** Deploying the migration against an unrepacked
+table makes that once-a-second query 750x more expensive.
 
 ```sh
-pg_repack -d defaultdb -t pool_states -t pool_tvl -t erc20_tokens_latest_price
+# ~7,700 live rows in a 361 MB heap + 280 MB of indexes.
+pg_repack -d defaultdb -t erc20_tokens_latest_price -t pool_states -t pool_tvl
 ```
 
+`pg_repack` 1.5.2 is available on the managed instance and rewrites without an
+exclusive lock. `VACUUM (FULL, ANALYZE)` on the same three tables is equivalent
+and takes seconds, but holds `ACCESS EXCLUSIVE` and will stall the indexer and
+price-sync for the duration.
+
+Note also that `fillfactor` only applies to pages written after a rewrite, and
+that lowering `autovacuum_vacuum_scale_factor` lets autovacuum reclaim space in
+place but never shrinks an already-bloated heap. `scripts/migrate.ts` runs each
+migration inside a transaction, so the rewrite cannot live in the migration —
+hence the manual step.
+
 Downstream consumers are unaffected: no column, view or function signature
-changes. Deploy order does not matter.
+changes, so the order in which the indexer components roll is irrelevant — the
+only ordering that matters is repack before migrate.
 
 ### 2026-08-09: Freshness-aware prioritized token prices
 
