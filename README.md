@@ -183,11 +183,13 @@ week. Nothing in the API filters on `valid_until`. Sets
 `pool_states`, `pool_tvl` and `erc20_tokens_latest_price`.
 
 **Cron change.** `refresh_computed_rewards_by_position` moves from `* */6 * * *`
-to `0 */6 * * *`. The old expression put `*/6` in the hour field and left the
+to `5 * * * *`. The old expression put `*/6` in the hour field and left the
 minute field wide, so the job fired every minute during hours 0, 6, 12 and 18 —
-240 runs/day totalling 4h52m of database time instead of 4 runs totalling ~7m.
-If the matview is meant to track the hourly `compute_incentive_rewards` job
-rather than run six-hourly, change the schedule instead of accepting this one.
+240 runs/day totalling 4h52m of database time. Reward periods land on hourly
+boundaries, so the new cadence is hourly rather than the six-hourly one the
+broken expression was reaching for; minute 5 leaves four minutes after
+`compute_incentive_rewards` (minute 1) for the boundary blocks to be indexed.
+24 runs/day of ~100 s is ~40m/day.
 
 **Manual intervention required — the migration alone does not recover the
 CPU.** `fillfactor` only applies to pages written after a rewrite, and lowering

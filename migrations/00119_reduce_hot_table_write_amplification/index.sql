@@ -16,10 +16,12 @@
 -- (the 39,048 s pg_temp_* entry in pg_stat_statements is REFRESH ...
 -- CONCURRENTLY's internal diff, plus 7,180 s more in a second temp scan).
 --
--- Assumption: six-hourly was the intent, since */6 was placed in the hour
--- field. The upstream compute_incentive_rewards job runs hourly, so
--- '5 * * * *' would also be defensible if the matview is meant to track it
--- closely -- this migration does not assume that.
+-- Rescheduled to '5 * * * *' rather than to the six-hourly cadence the broken
+-- expression was reaching for. Reward periods land on hourly boundaries, so
+-- hourly is the cadence that actually matches the data; minute 5 leaves four
+-- minutes after compute_incentive_rewards (job 'compute_incentive_rewards',
+-- minute 1) for the boundary blocks to be indexed before the matview reads
+-- them. At 24 runs/day of ~100 s this is ~40 m/day, down from 4 h 52 m.
 DO
 $$
     DECLARE
@@ -47,7 +49,7 @@ $$
 
         PERFORM cron.schedule(
                 'refresh_computed_rewards_by_position',
-                '0 */6 * * *',
+                '5 * * * *',
                 'REFRESH MATERIALIZED VIEW CONCURRENTLY incentives.computed_rewards_by_position_materialized'
                 );
     END;
