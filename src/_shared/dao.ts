@@ -437,6 +437,11 @@ type UnwrapPromiseArray<T> = T extends any[]
     }
   : T;
 
+// How often to report an ongoing wait for the per-chain indexer lock. The wait
+// itself is expected during a deploy handoff; the log line is what makes an
+// unusually long one visible.
+const LOCK_WAIT_LOG_INTERVAL_MS = 30_000;
+
 // Data access object that manages inserts/deletes
 export class DAO {
   private readonly chainId: bigint;
@@ -473,9 +478,12 @@ export class DAO {
   }
 
   public async acquireLock(): Promise<void> {
-    // Deliberately pg_try_advisory_lock in a poll rather than pg_advisory_lock:
-    // blocking in the server holds an open transaction, which pins the vacuum
-    // horizon for the whole wait. See advisoryLockPoll.ts.
+    // Waiting here is normal: during a deploy the newcomer holds off until the
+    // outgoing instance for this chain exits. pg_try_advisory_lock is used
+    // rather than pg_advisory_lock so that waiting does not hold a snapshot and
+    // pin the vacuum horizon. See advisoryLockPoll.ts.
+    let nextLogAtMs = 0;
+
     await pollForAdvisoryLock(
       async () => {
         const [row] = await this.sql<{ acquired: boolean }[]>`
@@ -483,13 +491,15 @@ export class DAO {
         return row?.acquired === true;
       },
       {
-        description: `the indexer lock for chain ID ${this.chainId}`,
-        onContended: (attempt) =>
-          logger.warn({
-            message: `Indexer lock for chain ID ${this.chainId} is held by another process; retrying`,
+        onContended: (waitedMs) => {
+          if (waitedMs < nextLogAtMs) return;
+          nextLogAtMs = waitedMs + LOCK_WAIT_LOG_INTERVAL_MS;
+          logger.info({
+            message: `Waiting for the indexer lock for chain ID ${this.chainId}; another instance still holds it`,
             chainId: this.chainId.toString(),
-            attempt,
-          }),
+            waitedMs,
+          });
+        },
       },
     );
   }

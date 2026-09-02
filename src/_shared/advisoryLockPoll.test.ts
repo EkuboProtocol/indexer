@@ -1,61 +1,51 @@
 import { describe, expect, it } from "bun:test";
 import { pollForAdvisoryLock } from "./advisoryLockPoll";
 
-function acquirerFailing(times: number): {
+function acquirerHeldFor(attempts: number): {
   tryAcquire: () => Promise<boolean>;
   calls: () => number;
 } {
-  let attempts = 0;
+  let seen = 0;
   return {
     tryAcquire: async () => {
-      attempts++;
-      return attempts > times;
+      seen++;
+      return seen > attempts;
     },
-    calls: () => attempts,
+    calls: () => seen,
   };
 }
 
 describe("pollForAdvisoryLock", () => {
-  it("returns immediately when the lock is free", async () => {
-    const { tryAcquire, calls } = acquirerFailing(0);
+  it("takes the lock immediately when it is free", async () => {
+    const { tryAcquire, calls } = acquirerHeldFor(0);
 
     await pollForAdvisoryLock(tryAcquire, { pollIntervalMs: 0 });
 
     expect(calls()).toBe(1);
   });
 
-  it("retries until the holder releases, as pg_advisory_lock would", async () => {
-    const { tryAcquire, calls } = acquirerFailing(3);
-    const contended: number[] = [];
+  it("waits for the predecessor to exit, however long the handoff takes", async () => {
+    // The deploy handoff is deliberate, so there is no deadline to give up at:
+    // a newcomer keeps waiting until the outgoing instance releases the lock.
+    const { tryAcquire, calls } = acquirerHeldFor(500);
+
+    await pollForAdvisoryLock(tryAcquire, { pollIntervalMs: 0 });
+
+    expect(calls()).toBe(501);
+  });
+
+  it("reports how long it has been waiting so a stuck handoff is visible", async () => {
+    const { tryAcquire } = acquirerHeldFor(3);
+    let clock = 1_000;
+    const waits: number[] = [];
 
     await pollForAdvisoryLock(tryAcquire, {
       pollIntervalMs: 0,
-      onContended: (attempt) => contended.push(attempt),
+      now: () => (clock += 5_000),
+      onContended: (waitedMs) => waits.push(waitedMs),
     });
 
-    expect(calls()).toBe(4);
-    expect(contended).toEqual([1, 2, 3]);
-  });
-
-  it("gives up once the deadline passes instead of waiting forever", async () => {
-    const { tryAcquire, calls } = acquirerFailing(Number.MAX_SAFE_INTEGER);
-    // A clock that jumps past the deadline after the first failed attempt, so a
-    // permanently held lock terminates rather than pinning the vacuum horizon.
-    let clock = 0;
-    const now = () => {
-      clock += 30_000;
-      return clock;
-    };
-
-    await expect(
-      pollForAdvisoryLock(tryAcquire, {
-        pollIntervalMs: 0,
-        maxWaitMs: 10_000,
-        description: "the indexer lock for chain ID 46630",
-        now,
-      }),
-    ).rejects.toThrow(/indexer lock for chain ID 46630/);
-
-    expect(calls()).toBe(1);
+    // Elapsed is measured from the first call, not from zero.
+    expect(waits).toEqual([5_000, 10_000, 15_000]);
   });
 });

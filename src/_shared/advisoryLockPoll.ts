@@ -1,50 +1,44 @@
-// Only one indexer may run per chain, and that is enforced with a session-level
-// advisory lock. The obvious way to take it -- pg_advisory_lock -- blocks in the
-// server until the lock is free, and that wait happens inside a transaction, so
-// the waiting backend holds an open snapshot for as long as it blocks.
+// Only one indexer may run per chain, enforced with a session-level advisory
+// lock. Contention on that lock is deliberate: a deployment starts the new
+// instances before the old ones exit, and each newcomer is meant to sit on the
+// lock until its predecessor releases it. A full deploy shows around eight
+// waiters at once, clearing within seconds. That handoff is the design and this
+// module preserves it -- a waiter still waits for as long as it takes.
 //
-// On 2026-09-01 two workers for chain 46630 connected during a deploy. The loser
-// sat in pg_advisory_lock for 22 hours, pinning the vacuum horizon 486,642
-// transactions back. Autovacuum could not collect anything database-wide:
-// erc20_tokens_latest_price grew to 3.6M dead tuples and a 361 MB heap, and the
-// pool-state poll went from ~13 ms to 3.2 s before anyone noticed.
+// What is not wanted is for the waiting to cost the database anything.
+// pg_advisory_lock blocks inside the server, and the blocked backend holds an
+// open transaction -- and so a snapshot -- for the entire wait. That pins the
+// vacuum horizon database-wide. On 2026-09-01 a chain-46630 handoff never
+// completed: the waiter sat there for 22 hours, held the horizon 486,642
+// transactions back, and autovacuum stopped being able to collect anything.
+// erc20_tokens_latest_price reached 3.6M dead tuples in a 361 MB heap and the
+// pool-state poll went from ~13 ms to 3.2 s.
 //
-// Polling with pg_try_advisory_lock has the same effect for the caller -- wait
-// until the lock is available -- but each attempt is its own instant
-// transaction, so a loser holds no snapshot between tries. The wait is bounded
-// so that a duplicate worker eventually exits loudly rather than idling forever.
-const DEFAULT_POLL_INTERVAL_MS = 5_000;
-const DEFAULT_MAX_WAIT_MS = 5 * 60_000;
+// pg_try_advisory_lock returns immediately instead of blocking, so each attempt
+// is its own instant transaction and a waiter holds no snapshot between tries.
+// The wait is unbounded, exactly as before; it simply no longer holds the
+// horizon while it waits. The interval is short so takeover stays prompt once
+// the predecessor exits.
+const DEFAULT_POLL_INTERVAL_MS = 1_000;
 
 export async function pollForAdvisoryLock(
   tryAcquire: () => Promise<boolean>,
   {
     pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
-    maxWaitMs = DEFAULT_MAX_WAIT_MS,
-    description = "an advisory lock",
     now = Date.now,
     onContended,
   }: {
     pollIntervalMs?: number;
-    maxWaitMs?: number;
-    description?: string;
     now?: () => number;
-    onContended?: (attempt: number) => void;
+    onContended?: (waitedMs: number) => void;
   } = {},
 ): Promise<void> {
-  const deadline = now() + maxWaitMs;
+  const startedAt = now();
 
-  for (let attempt = 1; ; attempt++) {
+  for (;;) {
     if (await tryAcquire()) return;
 
-    if (now() >= deadline) {
-      throw new Error(
-        `Gave up after ${Math.round(maxWaitMs / 1000)}s waiting for ${description}; ` +
-          `another process still holds it. Exiting rather than waiting with an open transaction.`,
-      );
-    }
-
-    onContended?.(attempt);
+    onContended?.(now() - startedAt);
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
   }
 }
