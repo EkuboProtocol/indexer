@@ -169,6 +169,63 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-09-02: Reduce write amplification on hot tables
+
+Three CPU fixes measured from `pg_stat_statements` on `ekubo-db-nyc1` over
+2026-08-25 to 2026-09-01.
+
+**Schema changes.** Drops `erc20_tokens_latest_price_valid_until_idx` (added in
+00116). Its only consumer is `refresh_expired_erc20_token_latest_prices`, which
+reads ~4,316 of the table's ~7,360 rows per scan and takes `FOR UPDATE`, so it
+was barely filtering while blocking HOT on all 47.9M updates the table takes per
+week. Nothing in the API filters on `valid_until`. Sets
+`autovacuum_vacuum_scale_factor = 0.01` and a lowered `fillfactor` on
+`pool_states`, `pool_tvl` and `erc20_tokens_latest_price`.
+
+**Cron change.** `refresh_computed_rewards_by_position` moves from `* */6 * * *`
+to `5 * * * *`. The old expression put `*/6` in the hour field and left the
+minute field wide, so the job fired every minute during hours 0, 6, 12 and 18 —
+240 runs/day totalling 4h52m of database time. Reward periods land on hourly
+boundaries, so the new cadence is hourly rather than the six-hourly one the
+broken expression was reaching for; minute 5 leaves four minutes after
+`compute_incentive_rewards` (minute 1) for the boundary blocks to be indexed.
+24 runs/day of ~100 s is ~40m/day.
+
+**Manual intervention required, BEFORE this migration is deployed.** The
+migration drops `erc20_tokens_latest_price_valid_until_idx`, and
+`refresh_expired_erc20_token_latest_prices` (~1 call/sec) then has to find
+expired rows by sequential scan. That is only cheap once the heap matches its
+live rows. Measured on 2026-09-02 against the bloated 46,147-page heap:
+
+| | buffers | time |
+|---|---|---|
+| index scan (today) | 50 | 0.14 ms |
+| seq scan on bloated heap | 46,147 (45,155 read from disk) | 103.6 ms |
+| seq scan after repack (~250 pages) | ~250 | sub-ms |
+
+**Repack first, then deploy.** Deploying the migration against an unrepacked
+table makes that once-a-second query 750x more expensive.
+
+```sh
+# ~7,700 live rows in a 361 MB heap + 280 MB of indexes.
+pg_repack -d defaultdb -t erc20_tokens_latest_price -t pool_states -t pool_tvl
+```
+
+`pg_repack` 1.5.2 is available on the managed instance and rewrites without an
+exclusive lock. `VACUUM (FULL, ANALYZE)` on the same three tables is equivalent
+and takes seconds, but holds `ACCESS EXCLUSIVE` and will stall the indexer and
+price-sync for the duration.
+
+Note also that `fillfactor` only applies to pages written after a rewrite, and
+that lowering `autovacuum_vacuum_scale_factor` lets autovacuum reclaim space in
+place but never shrinks an already-bloated heap. `scripts/migrate.ts` runs each
+migration inside a transaction, so the rewrite cannot live in the migration —
+hence the manual step.
+
+Downstream consumers are unaffected: no column, view or function signature
+changes, so the order in which the indexer components roll is irrelevant — the
+only ordering that matters is repack before migrate.
+
 ### 2026-08-09: Freshness-aware prioritized token prices
 
 Per-source `confidence` now lives in `erc20_token_price_sources`, seeded by the migration and never written by the worker, with the quoter ranked highest. `erc20_tokens_usd_prices` gains a nullable `valid_until` that each observation carries (legacy rows are treated as valid for five minutes past their timestamp). The compact `erc20_tokens_latest_price_by_source` cache tracks those expirations, while the physical, primary-keyed `erc20_tokens_latest_price` table stores the fresh maximum-confidence aggregate for fast quoter reads. The price worker reconciles expirations once per second, promoting a lower-confidence source when needed. The `all_pool_states_view` definition remains unchanged. Apply migrations before deploying the updated price-sync worker. Consumers selecting every column from `erc20_tokens_latest_price` must account for its new `confidence` and `valid_until` columns and the synthetic `AVG` source on tied values; consumers of `erc20_tokens_usd_prices` gain a nullable column. No manual backfill is required.
