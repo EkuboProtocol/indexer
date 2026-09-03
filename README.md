@@ -24,6 +24,54 @@ During restore you may see warnings or errors about the DigitalOcean `doadmin` r
 
 Join the [Discord](https://discord.ekubo.org) and ask in the `#devs` channel if you need support.
 
+### Restoring a dump from the command line
+
+The sequence below goes from an empty (or stale) local database to a warm one without opening a browser, and is safe to run unattended. It assumes the `gh` CLI is authenticated against this repository.
+
+**1. Find the newest successful dump.** Artifacts are kept for 7 days, so the most recent run is usually the only one still downloadable:
+
+```bash
+gh run list --repo EkuboProtocol/indexer --workflow pg-dump.yaml \
+  --status success --limit 1 --json databaseId,createdAt
+```
+
+**2. Download it.** The artifact is named `db-backup-<run_id>` and contains a single `db-backup-<timestamp>.dump`:
+
+```bash
+gh run download <run_id> --repo EkuboProtocol/indexer --dir ./dump
+```
+
+The dump is on the order of 8 GB. `gh` buffers the whole artifact into `$TMPDIR` before extracting it, so budget roughly twice its size in free space, plus room for the restored data. Expect the download to take several minutes.
+
+**3. Check the archive before touching the database.** This only reads the table of contents, so it is fast and catches a truncated download:
+
+```bash
+pg_restore --list ./dump/db-backup-*/db-backup-*.dump | head
+```
+
+**4. Restore.** CI dumps with PostgreSQL 18, so the local client must be 18 or newer — verify with `pg_restore --version`. `--clean --if-exists` drops each object the dump recreates, so a database with an older copy of the schema does not need to be emptied by hand:
+
+```bash
+pg_restore --clean --if-exists --no-owner --no-privileges -j 8 \
+  --dbname postgres://postgres:postgres@localhost:5432/postgres \
+  ./dump/db-backup-*/db-backup-*.dump
+```
+
+**`pg_restore` exits non-zero on a restore that worked.** The dump carries the production `doadmin` role and the `pg_cron` extension along with its scheduled jobs; locally those statements fail, which only means scheduled jobs will not run. Do not gate on the exit code — confirm the data instead:
+
+```bash
+psql -d postgres -c "select chain_id, order_key from indexer_cursor order by chain_id"
+psql -d postgres -c "select count(*) from pool_keys"
+```
+
+Every chain in the snapshot should have an `indexer_cursor` row, and that block number is where an indexer started against this database will resume from.
+
+**5. Apply any migrations newer than the snapshot**, since the dump reflects production at the time it was taken:
+
+```bash
+bun run migrate
+```
+
 ### Automated database dumps
 
 Nightly backups run through `.github/workflows/pg-dump.yaml`, which connects to the production database using repository secrets, runs `pg_dump -Fc`, and uploads the resulting `db-backup-<timestamp>.dump` as a GitHub Actions artifact (retained for 7 days, named `db-backup-<run_id>`). These artifacts let you bootstrap a new node quickly without waiting for a multi-day sync—grab the latest run from the Actions tab when you need a fresh snapshot.
@@ -120,6 +168,63 @@ This log records indexer deployments that:
 
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
+
+### 2026-09-02: Reduce write amplification on hot tables
+
+Three CPU fixes measured from `pg_stat_statements` on `ekubo-db-nyc1` over
+2026-08-25 to 2026-09-01.
+
+**Schema changes.** Drops `erc20_tokens_latest_price_valid_until_idx` (added in
+00116). Its only consumer is `refresh_expired_erc20_token_latest_prices`, which
+reads ~4,316 of the table's ~7,360 rows per scan and takes `FOR UPDATE`, so it
+was barely filtering while blocking HOT on all 47.9M updates the table takes per
+week. Nothing in the API filters on `valid_until`. Sets
+`autovacuum_vacuum_scale_factor = 0.01` and a lowered `fillfactor` on
+`pool_states`, `pool_tvl` and `erc20_tokens_latest_price`.
+
+**Cron change.** `refresh_computed_rewards_by_position` moves from `* */6 * * *`
+to `5 * * * *`. The old expression put `*/6` in the hour field and left the
+minute field wide, so the job fired every minute during hours 0, 6, 12 and 18 —
+240 runs/day totalling 4h52m of database time. Reward periods land on hourly
+boundaries, so the new cadence is hourly rather than the six-hourly one the
+broken expression was reaching for; minute 5 leaves four minutes after
+`compute_incentive_rewards` (minute 1) for the boundary blocks to be indexed.
+24 runs/day of ~100 s is ~40m/day.
+
+**Manual intervention required, BEFORE this migration is deployed.** The
+migration drops `erc20_tokens_latest_price_valid_until_idx`, and
+`refresh_expired_erc20_token_latest_prices` (~1 call/sec) then has to find
+expired rows by sequential scan. That is only cheap once the heap matches its
+live rows. Measured on 2026-09-02 against the bloated 46,147-page heap:
+
+| | buffers | time |
+|---|---|---|
+| index scan (today) | 50 | 0.14 ms |
+| seq scan on bloated heap | 46,147 (45,155 read from disk) | 103.6 ms |
+| seq scan after repack (~250 pages) | ~250 | sub-ms |
+
+**Repack first, then deploy.** Deploying the migration against an unrepacked
+table makes that once-a-second query 750x more expensive.
+
+```sh
+# ~7,700 live rows in a 361 MB heap + 280 MB of indexes.
+pg_repack -d defaultdb -t erc20_tokens_latest_price -t pool_states -t pool_tvl
+```
+
+`pg_repack` 1.5.2 is available on the managed instance and rewrites without an
+exclusive lock. `VACUUM (FULL, ANALYZE)` on the same three tables is equivalent
+and takes seconds, but holds `ACCESS EXCLUSIVE` and will stall the indexer and
+price-sync for the duration.
+
+Note also that `fillfactor` only applies to pages written after a rewrite, and
+that lowering `autovacuum_vacuum_scale_factor` lets autovacuum reclaim space in
+place but never shrinks an already-bloated heap. `scripts/migrate.ts` runs each
+migration inside a transaction, so the rewrite cannot live in the migration —
+hence the manual step.
+
+Downstream consumers are unaffected: no column, view or function signature
+changes, so the order in which the indexer components roll is irrelevant — the
+only ordering that matters is repack before migrate.
 
 ### 2026-08-09: Freshness-aware prioritized token prices
 

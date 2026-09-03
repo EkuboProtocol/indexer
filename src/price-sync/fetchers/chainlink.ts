@@ -29,6 +29,26 @@ type ChainlinkTokenRow = {
 // An upper bound on how long any single observation may be considered fresh.
 const MAX_PRICE_VALIDITY_MS = 30 * 24 * 60 * 60 * 1_000;
 
+// A feed keeps returning its last round until it next publishes, so polling
+// faster than the heartbeat re-reads one observation many times over. Emitting
+// those repeats would write a row per poll that says nothing new, so track the
+// round already reported per feed and yield only genuine updates. Held in
+// memory: after a restart the first poll re-reports one round per feed, which
+// the latest-price cache absorbs.
+const lastReportedRoundAt = new Map<string, number>();
+
+export function shouldReportChainlinkRound(
+  chainId: bigint,
+  tokenAddress: string,
+  roundUpdatedAt: Date,
+): boolean {
+  const key = `${chainId}:${tokenAddress.toLowerCase()}`;
+  const updatedAtMs = roundUpdatedAt.getTime();
+  if (lastReportedRoundAt.get(key) === updatedAtMs) return false;
+  lastReportedRoundAt.set(key, updatedAtMs);
+  return true;
+}
+
 // Feed discovery and the on-chain reads both need full-width EVM addresses,
 // unlike the numeric form the database stores prices under.
 function toEvmAddress(address: string): `0x${string}` {
@@ -132,13 +152,15 @@ export function chainlinkPriceFetcher({
         feeds,
       });
 
-      // Each observation carries the round's own updatedAt, so an unchanged
-      // round produces a row that already exists and is discarded on insert.
-      // Validity is anchored at that updatedAt and extends through the feed's
-      // staleness window — mirroring the read-side contract — floored at the
-      // job's default so a fast-heartbeat feed cannot expire between syncs.
-      const updates: PriceUpdate[] = Object.entries(observations).map(
-        ([tokenAddress, { usdPrice, timestamp }]) => {
+      // Validity is anchored at the round's own updatedAt and extends through
+      // the feed's staleness window — mirroring the read-side contract —
+      // floored at the job's default so a fast-heartbeat feed cannot expire
+      // between syncs.
+      const updates: PriceUpdate[] = Object.entries(observations)
+        .filter(([tokenAddress, { timestamp }]) =>
+          shouldReportChainlinkRound(chainId, tokenAddress, timestamp),
+        )
+        .map(([tokenAddress, { usdPrice, timestamp }]) => {
           const feed = feedsByToken.get(tokenAddress.toLowerCase());
           // Clamped because maxAgeSeconds also arrives from operator config,
           // where an implausible value would otherwise overflow the Date range
@@ -157,8 +179,7 @@ export function chainlinkPriceFetcher({
             usdPrice,
             validUntil: new Date(timestamp.getTime() + validityMs),
           };
-        },
-      );
+        });
 
       if (updates.length > 0) yield updates;
     },

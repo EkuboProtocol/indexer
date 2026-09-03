@@ -1,6 +1,8 @@
 import type { Sql } from "postgres";
 import { type EventKey } from "./eventKey";
 import postgres from "postgres";
+import { pollForAdvisoryLock } from "./advisoryLockPoll";
+import { logger } from "./logger";
 
 export type NumericValue = bigint | number | `0x${string}`;
 export type AddressValue = bigint | `0x${string}`;
@@ -435,6 +437,11 @@ type UnwrapPromiseArray<T> = T extends any[]
     }
   : T;
 
+// How often to report an ongoing wait for the per-chain indexer lock. The wait
+// itself is expected during a deploy handoff; the log line is what makes an
+// unusually long one visible.
+const LOCK_WAIT_LOG_INTERVAL_MS = 30_000;
+
 // Data access object that manages inserts/deletes
 export class DAO {
   private readonly chainId: bigint;
@@ -471,10 +478,30 @@ export class DAO {
   }
 
   public async acquireLock(): Promise<void> {
-    const rows = await this
-      .sql`SELECT pg_advisory_lock(hashtext('ekubo-indexer-' || ${this.chainId}));`;
-    if (!rows.length)
-      throw new Error(`Failed to acquire lock for chain ID ${this.chainId}`);
+    // Waiting here is normal: during a deploy the newcomer holds off until the
+    // outgoing instance for this chain exits. pg_try_advisory_lock is used
+    // rather than pg_advisory_lock so that waiting does not hold a snapshot and
+    // pin the vacuum horizon. See advisoryLockPoll.ts.
+    let nextLogAtMs = 0;
+
+    await pollForAdvisoryLock(
+      async () => {
+        const [row] = await this.sql<{ acquired: boolean }[]>`
+            SELECT pg_try_advisory_lock(hashtext('ekubo-indexer-' || ${this.chainId})) AS acquired;`;
+        return row?.acquired === true;
+      },
+      {
+        onContended: (waitedMs) => {
+          if (waitedMs < nextLogAtMs) return;
+          nextLogAtMs = waitedMs + LOCK_WAIT_LOG_INTERVAL_MS;
+          logger.info({
+            message: `Waiting for the indexer lock for chain ID ${this.chainId}; another instance still holds it`,
+            chainId: this.chainId.toString(),
+            waitedMs,
+          });
+        },
+      },
+    );
   }
 
   public async releaseLock(): Promise<void> {

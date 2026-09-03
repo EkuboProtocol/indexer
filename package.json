@@ -33,7 +33,8 @@
     "starknet:sepolia": "NETWORK=sepolia bun src/starknet.ts",
     "sync-token-prices": "bun src/price-sync/index.ts",
     "migrate": "bun scripts/migrate.ts",
-    "test": "bun test --timeout 30000"
+    "test": "bun test --timeout 30000",
+    "lint": "eslint ."
   },
   "author": "Moody Salem",
   "type": "module",
@@ -41,8 +42,10 @@
     "bun": ">=1.3"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.4",
-    "@types/bun": "^1.3.14"
+    "@electric-sql/pglite": "^0.5.8",
+    "@types/bun": "^1.4.0",
+    "@typescript-eslint/parser": "8.68.0",
+    "eslint": "10.9.1"
   },
   "dependencies": {
     "@apibara/evm": "^2.1.4",
@@ -52,8 +55,8 @@
     "bottleneck": "^2.19.5",
     "dotenv": "^17.4.2",
     "postgres": "^3.4.9",
-    "postgres-shift": "^0.1.0",
-    "viem": "^2.55.10",
+    "postgres-shift": "^1.0.2",
+    "viem": "^2.56.0",
     "winston": "^3.19.0"
   }
 }

@@ -16,6 +16,25 @@ const DEFAULT_MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11";
 // chain's batch rather than just skipping the bad feed.
 const MAX_CHAINLINK_HEARTBEAT_SECONDS = 7 * 24 * 60 * 60;
 
+// A daily heartbeat means an equity feed: it publishes only while its market is
+// open, so the longest gap between rounds is a market closure, not the
+// heartbeat. Doubling the heartbeat gives 48h, which a plain weekend already
+// outlives -- Friday's close is unreadable by Sunday evening while the market
+// does not reopen until Monday. Five days clears a holiday weekend (Friday
+// close to Tuesday open is about 89h) and still catches a genuinely dead feed
+// within the week. Sub-daily feeds are continuous, so they keep the tight
+// window that doubling gives them.
+const CONTINUOUS_FEED_MAX_HEARTBEAT_SECONDS = 24 * 60 * 60;
+const MARKET_CLOSURE_MAX_AGE_SECONDS = 5 * 24 * 60 * 60;
+
+// Exported for the tests that pin the weekend behaviour.
+export function chainlinkFeedMaxAgeSeconds(heartbeatSeconds: number): number {
+  const doubled = heartbeatSeconds * 2;
+  return heartbeatSeconds >= CONTINUOUS_FEED_MAX_HEARTBEAT_SECONDS
+    ? Math.max(doubled, MARKET_CLOSURE_MAX_AGE_SECONDS)
+    : doubled;
+}
+
 const CHAINLINK_AGGREGATOR_ABI = [
   {
     type: "function",
@@ -252,6 +271,65 @@ function normalizeSymbol(symbol: string): string {
   return symbol.trim().toUpperCase();
 }
 
+function groupTokensBySymbol(
+  tokens: ChainlinkToken[],
+): Map<string, ChainlinkToken[]> {
+  const bySymbol = new Map<string, ChainlinkToken[]>();
+  for (const token of tokens) {
+    const symbol = normalizeSymbol(token.symbol);
+    const matches = bySymbol.get(symbol) ?? [];
+    matches.push(token);
+    bySymbol.set(symbol, matches);
+  }
+  return bySymbol;
+}
+
+// The catalog carries every Chainlink data product, most of which are not USD
+// spot price feeds we can read. These are the admissibility rules, as a table
+// rather than one long conjunction: each rule is named, so a feed that fails to
+// appear can be traced to the exact rule that rejected it.
+const CATALOG_ENTRY_RULES: [string, (value: ChainlinkCatalogEntry) => boolean][] =
+  [
+    ["is a data feed", (v) => v.docs?.deliveryChannelCode === "DF"],
+    ["is a price product", (v) => v.docs?.productType === "Price"],
+    [
+      "is a reference or tokenized price",
+      (v) =>
+        ["RefPrice", "primaryTokenizedPrice"].includes(
+          String(v.docs?.productTypeCode),
+        ),
+    ],
+    ["is quoted in USD", (v) => v.docs?.quoteAsset === "USD"],
+    ["names a base asset", (v) => typeof v.docs?.baseAsset === "string"],
+    ["is not hidden", (v) => v.docs?.hidden !== true],
+    ["is not shut down", (v) => !v.docs?.shutdownDate],
+    ["is not deprecating", (v) => v.feedCategory !== "deprecating"],
+    ["has a path", (v) => typeof v.path === "string"],
+    [
+      "has a proxy address",
+      (v) => typeof v.proxyAddress === "string" && isAddress(v.proxyAddress),
+    ],
+    [
+      "has a usable heartbeat",
+      (v) =>
+        typeof v.heartbeat === "number" &&
+        Number.isSafeInteger(v.heartbeat) &&
+        v.heartbeat > 0 &&
+        v.heartbeat <= MAX_CHAINLINK_HEARTBEAT_SECONDS,
+    ],
+  ];
+
+function isUsableCatalogEntry(value: ChainlinkCatalogEntry): boolean {
+  return CATALOG_ENTRY_RULES.every(([, holds]) => holds(value));
+}
+
+// Lower is better. A feed with no secondary proxy is the plain one and wins
+// outright; among the rest, the shared SVR path is preferred.
+function feedRank(value: ChainlinkCatalogEntry): number {
+  if (!value.secondaryProxyAddress) return 0;
+  return String(value.path).includes("shared-svr") ? 1 : 2;
+}
+
 export function discoverChainlinkFeeds(
   catalog: unknown,
   tokens: ChainlinkToken[],
@@ -260,13 +338,7 @@ export function discoverChainlinkFeeds(
     throw new Error("Chainlink feed catalog must be an array");
   }
 
-  const tokensBySymbol = new Map<string, ChainlinkToken[]>();
-  for (const token of tokens) {
-    const symbol = normalizeSymbol(token.symbol);
-    const matches = tokensBySymbol.get(symbol) ?? [];
-    matches.push(token);
-    tokensBySymbol.set(symbol, matches);
-  }
+  const tokensBySymbol = groupTokensBySymbol(tokens);
 
   const catalogFeedsBySymbol = new Map<
     string,
@@ -275,46 +347,19 @@ export function discoverChainlinkFeeds(
   for (const rawValue of catalog) {
     if (!rawValue || typeof rawValue !== "object") continue;
     const value = rawValue as ChainlinkCatalogEntry;
-    const docs = value.docs;
-    if (
-      !docs ||
-      docs.deliveryChannelCode !== "DF" ||
-      docs.productType !== "Price" ||
-      !["RefPrice", "primaryTokenizedPrice"].includes(
-        String(docs.productTypeCode),
-      ) ||
-      docs.quoteAsset !== "USD" ||
-      typeof docs.baseAsset !== "string" ||
-      docs.hidden === true ||
-      docs.shutdownDate ||
-      value.feedCategory === "deprecating" ||
-      typeof value.path !== "string" ||
-      typeof value.proxyAddress !== "string" ||
-      !isAddress(value.proxyAddress) ||
-      typeof value.heartbeat !== "number" ||
-      !Number.isSafeInteger(value.heartbeat) ||
-      value.heartbeat <= 0 ||
-      value.heartbeat > MAX_CHAINLINK_HEARTBEAT_SECONDS
-    ) {
-      continue;
-    }
+    if (!isUsableCatalogEntry(value)) continue;
 
-    const symbol = normalizeSymbol(docs.baseAsset);
+    const symbol = normalizeSymbol(value.docs!.baseAsset as string);
     const matchingTokens = tokensBySymbol.get(symbol);
     if (matchingTokens?.length !== 1) continue;
 
     const feed: ChainlinkFeedConfig = {
       tokenAddress: matchingTokens[0].address,
       feedAddress: getAddress(value.proxyAddress),
-      maxAgeSeconds: value.heartbeat * 2,
+      maxAgeSeconds: chainlinkFeedMaxAgeSeconds(value.heartbeat),
     };
-    const rank = value.secondaryProxyAddress
-      ? value.path.includes("shared-svr")
-        ? 1
-        : 2
-      : 0;
     const feeds = catalogFeedsBySymbol.get(symbol) ?? [];
-    feeds.push({ feed, rank });
+    feeds.push({ feed, rank: feedRank(value) });
     catalogFeedsBySymbol.set(symbol, feeds);
   }
 

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Sql } from "postgres";
-import { chainlinkPriceFetcher } from "./chainlink";
+import { chainlinkPriceFetcher, shouldReportChainlinkRound } from "./chainlink";
 
 const tokenAddress = "0x0000000000000000000000000000000000000001";
 const feedAddress = "0x0000000000000000000000000000000000000002";
@@ -36,6 +36,30 @@ test("a catalog outage still reports explicitly configured feeds", async () => {
   }
 
   expect(reachedFeedRead).toBe(true);
+});
+
+test("an unchanged round is reported once, not once per poll", () => {
+  // A feed keeps returning its last round until it next publishes, so polling
+  // faster than the heartbeat must not write a row per poll.
+  const round = new Date("2026-08-09T00:00:00Z");
+  expect(shouldReportChainlinkRound(1n, tokenAddress, round)).toBe(true);
+  expect(shouldReportChainlinkRound(1n, tokenAddress, round)).toBe(false);
+  expect(shouldReportChainlinkRound(1n, tokenAddress, round)).toBe(false);
+
+  // A genuine publication is reported again.
+  expect(
+    shouldReportChainlinkRound(1n, tokenAddress, new Date(round.getTime() + 1)),
+  ).toBe(true);
+});
+
+test("rounds are tracked per chain and per token", () => {
+  const round = new Date("2026-08-09T01:00:00Z");
+  expect(shouldReportChainlinkRound(8453n, tokenAddress, round)).toBe(true);
+  // Same token address on a different chain is a different feed.
+  expect(shouldReportChainlinkRound(42161n, tokenAddress, round)).toBe(true);
+  // As is a different token on the same chain.
+  expect(shouldReportChainlinkRound(8453n, feedAddress, round)).toBe(true);
+  expect(shouldReportChainlinkRound(8453n, tokenAddress, round)).toBe(false);
 });
 
 test("a chain with no configured feeds and no catalog yields nothing", async () => {

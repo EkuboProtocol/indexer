@@ -19,6 +19,9 @@ interface QuoterPriceFetcherOptions extends PriceSyncJobOptions {
   address: `0x${string}`;
   decimals: number;
   quoteAmount: bigint;
+  // The quoter folds pool fees into price_impact, so a chain whose pools carry
+  // an unusually high fee needs a looser cap than the default to report at all.
+  maxImpact?: number;
 }
 
 let ekuboQuoterFetchLimiter: Bottleneck | undefined;
@@ -144,6 +147,7 @@ export function quoterPriceFetcher({
   address,
   decimals,
   quoteAmount,
+  maxImpact,
 }: QuoterPriceFetcherOptions): PriceSyncJob {
   const quoterBaseUrl = (
     process.env.EKUBO_QUOTER_URL ?? "https://prod-api-quoter.ekubo.org"
@@ -171,6 +175,7 @@ export function quoterPriceFetcher({
               address,
               decimals,
               quoteAmount,
+              maxImpact,
               baseUrl: `${quoterBaseUrl}/${chainId}/`,
             });
 

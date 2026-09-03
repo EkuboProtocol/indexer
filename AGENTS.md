@@ -26,8 +26,20 @@ Commits follow short, action-oriented summaries (see `git log`, e.g. `increase n
 
 ## Environment & Deployment Tips
 
-`src/config.ts` loads cascading `.env` files: `.env`, `.env.<networkType>`, `.env.<networkType>.<network>`, plus optional `.local` overrides. Keep secrets in untracked `.local` files. Production deployments rely on the Docker image described in `Dockerfile`/`README.md`, the DigitalOcean App spec in `.do/app.yaml`, and nightly Postgres dumps from `.github/workflows/pg-dump.yaml` for rapid restores. Token metadata is owned and synchronized by the `EkuboProtocol/default-tokens` repository. Align local env vars with the DO spec, and prefer `bun` commands for any long-running workers or one-off scripts.
+`src/config.ts` loads cascading `.env` files: `.env`, `.env.<networkType>`, `.env.<networkType>.<network>`, plus optional `.local` overrides. Keep secrets in untracked `.local` files. Production deployments rely on the Docker image described in `Dockerfile`/`README.md`, the DigitalOcean App spec in `.do/app.yaml`, and nightly Postgres dumps from `.github/workflows/pg-dump.yaml` for rapid restores. To load one into a local database non-interactively, follow "Restoring a dump from the command line" in the README; it covers finding the newest artifact with `gh`, the restore flags, and why `pg_restore`'s exit code cannot be used to judge success. Token metadata is owned and synchronized by the `EkuboProtocol/default-tokens` repository. Align local env vars with the DO spec, and prefer `bun` commands for any long-running workers or one-off scripts.
 
 ## Breaking Change Documentation
 
 Any deployment that requires manual intervention or alters the database schema must be recorded in the README’s breaking changelog section. Include the date, affected networks, necessary operator actions, and downstream compatibility notes so future contributors know how to prepare for rollouts.
+
+## Complexity Policy
+- Run `bun run lint` before considering a change done. CI runs it on every push,
+  before the tests.
+- The only rule is ESLint's `complexity`, capped at 10 per function.
+- One exemption exists: the stream loop in `src/runtime.ts`. Three of its switch arms
+  reassign `currentCursor` and the retry loop reads it again after a failure, so
+  splitting the arms out means threading that reassignment back through every return
+  path — and there is no test coverage over that loop to catch a mistake. Getting the
+  cursor wrong means reprocessing blocks or silently skipping them. Extract the arms
+  when the loop is being reworked for other reasons, behind tests.
+- Any new disable needs a reason on the same line. Otherwise, split the function.
