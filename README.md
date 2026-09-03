@@ -189,6 +189,45 @@ falling back to the chain's public endpoint where one exists; the committed
 `.do/app.yaml`'s `&indexer-image` anchor moved from `starknet-sepolia` to
 `starknet-mainnet`, since the service that defined it is gone.
 
+**Price sync now covers every EVM mainnet.** Previously only Ethereum, Base,
+Monad, Robinhood, Arbitrum and Starknet had any price source, so the nine
+mainnets this release adds would have indexed pools with no USD prices at all.
+Each of the 13 EVM mainnets now has at least three:
+
+| chain | CoinGecko native | CoinGecko tokens | Sushi | Ekubo quoter |
+|---|---|---|---|---|
+| Ethereum (1) | ethereum | — | yes | USDC |
+| Optimism (10) | ethereum | optimistic-ethereum | yes | USDC |
+| BNB Smart Chain (56) | binancecoin | binance-smart-chain | yes | USDC (18dp) |
+| Gnosis (100) | xdai | xdai | yes | USDC.e |
+| Unichain (130) | ethereum | unichain | no | USDC |
+| Polygon (137) | polygon-ecosystem-token | polygon-pos | yes | USDC |
+| Monad (143) | monad | monad | yes | USDC |
+| World Chain (480) | ethereum | world-chain | no | USDC |
+| MegaETH (4326) | ethereum | megaeth | yes | — |
+| Robinhood (4663) | ethereum | robinhood | yes | USDC |
+| Base (8453) | ethereum | base | yes | USDC |
+| Arbitrum (42161) | ethereum | arbitrum-one | yes | — |
+| Ink (57073) | ethereum | ink | no | USDC |
+
+CoinGecko asset-platform slugs and native coin IDs are taken from CoinGecko's
+own `/asset_platforms` response rather than assumed. Sushi is wired only where
+`api.sushi.com/price/v1/<chainId>` actually answers: Unichain, World Chain and
+Ink return 404 and are left off. MegaETH has no listed USD stablecoin to quote
+against, so it gets no quoter job.
+
+Quoter jobs query only tokens that already have a pool with non-zero TVL, so on
+a chain with no pools yet they issue no requests and cost nothing; they begin
+reporting on their own once liquidity arrives. They resolve through
+`prod-api-quoter.ekubo.org/<chainId>`, which is served by the matching quoter
+services in EkuboProtocol/quoter-service#41 — that PR should land first or
+these jobs will log failed lookups once pools exist.
+
+Note BNB Smart Chain's bridged USDC is **18 decimals**, not the usual 6. Every
+proxy token's `symbol()`, `decimals()` and `totalSupply()` were read on-chain.
+Gnosis uses USDC.e (`0x2a22…76F0`) rather than the older USDC
+(`0xDDAf…7A83`) because it carries about 11x the DEX liquidity.
+
 ### 2026-09-02: Reduce write amplification on hot tables
 
 Three CPU fixes measured from `pg_stat_statements` on `ekubo-db-nyc1` over
