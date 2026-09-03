@@ -21,7 +21,7 @@ envs:
     scope: RUN_TIME
     value: "1"
 workers:
-  - name: starknet-sepolia
+  - name: starknet-mainnet
     image: &indexer-image
       registry_type: GHCR
       registry: ghcr.io
@@ -32,33 +32,8 @@ workers:
     envs:
       - key: NETWORK
         scope: RUN_TIME
-        value: sepolia
-    run_command: scripts/restart.sh bun src/starknet.ts
-  - name: starknet-mainnet
-    image: *indexer-image
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    envs:
-      - key: NETWORK
-        scope: RUN_TIME
         value: mainnet
     run_command: scripts/restart.sh bun src/starknet.ts
-  - name: eth-sepolia
-    image: *indexer-image
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    envs:
-      # Overrides the list in .env.evm.sepolia, whose first entry
-      # (https://sepolia.drpc.org) began returning "chain is not available on
-      # free plan" and stalled this indexer from 2026-07-31. Both endpoints
-      # below were verified answering eth_chainId with 11155111 at the head.
-      - key: EVM_RPC_URL
-        scope: RUN_TIME
-        value: "https://ethereum-sepolia-rpc.publicnode.com,https://0xrpc.io/sep"
-      - key: NETWORK
-        scope: RUN_TIME
-        value: sepolia
-    run_command: scripts/restart.sh bun src/evm.ts
   - name: eth-mainnet
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
@@ -71,15 +46,6 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet
-    run_command: scripts/restart.sh bun src/evm.ts
-  - name: base-sepolia
-    image: *indexer-image
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    envs:
-      - key: NETWORK
-        scope: RUN_TIME
-        value: base-sepolia
     run_command: scripts/restart.sh bun src/evm.ts
   - name: base-mainnet
     image: *indexer-image
@@ -94,15 +60,6 @@ workers:
         scope: RUN_TIME
         value: base-mainnet
     run_command: scripts/restart.sh bun src/evm.ts
-  - name: arb-sepolia
-    image: *indexer-image
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    envs:
-      - key: NETWORK
-        scope: RUN_TIME
-        value: arb-sepolia
-    run_command: scripts/restart.sh bun src/evm.ts
   - name: rhc-mainnet
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
@@ -114,15 +71,6 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         value: "https://rpc.mainnet.chain.robinhood.com,https://robinhood-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
-    run_command: scripts/restart.sh bun src/evm.ts
-  - name: rhc-sepolia
-    image: *indexer-image
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    envs:
-      - key: NETWORK
-        scope: RUN_TIME
-        value: rhc-sepolia
     run_command: scripts/restart.sh bun src/evm.ts
   - name: arb-mainnet
     image: *indexer-image
@@ -253,87 +201,6 @@ workers:
       - key: NETWORK
         scope: RUN_TIME
         value: ink-mainnet
-    run_command: scripts/restart.sh bun src/evm.ts
-  - name: opt-sepolia
-    image: *indexer-image
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    envs:
-      - key: NETWORK
-        scope: RUN_TIME
-        value: opt-sepolia
-    run_command: scripts/restart.sh bun src/evm.ts
-  - name: unichain-sepolia
-    image: *indexer-image
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    envs:
-      - key: NETWORK
-        scope: RUN_TIME
-        value: unichain-sepolia
-    run_command: scripts/restart.sh bun src/evm.ts
-  - name: worldchain-sepolia
-    image: *indexer-image
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    envs:
-      - key: NETWORK
-        scope: RUN_TIME
-        value: worldchain-sepolia
-    run_command: scripts/restart.sh bun src/evm.ts
-  - name: ink-sepolia
-    image: *indexer-image
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    envs:
-      - key: NETWORK
-        scope: RUN_TIME
-        value: ink-sepolia
-    run_command: scripts/restart.sh bun src/evm.ts
-  - name: polygon-amoy
-    image: *indexer-image
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    envs:
-      - key: NETWORK
-        scope: RUN_TIME
-        value: polygon-amoy
-    run_command: scripts/restart.sh bun src/evm.ts
-  - name: eth-hoodi
-    image: *indexer-image
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    envs:
-      - key: NETWORK
-        scope: RUN_TIME
-        value: eth-hoodi
-    run_command: scripts/restart.sh bun src/evm.ts
-  - name: zksync-sepolia
-    image: *indexer-image
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    envs:
-      - key: NETWORK
-        scope: RUN_TIME
-        value: zksync-sepolia
-    run_command: scripts/restart.sh bun src/evm.ts
-  - name: megaeth-testnet
-    image: *indexer-image
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    envs:
-      - key: NETWORK
-        scope: RUN_TIME
-        value: megaeth-testnet
-    run_command: scripts/restart.sh bun src/evm.ts
-  - name: abstract-testnet
-    image: *indexer-image
-    instance_size_slug: apps-s-1vcpu-0.5gb
-    instance_count: 1
-    envs:
-      - key: NETWORK
-        scope: RUN_TIME
-        value: abstract-testnet
     run_command: scripts/restart.sh bun src/evm.ts
   - name: token-price-sync
     image: *indexer-image

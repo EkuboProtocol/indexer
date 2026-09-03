@@ -79,12 +79,6 @@ export function createPriceSyncJobs({
       twapDurationSeconds: 60,
     }),
     */
-    // eth sepolia
-    sushiswapPriceFetcher({
-      chainId: 11155111n,
-      intervalMs: defaultIntervalMs,
-    }),
-
     // base
     quoterPriceFetcher({
       sql,
@@ -139,16 +133,6 @@ export function createPriceSyncJobs({
       platform: "robinhood",
     }),
 
-    // fake robinhood chain
-    quoterPriceFetcher({
-      sql,
-      chainId: 46630n,
-      intervalMs: defaultIntervalMs,
-      address: "0x9367e29667db75Cb91788330a8509b3B4ac66c8f",
-      decimals: 6,
-      quoteAmount: 10n,
-    }),
-
     // arbitrum one
     sushiswapPriceFetcher({
       chainId: 42161n,
@@ -159,16 +143,6 @@ export function createPriceSyncJobs({
       chainId: 42161n,
       intervalMs: coingeckoIntervalMs,
       platform: "arbitrum-one",
-    }),
-
-    // arbitrum sepolia
-    quoterPriceFetcher({
-      sql,
-      chainId: 421614n,
-      intervalMs: defaultIntervalMs,
-      address: "0x75faf114eafb1bdbe2f0316df893fd58ce46aa4d",
-      decimals: 6,
-      quoteAmount: 1000n,
     }),
 
     // starknet mainnet

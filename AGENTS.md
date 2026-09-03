@@ -6,8 +6,8 @@ TypeScript entrypoints `src/evm.ts` and `src/starknet.ts` orchestrate network-sp
 
 ## Build, Test, and Development Commands
 
-- `bun run eth:mainnet` / `bun run eth:sepolia`: run the EVM indexer for the selected network; ensure database and RPC env vars are present.
-- `bun run starknet:mainnet` / `bun run starknet:sepolia`: start the Starknet indexer with the same environment requirements.
+- `bun run eth:mainnet` (or any other `<chain>:mainnet` script): run the EVM indexer for the selected network; ensure database and RPC env vars are present.
+- `bun run starknet:mainnet`: start the Starknet indexer with the same environment requirements.
 - `bun run migrate` (or `bun scripts/migrate.ts`): apply `migrations/` against the configured Postgres instance; the Docker image can run the same command.
 - `bun run sync-token-prices`: start the long-running price-sync process.
 - `bun test`: run the Bun test suite (backed by in-memory PGlite) to validate migrations and helpers.

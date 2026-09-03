@@ -156,7 +156,7 @@ Migration files live under `migrations/` and execute in order via `scripts/migra
 
 The DigitalOcean Apps spec in `.do/app.yaml` documents the full production stack:
 
-- Workers for each network (e.g.: `starknet-sepolia`, `starknet-mainnet`, `eth-sepolia`, `eth-mainnet`) that run the corresponding network entrypoint (`bun src/starknet.ts` or `bun src/evm.ts`) with the appropriate `NETWORK` value, pulling the published Docker image (`ghcr.io/ekuboprotocol/indexer:${IMAGE_TAG}`).
+- Workers for each network (e.g.: `starknet-mainnet`, `eth-mainnet`, `base-mainnet`) that run the corresponding network entrypoint (`bun src/starknet.ts` or `bun src/evm.ts`) with the appropriate `NETWORK` value, pulling the published Docker image (`ghcr.io/ekuboprotocol/indexer:${IMAGE_TAG}`).
 - Managed Postgres (`indexer-db-nyc1`) wired in via the `PG_CONNECTION_STRING` env var along with secrets such as `DNA_TOKEN`.
 - A `run-migrations` pre-deploy job and the long-running `src/price-sync/index.ts` process. Each price source/chain job has an independent timer, with separately configured CoinGecko and Chainlink cadences. The app spec discovers Chainlink feeds for eligible tokens on Ethereum, Base, Arbitrum, and Robinhood through Chainlink's multi-network catalogs and the existing Alchemy API key secret.
 
@@ -168,6 +168,26 @@ This log records indexer deployments that:
 
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
+
+### 2026-09-02: Mainnet-only networks; nine new EVM mainnets
+
+The indexer no longer runs any testnet. Removed workers, `.env.evm.*` /
+`.env.starknet.*` files and `package.json` scripts for `starknet-sepolia`,
+`eth-sepolia`, `base-sepolia`, `arb-sepolia` and `rhc-sepolia`, and dropped the
+matching price-sync fetchers for chains 11155111, 421614 and 46630. Downstream
+consumers still reading rows for those chain IDs will see the data stop
+advancing; no rows are deleted by this change, so purging them is a separate
+manual step if wanted.
+
+Added mainnet workers for Optimism, Gnosis, Unichain, World Chain, Ink, BNB
+Smart Chain and Polygon alongside the existing Ethereum, Base, Arbitrum,
+Robinhood, Monad and MegaETH. Each new worker takes its production RPC from
+`https://<network>.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}` in `.do/app.yaml`,
+falling back to the chain's public endpoint where one exists; the committed
+`.env.evm.*` files keep key-free public URLs for local runs.
+
+`.do/app.yaml`'s `&indexer-image` anchor moved from `starknet-sepolia` to
+`starknet-mainnet`, since the service that defined it is gone.
 
 ### 2026-09-02: Reduce write amplification on hot tables
 
@@ -309,7 +329,7 @@ EVM V3 `VoteWeightApplied` events now store the stake's selected fee in `ve33_vo
 
 ### 2026-06-29: Ve33 event indexing
 
-EVM V3 Ve33 events now write to `ve33_stake_changed`, `ve33_vote_weight_applied`, `ve33_pool_fees_accounted`, `ve33_pool_fees_claimed`, `ve33_emissions_scheduled`, `ve33_pool_emissions_accrued`, and `ve33_rewards_claimed`. Sepolia also indexes VeToken and FreeVe33Positions ERC721 transfers when `VE_TOKEN_V3_ADDRESS` and `VE33_POSITIONS_V3_ADDRESS` are configured. Apply migrations before deploying consumers that read these tables.
+EVM V3 Ve33 events now write to `ve33_stake_changed`, `ve33_vote_weight_applied`, `ve33_pool_fees_accounted`, `ve33_pool_fees_claimed`, `ve33_emissions_scheduled`, `ve33_pool_emissions_accrued`, and `ve33_rewards_claimed`. A network also indexes VeToken and FreeVe33Positions ERC721 transfers when `VE_TOKEN_V3_ADDRESS` and `VE33_POSITIONS_V3_ADDRESS` are configured. Apply migrations before deploying consumers that read these tables.
 
 ### 2026-06-29: Ve33 pool state view support
 
