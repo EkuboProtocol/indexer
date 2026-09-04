@@ -1,9 +1,12 @@
+import { Effect, Stream } from "effect";
 import type { Sql } from "postgres";
+import { PriceSyncError, tryPriceSync } from "../errors";
+import type { ChainlinkCatalogCache } from "./chainlinkCatalog";
 import {
   discoverChainlinkFeeds,
-  fetchChainlinkFeedCatalog,
   fetchChainlinkTokenPrices,
   type ChainlinkChainConfig,
+  type ChainlinkFeedConfig,
   type ChainlinkToken,
 } from "./chainlinkFeeds";
 import {
@@ -13,12 +16,15 @@ import {
 } from "./types";
 import { toHexTokenAddress } from "./utils";
 
+const SOURCE = "cl1";
+
 interface ChainlinkPriceFetcherOptions {
   sql: Sql<{ bigint: bigint }>;
   chainId: bigint;
   intervalMs: number;
   config: ChainlinkChainConfig;
   catalogRefreshIntervalMs: number;
+  catalogCache: ChainlinkCatalogCache;
 }
 
 type ChainlinkTokenRow = {
@@ -29,24 +35,30 @@ type ChainlinkTokenRow = {
 // An upper bound on how long any single observation may be considered fresh.
 const MAX_PRICE_VALIDITY_MS = 30 * 24 * 60 * 60 * 1_000;
 
-// A feed keeps returning its last round until it next publishes, so polling
-// faster than the heartbeat re-reads one observation many times over. Emitting
-// those repeats would write a row per poll that says nothing new, so track the
-// round already reported per feed and yield only genuine updates. Held in
-// memory: after a restart the first poll re-reports one round per feed, which
-// the latest-price cache absorbs.
-const lastReportedRoundAt = new Map<string, number>();
+export interface ChainlinkRoundTracker {
+  (chainId: bigint, tokenAddress: string, roundUpdatedAt: Date): boolean;
+}
 
-export function shouldReportChainlinkRound(
-  chainId: bigint,
-  tokenAddress: string,
-  roundUpdatedAt: Date,
-): boolean {
-  const key = `${chainId}:${tokenAddress.toLowerCase()}`;
-  const updatedAtMs = roundUpdatedAt.getTime();
-  if (lastReportedRoundAt.get(key) === updatedAtMs) return false;
-  lastReportedRoundAt.set(key, updatedAtMs);
-  return true;
+/**
+ * Reports a feed's round at most once.
+ *
+ * A feed keeps returning its last round until it next publishes, so polling
+ * faster than the heartbeat re-reads one observation many times over. Emitting
+ * those repeats would write a row per poll that says nothing new, so this
+ * tracks the round already reported per feed and admits only genuine updates.
+ * Held in memory: after a restart the first poll re-reports one round per feed,
+ * which the latest-price cache absorbs.
+ */
+export function makeChainlinkRoundTracker(): ChainlinkRoundTracker {
+  const lastReportedRoundAt = new Map<string, number>();
+
+  return (chainId, tokenAddress, roundUpdatedAt) => {
+    const key = `${chainId}:${tokenAddress.toLowerCase()}`;
+    const updatedAtMs = roundUpdatedAt.getTime();
+    if (lastReportedRoundAt.get(key) === updatedAtMs) return false;
+    lastReportedRoundAt.set(key, updatedAtMs);
+    return true;
+  };
 }
 
 // Feed discovery and the on-chain reads both need full-width EVM addresses,
@@ -55,53 +67,27 @@ function toEvmAddress(address: string): `0x${string}` {
   return `0x${BigInt(address).toString(16).padStart(40, "0")}`;
 }
 
-// Catalogs are shared between chains only by URL, so cache on that. The last
-// successful response stays usable during a catalog outage.
-const catalogCache = new Map<
-  string,
-  { catalog: unknown; lastAttemptAt: number }
->();
-
-async function getCatalog(
-  catalogUrl: string,
-  refreshIntervalMs: number,
-): Promise<unknown> {
-  const cached = catalogCache.get(catalogUrl);
-  if (cached && Date.now() - cached.lastAttemptAt < refreshIntervalMs) {
-    return cached.catalog;
-  }
-
-  try {
-    const catalog = await fetchChainlinkFeedCatalog(catalogUrl);
-    catalogCache.set(catalogUrl, { catalog, lastAttemptAt: Date.now() });
-    return catalog;
-  } catch (error) {
-    if (cached) {
-      cached.lastAttemptAt = Date.now();
-      console.warn(
-        `Failed to refresh Chainlink feed catalog ${catalogUrl}; using cached catalog`,
-        error,
-      );
-      return cached.catalog;
-    }
-    throw error;
-  }
-}
-
-async function fetchChainlinkTokens(
+function fetchChainlinkTokens(
   sql: Sql<{ bigint: bigint }>,
   chainId: bigint,
-): Promise<ChainlinkToken[]> {
-  const tokens = await sql<ChainlinkTokenRow[]>`
-    SELECT token_address::TEXT, token_symbol
-    FROM erc20_tokens
-    WHERE chain_id = ${chainId}
-      AND visibility_priority >= 0
-  `;
-  return tokens.map((token) => ({
-    address: toEvmAddress(token.token_address),
-    symbol: token.token_symbol,
-  }));
+): Effect.Effect<ChainlinkToken[], PriceSyncError> {
+  return tryPriceSync({
+    source: SOURCE,
+    operation: `read indexed tokens for chain ${chainId}`,
+    try: () => sql<ChainlinkTokenRow[]>`
+      SELECT token_address::TEXT, token_symbol
+      FROM erc20_tokens
+      WHERE chain_id = ${chainId}
+        AND visibility_priority >= 0
+    `,
+  }).pipe(
+    Effect.map((tokens) =>
+      tokens.map((token) => ({
+        address: toEvmAddress(token.token_address),
+        symbol: token.token_symbol,
+      })),
+    ),
+  );
 }
 
 export function chainlinkPriceFetcher({
@@ -110,78 +96,103 @@ export function chainlinkPriceFetcher({
   intervalMs,
   config,
   catalogRefreshIntervalMs,
+  catalogCache,
 }: ChainlinkPriceFetcherOptions): PriceSyncJob {
+  const shouldReportRound = makeChainlinkRoundTracker();
+
+  // Validity is anchored at the round's own updatedAt and extends through the
+  // feed's staleness window -- mirroring the read-side contract -- floored at
+  // the job's default so a fast-heartbeat feed cannot expire between syncs.
+  const toUpdate = (
+    tokenAddress: string,
+    usdPrice: number,
+    timestamp: Date,
+    feed: ChainlinkFeedConfig | undefined,
+  ): PriceUpdate => {
+    // Clamped because maxAgeSeconds also arrives from operator config, where
+    // an implausible value would otherwise overflow the Date range and cost
+    // the whole batch instead of this one feed.
+    const validityMs = Math.min(
+      Math.max(
+        (feed?.maxAgeSeconds ?? 0) * 1_000,
+        defaultPriceValidityMs(intervalMs),
+      ),
+      MAX_PRICE_VALIDITY_MS,
+    );
+
+    return {
+      chainId,
+      tokenAddress: toHexTokenAddress(tokenAddress),
+      timestamp,
+      usdPrice,
+      validUntil: new Date(timestamp.getTime() + validityMs),
+    };
+  };
+
+  const configuredFeeds = () =>
+    new Map(config.feeds.map((feed) => [feed.tokenAddress.toLowerCase(), feed]));
+
+  // Discovery is best-effort: explicitly configured feeds must keep reporting
+  // through a catalog outage rather than depending on it.
+  const discoverFeeds = Effect.fn("chainlink.discoverFeeds")(
+    function* () {
+      const catalogUrl = config.catalogUrl;
+      if (!catalogUrl) return [];
+
+      const tokens = yield* fetchChainlinkTokens(sql, chainId);
+      const catalog = yield* catalogCache(catalogUrl, catalogRefreshIntervalMs);
+      return discoverChainlinkFeeds(catalog, tokens);
+    },
+    Effect.catch((error) =>
+      Effect.logWarning(
+        `Chainlink feed discovery failed for chain ${chainId}; using ${
+          configuredFeeds().size
+        } configured feeds: ${error.message}`,
+      ).pipe(Effect.as([] as ChainlinkFeedConfig[])),
+    ),
+  );
+
+  const plan = Effect.fn("chainlink.plan")(function* () {
+    const feedsByToken = configuredFeeds();
+
+    for (const feed of yield* discoverFeeds()) {
+      const key = feed.tokenAddress.toLowerCase();
+      if (!feedsByToken.has(key)) feedsByToken.set(key, feed);
+    }
+
+    const feeds = [...feedsByToken.values()];
+    yield* Effect.logInfo(
+      `Fetching ${feeds.length} Chainlink prices for chain ID ${chainId}`,
+    );
+    if (feeds.length === 0) return [];
+
+    const observations = yield* tryPriceSync({
+      source: SOURCE,
+      operation: `read feed prices for chain ${chainId}`,
+      try: () =>
+        fetchChainlinkTokenPrices(chainId.toString(), { ...config, feeds }),
+    });
+
+    return Object.entries(observations)
+      .filter(([tokenAddress, { timestamp }]) =>
+        shouldReportRound(chainId, tokenAddress, timestamp),
+      )
+      .map(([tokenAddress, { usdPrice, timestamp }]) =>
+        toUpdate(
+          tokenAddress,
+          usdPrice,
+          timestamp,
+          feedsByToken.get(tokenAddress.toLowerCase()),
+        ),
+      );
+  });
+
   return {
     chainIds: [chainId],
-    source: "cl1",
+    source: SOURCE,
     intervalMs,
-    fetch: async function* () {
-      const feedsByToken = new Map(
-        config.feeds.map((feed) => [feed.tokenAddress.toLowerCase(), feed]),
-      );
-
-      if (config.catalogUrl) {
-        // Discovery is best-effort: explicitly configured feeds must keep
-        // reporting through a catalog outage rather than depending on it.
-        try {
-          const tokens = await fetchChainlinkTokens(sql, chainId);
-          const catalog = await getCatalog(
-            config.catalogUrl,
-            catalogRefreshIntervalMs,
-          );
-          for (const feed of discoverChainlinkFeeds(catalog, tokens)) {
-            const key = feed.tokenAddress.toLowerCase();
-            if (!feedsByToken.has(key)) feedsByToken.set(key, feed);
-          }
-        } catch (error) {
-          console.warn(
-            `Chainlink feed discovery failed for chain ${chainId}; using ${feedsByToken.size} configured feeds`,
-            error,
-          );
-        }
-      }
-
-      const feeds = [...feedsByToken.values()];
-      console.log(
-        `Fetching ${feeds.length} Chainlink prices for chain ID ${chainId}`,
-      );
-      if (feeds.length === 0) return;
-
-      const observations = await fetchChainlinkTokenPrices(chainId.toString(), {
-        ...config,
-        feeds,
-      });
-
-      // Validity is anchored at the round's own updatedAt and extends through
-      // the feed's staleness window — mirroring the read-side contract —
-      // floored at the job's default so a fast-heartbeat feed cannot expire
-      // between syncs.
-      const updates: PriceUpdate[] = Object.entries(observations)
-        .filter(([tokenAddress, { timestamp }]) =>
-          shouldReportChainlinkRound(chainId, tokenAddress, timestamp),
-        )
-        .map(([tokenAddress, { usdPrice, timestamp }]) => {
-          const feed = feedsByToken.get(tokenAddress.toLowerCase());
-          // Clamped because maxAgeSeconds also arrives from operator config,
-          // where an implausible value would otherwise overflow the Date range
-          // and cost the whole batch instead of this one feed.
-          const validityMs = Math.min(
-            Math.max(
-              (feed?.maxAgeSeconds ?? 0) * 1_000,
-              defaultPriceValidityMs(intervalMs),
-            ),
-            MAX_PRICE_VALIDITY_MS,
-          );
-          return {
-            chainId,
-            tokenAddress: toHexTokenAddress(tokenAddress),
-            timestamp,
-            usdPrice,
-            validUntil: new Date(timestamp.getTime() + validityMs),
-          };
-        });
-
-      if (updates.length > 0) yield updates;
-    },
+    fetch: Stream.fromEffect(plan()).pipe(
+      Stream.filter((updates) => updates.length > 0),
+    ),
   };
 }

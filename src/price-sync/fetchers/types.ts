@@ -1,3 +1,6 @@
+import type { Stream } from "effect";
+import type { PriceSyncError } from "../errors";
+
 export interface PriceUpdate {
   readonly chainId: bigint;
   readonly tokenAddress: `0x${string}`;
@@ -9,9 +12,15 @@ export interface PriceUpdate {
   readonly validUntil?: Date;
 }
 
-export interface PriceFetcher {
-  (): AsyncIterable<readonly PriceUpdate[]>;
-}
+/**
+ * A job's price source, as a stream of batches.
+ *
+ * This is a value rather than a function because a `Stream` is a description:
+ * running it twice runs the work twice, which is exactly what the recurring
+ * schedule needs, and it removes the "call this to get a fresh iterable"
+ * convention the async-generator version relied on.
+ */
+export type PriceFetcher = Stream.Stream<readonly PriceUpdate[], PriceSyncError>;
 
 export interface PriceSyncJob {
   // Chains this job may yield updates for. Per-chain jobs list exactly one; a

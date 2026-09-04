@@ -1,4 +1,6 @@
+import type { Effect } from "effect";
 import type { Sql } from "postgres";
+import { type PriceSyncError, tryPriceSync } from "./errors";
 import type { PriceUpdate } from "./fetchers/types";
 
 const INSERT_BATCH_SIZE = 1_000;
@@ -43,7 +45,29 @@ function toPriceRow(
   ];
 }
 
-export async function persistPriceUpdates(
+/**
+ * Writes one batch, inside one transaction.
+ *
+ * The transaction stays whole inside a single `tryPromise`: `sql.begin` owns
+ * the connection and wants a promise-returning callback, so lifting the batch
+ * inserts into Effect would mean running a fiber per statement through a
+ * bridge and losing the scope the driver is already managing. The Effect
+ * boundary belongs here, at the edge of the transaction.
+ */
+export function persistPriceUpdates(
+  sql: Sql<{ bigint: bigint }>,
+  source: string,
+  updates: readonly PriceUpdate[],
+  defaultValidityMs: number,
+): Effect.Effect<number, PriceSyncError> {
+  return tryPriceSync({
+    source,
+    operation: `persist ${updates.length} price updates`,
+    try: () => writeBatches(sql, source, updates, defaultValidityMs),
+  });
+}
+
+async function writeBatches(
   sql: Sql<{ bigint: bigint }>,
   source: string,
   updates: readonly PriceUpdate[],

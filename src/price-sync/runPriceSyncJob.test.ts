@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { Effect, Stream } from "effect";
 import type { PriceSyncJob, PriceUpdate } from "./fetchers/types";
 import { runPriceSyncJob } from "./runPriceSyncJob";
 
@@ -32,18 +33,18 @@ test("runPriceSyncJob writes each yielded batch and reports totals", async () =>
     chainIds: [1n],
     source: "tst",
     intervalMs: 1_000,
-    fetch: async function* () {
-      yield batches[0];
-      yield [];
-      yield batches[1];
-    },
+    fetch: Stream.fromArray([batches[0], [], batches[1]]),
   };
   const writes: { source: string; updates: readonly PriceUpdate[] }[] = [];
 
-  const result = await runPriceSyncJob(job, async (source, updates) => {
-    writes.push({ source, updates });
-    return updates.length - 1;
-  });
+  const result = await Effect.runPromise(
+    runPriceSyncJob(job, (source, updates) =>
+      Effect.sync(() => {
+        writes.push({ source, updates });
+        return updates.length - 1;
+      }),
+    ),
+  );
 
   expect(writes).toEqual([
     { source: "tst", updates: batches[0] },
@@ -61,21 +62,19 @@ test("runPriceSyncJob rejects updates for a different chain", async () => {
     chainIds: [1n],
     source: "tst",
     intervalMs: 1_000,
-    fetch: async function* () {
-      yield [
-        {
-          chainId: 8453n,
-          tokenAddress: "0x1",
-          timestamp: new Date("2026-07-28T12:00:00.000Z"),
-          usdPrice: 1,
-        },
-      ];
-    },
+    fetch: Stream.make([
+      {
+        chainId: 8453n,
+        tokenAddress: "0x1",
+        timestamp: new Date("2026-07-28T12:00:00.000Z"),
+        usdPrice: 1,
+      },
+    ]),
   };
 
-  await expect(runPriceSyncJob(priceJob, async () => 1)).rejects.toThrow(
-    "Price sync job 1:tst yielded an update for chain 8453",
-  );
+  await expect(
+    Effect.runPromise(runPriceSyncJob(priceJob, () => Effect.succeed(1))),
+  ).rejects.toThrow("Price sync job 1:tst yielded an update for chain 8453");
 });
 
 test("runPriceSyncJob accepts every chain a multi-chain job declares", async () => {
@@ -84,15 +83,15 @@ test("runPriceSyncJob accepts every chain a multi-chain job declares", async () 
     chainIds: [1n, 8453n],
     source: "tst",
     intervalMs: 1_000,
-    fetch: async function* () {
-      yield [{ chainId: 1n, tokenAddress: "0x0", timestamp, usdPrice: 3_000 }];
-      yield [
-        { chainId: 8453n, tokenAddress: "0x0", timestamp, usdPrice: 3_000 },
-      ];
-    },
+    fetch: Stream.fromArray([
+      [{ chainId: 1n, tokenAddress: "0x0", timestamp, usdPrice: 3_000 }],
+      [{ chainId: 8453n, tokenAddress: "0x0", timestamp, usdPrice: 3_000 }],
+    ]),
   };
 
-  const result = await runPriceSyncJob(priceJob, async () => 1);
+  const result = await Effect.runPromise(
+    runPriceSyncJob(priceJob, () => Effect.succeed(1)),
+  );
 
   expect(result).toEqual({ batchCount: 2, updateCount: 2, insertedCount: 2 });
 });

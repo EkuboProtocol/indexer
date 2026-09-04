@@ -1,5 +1,9 @@
 import type { Sql } from "postgres";
 import { chainlinkPriceFetcher } from "./fetchers/chainlink";
+import {
+  makeChainlinkCatalogCache,
+  type ChainlinkCatalogCache,
+} from "./fetchers/chainlinkCatalog";
 import type { ChainlinkPriceConfig } from "./fetchers/chainlinkFeeds";
 import {
   coingeckoNativePriceFetcher,
@@ -9,6 +13,7 @@ import { quoterPriceFetcher } from "./fetchers/ekuboQuoter";
 // import { oracleV1PriceFetcher } from "./fetchers/oracleV1";
 import { sushiswapPriceFetcher } from "./fetchers/sushiswap";
 import type { PriceSyncJob } from "./fetchers/types";
+import type { LaunchSpacer } from "./launchSpacer";
 
 interface CreatePriceSyncJobsOptions {
   sql: Sql<{ bigint: bigint }>;
@@ -17,7 +22,15 @@ interface CreatePriceSyncJobsOptions {
   chainlinkIntervalMs?: number;
   chainlinkConfig?: ChainlinkPriceConfig;
   chainlinkCatalogRefreshIntervalMs?: number;
+  coingeckoApiKey?: string | undefined;
+  quoterBaseUrl?: string;
+  // Shared across every quoter job so the request budget is the worker's.
+  quoterSpacer?: LaunchSpacer;
+  // Shared across every Chainlink job so one catalog URL is fetched once.
+  chainlinkCatalogCache?: ChainlinkCatalogCache;
 }
+
+const passThrough: LaunchSpacer = (effect) => effect;
 
 export function createPriceSyncJobs({
   sql,
@@ -26,7 +39,30 @@ export function createPriceSyncJobs({
   chainlinkIntervalMs = 0,
   chainlinkConfig = {},
   chainlinkCatalogRefreshIntervalMs = 3_600_000,
+  coingeckoApiKey,
+  quoterBaseUrl = "https://prod-api-quoter.ekubo.org",
+  quoterSpacer = passThrough,
+  chainlinkCatalogCache = makeChainlinkCatalogCache(),
 }: CreatePriceSyncJobsOptions): PriceSyncJob[] {
+  // The dependencies every job of a kind shares, bound once so the list below
+  // stays a table of what is priced where rather than of how it is wired.
+  const quoter = (
+    options: Omit<
+      Parameters<typeof quoterPriceFetcher>[0],
+      "sql" | "spacer" | "baseUrl"
+    >,
+  ) =>
+    quoterPriceFetcher({
+      ...options,
+      sql,
+      spacer: quoterSpacer,
+      baseUrl: quoterBaseUrl,
+    });
+
+  const coingecko = (
+    options: Omit<Parameters<typeof coingeckoPriceFetcher>[0], "sql" | "apiKey">,
+  ) => coingeckoPriceFetcher({ ...options, sql, apiKey: coingeckoApiKey });
+
   return [
     // One job per chain configured with Chainlink feeds. Absent configuration
     // yields no jobs at all, so Chainlink stays inert until it is set up.
@@ -37,6 +73,7 @@ export function createPriceSyncJobs({
         intervalMs: chainlinkIntervalMs,
         config,
         catalogRefreshIntervalMs: chainlinkCatalogRefreshIntervalMs,
+        catalogCache: chainlinkCatalogCache,
       }),
     ),
 
@@ -45,6 +82,7 @@ export function createPriceSyncJobs({
     // each chain its own CoinGecko job.
     coingeckoNativePriceFetcher({
       intervalMs: coingeckoIntervalMs,
+      apiKey: coingeckoApiKey,
       chainIdsByCoinId: {
         ethereum: [
           1n, // eth mainnet
@@ -60,8 +98,7 @@ export function createPriceSyncJobs({
       chainId: 1n,
       intervalMs: defaultIntervalMs,
     }),
-    quoterPriceFetcher({
-      sql,
+    quoter({
       chainId: 1n,
       intervalMs: defaultIntervalMs,
       address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
@@ -86,8 +123,7 @@ export function createPriceSyncJobs({
     }),
 
     // base
-    quoterPriceFetcher({
-      sql,
+    quoter({
       chainId: 8453n,
       intervalMs: defaultIntervalMs,
       address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
@@ -98,16 +134,14 @@ export function createPriceSyncJobs({
       chainId: 8453n,
       intervalMs: defaultIntervalMs,
     }),
-    coingeckoPriceFetcher({
-      sql,
+    coingecko({
       chainId: 8453n,
       intervalMs: coingeckoIntervalMs,
       platform: "base",
     }),
 
     // monad
-    quoterPriceFetcher({
-      sql,
+    quoter({
       chainId: 143n,
       intervalMs: defaultIntervalMs,
       address: "0x754704bc059f8c67012fed69bc8a327a5aafb603",
@@ -116,8 +150,7 @@ export function createPriceSyncJobs({
     }),
 
     // robinhood
-    quoterPriceFetcher({
-      sql,
+    quoter({
       chainId: 4663n,
       intervalMs: defaultIntervalMs,
       address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
@@ -132,16 +165,14 @@ export function createPriceSyncJobs({
       chainId: 4663n,
       intervalMs: defaultIntervalMs,
     }),
-    coingeckoPriceFetcher({
-      sql,
+    coingecko({
       chainId: 4663n,
       intervalMs: coingeckoIntervalMs,
       platform: "robinhood",
     }),
 
     // fake robinhood chain
-    quoterPriceFetcher({
-      sql,
+    quoter({
       chainId: 46630n,
       intervalMs: defaultIntervalMs,
       address: "0x9367e29667db75Cb91788330a8509b3B4ac66c8f",
@@ -154,16 +185,14 @@ export function createPriceSyncJobs({
       chainId: 42161n,
       intervalMs: defaultIntervalMs,
     }),
-    coingeckoPriceFetcher({
-      sql,
+    coingecko({
       chainId: 42161n,
       intervalMs: coingeckoIntervalMs,
       platform: "arbitrum-one",
     }),
 
     // arbitrum sepolia
-    quoterPriceFetcher({
-      sql,
+    quoter({
       chainId: 421614n,
       intervalMs: defaultIntervalMs,
       address: "0x75faf114eafb1bdbe2f0316df893fd58ce46aa4d",
@@ -172,8 +201,7 @@ export function createPriceSyncJobs({
     }),
 
     // starknet mainnet
-    quoterPriceFetcher({
-      sql,
+    quoter({
       chainId: 23448594291968334n,
       intervalMs: defaultIntervalMs,
       address:

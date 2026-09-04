@@ -1,24 +1,23 @@
 import { afterEach, expect, test } from "bun:test";
+import { Effect, Stream } from "effect";
 import type { Sql } from "postgres";
 import {
   coingeckoNativePriceFetcher,
   coingeckoPriceFetcher,
 } from "./coingecko";
-import type { PriceUpdate } from "./types";
+import type { PriceFetcher, PriceUpdate } from "./types";
 
 const realFetch = globalThis.fetch;
-const realApiKey = process.env.COINGECKO_API_KEY;
+
+const apiKey = "test-key";
 
 afterEach(() => {
   globalThis.fetch = realFetch;
-  if (realApiKey === undefined) delete process.env.COINGECKO_API_KEY;
-  else process.env.COINGECKO_API_KEY = realApiKey;
 });
 
 // Records every URL requested and replies with the caller's payload.
 function stubCoinGecko(reply: (url: URL) => unknown): string[] {
   const requested: string[] = [];
-  process.env.COINGECKO_API_KEY = "test-key";
   globalThis.fetch = (async (input: string | URL) => {
     const url = new URL(String(input));
     requested.push(url.toString());
@@ -38,12 +37,9 @@ function stubSql(addresses: string[]): Sql<{ bigint: bigint }> {
     )) as unknown as Sql<{ bigint: bigint }>;
 }
 
-async function collect(
-  fetcher: () => AsyncIterable<readonly PriceUpdate[]>,
-): Promise<PriceUpdate[]> {
-  const updates: PriceUpdate[] = [];
-  for await (const batch of fetcher()) updates.push(...batch);
-  return updates;
+async function collect(fetch: PriceFetcher): Promise<PriceUpdate[]> {
+  const batches = await Effect.runPromise(Stream.runCollect(fetch));
+  return batches.flatMap((batch) => [...batch]);
 }
 
 test("the native fetcher prices every chain sharing a coin ID in one request", async () => {
@@ -51,6 +47,7 @@ test("the native fetcher prices every chain sharing a coin ID in one request", a
   const job = coingeckoNativePriceFetcher({
     intervalMs: 900_000,
     chainIdsByCoinId: { ethereum: [1n, 8453n, 4663n, 42161n] },
+    apiKey,
   });
 
   const updates = await collect(job.fetch);
@@ -77,6 +74,7 @@ test("the native fetcher issues one request per distinct coin ID", async () => {
   const job = coingeckoNativePriceFetcher({
     intervalMs: 900_000,
     chainIdsByCoinId: { ethereum: [1n, 8453n], binancecoin: [56n] },
+    apiKey,
   });
 
   const updates = await collect(job.fetch);
@@ -91,6 +89,7 @@ test("the native fetcher skips chains CoinGecko did not price", async () => {
   const job = coingeckoNativePriceFetcher({
     intervalMs: 900_000,
     chainIdsByCoinId: { ethereum: [1n, 8453n] },
+    apiKey,
   });
 
   expect(await collect(job.fetch)).toEqual([]);
@@ -116,6 +115,7 @@ test("the token fetcher sweeps every address on its first cycle", async () => {
     chainId: 8453n,
     intervalMs: 900_000,
     platform: "base",
+    apiKey,
   });
 
   await collect(job.fetch);
@@ -136,6 +136,7 @@ test("the token fetcher drops addresses CoinGecko does not price from later cycl
     // Long enough that no unpriced token is due again during this test.
     unpricedReprobeIntervalMs: 1_000_000,
     platform: "base",
+    apiKey,
   });
 
   await collect(job.fetch);
@@ -155,6 +156,7 @@ test("the token fetcher re-probes unpriced addresses on rotation", async () => {
     // Two slots: half the unpriced tail comes due on each cycle.
     unpricedReprobeIntervalMs: 2_000,
     platform: "base",
+    apiKey,
   });
 
   await collect(job.fetch);
@@ -180,6 +182,7 @@ test("the token fetcher picks up a token that CoinGecko lists later", async () =
     intervalMs: 1_000,
     unpricedReprobeIntervalMs: 2_000,
     platform: "base",
+    apiKey,
   });
 
   await collect(job.fetch);
@@ -206,6 +209,7 @@ test("the token fetcher forgets addresses that leave erc20_tokens", async () => 
     intervalMs: 1_000,
     unpricedReprobeIntervalMs: 1_000_000,
     platform: "base",
+    apiKey,
   });
 
   await collect(job.fetch);

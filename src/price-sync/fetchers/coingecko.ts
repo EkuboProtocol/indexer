@@ -1,5 +1,8 @@
+import { Effect, Ref, Stream } from "effect";
 import type { Sql } from "postgres";
-import type { PriceSyncJob, PriceSyncJobOptions } from "./types";
+import { PriceSyncError, tryPriceSync } from "../errors";
+import { fetchJson } from "../http";
+import type { PriceSyncJob, PriceSyncJobOptions, PriceUpdate } from "./types";
 import { toPriceUpdates } from "./utils";
 
 const COINGECKO_API_BASE_URL = "https://pro-api.coingecko.com/api/v3";
@@ -12,12 +15,19 @@ const COINGECKO_MAX_CONTRACT_ADDRESSES = 100;
 // and never yields a price.
 const UNPRICED_REPROBE_INTERVAL_MS = 24 * 60 * 60 * 1_000;
 
+const TOKEN_SOURCE = "cg1";
+const NATIVE_SOURCE = "cgn";
+
 type CoinGeckoTokenPriceResponse = Record<string, { usd?: number }>;
 type TokenAddressRow = { token_address: string };
 
 interface CoinGeckoPriceFetcherOptions extends PriceSyncJobOptions {
   sql: Sql<{ bigint: bigint }>;
   platform: string;
+  // Absent when COINGECKO_API_KEY is unset. The job still exists, and still
+  // fails once per cycle saying so, rather than taking startup down for a
+  // source the operator may not have enabled.
+  apiKey: string | undefined;
   unpricedReprobeIntervalMs?: number;
 }
 
@@ -26,61 +36,68 @@ interface CoinGeckoNativePriceFetcherOptions {
   // CoinGecko coin ID to the chains whose native currency it prices. Chains
   // sharing a coin ID are served by one request instead of one apiece.
   chainIdsByCoinId: Readonly<Record<string, readonly bigint[]>>;
+  apiKey: string | undefined;
 }
 
 function toEvmAddress(address: string): `0x${string}` {
   return `0x${BigInt(address).toString(16).padStart(40, "0")}`;
 }
 
-async function fetchTokenAddresses(
+function requireApiKey(
+  source: string,
+  apiKey: string | undefined,
+): Effect.Effect<string, PriceSyncError> {
+  return apiKey
+    ? Effect.succeed(apiKey)
+    : Effect.fail(
+        new PriceSyncError({
+          source,
+          operation: "read API key",
+          cause: new Error(
+            "COINGECKO_API_KEY is required when CoinGecko price syncing is enabled",
+          ),
+        }),
+      );
+}
+
+function requestPrices({
+  source,
+  operation,
+  path,
+  apiKey,
+}: {
+  source: string;
+  operation: string;
+  path: string;
+  apiKey: string;
+}): Effect.Effect<CoinGeckoTokenPriceResponse, PriceSyncError> {
+  return fetchJson<CoinGeckoTokenPriceResponse>({
+    source,
+    operation,
+    url: `${COINGECKO_API_BASE_URL}${path}`,
+    headers: { "x-cg-pro-api-key": apiKey },
+  });
+}
+
+function fetchTokenAddresses(
   sql: Sql<{ bigint: bigint }>,
   chainId: bigint,
-): Promise<`0x${string}`[]> {
-  const tokens = await sql<TokenAddressRow[]>`
-    SELECT token_address::TEXT
-    FROM erc20_tokens
-    WHERE chain_id = ${chainId}
-      AND token_address > 0
-    ORDER BY token_address
-  `;
-
-  return tokens.map(({ token_address }) => toEvmAddress(token_address));
-}
-
-async function fetchCoinGecko<T>({
-  url,
-  apiKey,
-  context,
-}: {
-  url: string;
-  apiKey: string;
-  context: string;
-}): Promise<T> {
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      "x-cg-pro-api-key": apiKey,
-    },
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(
-      `CoinGecko ${context} request failed: ${response.status} ${response.statusText}: ${body}`,
-    );
-  }
-
-  return (await response.json()) as T;
-}
-
-function requireApiKey(): string {
-  const apiKey = process.env.COINGECKO_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "COINGECKO_API_KEY is required when CoinGecko price syncing is enabled",
-    );
-  }
-  return apiKey;
+): Effect.Effect<`0x${string}`[], PriceSyncError> {
+  return tryPriceSync({
+    source: TOKEN_SOURCE,
+    operation: `read indexed tokens for chain ${chainId}`,
+    try: () => sql<TokenAddressRow[]>`
+      SELECT token_address::TEXT
+      FROM erc20_tokens
+      WHERE chain_id = ${chainId}
+        AND token_address > 0
+      ORDER BY token_address
+    `,
+  }).pipe(
+    Effect.map((tokens) =>
+      tokens.map(({ token_address }) => toEvmAddress(token_address)),
+    ),
+  );
 }
 
 function usablePrice(value: number | undefined): value is number {
@@ -89,45 +106,61 @@ function usablePrice(value: number | undefined): value is number {
 
 /**
  * Prices the native currency of every configured chain. Chains that share a
- * CoinGecko coin ID — every EVM rollup settling in ETH, for instance — are
+ * CoinGecko coin ID -- every EVM rollup settling in ETH, for instance -- are
  * priced by a single `simple/price` request rather than one request per chain.
  */
 export function coingeckoNativePriceFetcher({
   intervalMs,
   chainIdsByCoinId,
+  apiKey,
 }: CoinGeckoNativePriceFetcherOptions): PriceSyncJob {
   const coinIds = Object.keys(chainIdsByCoinId).sort();
   const chainIds = coinIds.flatMap((coinId) => [...chainIdsByCoinId[coinId]]);
 
+  // One batch per chain, so a coin ID serving four chains still writes each
+  // chain's row under its own chain ID.
+  const toBatches = (
+    result: CoinGeckoTokenPriceResponse,
+  ): readonly PriceUpdate[][] => {
+    const timestamp = new Date();
+
+    return coinIds.flatMap((coinId) => {
+      const usdPrice = result[coinId]?.usd;
+      if (!usablePrice(usdPrice)) return [];
+
+      return chainIdsByCoinId[coinId].map((chainId) =>
+        toPriceUpdates(chainId, [["0x0", usdPrice]], timestamp),
+      );
+    });
+  };
+
+  const query = new URLSearchParams({
+    ids: coinIds.join(","),
+    vs_currencies: "usd",
+    precision: "full",
+  });
+
   return {
     chainIds,
-    source: "cgn",
+    source: NATIVE_SOURCE,
     intervalMs,
-    fetch: async function* () {
-      if (coinIds.length === 0) return;
-
-      const apiKey = requireApiKey();
-      const query = new URLSearchParams({
-        ids: coinIds.join(","),
-        vs_currencies: "usd",
-        precision: "full",
-      });
-      const result = await fetchCoinGecko<CoinGeckoTokenPriceResponse>({
-        url: `${COINGECKO_API_BASE_URL}/simple/price?${query}`,
-        apiKey,
-        context: `native currencies ${coinIds.join(", ")}`,
-      });
-
-      const timestamp = new Date();
-      for (const coinId of coinIds) {
-        const usdPrice = result[coinId]?.usd;
-        if (!usablePrice(usdPrice)) continue;
-
-        for (const chainId of chainIdsByCoinId[coinId]) {
-          yield toPriceUpdates(chainId, [["0x0", usdPrice]], timestamp);
-        }
-      }
-    },
+    fetch:
+      coinIds.length === 0
+        ? Stream.empty
+        : Stream.unwrap(
+            requireApiKey(NATIVE_SOURCE, apiKey).pipe(
+              Effect.map((key) =>
+                Stream.fromEffect(
+                  requestPrices({
+                    source: NATIVE_SOURCE,
+                    operation: `native currencies ${coinIds.join(", ")}`,
+                    path: `/simple/price?${query}`,
+                    apiKey: key,
+                  }),
+                ).pipe(Stream.flatMap((result) => Stream.fromArray(toBatches(result)))),
+              ),
+            ),
+          ),
   };
 }
 
@@ -135,7 +168,7 @@ export function coingeckoNativePriceFetcher({
  * Prices a chain's ERC20 tokens by contract address.
  *
  * Only tokens CoinGecko has actually priced are requested every cycle. The rest
- * — the large majority of `erc20_tokens` on any chain — are re-probed on a slow
+ * -- the large majority of `erc20_tokens` on any chain -- are re-probed on a slow
  * rotation, which keeps request volume proportional to the tokens CoinGecko
  * covers instead of to the size of the table.
  */
@@ -144,13 +177,18 @@ export function coingeckoPriceFetcher({
   chainId,
   intervalMs,
   platform,
+  apiKey,
   unpricedReprobeIntervalMs = UNPRICED_REPROBE_INTERVAL_MS,
 }: CoinGeckoPriceFetcherOptions): PriceSyncJob {
   // Retained across cycles for the life of the process. A restart replays the
   // full sweep once, which is what this job did on every cycle before.
-  const priced = new Set<string>();
-  const probed = new Set<string>();
-  let cycle = 0;
+  //
+  // `makeUnsafe` because these refs belong to the job, not to one run of it:
+  // creating them inside the stream would reset the rotation every cycle and
+  // put the whole table back into every request.
+  const priced = Ref.makeUnsafe(new Set<string>());
+  const probed = Ref.makeUnsafe(new Set<string>());
+  const cycle = Ref.makeUnsafe(0);
 
   // Spread the re-probes of unpriced tokens evenly across the rotation window,
   // so each cycle carries roughly one slot's worth instead of the whole tail.
@@ -159,80 +197,127 @@ export function coingeckoPriceFetcher({
     Math.round(unpricedReprobeIntervalMs / Math.max(intervalMs, 1)),
   );
 
+  // Tokens can leave `erc20_tokens`; do not let the sets grow forever.
+  const forgetDroppedTokens = Effect.fn("coingecko.forgetDroppedTokens")(
+    function* (current: ReadonlySet<string>) {
+      const known = yield* Ref.get(probed);
+      const dropped = [...known].filter((address) => !current.has(address));
+      if (dropped.length === 0) return;
+
+      yield* Ref.update(probed, (set) => difference(set, dropped));
+      yield* Ref.update(priced, (set) => difference(set, dropped));
+    },
+  );
+
+  const selectAddresses = Effect.fn("coingecko.selectAddresses")(function* (
+    addresses: readonly `0x${string}`[],
+  ) {
+    const slot = (yield* Ref.getAndUpdate(cycle, (n) => n + 1)) % slotCount;
+    const pricedNow = yield* Ref.get(priced);
+    const probedNow = yield* Ref.get(probed);
+
+    return addresses.filter(
+      (address, index) =>
+        // CoinGecko prices it, so keep it fresh every cycle.
+        pricedNow.has(address) ||
+        // Never asked -- a token new to the table, or the first sweep after a
+        // restart.
+        !probedNow.has(address) ||
+        // Due for its periodic re-probe in case CoinGecko has listed it since.
+        index % slotCount === slot,
+    );
+  });
+
+  const recordOutcome = Effect.fn("coingecko.recordOutcome")(function* (
+    batch: readonly string[],
+    pricedInBatch: ReadonlySet<string>,
+  ) {
+    const isPriced = (address: string) =>
+      pricedInBatch.has(address.toLowerCase());
+
+    yield* Ref.update(probed, (set) => new Set([...set, ...batch]));
+    yield* Ref.update(priced, (set) => {
+      const next = new Set(set);
+      for (const address of batch) {
+        if (isPriced(address)) next.add(address);
+        else next.delete(address);
+      }
+      return next;
+    });
+  });
+
+  const requestBatch = Effect.fn("coingecko.requestBatch")(function* (
+    batch: readonly `0x${string}`[],
+    apiKey: string,
+  ) {
+    const query = new URLSearchParams({
+      contract_addresses: batch.join(","),
+      vs_currencies: "usd",
+      precision: "full",
+    });
+    const result = yield* requestPrices({
+      source: TOKEN_SOURCE,
+      operation: `token prices for chain ${chainId}`,
+      path: `/simple/token_price/${platform}?${query}`,
+      apiKey,
+    });
+
+    // CoinGecko lowercases the addresses it echoes back, so compare on the
+    // requested form rather than trusting the response keys to match.
+    const prices: [tokenAddress: string, usdPrice: number][] = [];
+    const pricedInBatch = new Set<string>();
+    for (const [address, { usd }] of Object.entries(result)) {
+      if (usablePrice(usd)) {
+        prices.push([address, usd]);
+        pricedInBatch.add(address.toLowerCase());
+      }
+    }
+
+    yield* recordOutcome(batch, pricedInBatch);
+
+    return toPriceUpdates(chainId, prices);
+  });
+
+  const plan = Effect.fn("coingecko.plan")(function* () {
+    const apiKey_ = yield* requireApiKey(TOKEN_SOURCE, apiKey);
+    const addresses = yield* fetchTokenAddresses(sql, chainId);
+
+    yield* forgetDroppedTokens(new Set(addresses));
+    const selected = yield* selectAddresses(addresses);
+
+    return Stream.fromArray(batches(selected)).pipe(
+      Stream.mapEffect((batch) => requestBatch(batch, apiKey_)),
+      Stream.filter((updates) => updates.length > 0),
+    );
+  });
+
   return {
     chainIds: [chainId],
-    source: "cg1",
+    source: TOKEN_SOURCE,
     intervalMs,
-    fetch: async function* () {
-      const apiKey = requireApiKey();
-      const addresses = await fetchTokenAddresses(sql, chainId);
-      const currentAddresses = new Set(addresses);
-
-      // Tokens can leave `erc20_tokens`; do not let the sets grow forever.
-      for (const address of probed) {
-        if (!currentAddresses.has(address)) {
-          probed.delete(address);
-          priced.delete(address);
-        }
-      }
-
-      const slot = cycle % slotCount;
-      cycle++;
-
-      const selected = addresses.filter(
-        (address, index) =>
-          // CoinGecko prices it, so keep it fresh every cycle.
-          priced.has(address) ||
-          // Never asked — a token new to the table, or the first sweep after a
-          // restart.
-          !probed.has(address) ||
-          // Due for its periodic re-probe in case CoinGecko has listed it since.
-          index % slotCount === slot,
-      );
-
-      for (
-        let offset = 0;
-        offset < selected.length;
-        offset += COINGECKO_MAX_CONTRACT_ADDRESSES
-      ) {
-        const batch = selected.slice(
-          offset,
-          offset + COINGECKO_MAX_CONTRACT_ADDRESSES,
-        );
-        const query = new URLSearchParams({
-          contract_addresses: batch.join(","),
-          vs_currencies: "usd",
-          precision: "full",
-        });
-        const result = await fetchCoinGecko<CoinGeckoTokenPriceResponse>({
-          url: `${COINGECKO_API_BASE_URL}/simple/token_price/${platform}?${query}`,
-          apiKey,
-          context: `token prices for chain ${chainId}`,
-        });
-        const prices: [tokenAddress: string, usdPrice: number][] = [];
-
-        // CoinGecko lowercases the addresses it echoes back, so compare on the
-        // requested form rather than trusting the response keys to match.
-        const pricedInBatch = new Set<string>();
-        for (const [address, { usd }] of Object.entries(result)) {
-          if (usablePrice(usd)) {
-            prices.push([address, usd]);
-            pricedInBatch.add(address.toLowerCase());
-          }
-        }
-
-        for (const address of batch) {
-          probed.add(address);
-          if (pricedInBatch.has(address.toLowerCase())) {
-            priced.add(address);
-          } else {
-            priced.delete(address);
-          }
-        }
-
-        const updates = toPriceUpdates(chainId, prices);
-        if (updates.length > 0) yield updates;
-      }
-    },
+    fetch: Stream.unwrap(plan()),
   };
+}
+
+function difference(
+  set: ReadonlySet<string>,
+  removed: readonly string[],
+): Set<string> {
+  const next = new Set(set);
+  for (const address of removed) next.delete(address);
+  return next;
+}
+
+function batches(
+  addresses: readonly `0x${string}`[],
+): (readonly `0x${string}`[])[] {
+  const result: (readonly `0x${string}`[])[] = [];
+  for (
+    let offset = 0;
+    offset < addresses.length;
+    offset += COINGECKO_MAX_CONTRACT_ADDRESSES
+  ) {
+    result.push(addresses.slice(offset, offset + COINGECKO_MAX_CONTRACT_ADDRESSES));
+  }
+  return result;
 }

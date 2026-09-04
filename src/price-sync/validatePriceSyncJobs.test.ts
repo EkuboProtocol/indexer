@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { Stream } from "effect";
 import type { PriceSyncJob } from "./fetchers/types";
 import { priceSyncJobId, validatePriceSyncJobs } from "./validatePriceSyncJobs";
 
@@ -15,7 +16,7 @@ function job({
     chainIds,
     source,
     intervalMs,
-    fetch: async function* () {},
+    fetch: Stream.empty,
   };
 }
 

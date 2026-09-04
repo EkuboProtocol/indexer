@@ -1,6 +1,27 @@
+import { Stream } from "effect";
 import { EVM_NATIVE_TOKEN_ALIASES } from "../../_shared/evmNativeTokenAliases";
+import { fetchJson } from "../http";
 import type { PriceSyncJob, PriceSyncJobOptions } from "./types";
 import { toPriceUpdates } from "./utils";
+
+const SOURCE = "ss1";
+
+// Sushi reports the native currency under one of several sentinel addresses;
+// the database keys it as 0x0.
+function withNativeAlias(
+  prices: Record<string, number>,
+): [tokenAddress: string, usdPrice: number][] {
+  const result = { ...prices };
+
+  for (const [address, price] of Object.entries(result)) {
+    if (EVM_NATIVE_TOKEN_ALIASES.has(BigInt(address))) {
+      delete result[address];
+      result["0x0"] = price;
+    }
+  }
+
+  return Object.entries(result);
+}
 
 export function sushiswapPriceFetcher({
   chainId,
@@ -8,37 +29,18 @@ export function sushiswapPriceFetcher({
 }: PriceSyncJobOptions): PriceSyncJob {
   return {
     chainIds: [chainId],
-    source: "ss1",
+    source: SOURCE,
     intervalMs,
-    fetch: async function* () {
-      const url = `https://api.sushi.com/price/v1/${chainId}`;
-      const response = await fetch(url, {
-        method: "GET",
-        credentials: "omit",
-        headers: {
-          Accept: "application/json",
-        },
+    fetch: Stream.fromEffect(
+      fetchJson<Record<string, number>>({
+        source: SOURCE,
+        operation: `prices for chain ${chainId}`,
+        url: `https://api.sushi.com/price/v1/${chainId}`,
         referrer: "https://ekubo.org/",
-      });
-
-      if (!response.ok) {
-        const body = await response.text();
-        throw new Error(
-          `Sushiswap request failed for chain ${chainId}: ${response.status} ${response.statusText}: ${body}`,
-        );
-      }
-
-      const prices = (await response.json()) as Record<string, number>;
-
-      for (const [address, price] of Object.entries(prices)) {
-        if (EVM_NATIVE_TOKEN_ALIASES.has(BigInt(address))) {
-          delete prices[address];
-          prices["0x0"] = price;
-        }
-      }
-
-      const updates = toPriceUpdates(chainId, Object.entries(prices));
-      if (updates.length > 0) yield updates;
-    },
+      }),
+    ).pipe(
+      Stream.map((prices) => toPriceUpdates(chainId, withNativeAlias(prices))),
+      Stream.filter((updates) => updates.length > 0),
+    ),
   };
 }
