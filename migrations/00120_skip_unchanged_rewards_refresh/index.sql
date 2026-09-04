@@ -54,7 +54,10 @@
 -- (the rewards_last_computed_at stamp, which rides along with the same 00:01
 -- run), and generated_drop_reward_periods 126 inserts.
 --
--- That makes this 24 refreshes/day -> 1, or 3,488 s/day -> ~145 s/day.
+-- That makes this 24 refreshes/day -> 1 or 2, or 3,488 s/day -> ~150-300 s.
+-- One is the 00:05 run; the second is only if a drop generation writes
+-- generated_drop_reward_periods in some other hour, which is not on a
+-- schedule.
 --
 -- Note that a statement-level trigger fires even when the statement matches no
 -- rows, so this errs toward refreshing: it can refresh when nothing really
@@ -98,13 +101,35 @@ AS
 $$
 BEGIN
     -- Statement level, so this is one cheap update per writing statement, not
-    -- per row. The "AND NOT stale" predicate matters: once the flag is already
-    -- set the UPDATE matches no row, takes no row lock, and so concurrent
-    -- writers do not serialise behind each other on this table.
+    -- per row.
+    --
+    -- This is deliberately unqualified -- no "AND NOT stale" short-circuit --
+    -- because taking the row lock is the entire point. A writer that runs
+    -- while refresh_rewards_by_position_if_stale() is mid-REFRESH must block
+    -- here until that transaction commits, so that its own commit lands after
+    -- the flag has been cleared and the flag is then set again for the next
+    -- run.
+    --
+    -- Adding "AND NOT stale" silently breaks that. The refreshing transaction
+    -- clears the flag while holding the row, but has not committed, so a
+    -- concurrent writer under READ COMMITTED evaluates the predicate against
+    -- the last committed version, where stale is still TRUE. The row fails
+    -- "NOT stale", is never considered, and no lock is taken -- so the writer
+    -- does not wait, commits outside the REFRESH's snapshot, and then has its
+    -- signal overwritten by the clear. Its rows would stay out of the matview
+    -- until the 24 h backstop.
+    --
+    -- The cost of getting this right is that a writer can stall for the
+    -- duration of a refresh. That is bounded: refreshes happen about once a
+    -- day now, and the inputs took 90 write statements in ten days, so the
+    -- overlap is rare and the correct behaviour is worth it.
+    --
+    -- Note this cannot be reproduced in the migration tests: PGlite is a
+    -- single connection, so there is no second transaction to block. The
+    -- reasoning above is what carries it.
     UPDATE incentives.rewards_mv_refresh_state
     SET stale = TRUE
-    WHERE id
-      AND NOT stale;
+    WHERE id;
 
     RETURN NULL;
 END;
@@ -179,13 +204,18 @@ BEGIN
         RETURN FALSE;
     END IF;
 
-    -- Ordering note. The flag is cleared before the refresh reads anything.
-    -- Under READ COMMITTED each statement takes its own snapshot, so the
-    -- REFRESH below sees at least everything the clearing UPDATE saw. A writer
-    -- committing after that snapshot is blocked on this row's lock until this
-    -- transaction commits and then sets the flag again, so its change is
-    -- picked up by the next run rather than being swallowed by this one.
-    -- Clearing afterwards instead would lose exactly that write.
+    -- Ordering note. The flag is cleared before the refresh reads anything,
+    -- and the UPDATE above keeps this row locked for the rest of this
+    -- transaction. Under READ COMMITTED each statement takes its own
+    -- snapshot, so the REFRESH below sees at least everything the clearing
+    -- UPDATE saw. A writer arriving after that snapshot blocks on this row in
+    -- mark_rewards_by_position_stale(), and only commits -- and re-sets the
+    -- flag -- once this transaction has finished, so its change is picked up
+    -- by the next run rather than being swallowed by this one.
+    --
+    -- Both halves are load-bearing: clearing after the refresh instead would
+    -- lose that write, and so would letting the writer skip the lock (see the
+    -- comment on the trigger function).
     v_started := CLOCK_TIMESTAMP();
 
     REFRESH MATERIALIZED VIEW CONCURRENTLY
