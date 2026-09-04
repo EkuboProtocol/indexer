@@ -169,34 +169,49 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
-### 2026-09-04: Skip unchanged rewards refreshes; index the block cascade
+### 2026-09-04: Incremental rewards by position; index the block cascade
 
 Two schema changes, both aimed at the hourly cron spike on `ekubo-db-nyc1`.
 Measured from `cron.job_run_details` and `pg_stat_statements` on 2026-09-04.
 
-**`00120_skip_unchanged_rewards_refresh`.** Adds
-`incentives.rewards_mv_refresh_state` (one row), the trigger function
-`incentives.mark_rewards_by_position_stale()`, statement-level triggers on the
-four relations `computed_rewards_by_position_materialized` reads
-(`computed_rewards`, `generated_drop_reward_periods`, `campaign_reward_periods`,
-`campaigns`), and `incentives.refresh_rewards_by_position_if_stale()`. The
-`refresh_computed_rewards_by_position` cron job is repointed from an
-unconditional `REFRESH MATERIALIZED VIEW CONCURRENTLY` to that function; the
-`5 * * * *` schedule is unchanged.
+**`00120_incremental_rewards_by_position`. Schema change with a downstream
+contract.** `incentives.computed_rewards_by_position_materialized` is no longer
+a materialized view. It is now a plain **view** over a new table,
+`incentives.computed_rewards_by_position`, which is maintained incrementally by
+triggers. The view exposes exactly the columns the matview did, so readers
+(including the API's position-rewards endpoint) need no change — but anything
+issuing `REFRESH MATERIALIZED VIEW` against that name will now fail, and the
+cron job `refresh_computed_rewards_by_position` is **unscheduled**.
 
 `REFRESH ... CONCURRENTLY` has no change detection, so it re-aggregated all
-40M rows of `computed_rewards` every hour to pick up the ~8 rows that had
-actually landed. Every reward period ends at midnight, so in practice only the
-00:05 run has work: 24 refreshes/day become 1, and 3,488 s/day becomes ~145 s.
-No manual step — the state row is seeded stale, so the first run after
-deployment refreshes normally.
+40M rows of `computed_rewards` every hour — 3,488 s/day — to absorb the ~205
+rows that actually land per day. Both aggregates are `SUM`, so they are now
+maintained forward instead: ~205 single-row upserts a day, and the numbers are
+exact at every instant rather than up to an hour stale.
 
-Operators should know the guard exists before concluding the matview is stuck.
-`SELECT * FROM incentives.rewards_mv_refresh_state` shows the flag, the last
-refresh and the running refresh/skip counts. To force one:
-`UPDATE incentives.rewards_mv_refresh_state SET stale = TRUE`, or call
-`incentives.refresh_rewards_by_position_if_stale('0 seconds')`. A backstop
-refreshes once every 24 h regardless of the flag.
+New objects: table `computed_rewards_by_position` (adds `source_row_count`,
+not exposed through the view); `rewards_by_position_apply()`; triggers on
+`computed_rewards` (insert/update/delete), `generated_drop_reward_periods`
+(insert/delete) and `campaigns` (update of `core_address`);
+`rebuild_rewards_by_position()`; and `verify_rewards_by_position()`.
+
+**Operator notes.** The migration seeds the table with one full aggregate,
+which is the same ~145 s the hourly job used to take, inside the migration
+transaction — expect the deploy to sit there for that long.
+
+Because the totals are now maintained rather than recomputed, drift is possible
+in a way it was not before. `SELECT * FROM incentives.verify_rewards_by_position()`
+returns the disagreeing groups and empty means correct; it costs about what the
+old refresh did, so run it out of band (daily or weekly), not on a read path.
+`SELECT incentives.rebuild_rewards_by_position()` repairs it from the base
+tables. A rebuild is **required** after anything the triggers deliberately do
+not cover — in particular moving a `campaign_reward_period` to a different
+campaign, which would re-key rows. Nothing does that today.
+
+Bulk maintenance caution: the `computed_rewards` trigger is row-level, which is
+right for ~205 rows/day but wrong for a mass recompute. Recomputing every
+period would fire 40M triggers; disable the trigger and call
+`rebuild_rewards_by_position()` instead.
 
 **`00121_index_block_cascade_children`.** Adds 13 `(chain_id, block_number)`
 indexes on the children of `blocks` that had none, three of which carry real
