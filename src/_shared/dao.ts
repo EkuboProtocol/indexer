@@ -12,6 +12,16 @@ export interface IndexerCursor {
   uniqueKey?: `0x${string}`;
 }
 
+// The head of the chain, recorded on indexer_cursor. Blocks with no events get
+// no blocks row at all (migration 00122), so for those this is the only record
+// that the chain advanced.
+export interface BlockHead {
+  number: number;
+  hash: bigint;
+  time: Date;
+  baseFeePerGas: bigint | null;
+}
+
 export interface NonfungibleTokenTransfer {
   id: bigint;
   from: AddressValue;
@@ -572,6 +582,7 @@ export class DAO {
   public async writeCursor(
     cursor: IndexerCursor,
     expectedCursor: IndexerCursor,
+    head?: BlockHead,
   ): Promise<IndexerCursor> {
     const uniqueKey =
       typeof cursor.uniqueKey !== "string" ? null : BigInt(cursor.uniqueKey);
@@ -580,17 +591,35 @@ export class DAO {
         ? null
         : BigInt(expectedCursor.uniqueKey);
 
+    // The chain head rides along on the cursor write rather than taking a
+    // write of its own: this row is already updated once per block, and
+    // indexer_cursor is the hottest small table on the instance. Empty blocks
+    // no longer get a blocks row, so this is the only record that they
+    // happened -- see migration 00122.
     const [updatedCursor] = await this.sql<
       { order_key: string; unique_key: string | null }[]
     >`
-      INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated)
+      INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated,
+                                  head_block_number, head_block_hash,
+                                  head_block_time, head_base_fee_per_gas)
       VALUES (${this.chainId}, ${cursor.orderKey}, ${this.numeric(
         uniqueKey,
-      )}, NOW())
+      )}, NOW(),
+        ${head ? head.number : null},
+        ${this.numeric(head ? head.hash : null)},
+        ${head ? head.time : null},
+        ${this.numeric(head ? head.baseFeePerGas : null)})
       ON CONFLICT (chain_id) DO UPDATE
         SET order_key = excluded.order_key,
             unique_key = excluded.unique_key,
-            last_updated = NOW()
+            last_updated = NOW(),
+            head_block_number = COALESCE(excluded.head_block_number, indexer_cursor.head_block_number),
+            head_block_hash = COALESCE(excluded.head_block_hash, indexer_cursor.head_block_hash),
+            head_block_time = COALESCE(excluded.head_block_time, indexer_cursor.head_block_time),
+            head_base_fee_per_gas = CASE
+              WHEN excluded.head_block_number IS NULL THEN indexer_cursor.head_base_fee_per_gas
+              ELSE excluded.head_base_fee_per_gas
+            END
         WHERE indexer_cursor.order_key = ${expectedCursor.orderKey}
           AND indexer_cursor.unique_key IS NOT DISTINCT FROM ${this.numeric(
             expectedUniqueKey,
@@ -656,6 +685,11 @@ export class DAO {
     return this.sql.typed(value, 1700);
   }
 
+  // A block with no events gets no blocks row. 85% of blocks are empty, and
+  // every one that was written had to be deleted again a day later, paying all
+  // 43 of the ON DELETE CASCADE lookups that hang off blocks despite never
+  // having had a child row. The chain head is recorded on indexer_cursor
+  // instead, by writeCursor. See migration 00122.
   public async insertBlock({
     number,
     hash,
@@ -669,6 +703,10 @@ export class DAO {
     baseFeePerGas: bigint | null;
     numEvents: number;
   }) {
+    if (numEvents === 0) {
+      return;
+    }
+
     await this.sql`
       INSERT INTO blocks (chain_id, block_number, block_hash, block_time, base_fee_per_gas, num_events)
       VALUES (${this.chainId}, ${number}, ${this.numeric(

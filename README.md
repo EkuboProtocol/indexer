@@ -169,6 +169,57 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-09-04: Stop writing empty blocks; chain head moves to `indexer_cursor`
+
+**`00122_indexer_cursor_head_block`. Coordinated deploy across three repos —
+read this before rolling out.**
+
+The indexer no longer writes a `blocks` row for a block with no events, and the
+migration deletes the 202,040 empty rows already stored. 85% of blocks written
+were empty (8 of the 13 chains are 100% empty), and each one was inserted, kept
+a day, then deleted by `delete_old_empty_blocks()` — paying all 43 of the
+`ON DELETE CASCADE` lookups hanging off `blocks` despite never having had a
+child row. That was ~99M of the 184.5M cascade executions in a 10-day window.
+`delete_old_empty_blocks()`, its cron job, and `blocks_num_events_block_time_idx`
+are all dropped.
+
+`indexer_cursor` gains four nullable columns — `head_block_number` (bigint),
+`head_block_hash` (numeric), `head_block_time` (timestamptz),
+`head_base_fee_per_gas` (numeric) — seeded from the current tip. The indexer
+maintains them in `writeCursor`, which already upserts that row once per block,
+so the head costs no extra write. New accessor `public.get_chain_head_time()`;
+`incentives.compute_pending_reward_periods` and `public.get_oracle_twap_tick`
+now use it instead of `ORDER BY block_number DESC` / `MAX(block_time)` over
+`blocks`.
+
+**Deploy order is load-bearing and there is no compatibility bridge.** Nothing
+keeps the head columns current except the indexer build shipping with this
+migration, and nothing keeps a `blocks`-based tip query correct once that build
+stops writing empty blocks. The indexer, the API and quoter-service must go out
+together. A reader left on `SELECT … FROM blocks ORDER BY block_number DESC
+LIMIT 1` does **not** error — it silently returns the last block that happened
+to carry an event, which on an all-empty chain is arbitrarily stale.
+
+Consumers updated alongside:
+
+| repo | what changed |
+|---|---|
+| `EkuboProtocol/api` | `getLatestBlock` reads `indexer_cursor`; the timestamp and block-number lookups stay on `blocks` |
+| `EkuboProtocol/quoter-service` | `LATEST_BLOCK_QUERY` reads `indexer_cursor` |
+
+`base_fee_per_gas` has no consumer inside the database — no view, matview or
+function references it — so quoter-service's tip query was its only reader.
+
+Lookups that genuinely want history keep reading `blocks`:
+`incentives.compute_rewards_for_period_v1` and the API's by-timestamp and
+by-number queries. They already tolerated empty blocks being absent, since the
+sweep had been removing day-old ones for as long as it existed; this makes that
+behaviour uniform rather than time-dependent.
+
+The migration's `DELETE FROM blocks WHERE num_events = 0` runs after `00121`,
+which is what makes it affordable — the cascade lookups it fires are index
+scans rather than sequential scans of two ~100 MB tables.
+
 ### 2026-09-04: Incremental rewards by position; index the block cascade
 
 Two schema changes, both aimed at the hourly cron spike on `ekubo-db-nyc1`.
