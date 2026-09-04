@@ -145,7 +145,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://polygon-rpc.com,https://polygon-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://rpc-mainnet.matic.quiknode.pro,https://polygon-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: polygon-mainnet
@@ -158,7 +158,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://rpc.monad.xyz,https://monad-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://rpc1.monad.xyz,https://monad-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: monad
