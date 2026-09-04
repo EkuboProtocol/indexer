@@ -595,7 +595,15 @@ export class DAO {
     // write of its own: this row is already updated once per block, and
     // indexer_cursor is the hottest small table on the instance. Empty blocks
     // no longer get a blocks row, so this is the only record that they
-    // happened -- see migration 00122.
+    // happened -- see migration 00122_indexer_cursor_head_block.
+    //
+    // A write without a head clears it. The only headless callers are the
+    // rewind paths -- cursor invalidated, or reset to the last finalized
+    // cursor -- and after either of those the previous head is a block on the
+    // discarded fork. Keeping it would leave readers reporting an orphaned
+    // height and hash until the next block landed. NULL is the honest state:
+    // get_chain_head_time falls through to blocks, and the API's latest-block
+    // lookup finds nothing, for the one block it takes to re-establish it.
     const [updatedCursor] = await this.sql<
       { order_key: string; unique_key: string | null }[]
     >`
@@ -613,13 +621,10 @@ export class DAO {
         SET order_key = excluded.order_key,
             unique_key = excluded.unique_key,
             last_updated = NOW(),
-            head_block_number = COALESCE(excluded.head_block_number, indexer_cursor.head_block_number),
-            head_block_hash = COALESCE(excluded.head_block_hash, indexer_cursor.head_block_hash),
-            head_block_time = COALESCE(excluded.head_block_time, indexer_cursor.head_block_time),
-            head_base_fee_per_gas = CASE
-              WHEN excluded.head_block_number IS NULL THEN indexer_cursor.head_base_fee_per_gas
-              ELSE excluded.head_base_fee_per_gas
-            END
+            head_block_number = excluded.head_block_number,
+            head_block_hash = excluded.head_block_hash,
+            head_block_time = excluded.head_block_time,
+            head_base_fee_per_gas = excluded.head_base_fee_per_gas
         WHERE indexer_cursor.order_key = ${expectedCursor.orderKey}
           AND indexer_cursor.unique_key IS NOT DISTINCT FROM ${this.numeric(
             expectedUniqueKey,

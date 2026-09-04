@@ -156,6 +156,51 @@ test("the 'blocks' notification follows the head, not the blocks table", async (
   expect(trg[0]!.count).toBe(1);
 });
 
+test("rewinding the cursor clears the head rather than keeping the orphaned one", async () => {
+  const client = await createClient();
+  await seedCursor(client, 7);
+  await client.query(
+    `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, base_fee_per_gas, num_events)
+     VALUES (7, 100, 1, '2024-03-01T00:00:00Z', 1, 1)`
+  );
+  await client.query(
+    `UPDATE indexer_cursor
+     SET order_key = 105, head_block_number = 105, head_block_hash = 999,
+         head_block_time = '2024-03-01T00:05:00Z', head_base_fee_per_gas = 7
+     WHERE chain_id = 7`
+  );
+
+  // After a reset to 100, block 105 is on the discarded fork. A reader that
+  // kept seeing it would report an orphaned height and hash.
+  await client.query(`SELECT reset_indexer_cursor(7, 100)`);
+
+  const { rows } = await client.query<{
+    order_key: string;
+    head_block_number: string | null;
+    head_block_hash: string | null;
+    head_block_time: string | null;
+  }>(
+    `SELECT order_key::text, head_block_number::text, head_block_hash::text,
+            head_block_time::text
+     FROM indexer_cursor WHERE chain_id = 7`
+  );
+  expect(rows[0]).toEqual({
+    order_key: "100",
+    head_block_number: null,
+    head_block_hash: null,
+    head_block_time: null,
+  });
+
+  // And the accessor falls through to blocks, so nothing downstream sees a
+  // gap either.
+  const { rows: head } = await client.query<{ head: Date }>(
+    `SELECT public.get_chain_head_time(7) AS head`
+  );
+  expect(new Date(head[0]!.head).toISOString()).toBe(
+    "2024-03-01T00:00:00.000Z"
+  );
+});
+
 test("the oracle TWAP window ends at the chain head", async () => {
   const client = await createClient();
 
