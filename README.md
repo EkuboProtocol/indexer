@@ -169,6 +169,72 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-09-04: Skip unchanged rewards refreshes; index the block cascade
+
+Two schema changes, both aimed at the hourly cron spike on `ekubo-db-nyc1`.
+Measured from `cron.job_run_details` and `pg_stat_statements` on 2026-09-04.
+
+**`00120_skip_unchanged_rewards_refresh`.** Adds
+`incentives.rewards_mv_refresh_state` (one row), the trigger function
+`incentives.mark_rewards_by_position_stale()`, statement-level triggers on the
+four relations `computed_rewards_by_position_materialized` reads
+(`computed_rewards`, `generated_drop_reward_periods`, `campaign_reward_periods`,
+`campaigns`), and `incentives.refresh_rewards_by_position_if_stale()`. The
+`refresh_computed_rewards_by_position` cron job is repointed from an
+unconditional `REFRESH MATERIALIZED VIEW CONCURRENTLY` to that function; the
+`5 * * * *` schedule is unchanged.
+
+`REFRESH ... CONCURRENTLY` has no change detection, so it re-aggregated all
+40M rows of `computed_rewards` every hour to pick up the ~8 rows that had
+actually landed. Every reward period ends at midnight, so in practice only the
+00:05 run has work: 24 refreshes/day become 1, and 3,488 s/day becomes ~145 s.
+No manual step — the state row is seeded stale, so the first run after
+deployment refreshes normally.
+
+Operators should know the guard exists before concluding the matview is stuck.
+`SELECT * FROM incentives.rewards_mv_refresh_state` shows the flag, the last
+refresh and the running refresh/skip counts. To force one:
+`UPDATE incentives.rewards_mv_refresh_state SET stale = TRUE`, or call
+`incentives.refresh_rewards_by_position_if_stale('0 seconds')`. A backstop
+refreshes once every 24 h regardless of the flag.
+
+**`00121_index_block_cascade_children`.** Adds 13 `(chain_id, block_number)`
+indexes on the children of `blocks` that had none, three of which carry real
+data today: `ve33_pool_fees_accounted`, `ve33_pool_emissions_accrued` and
+`ve33_rewards_claimed`.
+
+`blocks` has 43 `ON DELETE CASCADE` children, so each deleted block runs 43
+cascade lookups; the unindexed ones sequentially scanned 100 MB+ tables.
+`delete_old_empty_blocks()` grew from 12.9 s to 250 s per hourly run between
+2026-07-31 and 2026-09-04 as the new chain indexers raised the block-deletion
+rate and the ve33 tables grew. Those three tables accounted for 54,754 s of the
+56,140 s of cascade CPU in a 10-day window.
+
+**Manual consideration:** the indexes are built with plain `CREATE INDEX`, not
+`CONCURRENTLY`, because `scripts/migrate.ts` runs the migration set inside a
+single transaction and `CREATE INDEX CONCURRENTLY` cannot run in one. Building
+takes a `SHARE` lock that blocks writes to those tables — a few seconds each at
+current sizes (109 MB and 105 MB), but it will stall the ve33 indexer workers
+for the duration.
+
+Either apply during a quiet period, or build the three large ones by hand
+first, which avoids the write stall entirely:
+
+```sql
+CREATE INDEX CONCURRENTLY ve33_pool_fees_accounted_chain_id_block_number_idx
+    ON ve33_pool_fees_accounted (chain_id, block_number);
+CREATE INDEX CONCURRENTLY ve33_pool_emissions_accrued_chain_id_block_number_idx
+    ON ve33_pool_emissions_accrued (chain_id, block_number);
+CREATE INDEX CONCURRENTLY ve33_rewards_claimed_chain_id_block_number_idx
+    ON ve33_rewards_claimed (chain_id, block_number);
+```
+
+The migration's statements are `IF NOT EXISTS` and use exactly these names, so
+a hand-built index is adopted rather than rebuilt. Keep the names identical, and
+check for an `INVALID` index (`\d+` on the table) if a concurrent build is
+interrupted — that one must be dropped and rebuilt, since `IF NOT EXISTS` will
+otherwise skip past a broken index.
+
 ### 2026-09-02: Mainnet-only networks; nine new EVM mainnets
 
 The indexer no longer runs any testnet. Removed workers, `.env.evm.*` /
