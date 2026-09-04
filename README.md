@@ -156,7 +156,7 @@ Migration files live under `migrations/` and execute in order via `scripts/migra
 
 The DigitalOcean Apps spec in `.do/app.yaml` documents the full production stack:
 
-- Workers for each network (e.g.: `starknet-sepolia`, `starknet-mainnet`, `eth-sepolia`, `eth-mainnet`) that run the corresponding network entrypoint (`bun src/starknet.ts` or `bun src/evm.ts`) with the appropriate `NETWORK` value, pulling the published Docker image (`ghcr.io/ekuboprotocol/indexer:${IMAGE_TAG}`).
+- Workers for each network (e.g.: `starknet-mainnet`, `eth-mainnet`, `base-mainnet`) that run the corresponding network entrypoint (`bun src/starknet.ts` or `bun src/evm.ts`) with the appropriate `NETWORK` value, pulling the published Docker image (`ghcr.io/ekuboprotocol/indexer:${IMAGE_TAG}`).
 - Managed Postgres (`indexer-db-nyc1`) wired in via the `PG_CONNECTION_STRING` env var along with secrets such as `DNA_TOKEN`.
 - A `run-migrations` pre-deploy job and the long-running `src/price-sync/index.ts` process. Each price source/chain job has an independent timer, with separately configured CoinGecko and Chainlink cadences. The app spec discovers Chainlink feeds for eligible tokens on Ethereum, Base, Arbitrum, and Robinhood through Chainlink's multi-network catalogs and the existing Alchemy API key secret.
 
@@ -168,6 +168,65 @@ This log records indexer deployments that:
 
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
+
+### 2026-09-02: Mainnet-only networks; nine new EVM mainnets
+
+The indexer no longer runs any testnet. Removed workers, `.env.evm.*` /
+`.env.starknet.*` files and `package.json` scripts for `starknet-sepolia`,
+`eth-sepolia`, `base-sepolia`, `arb-sepolia` and `rhc-sepolia`, and dropped the
+matching price-sync fetchers for chains 11155111, 421614 and 46630. Downstream
+consumers still reading rows for those chain IDs will see the data stop
+advancing; no rows are deleted by this change, so purging them is a separate
+manual step if wanted.
+
+Added mainnet workers for Optimism, Gnosis, Unichain, World Chain, Ink, BNB
+Smart Chain and Polygon alongside the existing Ethereum, Base, Arbitrum,
+Robinhood, Monad and MegaETH. Each new worker takes its production RPC from
+`https://<network>.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}` in `.do/app.yaml`,
+falling back to the chain's public endpoint where one exists; the committed
+`.env.evm.*` files keep key-free public URLs for local runs.
+
+`.do/app.yaml`'s `&indexer-image` anchor moved from `starknet-sepolia` to
+`starknet-mainnet`, since the service that defined it is gone.
+
+**Price sync now covers every EVM mainnet.** Previously only Ethereum, Base,
+Monad, Robinhood, Arbitrum and Starknet had any price source, so the nine
+mainnets this release adds would have indexed pools with no USD prices at all.
+Each of the 13 EVM mainnets now has at least three:
+
+| chain | CoinGecko native | CoinGecko tokens | Sushi | Ekubo quoter |
+|---|---|---|---|---|
+| Ethereum (1) | ethereum | — | yes | USDC |
+| Optimism (10) | ethereum | optimistic-ethereum | yes | USDC |
+| BNB Smart Chain (56) | binancecoin | binance-smart-chain | yes | USDC (18dp) |
+| Gnosis (100) | xdai | xdai | yes | USDC.e |
+| Unichain (130) | ethereum | unichain | no | USDC |
+| Polygon (137) | polygon-ecosystem-token | polygon-pos | yes | USDC |
+| Monad (143) | monad | monad | yes | USDC |
+| World Chain (480) | ethereum | world-chain | no | USDC |
+| MegaETH (4326) | ethereum | megaeth | yes | — |
+| Robinhood (4663) | ethereum | robinhood | yes | USDC |
+| Base (8453) | ethereum | base | yes | USDC |
+| Arbitrum (42161) | ethereum | arbitrum-one | yes | — |
+| Ink (57073) | ethereum | ink | no | USDC |
+
+CoinGecko asset-platform slugs and native coin IDs are taken from CoinGecko's
+own `/asset_platforms` response rather than assumed. Sushi is wired only where
+`api.sushi.com/price/v1/<chainId>` actually answers: Unichain, World Chain and
+Ink return 404 and are left off. MegaETH has no listed USD stablecoin to quote
+against, so it gets no quoter job.
+
+Quoter jobs query only tokens that already have a pool with non-zero TVL, so on
+a chain with no pools yet they issue no requests and cost nothing; they begin
+reporting on their own once liquidity arrives. They resolve through
+`prod-api-quoter.ekubo.org/<chainId>`, which is served by the matching quoter
+services in EkuboProtocol/quoter-service#41 — that PR should land first or
+these jobs will log failed lookups once pools exist.
+
+Note BNB Smart Chain's bridged USDC is **18 decimals**, not the usual 6. Every
+proxy token's `symbol()`, `decimals()` and `totalSupply()` were read on-chain.
+Gnosis uses USDC.e (`0x2a22…76F0`) rather than the older USDC
+(`0xDDAf…7A83`) because it carries about 11x the DEX liquidity.
 
 ### 2026-09-02: Reduce write amplification on hot tables
 
@@ -309,7 +368,7 @@ EVM V3 `VoteWeightApplied` events now store the stake's selected fee in `ve33_vo
 
 ### 2026-06-29: Ve33 event indexing
 
-EVM V3 Ve33 events now write to `ve33_stake_changed`, `ve33_vote_weight_applied`, `ve33_pool_fees_accounted`, `ve33_pool_fees_claimed`, `ve33_emissions_scheduled`, `ve33_pool_emissions_accrued`, and `ve33_rewards_claimed`. Sepolia also indexes VeToken and FreeVe33Positions ERC721 transfers when `VE_TOKEN_V3_ADDRESS` and `VE33_POSITIONS_V3_ADDRESS` are configured. Apply migrations before deploying consumers that read these tables.
+EVM V3 Ve33 events now write to `ve33_stake_changed`, `ve33_vote_weight_applied`, `ve33_pool_fees_accounted`, `ve33_pool_fees_claimed`, `ve33_emissions_scheduled`, `ve33_pool_emissions_accrued`, and `ve33_rewards_claimed`. Robinhood Chain also indexes VeToken and FreeVe33Positions ERC721 transfers when `VE_TOKEN_V3_ADDRESS` and `VE33_POSITIONS_V3_ADDRESS` are configured. Apply migrations before deploying consumers that read these tables.
 
 ### 2026-06-29: Ve33 pool state view support
 

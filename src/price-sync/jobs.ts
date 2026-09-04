@@ -86,10 +86,19 @@ export function createPriceSyncJobs({
       chainIdsByCoinId: {
         ethereum: [
           1n, // eth mainnet
-          8453n, // base
+          10n, // optimism
+          130n, // unichain
+          480n, // world chain
+          4326n, // megaeth
           4663n, // robinhood
+          8453n, // base
           42161n, // arbitrum one
+          57073n, // ink
         ],
+        binancecoin: [56n], // bsc
+        xdai: [100n], // gnosis
+        "polygon-ecosystem-token": [137n], // polygon
+        monad: [143n], // monad
       },
     }),
 
@@ -116,12 +125,6 @@ export function createPriceSyncJobs({
       twapDurationSeconds: 60,
     }),
     */
-    // eth sepolia
-    sushiswapPriceFetcher({
-      chainId: 11155111n,
-      intervalMs: defaultIntervalMs,
-    }),
-
     // base
     quoter({
       chainId: 8453n,
@@ -148,6 +151,15 @@ export function createPriceSyncJobs({
       decimals: 6,
       quoteAmount: 1000n,
     }),
+    sushiswapPriceFetcher({
+      chainId: 143n,
+      intervalMs: defaultIntervalMs,
+    }),
+    coingecko({
+      chainId: 143n,
+      intervalMs: coingeckoIntervalMs,
+      platform: "monad",
+    }),
 
     // robinhood
     quoter({
@@ -171,15 +183,6 @@ export function createPriceSyncJobs({
       platform: "robinhood",
     }),
 
-    // fake robinhood chain
-    quoter({
-      chainId: 46630n,
-      intervalMs: defaultIntervalMs,
-      address: "0x9367e29667db75Cb91788330a8509b3B4ac66c8f",
-      decimals: 6,
-      quoteAmount: 10n,
-    }),
-
     // arbitrum one
     sushiswapPriceFetcher({
       chainId: 42161n,
@@ -191,13 +194,130 @@ export function createPriceSyncJobs({
       platform: "arbitrum-one",
     }),
 
-    // arbitrum sepolia
+    // optimism
     quoter({
-      chainId: 421614n,
+      chainId: 10n,
       intervalMs: defaultIntervalMs,
-      address: "0x75faf114eafb1bdbe2f0316df893fd58ce46aa4d",
+      address: "0x0b2c639c533813f4aa9d7837caf62653d097ff85",
       decimals: 6,
       quoteAmount: 1000n,
+    }),
+    sushiswapPriceFetcher({
+      chainId: 10n,
+      intervalMs: defaultIntervalMs,
+    }),
+    coingecko({
+      chainId: 10n,
+      intervalMs: coingeckoIntervalMs,
+      platform: "optimistic-ethereum",
+    }),
+
+    // bsc
+    quoter({
+      chainId: 56n,
+      intervalMs: defaultIntervalMs,
+      address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+      decimals: 18,
+      quoteAmount: 1000n,
+    }),
+    sushiswapPriceFetcher({
+      chainId: 56n,
+      intervalMs: defaultIntervalMs,
+    }),
+    coingecko({
+      chainId: 56n,
+      intervalMs: coingeckoIntervalMs,
+      platform: "binance-smart-chain",
+    }),
+
+    // gnosis
+    quoter({
+      chainId: 100n,
+      intervalMs: defaultIntervalMs,
+      address: "0x2a22f9c3b484c3629090FeED35F17Ff8F88f76F0",
+      decimals: 6,
+      quoteAmount: 1000n,
+    }),
+    sushiswapPriceFetcher({
+      chainId: 100n,
+      intervalMs: defaultIntervalMs,
+    }),
+    coingecko({
+      chainId: 100n,
+      intervalMs: coingeckoIntervalMs,
+      platform: "xdai",
+    }),
+
+    // unichain
+    quoter({
+      chainId: 130n,
+      intervalMs: defaultIntervalMs,
+      address: "0x078d782b760474a361dda0af3839290b0ef57ad6",
+      decimals: 6,
+      quoteAmount: 1000n,
+    }),
+    coingecko({
+      chainId: 130n,
+      intervalMs: coingeckoIntervalMs,
+      platform: "unichain",
+    }),
+
+    // polygon
+    quoter({
+      chainId: 137n,
+      intervalMs: defaultIntervalMs,
+      address: "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",
+      decimals: 6,
+      quoteAmount: 1000n,
+    }),
+    sushiswapPriceFetcher({
+      chainId: 137n,
+      intervalMs: defaultIntervalMs,
+    }),
+    coingecko({
+      chainId: 137n,
+      intervalMs: coingeckoIntervalMs,
+      platform: "polygon-pos",
+    }),
+
+    // world chain
+    quoter({
+      chainId: 480n,
+      intervalMs: defaultIntervalMs,
+      address: "0x79a02482a880bce3f13e09da970dc34db4cd24d1",
+      decimals: 6,
+      quoteAmount: 1000n,
+    }),
+    coingecko({
+      chainId: 480n,
+      intervalMs: coingeckoIntervalMs,
+      platform: "world-chain",
+    }),
+
+    // megaeth -- no USD stablecoin is listed on this chain yet, so there is
+    // no proxy token to quote against; CoinGecko and Sushi cover it instead.
+    sushiswapPriceFetcher({
+      chainId: 4326n,
+      intervalMs: defaultIntervalMs,
+    }),
+    coingecko({
+      chainId: 4326n,
+      intervalMs: coingeckoIntervalMs,
+      platform: "megaeth",
+    }),
+
+    // ink
+    quoter({
+      chainId: 57073n,
+      intervalMs: defaultIntervalMs,
+      address: "0x2d270e6886d130d724215a266106e6832161eaed",
+      decimals: 6,
+      quoteAmount: 1000n,
+    }),
+    coingecko({
+      chainId: 57073n,
+      intervalMs: coingeckoIntervalMs,
+      platform: "ink",
     }),
 
     // starknet mainnet
