@@ -127,6 +127,35 @@ test("reward period readiness follows the cursor head, not the last event block"
   expect(rows[0]!.prosrc).not.toContain("MAX(block_time)");
 });
 
+test("the 'blocks' notification follows the head, not the blocks table", async () => {
+  const client = await createClient();
+
+  // quoter-service LISTENs on 'blocks' and re-syncs when it fires. If that
+  // stayed on the blocks insert it would stop hearing about empty blocks, and
+  // on a quiet chain its cached base_fee_per_gas would go stale. The head
+  // updates once per block either way, so notifying from there keeps the old
+  // cadence exactly.
+  const { rows: insert } = await client.query<{ prosrc: string }>(
+    `SELECT prosrc FROM pg_proc WHERE proname = 'notify_blocks_insert'`
+  );
+  expect(insert[0]!.prosrc).toContain("blocks_insert");
+  expect(insert[0]!.prosrc).not.toContain("pg_notify('blocks'");
+
+  const { rows: head } = await client.query<{ prosrc: string }>(
+    `SELECT prosrc FROM pg_proc WHERE proname = 'notify_indexer_cursor_head'`
+  );
+  expect(head[0]!.prosrc).toContain("pg_notify('blocks'");
+
+  const { rows: trg } = await client.query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count FROM pg_trigger t
+     JOIN pg_class c ON c.oid = t.tgrelid
+     WHERE c.relname = 'indexer_cursor'
+       AND t.tgname = 'indexer_cursor_head_notification'
+       AND NOT t.tgisinternal`
+  );
+  expect(trg[0]!.count).toBe(1);
+});
+
 test("the oracle TWAP window ends at the chain head", async () => {
   const client = await createClient();
 

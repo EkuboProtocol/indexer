@@ -88,9 +88,21 @@ WHERE b.chain_id = ic.chain_id;
 -- lookups these deletions fire are index scans rather than sequential scans of
 -- ve33_pool_fees_accounted and ve33_pool_emissions_accrued. In the other order
 -- it would be 202,040 x 3 seq scans of ~100 MB tables.
+--
+-- The delete notification is disabled around it. 00064 emits a pg_notify per
+-- deleted row on both 'blocks_delete' and 'blocks', and those are queued until
+-- commit, so leaving it on would hand every listener 404,080 messages in one
+-- burst for rows that carried no events and that no listener has any reason to
+-- hear about. Only this trigger is disabled, so the FK cascades still run.
+ALTER TABLE blocks
+    DISABLE TRIGGER blocks_delete_notification;
+
 DELETE
 FROM blocks
 WHERE num_events = 0;
+
+ALTER TABLE blocks
+    ENABLE TRIGGER blocks_delete_notification;
 
 -- Read the head from indexer_cursor, falling back to blocks for a chain that
 -- has not produced a block since the migration.
@@ -285,3 +297,48 @@ END;
 $$
     LANGUAGE plpgsql;
 
+
+-- Move the 'blocks' notification to the head, so listeners still hear about
+-- every block.
+--
+-- 00064 emits on 'blocks' from a row trigger on blocks. quoter-service LISTENs
+-- on that channel and re-syncs when it fires. With empty blocks no longer
+-- written it would stop hearing about them, and on a quiet chain its cached
+-- head -- including base_fee_per_gas, which it uses to price gas into quotes --
+-- would sit at the last block that happened to carry an event.
+--
+-- The head column update happens exactly once per block, empty or not, so
+-- notifying from there restores precisely the old cadence. 'blocks_insert'
+-- keeps its original meaning: a block that carried events.
+CREATE OR REPLACE FUNCTION notify_blocks_insert()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+AS
+$$
+DECLARE
+    payload TEXT := JSON_BUILD_OBJECT('chain_id', new.chain_id, 'block_number', new.block_number)::TEXT;
+BEGIN
+    PERFORM pg_notify('blocks_insert', payload);
+    RETURN new;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION notify_indexer_cursor_head()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql
+AS
+$$
+DECLARE
+    payload TEXT := JSON_BUILD_OBJECT('chain_id', new.chain_id, 'block_number', new.head_block_number)::TEXT;
+BEGIN
+    PERFORM pg_notify('blocks', payload);
+    RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER indexer_cursor_head_notification
+    AFTER INSERT OR UPDATE OF head_block_number
+    ON indexer_cursor
+    FOR EACH ROW
+    WHEN (new.head_block_number IS NOT NULL)
+EXECUTE FUNCTION notify_indexer_cursor_head();
