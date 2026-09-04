@@ -30,7 +30,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
     "@types/bun": "^1.4.0",
-    "@typescript-eslint/parser": "8.68.0",
+    "@typescript-eslint/parser": "8.69.0",
     "eslint": "10.9.1"
   },
   "dependencies": {
