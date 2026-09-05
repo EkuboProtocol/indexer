@@ -169,6 +169,138 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-09-04: Stop writing empty blocks; chain head moves to `indexer_cursor`
+
+**`00122_indexer_cursor_head_block`. Coordinated deploy across three repos —
+read this before rolling out.**
+
+The indexer no longer writes a `blocks` row for a block with no events, and the
+migration deletes the 202,040 empty rows already stored. 85% of blocks written
+were empty (8 of the 13 chains are 100% empty), and each one was inserted, kept
+a day, then deleted by `delete_old_empty_blocks()` — paying all 43 of the
+`ON DELETE CASCADE` lookups hanging off `blocks` despite never having had a
+child row. That was ~99M of the 184.5M cascade executions in a 10-day window.
+`delete_old_empty_blocks()`, its cron job, and `blocks_num_events_block_time_idx`
+are all dropped.
+
+`indexer_cursor` gains four nullable columns — `head_block_number` (bigint),
+`head_block_hash` (numeric), `head_block_time` (timestamptz),
+`head_base_fee_per_gas` (numeric) — seeded from the current tip. The indexer
+maintains them in `writeCursor`, which already upserts that row once per block,
+so the head costs no extra write. New accessor `public.get_chain_head_time()`;
+`incentives.compute_pending_reward_periods` and `public.get_oracle_twap_tick`
+now use it instead of `ORDER BY block_number DESC` / `MAX(block_time)` over
+`blocks`.
+
+**Deploy order is load-bearing and there is no compatibility bridge.** Nothing
+keeps the head columns current except the indexer build shipping with this
+migration, and nothing keeps a `blocks`-based tip query correct once that build
+stops writing empty blocks. The indexer, the API and quoter-service must go out
+together. A reader left on `SELECT … FROM blocks ORDER BY block_number DESC
+LIMIT 1` does **not** error — it silently returns the last block that happened
+to carry an event, which on an all-empty chain is arbitrarily stale.
+
+Consumers updated alongside:
+
+| repo | what changed |
+|---|---|
+| `EkuboProtocol/api` | `getLatestBlock` reads `indexer_cursor`; the timestamp and block-number lookups stay on `blocks` |
+| `EkuboProtocol/quoter-service` | `LATEST_BLOCK_QUERY` reads `indexer_cursor` |
+
+`base_fee_per_gas` has no consumer inside the database — no view, matview or
+function references it — so quoter-service's tip query was its only reader.
+
+Lookups that genuinely want history keep reading `blocks`:
+`incentives.compute_rewards_for_period_v1` and the API's by-timestamp and
+by-number queries. They already tolerated empty blocks being absent, since the
+sweep had been removing day-old ones for as long as it existed; this makes that
+behaviour uniform rather than time-dependent.
+
+The migration's `DELETE FROM blocks WHERE num_events = 0` runs after `00121`,
+which is what makes it affordable — the cascade lookups it fires are index
+scans rather than sequential scans of two ~100 MB tables.
+
+### 2026-09-04: Incremental rewards by position; index the block cascade
+
+Two schema changes, both aimed at the hourly cron spike on `ekubo-db-nyc1`.
+Measured from `cron.job_run_details` and `pg_stat_statements` on 2026-09-04.
+
+**`00120_incremental_rewards_by_position`. Schema change with a downstream
+contract.** `incentives.computed_rewards_by_position_materialized` is no longer
+a materialized view. It is now a plain **view** over a new table,
+`incentives.computed_rewards_by_position`, which is maintained incrementally by
+triggers. The view exposes exactly the columns the matview did, so readers
+(including the API's position-rewards endpoint) need no change — but anything
+issuing `REFRESH MATERIALIZED VIEW` against that name will now fail, and the
+cron job `refresh_computed_rewards_by_position` is **unscheduled**.
+
+`REFRESH ... CONCURRENTLY` has no change detection, so it re-aggregated all
+40M rows of `computed_rewards` every hour — 3,488 s/day — to absorb the ~205
+rows that actually land per day. Both aggregates are `SUM`, so they are now
+maintained forward instead: ~205 single-row upserts a day, and the numbers are
+exact at every instant rather than up to an hour stale.
+
+New objects: table `computed_rewards_by_position` (adds `source_row_count`,
+not exposed through the view); `rewards_by_position_apply()`; triggers on
+`computed_rewards` (insert/update/delete), `generated_drop_reward_periods`
+(insert/delete) and `campaigns` (update of `core_address`);
+`rebuild_rewards_by_position()`; and `verify_rewards_by_position()`.
+
+**Operator notes.** The migration seeds the table with one full aggregate,
+which is the same ~145 s the hourly job used to take, inside the migration
+transaction — expect the deploy to sit there for that long.
+
+Because the totals are now maintained rather than recomputed, drift is possible
+in a way it was not before. `SELECT * FROM incentives.verify_rewards_by_position()`
+returns the disagreeing groups and empty means correct; it costs about what the
+old refresh did, so run it out of band (daily or weekly), not on a read path.
+`SELECT incentives.rebuild_rewards_by_position()` repairs it from the base
+tables. A rebuild is **required** after anything the triggers deliberately do
+not cover — in particular moving a `campaign_reward_period` to a different
+campaign, which would re-key rows. Nothing does that today.
+
+Bulk maintenance caution: the `computed_rewards` trigger is row-level, which is
+right for ~205 rows/day but wrong for a mass recompute. Recomputing every
+period would fire 40M triggers; disable the trigger and call
+`rebuild_rewards_by_position()` instead.
+
+**`00121_index_block_cascade_children`.** Adds 13 `(chain_id, block_number)`
+indexes on the children of `blocks` that had none, three of which carry real
+data today: `ve33_pool_fees_accounted`, `ve33_pool_emissions_accrued` and
+`ve33_rewards_claimed`.
+
+`blocks` has 43 `ON DELETE CASCADE` children, so each deleted block runs 43
+cascade lookups; the unindexed ones sequentially scanned 100 MB+ tables.
+`delete_old_empty_blocks()` grew from 12.9 s to 250 s per hourly run between
+2026-07-31 and 2026-09-04 as the new chain indexers raised the block-deletion
+rate and the ve33 tables grew. Those three tables accounted for 54,754 s of the
+56,140 s of cascade CPU in a 10-day window.
+
+**Manual consideration:** the indexes are built with plain `CREATE INDEX`, not
+`CONCURRENTLY`, because `scripts/migrate.ts` runs the migration set inside a
+single transaction and `CREATE INDEX CONCURRENTLY` cannot run in one. Building
+takes a `SHARE` lock that blocks writes to those tables — a few seconds each at
+current sizes (109 MB and 105 MB), but it will stall the ve33 indexer workers
+for the duration.
+
+Either apply during a quiet period, or build the three large ones by hand
+first, which avoids the write stall entirely:
+
+```sql
+CREATE INDEX CONCURRENTLY ve33_pool_fees_accounted_chain_id_block_number_idx
+    ON ve33_pool_fees_accounted (chain_id, block_number);
+CREATE INDEX CONCURRENTLY ve33_pool_emissions_accrued_chain_id_block_number_idx
+    ON ve33_pool_emissions_accrued (chain_id, block_number);
+CREATE INDEX CONCURRENTLY ve33_rewards_claimed_chain_id_block_number_idx
+    ON ve33_rewards_claimed (chain_id, block_number);
+```
+
+The migration's statements are `IF NOT EXISTS` and use exactly these names, so
+a hand-built index is adopted rather than rebuilt. Keep the names identical, and
+check for an `INVALID` index (`\d+` on the table) if a concurrent build is
+interrupted — that one must be dropped and rebuilt, since `IF NOT EXISTS` will
+otherwise skip past a broken index.
+
 ### 2026-09-02: Mainnet-only networks; nine new EVM mainnets
 
 The indexer no longer runs any testnet. Removed workers, `.env.evm.*` /

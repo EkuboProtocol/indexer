@@ -231,7 +231,7 @@ test("compute pending reward periods processes outstanding rows", async () => {
   }
 });
 
-test("computed rewards materialized view aggregates totals and pending amounts", async () => {
+test("computed rewards by position aggregates totals and pending amounts", async () => {
   const client = await createClient();
   try {
     await seedBlocks(client);
@@ -243,9 +243,8 @@ test("computed rewards materialized view aggregates totals and pending amounts",
     await client.query(`SELECT incentives.compute_rewards_for_period_v1($1)`, [
       rewardPeriodId,
     ]);
-    await client.query(
-      `REFRESH MATERIALIZED VIEW incentives.computed_rewards_by_position_materialized`
-    );
+    // 00120 replaced the matview with a table maintained by triggers, so there
+    // is nothing to refresh: the rows below are already current.
 
     const { rows: initialRows } = await client.query<{
       campaign_id: string;
@@ -299,9 +298,7 @@ test("computed rewards materialized view aggregates totals and pending amounts",
       [dropId, rewardPeriodId]
     );
 
-    await client.query(
-      `REFRESH MATERIALIZED VIEW incentives.computed_rewards_by_position_materialized`
-    );
+    // Likewise: attaching the drop moves these to pending 0 immediately.
 
     const { rows: refreshedRows } = await client.query<{
       campaign_id: string;

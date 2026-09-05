@@ -269,9 +269,17 @@ export async function runIndexer<TBlock>({
                   });
 
                   // endCursor is what we write so when we restart we delete any pending block information
+                  // The head rides along: an empty block writes no blocks row,
+                  // so this is the only record that the chain advanced.
                   currentCursor = await dao.writeCursor(
                     endCursor,
                     expectedCursor,
+                    {
+                      number: parsedBlock.header.number,
+                      hash: parsedBlock.header.hash,
+                      time: blockTime,
+                      baseFeePerGas: parsedBlock.header.baseFeePerGas,
+                    },
                   );
                   writtenCursor = currentCursor;
                 });
