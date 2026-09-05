@@ -43,11 +43,15 @@
 --
 -- Correctness notes.
 --
--- * The trigger recomputes the GREATEST from the five sources rather than
---   taking a running max, so it is exact under reorgs: when a fork is
---   discarded, cascades remove events, the state functions rewrite the state
---   rows with lower last_event_ids, and the stored value follows them down.
---   The quoter already handles that via fork_counter.
+-- * The stored value tracks its five sources exactly: a downward move or a
+--   delete in any of them triggers a full recompute rather than a running
+--   max. Note what that does and does not promise. It follows the state
+--   tables; whether those go down on a reorg is up to their own recompute
+--   functions (twamm/boosted/limit-order freeze GREATEST(own events,
+--   pool_states.last_event_id) into their rows and only re-derive it on
+--   pool_states INSERT/DELETE), which is exactly the behaviour the live
+--   GREATEST had. The quoter relies on fork_counter for reorgs, not on this
+--   value going down.
 -- * Membership matches the view's existing inner join on pool_states: a pool
 --   has a pool_last_event_id row exactly while it has a pool_states row.
 -- * last_event_id is indexed and changes on every state write, so updates
@@ -77,7 +81,9 @@ CREATE INDEX pool_last_event_id_chain_id_core_address_last_event_id_idx
 
 -- Exact recompute for one pool from the five state tables. Removes the row
 -- when the pool no longer has a pool_states row, mirroring the view's inner
--- join.
+-- join. Also the repair tool: SELECT recompute_pool_last_event_id(pool_key_id)
+-- FROM pool_states resyncs everything (needed after any bulk rewrite done
+-- with the triggers disabled).
 CREATE OR REPLACE FUNCTION recompute_pool_last_event_id(p_pool_key_id int8)
     RETURNS VOID
     LANGUAGE plpgsql
@@ -98,8 +104,13 @@ BEGIN
              LEFT JOIN ve33_pool_states vps ON vps.pool_key_id = pk.pool_key_id
     WHERE pk.pool_key_id = p_pool_key_id
     ON CONFLICT (pool_key_id) DO UPDATE
-        SET last_event_id = EXCLUDED.last_event_id
-        WHERE pool_last_event_id.last_event_id IS DISTINCT FROM EXCLUDED.last_event_id;
+        SET last_event_id = EXCLUDED.last_event_id,
+            -- immutable in practice, but the view's join needs them to match
+            -- pool_keys, so a repair must be able to re-sync them
+            chain_id      = EXCLUDED.chain_id,
+            core_address  = EXCLUDED.core_address
+        WHERE (pool_last_event_id.last_event_id, pool_last_event_id.chain_id, pool_last_event_id.core_address)
+                  IS DISTINCT FROM (EXCLUDED.last_event_id, EXCLUDED.chain_id, EXCLUDED.core_address);
 
     DELETE
     FROM pool_last_event_id
@@ -114,6 +125,33 @@ CREATE OR REPLACE FUNCTION trg_pool_last_event_id()
 AS
 $$
 BEGIN
+    -- The hot path. Every swap and position update moves
+    -- pool_states.last_event_id up to the new event id, so this branch is what
+    -- runs per event: a single primary-key update, no joins. An upward move in
+    -- any one source makes the new GREATEST max(stored, NEW), so a row that is
+    -- already >= NEW is left alone and nothing else needs reading.
+    IF TG_OP = 'UPDATE' AND NEW.last_event_id > OLD.last_event_id THEN
+        UPDATE pool_last_event_id
+        SET last_event_id = NEW.last_event_id
+        WHERE pool_key_id = NEW.pool_key_id
+          AND last_event_id < NEW.last_event_id;
+
+        IF FOUND THEN
+            RETURN NULL;
+        END IF;
+        -- Either the stored value already covers it, or the row is missing;
+        -- the full recompute below settles both.
+    END IF;
+
+    -- A pool without a pool_states row is out of the view whatever the other
+    -- tables say, so there is nothing to recompute.
+    IF TG_OP = 'DELETE' AND TG_TABLE_NAME = 'pool_states' THEN
+        DELETE FROM pool_last_event_id WHERE pool_key_id = OLD.pool_key_id;
+        RETURN NULL;
+    END IF;
+
+    -- INSERTs, DELETEs on the other tables, and downward moves (reorgs) can
+    -- change the answer in either direction: recompute it from the sources.
     PERFORM recompute_pool_last_event_id(COALESCE(NEW.pool_key_id, OLD.pool_key_id));
     RETURN NULL;
 END;
@@ -130,6 +168,14 @@ $$;
 -- leaves last_event_id where it was. INSERT and DELETE always change the
 -- answer, so they fire unconditionally. (A WHEN referencing OLD is not valid
 -- on an INSERT trigger, hence the split.)
+--
+-- Firing order: AFTER triggers on one table fire alphabetically, so on a
+-- pool_states INSERT or DELETE this one runs before the existing
+-- trg_pool_states_recompute_pool_state / trg_ps_recompute_lops, whose
+-- twamm/limit-order writes fire it again. The recompute is idempotent and the
+-- last one wins, so that is up to three ~0.06 ms recomputes on the rare
+-- events that create or remove a pool state (pool initialisation, reorg
+-- cascades), not on the per-event path above. Left as is on purpose.
 DO
 $$
     DECLARE
@@ -161,24 +207,10 @@ $$
     END;
 $$;
 
--- Seed every pool that is currently in the view.
-INSERT INTO pool_last_event_id (pool_key_id, chain_id, core_address, last_event_id)
-SELECT pk.pool_key_id,
-       pk.chain_id,
-       pk.core_address,
-       GREATEST(ps.last_event_id, tps.last_event_id, bps.last_event_id, lops.last_event_id, vps.last_event_id)
-FROM pool_keys pk
-         JOIN pool_states ps USING (pool_key_id)
-         LEFT JOIN twamm_pool_states tps ON tps.pool_key_id = pk.pool_key_id
-         LEFT JOIN boosted_fees_pool_states bps ON bps.pool_key_id = pk.pool_key_id
-         LEFT JOIN limit_order_pool_states lops ON lops.pool_key_id = pk.pool_key_id
-         LEFT JOIN ve33_pool_states vps ON vps.pool_key_id = pk.pool_key_id
-         -- Placed after the USING joins: another pool_key_id on the left side
-         -- would make them ambiguous. It is an inner join on pk's columns, so
-         -- the planner can still start from its index.
-         JOIN pool_last_event_id plei ON plei.pool_key_id = pk.pool_key_id
-                                     AND plei.chain_id = pk.chain_id
-                                     AND plei.core_address = pk.core_address;
+-- Seed every pool that is currently in the view, through the maintainer so
+-- the seed and the trigger cannot disagree (the 00098/00106/00120 convention).
+SELECT recompute_pool_last_event_id(pool_key_id)
+FROM pool_states;
 
 ANALYZE pool_last_event_id;
 
@@ -261,6 +293,17 @@ SELECT pk.pool_key_id,
 FROM pool_keys pk
          JOIN pool_states ps USING (pool_key_id)
          LEFT JOIN pool_tvl pt USING (pool_key_id)
+         -- Position matters twice over. It must come after the two USING
+         -- joins, or a second pool_key_id on the left side makes them
+         -- ambiguous. And it must sit inside the first eight relations: the
+         -- planner collapses a JOIN list only up to join_collapse_limit (8 by
+         -- default; 15 relations here), so a join placed further down is
+         -- planned after the first group is fixed and its index can never
+         -- drive the plan -- the predicate would go back to being a filter
+         -- over every pool. Verified against the real planner at 3,000 pools.
+         JOIN pool_last_event_id plei ON plei.pool_key_id = pk.pool_key_id
+                                     AND plei.chain_id = pk.chain_id
+                                     AND plei.core_address = pk.core_address
          LEFT JOIN erc20_tokens t0 ON t0.chain_id = pk.chain_id AND t0.token_address = pk.token0
          LEFT JOIN erc20_tokens_latest_price p0 ON p0.chain_id = pk.chain_id AND p0.token_address = pk.token0
          LEFT JOIN erc20_tokens t1 ON t1.chain_id = pk.chain_id AND t1.token_address = pk.token1
@@ -271,10 +314,4 @@ FROM pool_keys pk
          LEFT JOIN boosted_fees_pool_states bps ON bps.pool_key_id = pk.pool_key_id
          LEFT JOIN spline_pools sp ON sp.pool_key_id = pk.pool_key_id
          LEFT JOIN limit_order_pool_states lops ON lops.pool_key_id = pk.pool_key_id
-         LEFT JOIN ve33_pool_states vps ON vps.pool_key_id = pk.pool_key_id
-         -- Placed after the USING joins: another pool_key_id on the left side
-         -- would make them ambiguous. It is an inner join on pk's columns, so
-         -- the planner can still start from its index.
-         JOIN pool_last_event_id plei ON plei.pool_key_id = pk.pool_key_id
-                                     AND plei.chain_id = pk.chain_id
-                                     AND plei.core_address = pk.core_address;
+         LEFT JOIN ve33_pool_states vps ON vps.pool_key_id = pk.pool_key_id;

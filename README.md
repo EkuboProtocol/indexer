@@ -181,16 +181,32 @@ buffers per call, the largest single CPU consumer on the instance (5.9% of the
 box on its own in a 10-minute sample).
 
 New table `pool_last_event_id (pool_key_id, chain_id, core_address,
-last_event_id)` stores that value, maintained by row triggers on
-`pool_states`, `twamm_pool_states`, `boosted_fees_pool_states`,
-`limit_order_pool_states` and `ve33_pool_states` (`AFTER INSERT OR UPDATE OF
-last_event_id OR DELETE`, recomputed exactly from the five sources so reorgs
-that lower it are honoured). The view's `last_event_id` column now reads from
-it through an inner join, and the index `(chain_id, core_address,
-last_event_id)` lets the poll's predicate drive the plan. Column list, order
-and types of the view are unchanged — `CREATE OR REPLACE VIEW` — so neither
-quoter-service nor the API needs a change. `recompute_pool_last_event_id(id)`
-is available for manual repair.
+last_event_id)` stores that value. Each of `pool_states`, `twamm_pool_states`,
+`boosted_fees_pool_states`, `limit_order_pool_states` and `ve33_pool_states`
+gets **two** triggers: `<table>_maintain_pool_last_event_id` (`AFTER INSERT OR
+DELETE`) and `<table>_maintain_pool_last_event_id_upd` (`AFTER UPDATE OF
+last_event_id`, guarded by `WHEN (OLD.last_event_id IS DISTINCT FROM
+NEW.last_event_id)`). An upward move — every swap and position update — is a
+single primary-key update; inserts, deletes and downward moves recompute the
+value exactly from the five sources. It tracks those sources; whether they go
+down on a reorg is their own recompute functions' behaviour, unchanged from
+the live `GREATEST`, and the quoter relies on `fork_counter` for reorgs.
+
+The view's `last_event_id` column now reads from the table through an inner
+join placed inside the first eight relations of the join list (the planner's
+`join_collapse_limit`; further down, the index could never drive the plan).
+Column list, order and types are unchanged — `CREATE OR REPLACE VIEW` — so
+neither quoter-service nor the API needs a change.
+
+**Operator notes.** Repair one pool with `SELECT
+recompute_pool_last_event_id(<pool_key_id>)`; resync everything with `SELECT
+recompute_pool_last_event_id(pool_key_id) FROM pool_states` — required after
+any bulk rewrite done with triggers disabled, since a missing row silently
+drops the pool from the view and a stale-low value stops the quoter refetching
+it. Post-deploy parity check: `SELECT (SELECT count(*) FROM pool_states),
+(SELECT count(*) FROM pool_last_event_id), (SELECT count(*) FROM
+all_pool_states_view)` — all three must match. Then watch the `apsv` poll in
+`pg_stat_statements`: mean should fall from ~97 ms to low single digits.
 
 Deploy: `CREATE TRIGGER` takes `SHARE ROW EXCLUSIVE` on five tables the
 workers write mid-transaction; the migration locks `blocks` first (the #173
