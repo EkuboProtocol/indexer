@@ -169,6 +169,29 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-09-05: Index `generated_drop_proof` for the claims endpoint
+
+**`00124_index_generated_drop_proof_address`. Schema change; no consumer
+changes.**
+
+`incentives.generated_drop_proof` (3.1M rows, 2.6 GB, proofs inline) had only
+its primary key `(drop_id, id)`, while `GET /claims/:address` filters it by
+`address`. Every claims request was a sequential scan of the whole table:
+17,378 calls at 1,180 ms and 269k disk blocks each since 2026-08-25 — 35 TB of
+physical reads from a 2.6 GB table at a 20% cache-hit ratio, the largest
+source of I/O on the instance and the reason other hot tables were being
+evicted from the buffer cache. Adds `generated_drop_proof_address_idx
+(address)` and `generated_drop_proof_drop_id_amount_idx (drop_id, amount)` (the
+per-drop totals aggregate becomes an index-only scan), and runs `ANALYZE` on
+the table, whose column statistics had never been collected.
+
+Deploy: `CREATE INDEX` takes `SHARE` on a table only the out-of-band drop
+generator writes, so it does not interact with the indexer workers and does
+not use the `LOCK TABLE blocks` pattern. Expect tens of seconds for the build.
+After: the `WITH funded_roots …` statement in `pg_stat_statements` should drop
+from ~1.2 s to milliseconds, and `pg_statio_user_tables` should show the
+table's `heap_blks_read` flat.
+
 ### 2026-09-05: Indexable `last_event_id` for the pool-state poll
 
 **`00123_pool_last_event_id`. Schema change; no consumer changes.**
