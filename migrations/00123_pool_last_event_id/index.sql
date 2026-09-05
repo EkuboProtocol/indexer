@@ -119,9 +119,17 @@ BEGIN
 END;
 $$;
 
--- One trigger per state table that feeds the GREATEST. UPDATE OF last_event_id
--- keeps writes to other columns (sqrt_ratio, liquidity, tick, ...) from
--- firing it.
+-- Two triggers per state table that feeds the GREATEST.
+--
+-- The state recompute functions (refresh_pool_state, recompute_*_pool_state)
+-- write every column on every call, including last_event_id, and an
+-- "UPDATE OF last_event_id" trigger fires whenever the column is in the SET
+-- list -- not only when the value moves. So the UPDATE trigger carries a WHEN
+-- clause: it is evaluated before the trigger fires, costs a column compare,
+-- and skips the function entirely for the overwhelmingly common rewrite that
+-- leaves last_event_id where it was. INSERT and DELETE always change the
+-- answer, so they fire unconditionally. (A WHEN referencing OLD is not valid
+-- on an INSERT trigger, hence the split.)
 DO
 $$
     DECLARE
@@ -136,9 +144,17 @@ $$
             ]
             LOOP
                 EXECUTE FORMAT(
-                        'CREATE TRIGGER %I AFTER INSERT OR UPDATE OF last_event_id OR DELETE ON %I '
+                        'CREATE TRIGGER %I AFTER INSERT OR DELETE ON %I '
                             || 'FOR EACH ROW EXECUTE FUNCTION trg_pool_last_event_id()',
                         state_table || '_maintain_pool_last_event_id',
+                        state_table
+                        );
+
+                EXECUTE FORMAT(
+                        'CREATE TRIGGER %I AFTER UPDATE OF last_event_id ON %I FOR EACH ROW '
+                            || 'WHEN (OLD.last_event_id IS DISTINCT FROM NEW.last_event_id) '
+                            || 'EXECUTE FUNCTION trg_pool_last_event_id()',
+                        state_table || '_maintain_pool_last_event_id_upd',
                         state_table
                         );
             END LOOP;

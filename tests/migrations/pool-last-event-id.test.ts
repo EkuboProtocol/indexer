@@ -95,22 +95,36 @@ test("a reorg that removes the newest state lowers the stored value exactly", as
   expect(await viewed(client, pool)).toBeNull();
 });
 
-test("updates to other pool_states columns do not fire the trigger", async () => {
+async function rowVersion(client: Client, poolKeyId: number) {
+  const { rows } = await client.query<{ xmin: string }>(
+    `SELECT xmin::text FROM pool_last_event_id WHERE pool_key_id = $1`,
+    [poolKeyId]
+  );
+  return rows[0]!.xmin;
+}
+
+test("state rewrites that do not move last_event_id leave the stored row untouched", async () => {
   const client = await createClient();
   const pool = await seedPool(client, 7, "2000");
   await setPoolState(client, pool, 100);
+  const before = await rowVersion(client, pool);
 
-  const { rows: before } = await client.query<{ xmin: string }>(
-    `SELECT xmin::text FROM pool_last_event_id WHERE pool_key_id = $1`,
-    [pool]
-  );
+  // Other columns only: the trigger is not even a candidate.
   await client.query(`UPDATE pool_states SET liquidity = 5, tick = 3 WHERE pool_key_id = $1`, [pool]);
-  const { rows: after } = await client.query<{ xmin: string }>(
-    `SELECT xmin::text FROM pool_last_event_id WHERE pool_key_id = $1`,
+  expect(await rowVersion(client, pool)).toBe(before);
+
+  // last_event_id in the SET list but unchanged -- what every state recompute
+  // function does on every call. The WHEN clause keeps this from firing.
+  await client.query(
+    `UPDATE pool_states SET liquidity = 6, last_event_id = last_event_id WHERE pool_key_id = $1`,
     [pool]
   );
-  // Same row version: nothing rewrote it.
-  expect(after[0]!.xmin).toBe(before[0]!.xmin);
+  expect(await rowVersion(client, pool)).toBe(before);
+
+  // And a real move does rewrite it.
+  await setPoolState(client, pool, 101);
+  expect(await rowVersion(client, pool)).not.toBe(before);
+  expect(await stored(client, pool)).toBe("101");
 });
 
 test("the driving index and the denormalised key columns are in place", async () => {
