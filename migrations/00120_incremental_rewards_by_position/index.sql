@@ -1,3 +1,33 @@
+-- Park every indexer worker before taking any other lock. THIS MUST STAY THE
+-- FIRST STATEMENT OF THIS FILE.
+--
+-- 00120, 00121 and 00122 run inside one transaction (scripts/migrate.ts), and
+-- between them they take table locks on ~20 relations one at a time -- index
+-- builds, trigger creation, the matview swap, ALTERs on blocks and
+-- indexer_cursor -- while 14 workers keep running short write transactions
+-- that touch the same relations in whatever order the block's events dictate.
+-- That is a textbook lock-ordering deadlock, and it happened on the first
+-- deploy attempt (2026-09-05 02:44:02, 40P01): the migration held
+-- indexer_cursor from ADD COLUMN and wanted blocks for DISABLE TRIGGER; a
+-- worker held blocks from its insert and wanted indexer_cursor for its cursor
+-- write. Postgres killed the migration 137 s in and DO rolled the deploy back.
+--
+-- Every worker transaction's first statement is the reorg-protection
+-- DELETE FROM blocks, which needs ROW EXCLUSIVE on blocks. SHARE ROW EXCLUSIVE
+-- conflicts with that but not with the ACCESS SHARE readers take, so once this
+-- lock is held every worker is parked at its first statement holding nothing,
+-- and no cycle is possible for the rest of the transaction. Acquiring it may
+-- itself wait a little for in-flight worker transactions to finish -- they
+-- hold nothing the migration wants yet, so that wait is bounded by one block's
+-- processing. The hourly delete_old_empty_blocks() job holds blocks for
+-- minutes; deploy outside the top of the hour.
+--
+-- lock_timeout is a backstop against waiting forever behind something idle in
+-- transaction; a deploy that hits it fails cleanly and is rerun.
+SET LOCAL lock_timeout = '15min';
+
+LOCK TABLE blocks IN SHARE ROW EXCLUSIVE MODE;
+
 -- Replace the DeFi Spring rewards matview with a table maintained incrementally
 -- by triggers, and drop the hourly refresh entirely.
 --
