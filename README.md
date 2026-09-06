@@ -169,6 +169,67 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-09-06: Market depth refresh, 25 s → 10 s, and a 10-minute schedule
+
+**`00126_faster_pool_market_depth`. Redefines `pool_market_depth_view` and
+reschedules its cron job. Same columns, same values, no consumer changes.**
+
+`refresh_pool_market_depth` was the most expensive job left on the instance:
+25.1 s average over 24 hours (35.5 s over 7 days, max 169.7 s), every 15
+minutes. Two independent causes, neither of them a missing index — the index
+this needed already existed from 00118.
+
+- **The median-tick step read the whole `swaps` table.** Its `LATERAL`
+  subquery had no `LIMIT`/`OFFSET`, so the planner pulled it up into a plain
+  join, lost the per-pool correlation, and estimated ~513k rows per pool for a
+  one-hour window. Against that estimate a hash join over a sequential scan of
+  all 46M swaps beats 5,000 index probes, and that is what it picked: ~20 s and
+  ~11 GB read from disk per refresh, 96 times a day, roughly a terabyte.
+  Forcing the index with `enable_seqscan = off` makes it *worse* (measured: ran
+  past 170 s) because the flattened shape re-probes per output row. `OFFSET 0`
+  is the fix — the standard optimisation fence, no semantic change. That step
+  now runs in 0.29 s entirely from cache.
+
+- **The tick math was quadratic in disguise.** Every `(pool, depth)` pair
+  intersected the depth band against every one of the pool's tick segments (the
+  largest pool has 1,763), so a pool cost `ticks × 41` range intersections. It
+  is now one ordered pass per pool: prefix sums of each segment's token
+  amounts, and a band's amount is the difference of the cumulative value at its
+  two edges. The largest pool goes from 1,689 ms to 93 ms.
+
+The rewrite is **exact, not approximate**. `NUMERIC` `+ - *` are
+arbitrary-precision and lossless; the only rounding is inside `POWER()` and the
+`1/p` divisions, and both definitions evaluate those at the same tick values,
+so the reassociated sums agree digit for digit. Verified two ways: on
+production, both definitions in a single snapshot returned the same 69,150 rows
+with zero differing values (24.5 s → 10.0 s); and in
+`tests/migrations/faster-pool-market-depth.test.ts`, which snapshots the old
+view's output, applies the migration, and asserts strict equality over a
+fixture covering bands inside the tick range, bands running off both ends, a
+pool whose liquidity returns to zero mid-range, a pool priced from
+`pool_states` because it never swapped, a pool with no ticks, and a pool whose
+fee is wider than the tightest bands.
+
+Watch for one trap if this is ever touched again: deriving the band edge prices
+as `p(last) × p(offset)` via exponent laws is one extra rounding step and
+drifts ~1e-12 relative. Each edge price is computed directly from its own tick.
+
+**Schedule.** The `REFRESH … CONCURRENTLY` diff costs ~0.19 s on top of
+computing the view, so a run goes 25.1 s → ~10.5 s. The job moves from every 15
+minutes to every **10**: 1,512 s/day against today's 2,410, a 37% cut, while
+the worst-case lag between a liquidity change and the pools table drops from 25
+minutes to 20 (the API's own 600 s cache is the other half of that). Every 5
+minutes was considered and not taken — it would cost ~3,000 s/day, *more* than
+today, for a further 5 minutes. It is a one-token change in the migration's
+`DO` block if that trade is wanted later.
+
+Deploy: `CREATE OR REPLACE VIEW` takes `ACCESS EXCLUSIVE` on the view alone and
+only `ACCESS SHARE` on the tables it reads, so unlike 00120 and 00123 it holds
+nothing the workers can wait on and needs no `LOCK TABLE blocks`. The one lock
+it can wait behind is a cron refresh already reading the view, hence the
+15-minute `lock_timeout`. The migration does not refresh the matview; the next
+cron run picks up the new definition.
+
 ### 2026-09-06: Price-source bloat and stale statistics
 
 **`00125_price_source_bloat_and_stale_stats`. Reloptions and `ANALYZE` only —
