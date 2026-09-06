@@ -185,10 +185,11 @@ this needed already existed from 00118.
   one-hour window. Against that estimate a hash join over a sequential scan of
   all 46M swaps beats 5,000 index probes, and that is what it picked: ~20 s and
   ~11 GB read from disk per refresh, 96 times a day, roughly a terabyte.
-  Forcing the index with `enable_seqscan = off` makes it *worse* (measured: ran
-  past 170 s) because the flattened shape re-probes per output row. `OFFSET 0`
-  is the fix — the standard optimisation fence, no semantic change. That step
-  now runs in 0.29 s entirely from cache.
+  Forcing the index with `enable_seqscan = off` does not help either: measured,
+  it ran past 170 s and the statement timeout cut it off before the plan could
+  be captured. The estimate is what is wrong, so `OFFSET 0` is the fix — the
+  standard optimisation fence, no semantic change. That step now runs in 0.29 s
+  entirely from cache.
 
 - **The tick math was quadratic in disguise.** Every `(pool, depth)` pair
   intersected the depth band against every one of the pool's tick segments (the

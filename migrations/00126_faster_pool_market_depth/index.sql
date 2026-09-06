@@ -9,10 +9,11 @@
 --    window. Against that estimate a hash join over a sequential scan of all
 --    46M swaps beats 5,000 index probes, so that is what it chose: ~20 s and
 --    ~11 GB of buffer reads per refresh, 96 times a day. Forcing the index with
---    enable_seqscan = off does NOT fix it -- measured, it ran past 170 s,
---    because the flattened shape re-probes per output row. The fix is to stop
---    the pull-up: OFFSET 0 is the standard optimisation fence and changes no
---    semantics. Measured on production, read-only: the median-tick step goes
+--    enable_seqscan = off does NOT fix it -- measured, it ran past 170 s and
+--    the statement timeout cut it off (the plan it picked instead was not
+--    captured). The estimate is the problem, so the fix is to stop the pull-up:
+--    OFFSET 0 is the standard optimisation fence and changes no semantics.
+--    Measured on production, read-only: the median-tick step goes
 --    from ~20 s to 0.29 s, and the refresh as a whole from 35 s to 14 s.
 --    The ORDER BY block_time DESC in that subquery is dropped with it; it never
 --    meant anything to PERCENTILE_CONT and only invited a sort.
@@ -43,7 +44,8 @@
 -- takes ACCESS EXCLUSIVE on the view alone and only ACCESS SHARE on the tables
 -- it reads, which does not conflict with the workers' ROW EXCLUSIVE. The one
 -- lock this can wait on is a concurrent cron refresh reading the view, hence
--- the bounded lock_timeout; the deploy is retried rather than left hanging.
+-- the bounded lock_timeout: past it the migration fails, App Platform rolls the
+-- deploy back, and it is re-run by hand rather than left hanging.
 SET LOCAL lock_timeout = '15min';
 
 CREATE OR REPLACE VIEW pool_market_depth_view AS
@@ -110,10 +112,18 @@ WITH depth_percentages AS (SELECT (POWER(1.21, GENERATE_SERIES(0, 40)) * 0.00005
                            t.tick,
                            t.net_liquidity_delta_diff                            AS delta,
                            SUM(t.net_liquidity_delta_diff) OVER w                AS liquidity,
-                           POWER(1.0000005::NUMERIC, t.tick)                     AS price,
-                           LAG(POWER(1.0000005::NUMERIC, t.tick)) OVER w         AS previous_price
+                           POWER(1.0000005::NUMERIC, t.tick)                     AS price
                     FROM per_pool_per_tick_liquidity t
                     WINDOW w AS (PARTITION BY t.pool_key_id ORDER BY t.tick ROWS UNBOUNDED PRECEDING)),
+     -- One POWER() per tick: the previous boundary's price is read off the
+     -- previous row rather than raised again.
+     pool_ticks_spanned AS (SELECT pool_key_id,
+                                   tick,
+                                   delta,
+                                   liquidity,
+                                   price,
+                                   LAG(price) OVER (PARTITION BY pool_key_id ORDER BY tick) AS previous_price
+                            FROM pool_ticks),
      -- Cumulative token amounts held below each tick boundary.
      pool_ticks_cumulative AS (SELECT pool_key_id,
                                       tick,
@@ -128,7 +138,7 @@ WITH depth_percentages AS (SELECT (POWER(1.21, GENERATE_SERIES(0, 40)) * 0.00005
                                               ELSE (liquidity - delta) *
                                                    (1::NUMERIC / previous_price - 1::NUMERIC / price)
                                           END) OVER w AS cumulative0
-                               FROM pool_ticks
+                               FROM pool_ticks_spanned
                                WINDOW w AS (PARTITION BY pool_key_id ORDER BY tick ROWS UNBOUNDED PRECEDING)),
      -- Interleave the edges with the tick boundaries so each edge can read the
      -- cumulative state of the last boundary at or before it. is_edge breaks the
