@@ -21,8 +21,15 @@ async function leadingStatements(migration: string) {
     .slice(0, 2);
 }
 
-// Every migration that takes DDL locks on tables the workers write
-// mid-transaction has to park them first. Add to this list when adding one.
+// Every migration that takes a lock conflicting with ROW EXCLUSIVE on a table
+// the workers write mid-transaction -- CREATE INDEX (SHARE), CREATE TRIGGER
+// (SHARE ROW EXCLUSIVE), ALTER TABLE ... ADD COLUMN / DISABLE TRIGGER, DROP,
+// CREATE OR REPLACE VIEW over them -- has to park the workers first. Note that
+// a lock of that kind is held until COMMIT, so "placing it first" does not
+// shorten the stall; only parking makes the ordering safe. ANALYZE and
+// ALTER TABLE ... SET (reloptions) take SHARE UPDATE EXCLUSIVE, which does not
+// conflict with the workers, and migrations consisting only of those (00125)
+// need no lock. Add to this list when adding a conflicting one.
 for (const migration of [
   "00120_incremental_rewards_by_position",
   "00123_pool_last_event_id",
