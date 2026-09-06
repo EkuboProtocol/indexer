@@ -169,6 +169,55 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
+### 2026-09-05: Price-source bloat, stale statistics, transfers index
+
+**`00125_price_source_bloat_and_stale_stats`. Schema change plus one manual
+operator step.**
+
+Three findings from the I/O sweep that followed 00124:
+
+- `erc20_tokens_latest_price_by_source` had become the largest live source of
+  disk reads on the instance (~1 GB per five minutes): 17,223 live rows in
+  978 MB, 85% dead tuples, after 87M price-sync updates that autovacuum never
+  caught up with. The migration sets `fillfactor=70` and
+  `autovacuum_vacuum_scale_factor=0.01` (what 00119 gave
+  `erc20_tokens_latest_price`), which prevents the bloat from returning but
+  does not remove it.
+
+  **Manual step, after the migration is applied:** repack the table once.
+  `VACUUM FULL` cannot run inside the migration transaction. At 17k live rows
+  it takes seconds, holding an exclusive lock that briefly blocks price-sync
+  writes (they retry):
+
+  ```sql
+  VACUUM (FULL, ANALYZE) erc20_tokens_latest_price_by_source;
+  ```
+
+  Expect the table to drop from ~978 MB to a few MB, and its `heap_blks_read`
+  in `pg_statio_user_tables` to go flat.
+
+- Planner statistics on the big event tables were months stale (statistics
+  reset at the 08-25 restart; the default 10% analyze threshold would not
+  re-fire for months). `nonfungible_token_transfers` reported 13,645 live rows
+  against 3.1M real, `protocol_fees_paid` 426 against 1.86M, and so on. The
+  migration runs `ANALYZE` on those tables and sets
+  `autovacuum_analyze_scale_factor=0.01` on them so it stays current. This is
+  what had the positions-history query estimating one row for a whole chain
+  and scanning millions of transfers per request.
+
+- New index `nonfungible_token_transfers_chain_id_token_id_idx (chain_id,
+  token_id)` for the positions-history query (`WITH transfers …`, 28k calls at
+  909 ms — the slowest API statement remaining), whose `emitter = $3 OR
+  nlm.locker = $4` predicate cannot use the existing `(chain_id, emitter,
+  token_id, …)` index.
+
+Deploy: `ANALYZE` and reloption changes take `SHARE UPDATE EXCLUSIVE` and do
+not block the workers. The `CREATE INDEX` does block inserts into
+`nonfungible_token_transfers` for the seconds it takes to build over ~3M rows
+and is placed first, while the transaction holds nothing else, so it cannot
+deadlock with a worker. No `LOCK TABLE blocks`. Expect the migration to run
+for about a minute, most of it the `ANALYZE` of `swaps` and `computed_rewards`.
+
 ### 2026-09-05: Index `generated_drop_proof` for the claims endpoint
 
 **`00124_index_generated_drop_proof_address`. Schema change; no consumer
