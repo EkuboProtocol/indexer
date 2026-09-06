@@ -169,54 +169,69 @@ This log records indexer deployments that:
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
 
-### 2026-09-05: Price-source bloat, stale statistics, transfers index
+### 2026-09-06: Price-source bloat and stale statistics
 
-**`00125_price_source_bloat_and_stale_stats`. Schema change plus one manual
-operator step.**
+**`00125_price_source_bloat_and_stale_stats`. Reloptions and `ANALYZE` only —
+no lock that conflicts with the workers — plus one manual operator step.**
 
-Three findings from the I/O sweep that followed 00124:
+Two findings from the I/O sweep that followed 00124:
 
-- `erc20_tokens_latest_price_by_source` had become the largest live source of
-  disk reads on the instance (~1 GB per five minutes): 17,223 live rows in
-  978 MB, 85% dead tuples, after 87M price-sync updates that autovacuum never
-  caught up with. The migration sets `fillfactor=70` and
-  `autovacuum_vacuum_scale_factor=0.01` (what 00119 gave
-  `erc20_tokens_latest_price`), which prevents the bloat from returning but
-  does not remove it.
+- `erc20_tokens_latest_price_by_source` is the largest live source of disk
+  reads on the instance (~1 GB per five minutes): 17,223 live rows in 978 MB
+  (594 MB heap + 384 MB index), ~6 MB of live data. Autovacuum is not behind
+  on it — it fires on essentially every naptime. The heap is the residue of the
+  2026-09-01 incident described under 00119: a worker blocked 22 hours inside
+  `pg_advisory_lock` pinned the vacuum horizon, and at ~90 updates/s that left
+  ~7M dead tuples vacuum could not remove until the session ended. Vacuum
+  reclaims that space in place; only a rewrite shrinks the heap.
 
-  **Manual step, after the migration is applied:** repack the table once.
-  `VACUUM FULL` cannot run inside the migration transaction. At 17k live rows
-  it takes seconds, holding an exclusive lock that briefly blocks price-sync
-  writes (they retry):
+  The migration sets `fillfactor=70` (HOT headroom after the repack; the
+  table's only index is its primary key) and
+  `autovacuum_vacuum_scale_factor=0.01` (matching 00119's setting on the
+  sibling table `erc20_tokens_latest_price`, which got `fillfactor=80`). Neither
+  prevents a repeat of the incident — that needs `lock_timeout` /
+  `statement_timeout` on the indexer role and an alert on `age(backend_xmin)`,
+  a separate change.
 
-  ```sql
-  VACUUM (FULL, ANALYZE) erc20_tokens_latest_price_by_source;
+  **Manual step, after the migration is applied:** rewrite the table once.
+  Preferred, because it rewrites without an exclusive lock:
+
+  ```sh
+  pg_repack -d defaultdb -t erc20_tokens_latest_price_by_source
   ```
 
-  Expect the table to drop from ~978 MB to a few MB, and its `heap_blks_read`
-  in `pg_statio_user_tables` to go flat.
+  (`pg_repack` 1.5.2 is available on the managed instance; it needs `CREATE
+  EXTENSION pg_repack` in `defaultdb` and a matching local client.) The
+  fallback is `VACUUM (FULL, ANALYZE) erc20_tokens_latest_price_by_source`,
+  which takes seconds at 17k live rows but holds `ACCESS EXCLUSIVE`: it blocks
+  the price sync's **reads** as well as its writes, and nothing in
+  `src/price-sync` retries a failed cycle, so prices go stale for the duration.
+  If using it, set `lock_timeout = '10s'` first and run outside :00–:02, when
+  the hourly `prune_erc20_tokens_usd_prices` DELETE is holding the table's
+  trigger path. Expect ~978 MB → a few MB and the table's `heap_blks_read` in
+  `pg_statio_user_tables` to go flat.
 
-- Planner statistics on the big event tables were months stale (statistics
+- Planner statistics on four large event tables were months stale (statistics
   reset at the 08-25 restart; the default 10% analyze threshold would not
-  re-fire for months). `nonfungible_token_transfers` reported 13,645 live rows
-  against 3.1M real, `protocol_fees_paid` 426 against 1.86M, and so on. The
-  migration runs `ANALYZE` on those tables and sets
-  `autovacuum_analyze_scale_factor=0.01` on them so it stays current. This is
-  what had the positions-history query estimating one row for a whole chain
-  and scanning millions of transfers per request.
+  re-fire for months): `nonfungible_token_transfers` reported 13,645 live rows
+  against 3.1M real, `nonfungible_token_owners` 10,751 against 2.35M,
+  `protocol_fees_paid` 426 against 1.86M, `position_fees_collected` 2,251
+  against 1.81M. This is what had the positions-history query (`WITH transfers
+  …`, 28k calls at 909 ms — the slowest API statement remaining) estimating one
+  row for a whole chain and scanning millions of transfers per request. The
+  migration runs `ANALYZE` on those four and sets
+  `autovacuum_analyze_scale_factor=0.01` on them so it stays current.
 
-- New index `nonfungible_token_transfers_chain_id_token_id_idx (chain_id,
-  token_id)` for the positions-history query (`WITH transfers …`, 28k calls at
-  909 ms — the slowest API statement remaining), whose `emitter = $3 OR
-  nlm.locker = $4` predicate cannot use the existing `(chain_id, emitter,
-  token_id, …)` index.
+  `ANALYZE` alone repairs the plan: with current statistics the existing
+  `(chain_id, emitter, token_id, …)` index serves `chain_id + token_id` by skip
+  scan. An extra `(chain_id, token_id)` index was tried in review and dropped —
+  it saved ~14 buffers a call against the skip scan and nothing at all under
+  stale statistics, the actual failure mode. The hourly tables are deliberately
+  not on the list; they autoanalyze every few days at the default threshold.
 
-Deploy: `ANALYZE` and reloption changes take `SHARE UPDATE EXCLUSIVE` and do
-not block the workers. The `CREATE INDEX` does block inserts into
-`nonfungible_token_transfers` for the seconds it takes to build over ~3M rows
-and is placed first, while the transaction holds nothing else, so it cannot
-deadlock with a worker. No `LOCK TABLE blocks`. Expect the migration to run
-for about a minute, most of it the `ANALYZE` of `swaps` and `computed_rewards`.
+Deploy: `ANALYZE` and reloption changes take `SHARE UPDATE EXCLUSIVE`, which
+does not conflict with the workers' writes, so this migration holds nothing a
+worker can wait on and needs no `LOCK TABLE blocks`. It runs in seconds.
 
 ### 2026-09-05: Index `generated_drop_proof` for the claims endpoint
 
