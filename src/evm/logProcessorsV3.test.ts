@@ -21,11 +21,19 @@ describe("createLogProcessorsV3", () => {
     const legacyTwammAddress = "0x0000000000000000000000000000000000000011";
     const ordersAddress = "0x0000000000000000000000000000000000000012";
     const legacyOrdersAddress = "0x0000000000000000000000000000000000000013";
+    // The solc 0.8.33 recompile moved Orders to a third address, and chains
+    // run one generation or the other, so all of them are watched at once.
+    const recompiledOrdersAddress =
+      "0x0000000000000000000000000000000000000014";
 
     const processors = createLogProcessorsV3({
       ...config,
       twammAddresses: [twammAddress, legacyTwammAddress],
-      ordersAddresses: [ordersAddress, legacyOrdersAddress],
+      ordersAddresses: [
+        ordersAddress,
+        legacyOrdersAddress,
+        recompiledOrdersAddress,
+      ],
     });
 
     expect(processors.filter((p) => p.address === twammAddress)).toHaveLength(
@@ -39,6 +47,9 @@ describe("createLogProcessorsV3", () => {
     );
     expect(
       processors.filter((p) => p.address === legacyOrdersAddress),
+    ).toHaveLength(1);
+    expect(
+      processors.filter((p) => p.address === recompiledOrdersAddress),
     ).toHaveLength(1);
   });
 

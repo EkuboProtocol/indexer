@@ -46,6 +46,7 @@ interface EvmConfig extends CommonConfiguration {
   LEGACY_TWAMM_V3_ADDRESS?: `0x${string}`;
   ORDERS_V3_ADDRESS?: `0x${string}`;
   LEGACY_ORDERS_V3_ADDRESS?: `0x${string}`;
+  RECOMPILED_ORDERS_V3_ADDRESS?: `0x${string}`;
   INCENTIVES_V3_ADDRESS: `0x${string}`;
   MEV_CAPTURE_V3_ADDRESS: `0x${string}`;
   AUCTIONS_V3_ADDRESS: `0x${string}`;

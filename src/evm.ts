@@ -149,6 +149,7 @@ export async function createEvmEntrypoint(
           ordersAddresses: requireAtLeastOneAddress("V3 Orders address", [
             "ORDERS_V3_ADDRESS",
             "LEGACY_ORDERS_V3_ADDRESS",
+            "RECOMPILED_ORDERS_V3_ADDRESS",
           ]),
           ...evmV3Ve33AddressConfig,
           positionsContracts: positionsV3ProtocolFeeConfigs ?? [],
