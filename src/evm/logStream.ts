@@ -101,17 +101,6 @@ export interface StreamBlock {
     transactionHash: Hex;
     transactionIndex: number;
     logIndex: number;
-    /**
-     * Position within the transaction, not within the block.
-     *
-     * `event_index` is packed into `compute_event_id` in 16 bits, so the
-     * block-wide `logIndex` cannot be used: it counts every log in the block,
-     * including other contracts', and a busy block would push it past 65,535 and
-     * wedge the worker on a row Postgres refuses. The apibara stream this
-     * replaces supplied this field, and dropping it silently changed what
-     * `event_id` means.
-     */
-    logIndexInTransaction: number;
     filterIds: number[];
   }[];
 }
@@ -178,7 +167,6 @@ export function groupLogsByBlock(
   filters: LogStreamFilter[],
 ): StreamBlock[] {
   const byBlock = new Map<number, { block: StreamBlock }>();
-  const indexInTransaction = perTransactionIndexes(logs);
 
   for (const log of logs) {
     if (log.removed) continue;
@@ -213,10 +201,10 @@ export function groupLogsByBlock(
       data: log.data,
       transactionHash: log.transactionHash,
       transactionIndex: hexToNumber(log.transactionIndex),
-      logIndex: hexToNumber(log.logIndex),
-      logIndexInTransaction: indexInTransaction.get(
-        `${blockNumber}:${hexToNumber(log.logIndex)}`,
-      )!,
+      logIndex: requireRepresentableIndex(
+        hexToNumber(log.logIndex),
+        blockNumber,
+      ),
       filterIds,
     });
   }
@@ -233,46 +221,27 @@ export function groupLogsByBlock(
 const MAX_EVENT_INDEX = 65_536;
 
 /**
- * Each log's position within its own transaction, keyed `block:logIndex`.
+ * Fails loudly, and early, on a log index `compute_event_id` cannot represent.
  *
- * Counted over every log the address filter returned, not just the ones a
- * processor matches, so adding or removing a processor does not shift the
- * `event_id` of an event that was already indexed.
+ * `evm.ts` uses a log's block-wide `logIndex` as its `event_index`, because the
+ * apibara RPC stream this replaces never populated `logIndexInTransaction`
+ * either. `compute_event_id` packs that index into 16 bits and raises above
+ * 65,535, so a block carrying more logs than that -- counting every contract's,
+ * not only ours -- cannot be indexed under this scheme at all.
  *
- * This is not identical to the `logIndexInTransaction` the apibara stream
- * supplied, which counted logs from other contracts in the same transaction
- * too; reproducing that exactly would mean fetching logs we have no other use
- * for. It is dense, stable, and unique within a transaction, which is what
- * `compute_event_id` actually requires.
+ * That limitation is inherited, not introduced here, and this deliberately does
+ * not change the numbering: `event_id` is a primary key that other tables order
+ * on, so re-basing it belongs in its own change rather than riding along with a
+ * stream rewrite. What this does is convert a confusing failure deep in a
+ * Postgres function into one that names the cause at the point of origin.
  */
-function perTransactionIndexes(logs: RawLog[]): Map<string, number> {
-  const ordered = logs
-    .filter((log) => !log.removed)
-    .map((log) => ({
-      block: hexToNumber(log.blockNumber),
-      tx: hexToNumber(log.transactionIndex),
-      logIndex: hexToNumber(log.logIndex),
-    }))
-    .sort((a, b) =>
-      a.block !== b.block ? a.block - b.block : a.logIndex - b.logIndex,
+function requireRepresentableIndex(logIndex: number, blockNumber: number) {
+  if (logIndex >= MAX_EVENT_INDEX) {
+    throw new Error(
+      `Block ${blockNumber} contains a log at index ${logIndex}, which compute_event_id cannot represent (the limit is ${MAX_EVENT_INDEX}). event_index is the block-wide log index, so a block with more than that many logs in total cannot be indexed without re-basing event_id onto a per-transaction index.`,
     );
-
-  const nextForTransaction = new Map<string, number>();
-  const indexes = new Map<string, number>();
-
-  for (const log of ordered) {
-    const key = `${log.block}:${log.tx}`;
-    const next = nextForTransaction.get(key) ?? 0;
-    if (next >= MAX_EVENT_INDEX) {
-      throw new Error(
-        `Transaction ${log.tx} in block ${log.block} carries more than ${MAX_EVENT_INDEX} matching logs, which compute_event_id cannot represent. Indexing it would produce a duplicate event_id, so it is refused.`,
-      );
-    }
-    nextForTransaction.set(key, next + 1);
-    indexes.set(`${log.block}:${log.logIndex}`, next);
   }
-
-  return indexes;
+  return logIndex;
 }
 
 /** Which blocks in a range carry logs, and under which hash. */
@@ -839,8 +808,22 @@ function initStream({
     throw new Error("createLogStream requires at least one filter");
   }
 
+  const opts: Resolved = { ...DEFAULTS, ...options };
+
+  // A read span no wider than the reorg window can end below the cursor on every
+  // single poll: the window reaches back further than the span can reach
+  // forward. Nothing is emitted, the cursor never advances, and because the span
+  // also never reaches the head the loop does not sleep -- so it spins at CPU
+  // speed issuing two requests a turn while looking perfectly healthy. Refuse
+  // the configuration instead of letting it run.
+  if (opts.maxLogRangeBlocks <= opts.reorgWindowBlocks) {
+    throw new Error(
+      `GET_LOGS_RANGE_SIZE (${opts.maxLogRangeBlocks}) must exceed REORG_WINDOW_BLOCKS (${opts.reorgWindowBlocks}), otherwise a poll can never read past the window it re-reads and the stream makes no progress.`,
+    );
+  }
+
   return {
-    opts: { ...DEFAULTS, ...options },
+    opts,
     addresses,
     state: {
       cursorBlock: Number(startingCursor.orderKey),

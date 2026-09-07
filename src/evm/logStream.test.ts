@@ -1002,54 +1002,78 @@ describe("fetchLogsChecked error handling", () => {
 });
 
 describe("groupLogsByBlock event index", () => {
-  const inTx = (over: Partial<RawLog>) => log(over);
-
-  it("numbers logs within their transaction, not within the block", () => {
-    // event_index is packed into 16 bits by compute_event_id, so the block-wide
-    // logIndex cannot be used: it counts every log in the block, including other
-    // contracts', and would eventually exceed the range and wedge the worker.
+  it("carries the block-wide log index through unchanged", () => {
+    // event_index in evm.ts is this value. The apibara RPC stream never
+    // populated logIndexInTransaction either, so keeping it identical is what
+    // makes this a stream swap rather than a change to a primary key.
     const [block] = groupLogsByBlock(
       [
-        inTx({ transactionIndex: "0x0", logIndex: "0x7d0" }),
-        inTx({ transactionIndex: "0x0", logIndex: "0x7d1" }),
-        inTx({ transactionIndex: "0x1", logIndex: "0x7d2" }),
+        log({ transactionIndex: "0x0", logIndex: "0x7d0" }),
+        log({ transactionIndex: "0x0", logIndex: "0x7d1" }),
+        log({ transactionIndex: "0x1", logIndex: "0x7d2" }),
       ],
       [filter()],
     );
 
-    expect(block!.logs.map((l) => l.logIndexInTransaction)).toEqual([0, 1, 0]);
-    // The block-wide index is still carried, just not used as the event index.
     expect(block!.logs.map((l) => l.logIndex)).toEqual([2000, 2001, 2002]);
   });
 
-  it("keeps the numbering dense when a log matches no filter", () => {
-    // Counted over everything the address filter returned, so adding or removing
-    // a processor does not shift the event_id of an already-indexed event.
-    const [block] = groupLogsByBlock(
-      [
-        inTx({ transactionIndex: "0x0", logIndex: "0x0" }),
-        inTx({ transactionIndex: "0x0", logIndex: "0x1", topics: [T1] }),
-        inTx({ transactionIndex: "0x0", logIndex: "0x2" }),
-      ],
-      [filter()],
-    );
-
-    // The middle log matched nothing and is gone, but the third keeps index 2.
-    expect(block!.logs.map((l) => l.logIndexInTransaction)).toEqual([0, 2]);
+  it("names the cause when an index cannot be represented", () => {
+    // compute_event_id packs event_index into 16 bits and raises above 65,535.
+    // Inherited limitation, but it should not surface as a confusing failure
+    // inside a Postgres function several layers away from its cause.
+    expect(() =>
+      groupLogsByBlock(
+        [log({ blockNumber: numberToHex(500n), logIndex: numberToHex(70_000n) })],
+        [filter()],
+      ),
+    ).toThrow(/compute_event_id cannot represent/);
   });
 
-  it("stays well inside the range a block-wide index would blow", () => {
-    const logs = Array.from({ length: 50 }, (_, i) =>
-      inTx({
-        transactionIndex: numberToHex(BigInt(i)),
-        logIndex: numberToHex(BigInt(70_000 + i)),
-      }),
+  it("accepts an index just inside the limit", () => {
+    const [block] = groupLogsByBlock(
+      [log({ logIndex: numberToHex(65_535n) })],
+      [filter()],
     );
-    const [block] = groupLogsByBlock(logs, [filter()]);
+    expect(block!.logs[0]!.logIndex).toBe(65_535);
+  });
+});
 
-    for (const entry of block!.logs) {
-      expect(entry.logIndexInTransaction).toBeLessThan(65_536);
-    }
+describe("createLogStream configuration", () => {
+  it("refuses a read span no wider than the reorg window", async () => {
+    // Such a span can end below the cursor every poll: nothing is emitted, the
+    // cursor never advances, and since the span never reaches the head the loop
+    // never sleeps -- a busy spin that looks like a healthy worker.
+    const rpc = rpcDouble({ logs: () => [] });
+
+    await expect(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 100n },
+        options: { maxLogRangeBlocks: 32, reorgWindowBlocks: 64 },
+      }).next(),
+    ).rejects.toThrow(/must exceed/);
+  });
+
+  it("accepts a span wider than the window", async () => {
+    const rpc = rpcDouble({
+      blocks: () => ({ number: 100, hash: "0x100", timestamp: 1_700_000_000 }),
+      logs: () => [],
+    });
+
+    const stream = createLogStream({
+      rpc,
+      filters: [filter()],
+      startingCursor: { orderKey: 100n },
+      options: {
+        maxLogRangeBlocks: 65,
+        reorgWindowBlocks: 64,
+        pollIntervalMs: 1,
+        heartbeatIntervalMs: 1,
+      },
+    });
+    await expect(stream.next()).resolves.toBeDefined();
   });
 });
 

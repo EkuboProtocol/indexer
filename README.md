@@ -158,13 +158,18 @@ chain's block time:
 Those two log fields are the only header data the runtime persists, so no
 per-block header read is needed.
 
-`event_index` is derived rather than taken from the log. `compute_event_id`
-packs it into 16 bits, and a log's `logIndex` is its position in the *block* —
-counting every contract's logs, not just ours — so on a busy block it would
-exceed that range and wedge the worker on a row Postgres refuses. The stream
-numbers each log within its own transaction instead, counted over every log the
-address filter returned so that adding or removing a processor does not shift
-the `event_id` of an event already indexed. `base_fee_per_gas` is still written but is read
+`event_index` is the log's block-wide `logIndex`, unchanged. The apibara RPC
+stream never populated `logIndexInTransaction` either, so keeping it identical
+is what makes this a stream swap rather than a change to a primary key other
+tables order on.
+
+That scheme has an inherited ceiling: `compute_event_id` packs the index into 16
+bits, and `logIndex` counts every contract's logs in the block, so a block with
+more than 65,535 logs in total cannot be indexed at all. The stream now refuses
+such a log with a message naming the cause, rather than letting it surface as a
+failure deep inside a Postgres function. Raising the ceiling means re-basing
+`event_id` onto a per-transaction index, which is a migration, not a stream
+change. `base_fee_per_gas` is still written but is read
 by nothing, and rows for blocks with no events are removed within a day by
 `delete_old_empty_blocks`.
 
