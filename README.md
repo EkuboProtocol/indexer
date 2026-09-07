@@ -207,8 +207,12 @@ surfaces later as a wrong number downstream. Three choices follow from that.
   is ours to choose, so the error names `GET_LOGS_RANGE_SIZE` as the knob and
   carries the provider's own words as the cause.
 
-  Keep `GET_LOGS_RANGE_SIZE` under 5,000 on Alchemy: below that boundary it
-  applies no result cap at all, so a refusal is not reachable in the first place.
+  `GET_LOGS_RANGE_SIZE` interacts with this: above a 5,000 block range Alchemy
+  caps a response at 10K logs. Whether that is reachable is a question about log
+  density, not a reason to stay under the boundary — Robinhood averages 0.04
+  matched events per block and Arbitrum 0.0002, so a 10,000 block span carries
+  roughly 400 and 2 respectively. Check the density before raising it on a
+  busier chain.
 
 Reorgs are found by re-reading `REORG_WINDOW_BLOCKS` (default 64) at the head
 each poll and comparing it against what was emitted. A block that changed hash,
