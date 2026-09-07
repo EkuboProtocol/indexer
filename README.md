@@ -156,7 +156,15 @@ chain's block time:
    and `blockTimestamp` on each log.
 
 Those two log fields are the only header data the runtime persists, so no
-per-block header read is needed. `base_fee_per_gas` is still written but is read
+per-block header read is needed.
+
+`event_index` is derived rather than taken from the log. `compute_event_id`
+packs it into 16 bits, and a log's `logIndex` is its position in the *block* —
+counting every contract's logs, not just ours — so on a busy block it would
+exceed that range and wedge the worker on a row Postgres refuses. The stream
+numbers each log within its own transaction instead, counted over every log the
+address filter returned so that adding or removing a processor does not shift
+the `event_id` of an event already indexed. `base_fee_per_gas` is still written but is read
 by nothing, and rows for blocks with no events are removed within a day by
 `delete_old_empty_blocks`.
 
@@ -186,10 +194,15 @@ surfaces later as a wrong number downstream. Three choices follow from that.
   range outright. Alchemy does the latter, so on Alchemy that is the branch that
   runs. Re-issuing the same span would fail identically and restart the worker
   into it forever, so the span is halved instead, and only a single block that
-  still fails throws. This applies only when the server actually answered: a
-  JSON-RPC error carries a numeric `code`, while a timeout or a 429 does not,
-  and bisecting one of those would turn a single transient failure into hundreds
-  of requests aimed at an endpoint that just asked us to slow down.
+  still fails throws. Splitting is gated on the error *message*, not on the
+  presence of a JSON-RPC `code`: Alchemy reports a compute-unit overage as an
+  error with code 429 and Infura reuses `-32005` for rate limits as well as
+  result caps, so bisecting on a code would aim a fan-out at an endpoint that
+  just asked us to slow down. Anything unrecognised propagates instead, and the
+  worker resumes from its durable cursor. The split runs sequentially for the
+  same reason. Note that inside its block-range limit Alchemy applies no result
+  cap at all, so a busy span fails as a client-side response-body error with no
+  code on it whatsoever — which is the case that settles this design.
 
 Reorgs are found by re-reading `REORG_WINDOW_BLOCKS` (default 64) at the head
 each poll and comparing it against what was emitted. A block that changed hash,

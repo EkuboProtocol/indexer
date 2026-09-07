@@ -101,6 +101,17 @@ export interface StreamBlock {
     transactionHash: Hex;
     transactionIndex: number;
     logIndex: number;
+    /**
+     * Position within the transaction, not within the block.
+     *
+     * `event_index` is packed into `compute_event_id` in 16 bits, so the
+     * block-wide `logIndex` cannot be used: it counts every log in the block,
+     * including other contracts', and a busy block would push it past 65,535 and
+     * wedge the worker on a row Postgres refuses. The apibara stream this
+     * replaces supplied this field, and dropping it silently changed what
+     * `event_id` means.
+     */
+    logIndexInTransaction: number;
     filterIds: number[];
   }[];
 }
@@ -166,7 +177,8 @@ export function groupLogsByBlock(
   logs: RawLog[],
   filters: LogStreamFilter[],
 ): StreamBlock[] {
-  const byBlock = new Map<number, { block: StreamBlock; order: number[] }>();
+  const byBlock = new Map<number, { block: StreamBlock }>();
+  const indexInTransaction = perTransactionIndexes(logs);
 
   for (const log of logs) {
     if (log.removed) continue;
@@ -191,7 +203,6 @@ export function groupLogsByBlock(
           },
           logs: [],
         },
-        order: [],
       };
       byBlock.set(blockNumber, entry);
     }
@@ -203,9 +214,11 @@ export function groupLogsByBlock(
       transactionHash: log.transactionHash,
       transactionIndex: hexToNumber(log.transactionIndex),
       logIndex: hexToNumber(log.logIndex),
+      logIndexInTransaction: indexInTransaction.get(
+        `${blockNumber}:${hexToNumber(log.logIndex)}`,
+      )!,
       filterIds,
     });
-    entry.order.push(hexToNumber(log.logIndex));
   }
 
   return [...byBlock.entries()]
@@ -214,6 +227,52 @@ export function groupLogsByBlock(
       entry.block.logs.sort((a, b) => a.logIndex - b.logIndex);
       return entry.block;
     });
+}
+
+/** Packed into 16 bits by `compute_event_id`, so this is a hard ceiling. */
+const MAX_EVENT_INDEX = 65_536;
+
+/**
+ * Each log's position within its own transaction, keyed `block:logIndex`.
+ *
+ * Counted over every log the address filter returned, not just the ones a
+ * processor matches, so adding or removing a processor does not shift the
+ * `event_id` of an event that was already indexed.
+ *
+ * This is not identical to the `logIndexInTransaction` the apibara stream
+ * supplied, which counted logs from other contracts in the same transaction
+ * too; reproducing that exactly would mean fetching logs we have no other use
+ * for. It is dense, stable, and unique within a transaction, which is what
+ * `compute_event_id` actually requires.
+ */
+function perTransactionIndexes(logs: RawLog[]): Map<string, number> {
+  const ordered = logs
+    .filter((log) => !log.removed)
+    .map((log) => ({
+      block: hexToNumber(log.blockNumber),
+      tx: hexToNumber(log.transactionIndex),
+      logIndex: hexToNumber(log.logIndex),
+    }))
+    .sort((a, b) =>
+      a.block !== b.block ? a.block - b.block : a.logIndex - b.logIndex,
+    );
+
+  const nextForTransaction = new Map<string, number>();
+  const indexes = new Map<string, number>();
+
+  for (const log of ordered) {
+    const key = `${log.block}:${log.tx}`;
+    const next = nextForTransaction.get(key) ?? 0;
+    if (next >= MAX_EVENT_INDEX) {
+      throw new Error(
+        `Transaction ${log.tx} in block ${log.block} carries more than ${MAX_EVENT_INDEX} matching logs, which compute_event_id cannot represent. Indexing it would produce a duplicate event_id, so it is refused.`,
+      );
+    }
+    nextForTransaction.set(key, next + 1);
+    indexes.set(`${log.block}:${log.logIndex}`, next);
+  }
+
+  return indexes;
 }
 
 /** Which blocks in a range carry logs, and under which hash. */
@@ -310,13 +369,15 @@ export async function fetchLogsChecked(
     // Splitting is the only response that makes progress -- retrying the same
     // span would just fail again, and the worker would restart into it forever.
     //
-    // Only when the server actually answered, though. A timeout or a 429 says
-    // nothing about the range, and bisecting one would turn a single transient
-    // failure into hundreds of requests aimed at an endpoint that just asked us
-    // to slow down. A JSON-RPC error carries a numeric `code`; a transport
-    // failure does not.
-    const answered = typeof (error as { code?: unknown }).code === "number";
-    if (!answered || fromBlock === toBlock) throw error;
+    // Only when the error is actually about the size of the range. A numeric
+    // JSON-RPC `code` is not enough to tell: Alchemy reports a compute-unit
+    // overage as an error with code 429, and Infura reuses -32005 for rate
+    // limits as well as for result caps. Splitting one of those would aim a
+    // fan-out at an endpoint that just asked us to slow down, which is the storm
+    // this is supposed to avoid. So match the message, and let anything
+    // unrecognised propagate -- the worker restarts and resumes from a durable
+    // cursor, which is the safe failure.
+    if (fromBlock === toBlock || !isRangeTooLarge(error)) throw error;
     return splitRange(rpc, args);
   }
 
@@ -331,7 +392,51 @@ export async function fetchLogsChecked(
   return splitRange(rpc, args);
 }
 
-/** Halves a span and reads both sides. */
+/** Messages a provider uses to say the answer, not the request, was too big. */
+const RANGE_TOO_LARGE = [
+  "more than 10000 results",
+  "query returned more than",
+  "response size exceeded",
+  "block range is too large",
+  "block range too large",
+  "exceed maximum block range",
+  "range is too wide",
+  "too many logs",
+  "log response size",
+  // Not the server refusing but the client giving up on the body. Alchemy caps
+  // results at 10K logs only for spans wider than its block-range limit; inside
+  // that limit it returns everything, and a busy span can produce a body the
+  // HTTP layer will not accept. Splitting is the same right answer.
+  "response body exceeded",
+  "body exceeded the size limit",
+];
+
+/** Messages that mean slow down, which must never be answered by fanning out. */
+const RATE_LIMITED = [
+  "rate limit",
+  "too many requests",
+  "compute unit",
+  "capacity",
+  "throughput",
+];
+
+/** True when the provider refused because the result set was too large. */
+function isRangeTooLarge(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const message = String(
+    (error as { message?: unknown }).message ?? "",
+  ).toLowerCase();
+  if (RATE_LIMITED.some((hint) => message.includes(hint))) return false;
+  return RANGE_TOO_LARGE.some((hint) => message.includes(hint));
+}
+
+/**
+ * Halves a span and reads both sides, one after the other.
+ *
+ * Sequentially, deliberately. Bisecting concurrently would turn one oversized
+ * range into an exponentially widening burst of in-flight requests, which is a
+ * good way to convert a size limit into a rate limit.
+ */
 async function splitRange(
   rpc: RpcLike,
   args: {
@@ -343,10 +448,16 @@ async function splitRange(
 ): Promise<RawLog[]> {
   const { fromBlock, toBlock } = args;
   const middle = fromBlock + Math.floor((toBlock - fromBlock) / 2);
-  const [left, right] = await Promise.all([
-    fetchLogsChecked(rpc, { ...args, fromBlock, toBlock: middle }),
-    fetchLogsChecked(rpc, { ...args, fromBlock: middle + 1, toBlock }),
-  ]);
+  const left = await fetchLogsChecked(rpc, {
+    ...args,
+    fromBlock,
+    toBlock: middle,
+  });
+  const right = await fetchLogsChecked(rpc, {
+    ...args,
+    fromBlock: middle + 1,
+    toBlock,
+  });
   return [...left, ...right];
 }
 
@@ -494,7 +605,19 @@ async function refreshFinalized(
   }
   state.lastFinalizedRefresh = now;
 
-  const finalized = await fetchBlockByTag(rpc, "finalized");
+  // Tolerated, not fatal. The finalized block is an optimisation here -- a floor
+  // on the re-read and a cursor to announce -- so a node that cannot answer for
+  // it should cost us that optimisation, not the worker. Without this catch the
+  // `withNullBlockRetry` wrapper turns a null answer into a throw that escapes
+  // the generator every thirty seconds and exits the process.
+  const finalized = await fetchBlockByTag(rpc, "finalized").catch(
+    (error: unknown) => {
+      opts.onWarning?.("could not read the finalized block", {
+        error: String(error).slice(0, 200),
+      });
+      return null;
+    },
+  );
   if (!finalized) return null;
 
   if (state.finalized && finalized.number < state.finalized.number) {
@@ -753,7 +876,12 @@ function finishTick(
   plan: { to: number; head: LatestBlock },
   opts: Resolved,
 ): void {
-  state.cursorBlock = plan.to;
+  // Never backwards. An endpoint that momentarily answers `latest` with a block
+  // behind the cursor yields a valid-looking plan that ends below it, and
+  // assigning that would rewind the in-memory cursor with no `invalidate` and no
+  // warning, re-emitting blocks already indexed. A rollback is the only thing
+  // allowed to move the cursor back, and it says so.
+  state.cursorBlock = Math.max(state.cursorBlock, plan.to);
   state.lastHeadHash = plan.head.hash;
   const earliest = (state.finalized?.number ?? 0) + 1;
   forgetBelow(
@@ -781,9 +909,19 @@ async function checkStartingCursor(
   const expected = startingCursor.uniqueKey;
   if (typeof expected !== "string" || state.cursorBlock <= 0) return null;
 
-  const block = await fetchBlockByNumber(rpc, state.cursorBlock);
-  // An absent block is a pruned or lagging node answering, not a reorg. Reading
-  // forward from an unverified cursor is the safe failure: it re-reads.
+  // An absent or unreadable block is a pruned or lagging node answering, not a
+  // reorg, and `withNullBlockRetry` surfaces the null case as a throw. Reading
+  // forward from an unverified cursor is the safe failure -- it re-reads -- and
+  // is far better than crash-looping a worker whose node cannot serve the block.
+  const block = await fetchBlockByNumber(rpc, state.cursorBlock).catch(
+    (error: unknown) => {
+      opts.onWarning?.("could not verify the stored cursor", {
+        block: state.cursorBlock,
+        error: String(error).slice(0, 200),
+      });
+      return null;
+    },
+  );
   if (!block) return null;
 
   // The stored key round-trips through a numeric column, so leading zeroes are
@@ -862,6 +1000,10 @@ export async function* createLogStream(
     const rollback = reconcileWindow(state, digests, plan, opts);
     if (rollback) {
       yield rollback;
+      // An endpoint serving two views alternately would otherwise rollback,
+      // re-read and rollback again with no pause between, one DB transaction per
+      // turn. Back off exactly as the caught-up path does.
+      await sleep(opts.pollIntervalMs);
       continue;
     }
 

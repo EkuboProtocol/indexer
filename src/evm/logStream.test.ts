@@ -742,102 +742,6 @@ describe("createLogStream on restart", () => {
   });
 });
 
-describe("fetchLogsChecked when the provider refuses a range", () => {
-  it("splits on an error rather than restarting into the same span", async () => {
-    // Alchemy errors at its log cap instead of truncating, so this is the
-    // branch that actually runs in production.
-    const rpc = rpcDouble({
-      logs: (from, to) => {
-        if (to - from >= 5) {
-          const error = new Error(
-            "query returned more than 10000 results",
-          ) as Error & { code: number };
-          error.code = -32005;
-          throw error;
-        }
-        return [log({ blockNumber: numberToHex(BigInt(from)) })];
-      },
-    });
-
-    const logs = await fetchLogsChecked(rpc, {
-      fromBlock: 1,
-      toBlock: 10,
-      addresses: [CORE],
-      suspectLogCount: 10_000,
-    });
-
-    expect(logs).toHaveLength(2);
-    expect(rpc.calls.length).toBeGreaterThan(1);
-  });
-
-  it("gives up on a single block, since there is nothing left to split", async () => {
-    const rpc = rpcDouble({
-      logs: () => {
-        const error = new Error(
-          "query returned more than 10000 results",
-        ) as Error & { code: number };
-        error.code = -32005;
-        throw error;
-      },
-    });
-
-    await expect(
-      fetchLogsChecked(rpc, {
-        fromBlock: 7,
-        toBlock: 7,
-        addresses: [CORE],
-        suspectLogCount: 10_000,
-      }),
-    ).rejects.toThrow(/more than 10000 results/);
-  });
-});
-
-describe("fetchLogsChecked on a transport failure", () => {
-  it("does not bisect a timeout into a request storm", async () => {
-    // A refused range is a statement about the range; a timeout or a 429 is
-    // not. Splitting one would turn a single transient failure into hundreds of
-    // requests aimed at an endpoint that just asked us to slow down.
-    const rpc = rpcDouble({
-      logs: () => {
-        throw new Error("fetch failed");
-      },
-    });
-
-    await expect(
-      fetchLogsChecked(rpc, {
-        fromBlock: 1,
-        toBlock: 10,
-        addresses: [CORE],
-        suspectLogCount: 10_000,
-      }),
-    ).rejects.toThrow(/fetch failed/);
-    expect(rpc.calls).toHaveLength(1);
-  });
-
-  it("still splits when the server answered with a JSON-RPC error", async () => {
-    const rpc = rpcDouble({
-      logs: (from, to) => {
-        if (to - from >= 5) {
-          const error = new Error("Invalid parameters") as Error & {
-            code: number;
-          };
-          error.code = -32602;
-          throw error;
-        }
-        return [log({ blockNumber: numberToHex(BigInt(from)) })];
-      },
-    });
-
-    const logs = await fetchLogsChecked(rpc, {
-      fromBlock: 1,
-      toBlock: 10,
-      addresses: [CORE],
-      suspectLogCount: 10_000,
-    });
-    expect(logs).toHaveLength(2);
-  });
-});
-
 describe("createLogStream when the head repeats", () => {
   it("skips the window re-read while the head is unchanged", async () => {
     // The re-read is 60 of the 80 compute units a poll costs. An identical head
@@ -964,5 +868,330 @@ describe("createLogStream startup rollback depth", () => {
       expect(first.invalidate.cursor.orderKey).toBe(95n);
     }
     expect(warnings[0]).toMatch(/not canonical/);
+  });
+});
+
+// The exact text Alchemy returns for an oversized eth_getLogs, as viem
+// surfaces it (viem appends the server's `Details:` to the message). Captured
+// from the production endpoint rather than guessed, since the split is gated on
+// matching it and a guess that misses turns a backfill into a crash loop.
+const ALCHEMY_TOO_LARGE =
+  "Invalid parameters were provided to the RPC method.\n" +
+  "Double check you have provided the correct parameters.\n\n" +
+  "Request body: {\"method\":\"eth_getLogs\"}\n\n" +
+  "Details: Log response size exceeded. You can make eth_getLogs requests " +
+  "with up to a 5,000 block range and no limit on the response size, or you " +
+  "can request any block range with a cap of 10K logs in the response.";
+
+function rpcError(message: string, code: number): Error {
+  const error = new Error(message) as Error & { code: number };
+  error.code = code;
+  return error;
+}
+
+describe("fetchLogsChecked error handling", () => {
+  it("splits on the message Alchemy actually returns", async () => {
+    const rpc = rpcDouble({
+      logs: (from, to) => {
+        if (to - from >= 5) throw rpcError(ALCHEMY_TOO_LARGE, -32602);
+        return [log({ blockNumber: numberToHex(BigInt(from)) })];
+      },
+    });
+
+    const logs = await fetchLogsChecked(rpc, {
+      fromBlock: 1,
+      toBlock: 10,
+      addresses: [CORE],
+      suspectLogCount: 10_000,
+    });
+    expect(logs).toHaveLength(2);
+  });
+
+  it("does not split a rate limit, even though it carries a numeric code", async () => {
+    // Alchemy reports a compute-unit overage as a JSON-RPC error with code 429.
+    // Bisecting it would aim a fan-out at an endpoint that just asked us to
+    // slow down, which is the storm the split is supposed to avoid.
+    const rpc = rpcDouble({
+      logs: () => {
+        throw rpcError("Your app has exceeded its compute units per second capacity.", 429);
+      },
+    });
+
+    await expect(
+      fetchLogsChecked(rpc, {
+        fromBlock: 1,
+        toBlock: 1_000,
+        addresses: [CORE],
+        suspectLogCount: 10_000,
+      }),
+    ).rejects.toThrow(/compute units/);
+    expect(rpc.calls).toHaveLength(1);
+  });
+
+  it("does not split an Infura-style rate limit sharing the -32005 code", async () => {
+    const rpc = rpcDouble({
+      logs: () => {
+        throw rpcError("daily request count exceeded, rate limit reached", -32005);
+      },
+    });
+
+    await expect(
+      fetchLogsChecked(rpc, {
+        fromBlock: 1,
+        toBlock: 1_000,
+        addresses: [CORE],
+        suspectLogCount: 10_000,
+      }),
+    ).rejects.toThrow(/rate limit/);
+    expect(rpc.calls).toHaveLength(1);
+  });
+
+  it("splits an Infura-style result cap on the same code", async () => {
+    const rpc = rpcDouble({
+      logs: (from, to) => {
+        if (to - from >= 5) {
+          throw rpcError("query returned more than 10000 results", -32005);
+        }
+        return [log({ blockNumber: numberToHex(BigInt(from)) })];
+      },
+    });
+
+    const logs = await fetchLogsChecked(rpc, {
+      fromBlock: 1,
+      toBlock: 10,
+      addresses: [CORE],
+      suspectLogCount: 10_000,
+    });
+    expect(logs).toHaveLength(2);
+  });
+
+  it("propagates an error it does not recognise rather than guessing", async () => {
+    const rpc = rpcDouble({
+      logs: () => {
+        throw rpcError("something else went wrong", -32000);
+      },
+    });
+
+    await expect(
+      fetchLogsChecked(rpc, {
+        fromBlock: 1,
+        toBlock: 1_000,
+        addresses: [CORE],
+        suspectLogCount: 10_000,
+      }),
+    ).rejects.toThrow(/something else/);
+    expect(rpc.calls).toHaveLength(1);
+  });
+
+  it("survives a thrown non-object", async () => {
+    const rpc = rpcDouble({
+      logs: () => {
+        throw "a string, not an Error";
+      },
+    });
+
+    await expect(
+      fetchLogsChecked(rpc, {
+        fromBlock: 1,
+        toBlock: 10,
+        addresses: [CORE],
+        suspectLogCount: 10_000,
+      }),
+    ).rejects.toBeDefined();
+  });
+});
+
+describe("groupLogsByBlock event index", () => {
+  const inTx = (over: Partial<RawLog>) => log(over);
+
+  it("numbers logs within their transaction, not within the block", () => {
+    // event_index is packed into 16 bits by compute_event_id, so the block-wide
+    // logIndex cannot be used: it counts every log in the block, including other
+    // contracts', and would eventually exceed the range and wedge the worker.
+    const [block] = groupLogsByBlock(
+      [
+        inTx({ transactionIndex: "0x0", logIndex: "0x7d0" }),
+        inTx({ transactionIndex: "0x0", logIndex: "0x7d1" }),
+        inTx({ transactionIndex: "0x1", logIndex: "0x7d2" }),
+      ],
+      [filter()],
+    );
+
+    expect(block!.logs.map((l) => l.logIndexInTransaction)).toEqual([0, 1, 0]);
+    // The block-wide index is still carried, just not used as the event index.
+    expect(block!.logs.map((l) => l.logIndex)).toEqual([2000, 2001, 2002]);
+  });
+
+  it("keeps the numbering dense when a log matches no filter", () => {
+    // Counted over everything the address filter returned, so adding or removing
+    // a processor does not shift the event_id of an already-indexed event.
+    const [block] = groupLogsByBlock(
+      [
+        inTx({ transactionIndex: "0x0", logIndex: "0x0" }),
+        inTx({ transactionIndex: "0x0", logIndex: "0x1", topics: [T1] }),
+        inTx({ transactionIndex: "0x0", logIndex: "0x2" }),
+      ],
+      [filter()],
+    );
+
+    // The middle log matched nothing and is gone, but the third keeps index 2.
+    expect(block!.logs.map((l) => l.logIndexInTransaction)).toEqual([0, 2]);
+  });
+
+  it("stays well inside the range a block-wide index would blow", () => {
+    const logs = Array.from({ length: 50 }, (_, i) =>
+      inTx({
+        transactionIndex: numberToHex(BigInt(i)),
+        logIndex: numberToHex(BigInt(70_000 + i)),
+      }),
+    );
+    const [block] = groupLogsByBlock(logs, [filter()]);
+
+    for (const entry of block!.logs) {
+      expect(entry.logIndexInTransaction).toBeLessThan(65_536);
+    }
+  });
+});
+
+describe("createLogStream cursor safety", () => {
+  it("does not rewind the cursor when the head answers behind it", async () => {
+    // A backend momentarily behind the load balancer yields a plan that ends
+    // below the cursor. Taking it would rewind the in-memory cursor with no
+    // invalidate and no warning, and block 100 -- already indexed, which is what
+    // the starting cursor means -- would be emitted a second time once the head
+    // recovered.
+    let headReads = 0;
+    const rpc = rpcDouble({
+      blocks: (tag) => {
+        if (tag === "finalized")
+          return { number: 30, hash: "0x30", timestamp: 1_700_000_000 };
+        headReads++;
+        // First poll sees a stale backend, then the head recovers.
+        return headReads <= 1
+          ? { number: 99, hash: "0x99", timestamp: 1_700_000_000 }
+          : { number: 101, hash: "0x101", timestamp: 1_700_000_000 };
+      },
+      logs: (from, to) =>
+        [100, 101]
+          .filter((n) => n >= from && n <= to)
+          .map((n) =>
+            log({
+              blockNumber: numberToHex(BigInt(n)),
+              blockHash: `0x${n}` as Hex,
+              blockTimestamp: numberToHex(1_700_000_000n),
+            }),
+          ),
+    });
+
+    const messages = await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 100n },
+        options: {
+          pollIntervalMs: 1,
+          finalizedRefreshIntervalMs: 1_000_000,
+          heartbeatIntervalMs: 1_000_000,
+          reorgWindowBlocks: 64,
+        },
+      }),
+      8,
+      (out) =>
+        out.some(
+          (m) =>
+            m._tag === "data" &&
+            m.data.data.some((b) => Number(b.header.blockNumber) === 101),
+        ),
+      600,
+    );
+
+    // Block 100 may legitimately be re-read -- that is what the reorg window is
+    // for -- but only ever announced, never silently. The invariant is that
+    // nothing already indexed is re-emitted without an invalidate ahead of it,
+    // because that is what makes the re-index a replacement rather than a
+    // duplicate.
+    const firstReemit = messages.findIndex(
+      (m) =>
+        m._tag === "data" &&
+        m.data.data.some((b) => Number(b.header.blockNumber) <= 100),
+    );
+    const firstInvalidate = messages.findIndex((m) => m._tag === "invalidate");
+
+    if (firstReemit !== -1) {
+      expect(firstInvalidate).not.toBe(-1);
+      expect(firstInvalidate).toBeLessThan(firstReemit);
+    }
+    expect(
+      messages.flatMap((m) =>
+        m._tag === "data"
+          ? m.data.data.map((b) => Number(b.header.blockNumber))
+          : [],
+      ),
+    ).toContain(101);
+  });
+});
+
+describe("fetchLogsChecked on a transport failure", () => {
+  it("does not bisect a timeout into a request storm", async () => {
+    // A refused range is a statement about the range; a timeout or a 429 is
+    // not. Splitting one would turn a single transient failure into a burst of
+    // requests aimed at an endpoint that is already struggling.
+    const rpc = rpcDouble({
+      logs: () => {
+        throw new Error("fetch failed");
+      },
+    });
+
+    await expect(
+      fetchLogsChecked(rpc, {
+        fromBlock: 1,
+        toBlock: 1_000,
+        addresses: [CORE],
+        suspectLogCount: 10_000,
+      }),
+    ).rejects.toThrow(/fetch failed/);
+    expect(rpc.calls).toHaveLength(1);
+  });
+
+  it("gives up on a single block, since there is nothing left to split", async () => {
+    const rpc = rpcDouble({
+      logs: () => {
+        throw rpcError("query returned more than 10000 results", -32005);
+      },
+    });
+
+    await expect(
+      fetchLogsChecked(rpc, {
+        fromBlock: 7,
+        toBlock: 7,
+        addresses: [CORE],
+        suspectLogCount: 10_000,
+      }),
+    ).rejects.toThrow(/more than 10000 results/);
+  });
+});
+
+describe("fetchLogsChecked when the body is too large", () => {
+  it("splits a client-side response size failure", async () => {
+    // Observed against production Alchemy: inside its block-range limit it
+    // applies no result cap, so a busy span returns a body the HTTP layer
+    // refuses. There is no JSON-RPC code on this one at all, which is why the
+    // split is gated on the message rather than on the presence of a code.
+    const rpc = rpcDouble({
+      logs: (from, to) => {
+        if (to - from >= 5) {
+          throw new Error("HTTP response body exceeded the size limit.");
+        }
+        return [log({ blockNumber: numberToHex(BigInt(from)) })];
+      },
+    });
+
+    const logs = await fetchLogsChecked(rpc, {
+      fromBlock: 1,
+      toBlock: 10,
+      addresses: [CORE],
+      suspectLogCount: 10_000,
+    });
+    expect(logs).toHaveLength(2);
   });
 });
