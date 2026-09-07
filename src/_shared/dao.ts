@@ -624,7 +624,16 @@ export class DAO {
             head_block_number = excluded.head_block_number,
             head_block_hash = excluded.head_block_hash,
             head_block_time = excluded.head_block_time,
-            head_base_fee_per_gas = excluded.head_base_fee_per_gas
+            -- Keep the last known base fee rather than blanking it.
+            --
+            -- This is the only surviving consumer of a base fee anywhere:
+            -- quoter-service reads it (shared-quoter-service/src/db.rs) to price
+            -- gas into quotes, and 00127 drops blocks.base_fee_per_gas. A block
+            -- derived from eth_getLogs has no base fee to report, so writing
+            -- NULL through would blank the column on every block carrying
+            -- events. A value one poll old prices gas fine; NULL does not.
+            head_base_fee_per_gas = COALESCE(excluded.head_base_fee_per_gas,
+                                             indexer_cursor.head_base_fee_per_gas)
         WHERE indexer_cursor.order_key = ${expectedCursor.orderKey}
           AND indexer_cursor.unique_key IS NOT DISTINCT FROM ${this.numeric(
             expectedUniqueKey,
@@ -713,10 +722,10 @@ export class DAO {
     }
 
     await this.sql`
-      INSERT INTO blocks (chain_id, block_number, block_hash, block_time, base_fee_per_gas, num_events)
+      INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
       VALUES (${this.chainId}, ${number}, ${this.numeric(
         hash,
-      )}, ${time}, ${this.numeric(baseFeePerGas)}, ${numEvents});
+      )}, ${time}, ${numEvents});
     `;
   }
 

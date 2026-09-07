@@ -21,7 +21,15 @@ interface CommonConfiguration {
 }
 
 interface EvmConfig extends CommonConfiguration {
-  EVM_RPC_URL: string; // Supports comma-separated RPC URLs for fallback
+  // A comma-separated list is still parsed, but prefer a single endpoint: viem
+  // routes per request, so a fallback list lets two calls in one poll be
+  // answered by backends holding different views of the chain.
+  EVM_RPC_URL: string;
+
+  POLL_INTERVAL_MS?: string; // How long to wait at the head before polling again; defaults to 2000
+  GET_LOGS_RANGE_SIZE?: string; // Widest block span per eth_getLogs; defaults to 1000. Must exceed REORG_WINDOW_BLOCKS, or the stream cannot read past the window it re-reads and makes no progress
+  REORG_WINDOW_BLOCKS?: string; // How far back to re-read at the head to notice a reorg; defaults to 64. Must be deeper than any reorg the chain can produce, and below GET_LOGS_RANGE_SIZE
+  SUSPECT_LOG_COUNT?: string; // A log count treated as a provider cap rather than a real result; defaults to 10000
 
   CORE_ADDRESS: `0x${string}`;
   POSITIONS_ADDRESS: `0x${string}`;

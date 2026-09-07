@@ -34,6 +34,17 @@ workers:
         scope: RUN_TIME
         value: mainnet
     run_command: scripts/restart.sh bun src/starknet.ts
+  # Every EVM worker points at exactly one endpoint.
+  #
+  # A comma-separated fallback list reads like redundancy but is the opposite
+  # for an indexer: viem routes per request, so two calls in the same poll can
+  # be answered by backends with different views of the chain. That is how the
+  # opt-mainnet worker came to restart every ~80 s, and a crash is the benign
+  # outcome -- the dangerous one is a log query answered by a node that is
+  # behind, which returns fewer events and no error.
+  #
+  # One endpoint fails by stopping, and stopping is safe: the cursor is durable
+  # and indexing resumes exactly where it left off.
   - name: eth-mainnet
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
@@ -55,7 +66,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://mainnet.base.org,https://base-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://base-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: base-mainnet
@@ -70,7 +81,7 @@ workers:
         value: rhc-mainnet
       - key: EVM_RPC_URL
         scope: RUN_TIME
-        value: "https://rpc.mainnet.chain.robinhood.com,https://robinhood-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://robinhood-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
     run_command: scripts/restart.sh bun src/evm.ts
   - name: arb-mainnet
     image: *indexer-image
@@ -80,7 +91,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://arb1.arbitrum.io/rpc,https://arb-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://arb-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: arb-mainnet
@@ -93,7 +104,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://mainnet.optimism.io,https://opt-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://opt-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: opt-mainnet
@@ -119,7 +130,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://rpc.gnosischain.com,https://gnosis-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://gnosis-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: gnosis-mainnet
@@ -132,7 +143,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://mainnet.unichain.org,https://unichain-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://unichain-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: unichain-mainnet
@@ -145,7 +156,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://rpc-mainnet.matic.quiknode.pro,https://polygon-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://polygon-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: polygon-mainnet
@@ -158,7 +169,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://rpc1.monad.xyz,https://monad-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://monad-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: monad
@@ -184,7 +195,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://mainnet.megaeth.com/rpc,https://megaeth-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://megaeth-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: megaeth
@@ -197,7 +208,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://rpc-gel.inkonchain.com,https://ink-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://ink-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: ink-mainnet

@@ -144,6 +144,146 @@ Catalogs are refreshed hourly by default, controlled by `CHAINLINK_FEED_CATALOG_
 
 Chainlink jobs are disabled when the interval is zero/unset or the config is empty. Valid observations are stored under the `cl1` source using the feed round's `updatedAt` timestamp, and unchanged rounds are not inserted repeatedly. One failing feed does not prevent fresh observations from other configured feeds on that chain.
 
+## EVM stream
+
+The EVM entrypoint drives its own log-driven stream (`src/evm/logStream.ts`)
+rather than fetching a header per block. A poll is two requests whatever the
+chain's block time:
+
+1. `eth_getBlockByNumber("latest")`, which gives the head and a real block hash
+   for the cursor.
+2. `eth_getLogs` over everything since the last poll, which returns `blockHash`
+   and `blockTimestamp` on each log.
+
+Those two log fields are the only header data the runtime persists, so no
+per-block header read is needed.
+
+`event_index` is the log's block-wide `logIndex`, unchanged. The apibara RPC
+stream never populated `logIndexInTransaction` either, so keeping it identical
+is what makes this a stream swap rather than a change to a primary key other
+tables order on.
+
+That scheme has an inherited ceiling: `compute_event_id` packs the index into 16
+bits, and `logIndex` counts every contract's logs in the block, so a block with
+more than 65,535 logs in total cannot be indexed at all. The stream now refuses
+such a log with a message naming the cause, rather than letting it surface as a
+failure deep inside a Postgres function. Raising the ceiling means re-basing
+`event_id` onto a per-transaction index, which is a migration, not a stream
+change. `base_fee_per_gas` is still written but is read
+by nothing, and rows for blocks with no events are removed within a day by
+`delete_old_empty_blocks`.
+
+Measured against the previous stream on Monad (0.3 s blocks), at the same two
+second cadence: 9.7 requests per poll became 2.1.
+
+### Correctness
+
+Missing an event is the failure that matters, because nothing errors and the gap
+surfaces later as a wrong number downstream. Three choices follow from that.
+
+- **Range queries, not subscriptions.** An `eth_getLogs` call answers for the
+  blocks it was asked about or it errors. A dropped WebSocket frame is
+  indistinguishable from silence, and no provider guarantees delivery.
+- **Silent truncation is refused.** A provider that caps results and returns
+  exactly the cap looks identical to one that found exactly that many.
+  `SUSPECT_LOG_COUNT` (default 10,000, Alchemy's documented limit) is the count
+  treated as suspect: the range is split and re-read rather than believed, and a
+  single block still landing on the cap throws.
+- **One endpoint per chain.** A comma-separated `EVM_RPC_URL` still parses, but
+  viem routes per request, so a fallback list lets two calls in one poll be
+  answered by backends with different views of the chain. One endpoint fails by
+  stopping, which is safe, because the cursor is durable.
+
+- **A refused range fails fast.** An earlier version recognised "the range was
+  too wide" from the error text and recovered by splitting. Every provider words
+  that differently — `eth_getLogs is limited to a 10,000 range` (Base), `block
+  range greater than 10000 max` (Ink), `Block range is too large` (Optimism),
+  `Log response size exceeded` (Alchemy) — and any of them can reword it in a
+  release, at which point recovery silently becomes a crash loop. The
+  classification was the liability, so it is gone. Nothing is lost: viem's
+  transport already retries what is worth retrying, with backoff (HTTP
+  403/408/413/429/500/502/503 and JSON-RPC -1, -32005, -32603 and 429), so
+  anything reaching the stream has survived that and is a real error. The range
+  is ours to choose, so the error names `GET_LOGS_RANGE_SIZE` as the knob and
+  carries the provider's own words as the cause.
+
+  Keep `GET_LOGS_RANGE_SIZE` at or under 5,000 on Alchemy. Below that boundary it
+  applies no result cap, so a range refusal is not reachable; above it, a 10K log
+  cap applies. Measured density suggests 10,000 would be fine too — Robinhood
+  averages 0.04 matched events per block and Arbitrum 0.0002 — but since the
+  stream fails fast on a refusal rather than splitting out of one, a 2x wider
+  backfill is not worth an occasional stall.
+
+Reorgs are found by re-reading `REORG_WINDOW_BLOCKS` (default 64) at the head
+each poll and comparing it against what was emitted. A block that changed hash,
+lost its logs, or gained logs it did not have produces an `invalidate`. The
+window must be deeper than any reorg the chain can produce; a reorg touching no
+log of ours changes nothing we store and is not looked for.
+
+### On restart
+
+A log diff cannot tell a restart apart from a reorg: the window is seeded from
+whatever the chain says now, so there is nothing to disagree with. So the stored
+cursor is checked directly, once, with a single `eth_getBlockByNumber`. If its
+hash no longer matches, the stream invalidates back a full reorg window before
+reading anything. A block hash commits to its entire ancestry, so that one
+comparison settles every block beneath it — this is strictly stronger than the
+diff it replaces, and it is what preserves the guarantee the previous stream's
+`initializeStartingCursor` provided.
+
+Two related rules keep a restart from doing damage of its own:
+
+- The first window read is adopted as the baseline rather than diffed against,
+  so a deploy does not roll the chain back on every start.
+- A rollback's cursor carries the landing block's hash when that block is one the
+  stream recorded, so a restart in the window right after a reorg can still check
+  canonicality. Only log-bearing blocks are recorded, so this is best-effort.
+- A finalized block ahead of the cursor is held back rather than announced, and
+  the check runs *after* the cursor advances rather than at the top of the tick.
+  On a chain that finalises within a block or two of the head, comparing against
+  a cursor that still holds last tick's value would suppress the message forever
+  and freeze `finalized_order_key`. The
+  runtime's recovery path resets the cursor to the last finalized one, so
+  announcing a finalized block past ours would let a later error move the cursor
+  *forward* and skip everything in between. Holding it back only ever costs a
+  re-index.
+
+For the same reason the re-read never begins above the cursor. On a chain that
+finalises in well under a second, finality can overtake a cursor that has fallen
+a few blocks behind, and clamping the read to the finalized block would drop the
+blocks in between without an error.
+
+The rollback never rewinds past the finalized block, since a finalized block
+cannot be the reorg point and the rows beneath it are settled.
+
+### Standing still
+
+Once caught up, a head that has not moved emits nothing, and the window is not
+re-read at all. A block hash commits to its entire ancestry, so a head that is
+byte-for-byte last poll's proves nothing below it has changed and the re-read
+could not find anything. `eth_getLogs` is 60 of the roughly 80 Alchemy compute
+units a poll costs, so on a 12 s chain polled every 2 s this is where the cost
+stops scaling with block time: five polls in six become a single head read.
+
+The comparison is on hash, not height, because a one-block reorg leaves the
+height alone.
+
+The trade is that a stale answer lingers slightly longer. If `latest` reports one
+hash while the `eth_getLogs` in the same poll is answered by a backend still on
+the previous one, the mismatch is not noticed until the next block arrives rather
+than on the next poll. That is a consequence of the single-endpoint rule above
+being violated, and it self-heals by rollback either way.
+
+`scripts/verifyLogStream.ts` settles the question directly for a given chain and
+range, replaying it through the stream and diffing against a direct query:
+
+```
+bun scripts/verifyLogStream.ts https://mainnet.base.org base 600 100 \
+  0x4200000000000000000000000000000000000006
+```
+
+It exits non-zero on any mismatch.
+
 ## Database migrations
 
 - Local: `bun run migrate` or `bun scripts/migrate.ts` (both invoke `scripts/migrate.ts`).
