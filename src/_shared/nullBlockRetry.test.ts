@@ -57,3 +57,55 @@ describe("withNullBlockRetry", () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe("error passthrough", () => {
+  // fetchLogsChecked decides whether to split a range by looking for a numeric
+  // `code` on the error: a server that answered has one, a timeout does not.
+  // That only holds if this wrapper leaves errors alone, so pin it here rather
+  // than in the caller, where the dependency is invisible.
+  it("preserves a JSON-RPC code on a method it does not retry", async () => {
+    const inner = () =>
+      ({
+        request: async () => {
+          const error = new Error("Invalid parameters") as Error & {
+            code: number;
+          };
+          error.code = -32602;
+          throw error;
+        },
+      }) as never;
+
+    const transport = withNullBlockRetry(inner as never, { retryCount: 0 });
+    const { request } = transport({} as never);
+
+    const caught = await request({ method: "eth_getLogs" } as never).then(
+      () => null,
+      (error: unknown) => error as { code?: unknown },
+    );
+    expect(caught?.code).toBe(-32602);
+  });
+
+  it("preserves a JSON-RPC code on a method it does retry", async () => {
+    const inner = () =>
+      ({
+        request: async () => {
+          const error = new Error("Invalid parameters") as Error & {
+            code: number;
+          };
+          error.code = -32602;
+          throw error;
+        },
+      }) as never;
+
+    const transport = withNullBlockRetry(inner as never, { retryCount: 1 });
+    const { request } = transport({} as never);
+
+    const caught = await request({
+      method: "eth_getBlockByNumber",
+    } as never).then(
+      () => null,
+      (error: unknown) => error as { code?: unknown },
+    );
+    expect(caught?.code).toBe(-32602);
+  });
+});

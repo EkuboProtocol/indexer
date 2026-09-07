@@ -238,6 +238,12 @@ stops scaling with block time: five polls in six become a single head read.
 The comparison is on hash, not height, because a one-block reorg leaves the
 height alone.
 
+The trade is that a stale answer lingers slightly longer. If `latest` reports one
+hash while the `eth_getLogs` in the same poll is answered by a backend still on
+the previous one, the mismatch is not noticed until the next block arrives rather
+than on the next poll. That is a consequence of the single-endpoint rule above
+being violated, and it self-heals by rollback either way.
+
 `scripts/verifyLogStream.ts` settles the question directly for a given chain and
 range, replaying it through the stream and diffing against a direct query:
 
