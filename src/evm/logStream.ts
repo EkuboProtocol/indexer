@@ -309,7 +309,14 @@ export async function fetchLogsChecked(
     // Alchemy does the latter, so on Alchemy this is the branch that runs.
     // Splitting is the only response that makes progress -- retrying the same
     // span would just fail again, and the worker would restart into it forever.
-    if (fromBlock === toBlock) throw error;
+    //
+    // Only when the server actually answered, though. A timeout or a 429 says
+    // nothing about the range, and bisecting one would turn a single transient
+    // failure into hundreds of requests aimed at an endpoint that just asked us
+    // to slow down. A JSON-RPC error carries a numeric `code`; a transport
+    // failure does not.
+    const answered = typeof (error as { code?: unknown }).code === "number";
+    if (!answered || fromBlock === toBlock) throw error;
     return splitRange(rpc, args);
   }
 
@@ -399,6 +406,8 @@ interface StreamState {
   /** Highest finalized block already announced downstream, 0 before the first. */
   finalizedEmitted: number;
   lastHeartbeat: number;
+  /** Hash of the head as of the last completed read, "" before the first. */
+  lastHeadHash: string;
   /**
    * False until the first window has been read.
    *
@@ -565,6 +574,22 @@ function heartbeatIfDue(
   return { _tag: "heartbeat" };
 }
 
+/**
+ * True when this poll's head is the one the last read already covered.
+ *
+ * An identical head means an identical chain, so the window cannot have changed
+ * and re-reading it would buy nothing. This is where the cost stops scaling with
+ * block time: on a 12 s chain polled every 2 s it skips five reads in six, and
+ * `eth_getLogs` is 60 of the 80 compute units a poll costs.
+ */
+function headUnchanged(state: StreamState, head: LatestBlock): boolean {
+  return (
+    state.seeded &&
+    head.number === state.cursorBlock &&
+    head.hash === state.lastHeadHash
+  );
+}
+
 /** The span to read this tick, or null when there is nothing to do yet. */
 async function planRead(
   rpc: RpcLike,
@@ -598,6 +623,25 @@ function maybeRollback(
   if (divergent === undefined || divergent > state.cursorBlock) return null;
   opts.onWarning?.("reorg detected", { block: divergent });
   return rollbackTo(state, divergent);
+}
+
+/**
+ * Reconciles a freshly read window against what was already emitted.
+ *
+ * The first read is adopted as the baseline; every read after it is a diff, and
+ * a disagreement at or below the cursor is a reorg to undo.
+ */
+function reconcileWindow(
+  state: StreamState,
+  digests: Map<number, BlockDigest>,
+  plan: { from: number; to: number },
+  opts: Resolved,
+): StreamMessage | null {
+  if (!state.seeded) {
+    seedWindow(state, digests);
+    return null;
+  }
+  return maybeRollback(state, digests, plan, opts);
 }
 
 /**
@@ -682,6 +726,7 @@ function initStream({
       lastFinalizedRefresh: 0,
       finalizedEmitted: 0,
       lastHeartbeat: Date.now(),
+      lastHeadHash: "",
       seeded: false,
     },
   };
@@ -705,10 +750,11 @@ async function* emitFresh(
 /** Advances the cursor and forgets what the reorg window no longer covers. */
 function finishTick(
   state: StreamState,
-  plan: { to: number },
+  plan: { to: number; head: LatestBlock },
   opts: Resolved,
 ): void {
   state.cursorBlock = plan.to;
+  state.lastHeadHash = plan.head.hash;
   const earliest = (state.finalized?.number ?? 0) + 1;
   forgetBelow(
     state,
@@ -744,7 +790,18 @@ async function checkStartingCursor(
   // gone by the time it comes back. Compare the values, not the strings.
   if (BigInt(block.hash) === BigInt(expected)) return null;
 
-  const target = Math.max(1, state.cursorBlock - opts.reorgWindowBlocks);
+  // A finalized block cannot be the reorg point, so there is no reason to
+  // rewind past one -- and every reason not to, since the rows below it are
+  // settled. Costs one request, and only on the branch that already found a
+  // mismatch.
+  const finalized = await fetchBlockByTag(rpc, "finalized");
+  const floor = finalized ? finalized.number + 1 : 1;
+  // Never past the cursor itself: if even the finalized block disagrees, the
+  // least we can do is re-read the block we are standing on rather than skip it.
+  const target = Math.min(
+    state.cursorBlock,
+    Math.max(floor, 1, state.cursorBlock - opts.reorgWindowBlocks),
+  );
   opts.onWarning?.("stored cursor is not canonical; rolling back", {
     block: state.cursorBlock,
     expected,
@@ -790,6 +847,11 @@ export async function* createLogStream(
       continue;
     }
 
+    if (headUnchanged(state, plan.head)) {
+      await sleep(opts.pollIntervalMs);
+      continue;
+    }
+
     const { blocks, digests } = await readWindow(
       rpc,
       { from: plan.from, to: plan.to, addresses },
@@ -797,14 +859,10 @@ export async function* createLogStream(
       opts,
     );
 
-    if (state.seeded) {
-      const rollback = maybeRollback(state, digests, plan, opts);
-      if (rollback) {
-        yield rollback;
-        continue;
-      }
-    } else {
-      seedWindow(state, digests);
+    const rollback = reconcileWindow(state, digests, plan, opts);
+    if (rollback) {
+      yield rollback;
+      continue;
     }
 
     const fresh = blocks.filter(

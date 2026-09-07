@@ -186,7 +186,10 @@ surfaces later as a wrong number downstream. Three choices follow from that.
   range outright. Alchemy does the latter, so on Alchemy that is the branch that
   runs. Re-issuing the same span would fail identically and restart the worker
   into it forever, so the span is halved instead, and only a single block that
-  still fails throws.
+  still fails throws. This applies only when the server actually answered: a
+  JSON-RPC error carries a numeric `code`, while a timeout or a 429 does not,
+  and bisecting one of those would turn a single transient failure into hundreds
+  of requests aimed at an endpoint that just asked us to slow down.
 
 Reorgs are found by re-reading `REORG_WINDOW_BLOCKS` (default 64) at the head
 each poll and comparing it against what was emitted. A block that changed hash,
@@ -220,9 +223,20 @@ finalises in well under a second, finality can overtake a cursor that has fallen
 a few blocks behind, and clamping the read to the finalized block would drop the
 blocks in between without an error.
 
-Once caught up, a head that has not moved emits nothing. Each data message costs
-the runtime a write transaction, so re-announcing the same head every poll would
-churn the database on all thirteen workers indefinitely.
+The rollback never rewinds past the finalized block, since a finalized block
+cannot be the reorg point and the rows beneath it are settled.
+
+### Standing still
+
+Once caught up, a head that has not moved emits nothing, and the window is not
+re-read at all. A block hash commits to its entire ancestry, so a head that is
+byte-for-byte last poll's proves nothing below it has changed and the re-read
+could not find anything. `eth_getLogs` is 60 of the roughly 80 Alchemy compute
+units a poll costs, so on a 12 s chain polled every 2 s this is where the cost
+stops scaling with block time: five polls in six become a single head read.
+
+The comparison is on hash, not height, because a one-block reorg leaves the
+height alone.
 
 `scripts/verifyLogStream.ts` settles the question directly for a given chain and
 range, replaying it through the stream and diffing against a direct query:

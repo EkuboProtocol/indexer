@@ -387,22 +387,28 @@ describe("createLogStream", () => {
   });
 
   it("invalidates back to the block before a changed hash", async () => {
-    let pass = 0;
+    // A block hash commits to its ancestry, so a chain that changed at 101
+    // cannot still present the same head. The reorg is driven from the head
+    // read, and 101 changes hash with it.
+    let headReads = 0;
+    const reorged = () => headReads > 2;
     const rpc = rpcDouble({
-      blocks: (tag) =>
-        tag === "finalized"
-          ? { number: 90, hash: "0x90", timestamp: 1_700_000_000 }
-          : { number: 102, hash: "0x102", timestamp: 1_700_000_000 },
-      logs: () => {
-        pass++;
-        // First read sees 101 under one hash, later reads under another.
-        return [
-          log({
-            blockNumber: numberToHex(101n),
-            blockHash: pass <= 1 ? "0xaaa" : "0xbbb",
-          }),
-        ];
+      blocks: (tag) => {
+        if (tag === "finalized")
+          return { number: 90, hash: "0x90", timestamp: 1_700_000_000 };
+        headReads++;
+        return {
+          number: 102,
+          hash: reorged() ? "0x102b" : "0x102a",
+          timestamp: 1_700_000_000,
+        };
       },
+      logs: () => [
+        log({
+          blockNumber: numberToHex(101n),
+          blockHash: reorged() ? "0xbbb" : "0xaaa",
+        }),
+      ],
     });
 
     const messages = await take(
@@ -507,10 +513,11 @@ describe("createLogStream, once caught up", () => {
     );
 
     expect(messages.filter((m) => m._tag === "data")).toHaveLength(0);
-    // It kept polling rather than stalling.
-    expect(rpc.calls.filter((c) => c === "eth_getLogs").length).toBeGreaterThan(
-      2,
-    );
+    // It kept polling rather than stalling. The window read is skipped while the
+    // head is unchanged, so the head read is what shows the loop still running.
+    expect(
+      rpc.calls.filter((c) => c === "eth_getBlockByNumber").length,
+    ).toBeGreaterThan(2);
   });
 
   it("still emits the trailing block when the head has moved", async () => {
@@ -742,7 +749,11 @@ describe("fetchLogsChecked when the provider refuses a range", () => {
     const rpc = rpcDouble({
       logs: (from, to) => {
         if (to - from >= 5) {
-          throw new Error("query returned more than 10000 results");
+          const error = new Error(
+            "query returned more than 10000 results",
+          ) as Error & { code: number };
+          error.code = -32005;
+          throw error;
         }
         return [log({ blockNumber: numberToHex(BigInt(from)) })];
       },
@@ -762,7 +773,11 @@ describe("fetchLogsChecked when the provider refuses a range", () => {
   it("gives up on a single block, since there is nothing left to split", async () => {
     const rpc = rpcDouble({
       logs: () => {
-        throw new Error("query returned more than 10000 results");
+        const error = new Error(
+          "query returned more than 10000 results",
+        ) as Error & { code: number };
+        error.code = -32005;
+        throw error;
       },
     });
 
@@ -774,5 +789,180 @@ describe("fetchLogsChecked when the provider refuses a range", () => {
         suspectLogCount: 10_000,
       }),
     ).rejects.toThrow(/more than 10000 results/);
+  });
+});
+
+describe("fetchLogsChecked on a transport failure", () => {
+  it("does not bisect a timeout into a request storm", async () => {
+    // A refused range is a statement about the range; a timeout or a 429 is
+    // not. Splitting one would turn a single transient failure into hundreds of
+    // requests aimed at an endpoint that just asked us to slow down.
+    const rpc = rpcDouble({
+      logs: () => {
+        throw new Error("fetch failed");
+      },
+    });
+
+    await expect(
+      fetchLogsChecked(rpc, {
+        fromBlock: 1,
+        toBlock: 10,
+        addresses: [CORE],
+        suspectLogCount: 10_000,
+      }),
+    ).rejects.toThrow(/fetch failed/);
+    expect(rpc.calls).toHaveLength(1);
+  });
+
+  it("still splits when the server answered with a JSON-RPC error", async () => {
+    const rpc = rpcDouble({
+      logs: (from, to) => {
+        if (to - from >= 5) {
+          const error = new Error("Invalid parameters") as Error & {
+            code: number;
+          };
+          error.code = -32602;
+          throw error;
+        }
+        return [log({ blockNumber: numberToHex(BigInt(from)) })];
+      },
+    });
+
+    const logs = await fetchLogsChecked(rpc, {
+      fromBlock: 1,
+      toBlock: 10,
+      addresses: [CORE],
+      suspectLogCount: 10_000,
+    });
+    expect(logs).toHaveLength(2);
+  });
+});
+
+describe("createLogStream when the head repeats", () => {
+  it("skips the window re-read while the head is unchanged", async () => {
+    // The re-read is 60 of the 80 compute units a poll costs. An identical head
+    // means an identical chain, so there is nothing it could find.
+    const rpc = rpcDouble({
+      blocks: (tag) =>
+        tag === "finalized"
+          ? { number: 90, hash: "0x90", timestamp: 1_700_000_000 }
+          : { number: 100, hash: "0x100", timestamp: 1_700_000_000 },
+      logs: () => [],
+    });
+
+    await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 100n },
+        options: {
+          pollIntervalMs: 1,
+          finalizedRefreshIntervalMs: 1_000_000,
+          heartbeatIntervalMs: 1_000_000,
+          reorgWindowBlocks: 32,
+        },
+      }),
+      4,
+      undefined,
+      300,
+    );
+
+    const heads = rpc.calls.filter((c) => c === "eth_getBlockByNumber").length;
+    const reads = rpc.calls.filter((c) => c === "eth_getLogs").length;
+    // It kept polling the head...
+    expect(heads).toBeGreaterThan(5);
+    // ...but only read the window on the tick that seeded it.
+    expect(reads).toBe(1);
+  });
+
+  it("re-reads when the head keeps the number but changes hash", async () => {
+    // A one-block reorg leaves the height alone. Skipping on height would miss
+    // it, so the short circuit compares hashes.
+    let polls = 0;
+    const rpc = rpcDouble({
+      blocks: (tag) => {
+        if (tag === "finalized")
+          return { number: 90, hash: "0x90", timestamp: 1_700_000_000 };
+        polls++;
+        return {
+          number: 100,
+          hash: polls > 2 ? "0xbbb" : "0xaaa",
+          timestamp: 1_700_000_000,
+        };
+      },
+      logs: () => [],
+    });
+
+    await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 100n },
+        options: {
+          pollIntervalMs: 1,
+          finalizedRefreshIntervalMs: 1_000_000,
+          heartbeatIntervalMs: 1_000_000,
+          reorgWindowBlocks: 32,
+        },
+      }),
+      4,
+      undefined,
+      300,
+    );
+
+    expect(rpc.calls.filter((c) => c === "eth_getLogs").length).toBeGreaterThan(
+      1,
+    );
+  });
+});
+
+describe("createLogStream startup rollback depth", () => {
+  it("does not rewind past the finalized block", async () => {
+    // A finalized block cannot be the reorg point, and the rows below it are
+    // settled, so there is no reason to throw them away.
+    const warnings: string[] = [];
+    const rpc = rpcDouble({
+      blocks: (tag) => {
+        if (tag === "finalized")
+          return { number: 95, hash: "0x95", timestamp: 1_700_000_000 };
+        if (tag === "latest")
+          return { number: 110, hash: "0x110", timestamp: 1_700_000_000 };
+        return {
+          number: 100,
+          hash: `0x${"11".repeat(32)}`,
+          timestamp: 1_700_000_000,
+        };
+      },
+      logs: () => [],
+    });
+
+    const messages = await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: {
+          orderKey: 100n,
+          uniqueKey: `0x${"7f".repeat(32)}` as Hex,
+        },
+        options: {
+          pollIntervalMs: 1,
+          finalizedRefreshIntervalMs: 1_000_000,
+          heartbeatIntervalMs: 1_000_000,
+          reorgWindowBlocks: 64,
+          onWarning: (m) => warnings.push(m),
+        },
+      }),
+      2,
+      (out) => out.some((m) => m._tag === "data"),
+      400,
+    );
+
+    const first = messages[0]!;
+    expect(first._tag).toBe("invalidate");
+    // Window would reach back to 36; finality stops it at 95.
+    if (first._tag === "invalidate") {
+      expect(first.invalidate.cursor.orderKey).toBe(95n);
+    }
+    expect(warnings[0]).toMatch(/not canonical/);
   });
 });
