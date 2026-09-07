@@ -90,10 +90,15 @@ workers:
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
+      # mainnet.optimism.io is load balanced across backends that disagree
+      # about the finalized block: on 130 of 180 consecutive polls it answered
+      # with one up to 39M blocks behind the previous answer, which crashes the
+      # stream ("Finalized cursor moved backwards"). Put it back in front once
+      # apibara/typescript-sdk#225 ships and the tracker ignores stale answers.
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://mainnet.optimism.io,https://opt-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://opt-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: opt-mainnet
@@ -103,10 +108,14 @@ workers:
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
+      # 48 Club serves both block reads and eth_getLogs; the official
+      # bsc-dataseed nodes are fast for block reads but answer every
+      # eth_getLogs with "limit exceeded", so they sit second and those calls
+      # fall through to Alchemy.
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://bnb-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://rpc-bsc.48.club,https://bsc-dataseed.bnbchain.org,https://bnb-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: bsc-mainnet
@@ -155,10 +164,14 @@ workers:
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
+      # rpc1 is Alchemy behind a 15 rps limit, so it rate-limited about a
+      # tenth of our requests and spilled them onto the keyed URL anyway.
+      # rpc2 (Goldsky) and rpc3 (Ankr) each answered 251 requests with no
+      # failures at our rate.
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://rpc1.monad.xyz,https://monad-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://rpc2.monad.xyz,https://rpc3.monad.xyz,https://monad-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: monad
@@ -168,10 +181,16 @@ workers:
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
+      # The keyless endpoint serves the head poll, the per-block reads and the
+      # 1-block live eth_getLogs range; only a catch-up wider than its 100
+      # block eth_getLogs limit falls through to the keyed URL. Tenderly's
+      # gateway has a bigger eth_getLogs limit but answered 81 of 180 polls
+      # with a finalized block behind the previous one, so it is not usable
+      # until apibara/typescript-sdk#225 ships.
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://worldchain-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://worldchain-mainnet.g.alchemy.com/public,https://worldchain-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: worldchain-mainnet
