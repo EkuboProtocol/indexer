@@ -199,15 +199,20 @@ surfaces later as a wrong number downstream. Three choices follow from that.
   range outright. Alchemy does the latter, so on Alchemy that is the branch that
   runs. Re-issuing the same span would fail identically and restart the worker
   into it forever, so the span is halved instead, and only a single block that
-  still fails throws. Splitting is gated on the error *message*, not on the
-  presence of a JSON-RPC `code`: Alchemy reports a compute-unit overage as an
+  still fails throws. Only a count landing *exactly* on the cap is treated as
+  suspect; more than the cap proves no cap was applied. Splitting is gated on the
+  error *message*, not on the presence of a JSON-RPC `code`: Alchemy reports a compute-unit overage as an
   error with code 429 and Infura reuses `-32005` for rate limits as well as
   result caps, so bisecting on a code would aim a fan-out at an endpoint that
   just asked us to slow down. Anything unrecognised propagates instead, and the
   worker resumes from its durable cursor. The split runs sequentially for the
   same reason. Note that inside its block-range limit Alchemy applies no result
   cap at all, so a busy span fails as a client-side response-body error with no
-  code on it whatsoever — which is the case that settles this design.
+  code on it whatsoever — which is the case that settles this design. The match
+  list is built from wording captured off live endpoints, since every provider
+  phrases it differently: `eth_getLogs is limited to a 10,000 range` (Base),
+  `block range greater than 10000 max` (Ink), `Block range is too large`
+  (Optimism), `Log response size exceeded` (Alchemy).
 
 Reorgs are found by re-reading `REORG_WINDOW_BLOCKS` (default 64) at the head
 each poll and comparing it against what was emitted. A block that changed hash,
@@ -230,7 +235,14 @@ Two related rules keep a restart from doing damage of its own:
 
 - The first window read is adopted as the baseline rather than diffed against,
   so a deploy does not roll the chain back on every start.
-- A finalized block ahead of the cursor is held back rather than announced. The
+- A rollback's cursor carries the landing block's hash when that block is one the
+  stream recorded, so a restart in the window right after a reorg can still check
+  canonicality. Only log-bearing blocks are recorded, so this is best-effort.
+- A finalized block ahead of the cursor is held back rather than announced, and
+  the check runs *after* the cursor advances rather than at the top of the tick.
+  On a chain that finalises within a block or two of the head, comparing against
+  a cursor that still holds last tick's value would suppress the message forever
+  and freeze `finalized_order_key`. The
   runtime's recovery path resets the cursor to the last finalized one, so
   announcing a finalized block past ours would let a later error move the cursor
   *forward* and skip everything in between. Holding it back only ever costs a

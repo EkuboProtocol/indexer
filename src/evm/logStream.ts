@@ -350,28 +350,34 @@ export async function fetchLogsChecked(
     return splitRange(rpc, args);
   }
 
-  if (logs.length < suspectLogCount) return logs;
+  // Only a count landing *exactly* on the cap is ambiguous. More than the cap
+  // proves no cap was applied, so the response is complete and believing it is
+  // correct -- and inside Alchemy's block-range limit there is no result cap at
+  // all, so this is reachable. Treating "over" like "at" would stall a chain on
+  // any single block genuinely carrying that many logs.
+  if (logs.length !== suspectLogCount) return logs;
 
   if (fromBlock === toBlock) {
     throw new Error(
-      `eth_getLogs returned exactly ${logs.length} logs for the single block ${fromBlock}, which matches the configured provider cap. The response cannot be distinguished from a truncated one, so it is refused rather than indexed short.`,
+      `eth_getLogs returned exactly ${logs.length} logs for the single block ${fromBlock}, which matches the configured provider cap (SUSPECT_LOG_COUNT). The response cannot be distinguished from a truncated one, so it is refused rather than indexed short.`,
     );
   }
 
   return splitRange(rpc, args);
 }
 
-/** Messages a provider uses to say the answer, not the request, was too big. */
-const RANGE_TOO_LARGE = [
+/**
+ * Phrasings that mean the *result set* was too big, whatever the range.
+ *
+ * Collected from live endpoints rather than guessed: guessing is how the first
+ * version of this list missed two of the three chains it was aimed at.
+ */
+const RESULT_TOO_LARGE = [
   "more than 10000 results",
   "query returned more than",
   "response size exceeded",
-  "block range is too large",
-  "block range too large",
-  "exceed maximum block range",
-  "range is too wide",
-  "too many logs",
   "log response size",
+  "too many logs",
   // Not the server refusing but the client giving up on the body. Alchemy caps
   // results at 10K logs only for spans wider than its block-range limit; inside
   // that limit it returns everything, and a busy span can produce a body the
@@ -380,23 +386,59 @@ const RANGE_TOO_LARGE = [
   "body exceeded the size limit",
 ];
 
-/** Messages that mean slow down, which must never be answered by fanning out. */
+/** Phrasings that mean slow down, which must never be answered by fanning out. */
 const RATE_LIMITED = [
   "rate limit",
   "too many requests",
   "compute unit",
   "capacity",
   "throughput",
+  "exceeded its",
 ];
 
-/** True when the provider refused because the result set was too large. */
+/**
+ * Words that, alongside "range", mean the span itself was refused.
+ *
+ * Every public endpoint words this differently -- "eth_getLogs is limited to a
+ * 10,000 range" (Base), "block range greater than 10000 max" (Ink), "Block
+ * range is too large" (Optimism), "invalid block range params" (what apibara
+ * matched on) -- so this pairs the subject with any of the complaints rather
+ * than trying to enumerate whole sentences.
+ */
+const RANGE_COMPLAINTS = [
+  "too large",
+  "too wide",
+  "too big",
+  "limited to",
+  "limit",
+  "exceed",
+  "greater than",
+  "max",
+  "invalid",
+];
+
+/**
+ * True when the provider refused because it was asked for too much.
+ *
+ * Deliberately not "the error has a numeric code": Alchemy reports a
+ * compute-unit overage as code 429 and Infura reuses -32005 for rate limits as
+ * well as result caps, so a code-based test answers a throttle with a fan-out.
+ * The client-side body-size failure carries no code at all, which settles it.
+ */
 function isRangeTooLarge(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false;
   const message = String(
     (error as { message?: unknown }).message ?? "",
   ).toLowerCase();
+
+  // Checked first: a throttle must never be answered by splitting.
   if (RATE_LIMITED.some((hint) => message.includes(hint))) return false;
-  return RANGE_TOO_LARGE.some((hint) => message.includes(hint));
+
+  if (RESULT_TOO_LARGE.some((hint) => message.includes(hint))) return true;
+  return (
+    message.includes("range") &&
+    RANGE_COMPLAINTS.some((hint) => message.includes(hint))
+  );
 }
 
 /**
@@ -537,9 +579,22 @@ function rollbackTo(state: StreamState, block: number): StreamMessage {
     if (key >= block) state.emitted.delete(key);
   }
   state.cursorBlock = block - 1;
+
+  // Carry the hash when the block we land on is one we recorded. Without it the
+  // stored cursor has no `unique_key`, and a restart in the window between this
+  // rollback and the next data message would skip the canonicality check
+  // entirely -- right after the one event that makes it worth doing. Only
+  // log-bearing blocks are in `emitted`, so this is best-effort by nature.
+  const landing = state.emitted.get(block - 1);
+
   return {
     _tag: "invalidate",
-    invalidate: { cursor: { orderKey: BigInt(block - 1) } },
+    invalidate: {
+      cursor: {
+        orderKey: BigInt(block - 1),
+        ...(landing ? { uniqueKey: landing.hash } : {}),
+      },
+    },
   };
 }
 
@@ -568,9 +623,9 @@ async function refreshFinalized(
   state: StreamState,
   opts: Resolved,
   now: number,
-): Promise<StreamMessage | null> {
+): Promise<void> {
   if (now - state.lastFinalizedRefresh < opts.finalizedRefreshIntervalMs) {
-    return null;
+    return;
   }
   state.lastFinalizedRefresh = now;
 
@@ -587,22 +642,52 @@ async function refreshFinalized(
       return null;
     },
   );
-  if (!finalized) return null;
+  if (!finalized) return;
 
   if (state.finalized && finalized.number < state.finalized.number) {
     opts.onWarning?.("finalized block moved backwards; ignoring", {
       seen: finalized.number,
       held: state.finalized.number,
     });
-    return null;
+    return;
   }
   state.finalized = finalized;
+}
 
-  // Never announce a finalized block ahead of the cursor. The runtime's own
-  // recovery path resets the cursor to the last finalized one, so a finalized
-  // cursor past ours would move it *forward* on the next unhandled error and
-  // skip every block in between. Holding it back only ever costs a re-index.
+/**
+ * Refreshes the finalized block when due, then announces it if the cursor has
+ * reached it. `now` of null skips the refresh and only re-checks.
+ */
+async function* announceFinalized(
+  rpc: RpcLike,
+  state: StreamState,
+  opts: Resolved,
+  now: number | null,
+): AsyncGenerator<StreamMessage> {
+  if (now !== null) await refreshFinalized(rpc, state, opts, now);
+  const message = finalizeIfDue(state);
+  if (message) yield message;
+}
+
+/**
+ * Announces the finalized block, once the cursor has actually reached it.
+ *
+ * Never ahead of the cursor: the runtime's recovery path resets the cursor to
+ * the last finalized one, so a finalized cursor past ours would move it
+ * *forward* on the next unhandled error and skip everything between.
+ *
+ * Which is why this is a separate step rather than part of the refresh. The
+ * refresh happens at the top of a tick, when the cursor still holds last tick's
+ * value; on a chain that finalises within a block or two of the head, that stale
+ * cursor is always behind the finalized block and the message would be
+ * suppressed forever, leaving `finalized_order_key` frozen and the runtime with
+ * nothing to recover to. Checking after the cursor advances is what makes the
+ * hold-back a delay rather than a permanent mute.
+ */
+function finalizeIfDue(state: StreamState): StreamMessage | null {
+  const finalized = state.finalized;
   if (
+    !finalized ||
     finalized.number > state.cursorBlock ||
     finalized.number <= state.finalizedEmitted
   ) {
@@ -915,7 +1000,19 @@ async function checkStartingCursor(
   // rewind past one -- and every reason not to, since the rows below it are
   // settled. Costs one request, and only on the branch that already found a
   // mismatch.
-  const finalized = await fetchBlockByTag(rpc, "finalized");
+  // Tolerated the same way `refreshFinalized` tolerates it, and for a sharper
+  // reason: this line is only reached once the cursor is already known to be
+  // non-canonical. Letting it throw would exit before the `invalidate` is
+  // emitted, and the restart would land on this same branch again -- a crash
+  // loop precisely where recovery is what is needed.
+  const finalized = await fetchBlockByTag(rpc, "finalized").catch(
+    (error: unknown) => {
+      opts.onWarning?.("could not read the finalized block while rolling back", {
+        error: String(error).slice(0, 200),
+      });
+      return null;
+    },
+  );
   const floor = finalized ? finalized.number + 1 : 1;
   // Never past the cursor itself: if even the finalized block disagrees, the
   // least we can do is re-read the block we are standing on rather than skip it.
@@ -959,8 +1056,7 @@ export async function* createLogStream(
     const heartbeat = heartbeatIfDue(state, opts, now);
     if (heartbeat) yield heartbeat;
 
-    const finalize = await refreshFinalized(rpc, state, opts, now);
-    if (finalize) yield finalize;
+    yield* announceFinalized(rpc, state, opts, now);
 
     const plan = await planRead(rpc, state, opts);
     if (!plan) {
@@ -1000,6 +1096,9 @@ export async function* createLogStream(
     if (tail) yield tail;
 
     finishTick(state, plan, opts);
+
+    // Now that the cursor has moved, the finalized block may be behind it.
+    yield* announceFinalized(rpc, state, opts, null);
 
     if (plan.to >= plan.head.number) await sleep(opts.pollIntervalMs);
   }

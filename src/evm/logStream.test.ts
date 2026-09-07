@@ -1219,3 +1219,231 @@ describe("fetchLogsChecked when the body is too large", () => {
     expect(logs).toHaveLength(2);
   });
 });
+
+describe("fetchLogsChecked against real provider wording", () => {
+  // Captured live, not guessed. The first version of the match list was guessed
+  // and missed two of the three chains it was written for.
+  const REFUSALS = [
+    ["base", "eth_getLogs is limited to a 10,000 range"],
+    ["ink", "block range greater than 10000 max"],
+    ["optimism", "Block range is too large"],
+    ["apibara-era", "invalid block range params"],
+    ["alchemy", "Details: Log response size exceeded. You can make eth_getLogs requests with up to a 5,000 block range"],
+    ["infura", "query returned more than 10000 results"],
+    ["body", "HTTP response body exceeded the size limit."],
+  ] as const;
+
+  for (const [name, message] of REFUSALS) {
+    it(`splits on the ${name} phrasing`, async () => {
+      const rpc = rpcDouble({
+        logs: (from, to) => {
+          if (to - from >= 5) throw new Error(message);
+          return [log({ blockNumber: numberToHex(BigInt(from)) })];
+        },
+      });
+
+      const logs = await fetchLogsChecked(rpc, {
+        fromBlock: 1,
+        toBlock: 10,
+        addresses: [CORE],
+        suspectLogCount: 10_000,
+      });
+      expect(logs).toHaveLength(2);
+    });
+  }
+
+  const THROTTLES = [
+    ["alchemy", "Your app has exceeded its compute units per second capacity."],
+    ["infura", "daily request count exceeded, rate limit reached"],
+    ["generic", "429 Too Many Requests"],
+  ] as const;
+
+  for (const [name, message] of THROTTLES) {
+    it(`does not split the ${name} throttle`, async () => {
+      const rpc = rpcDouble({
+        logs: () => {
+          throw new Error(message);
+        },
+      });
+
+      await expect(
+        fetchLogsChecked(rpc, {
+          fromBlock: 1,
+          toBlock: 1_000,
+          addresses: [CORE],
+          suspectLogCount: 10_000,
+        }),
+      ).rejects.toBeDefined();
+      // The whole point: one request, not a bisection into the endpoint.
+      expect(rpc.calls).toHaveLength(1);
+    });
+  }
+});
+
+describe("fetchLogsChecked at the suspect count", () => {
+  it("believes a response that overshoots the cap", async () => {
+    // Only landing exactly on the cap is ambiguous. More than the cap proves no
+    // cap was applied, and inside Alchemy's block-range limit there is no result
+    // cap at all -- so treating "over" like "at" would stall a chain on any
+    // single block genuinely carrying that many logs.
+    const rpc = rpcDouble({ logs: () => [log(), log(), log()] });
+
+    const logs = await fetchLogsChecked(rpc, {
+      fromBlock: 5,
+      toBlock: 5,
+      addresses: [CORE],
+      suspectLogCount: 2,
+    });
+    expect(logs).toHaveLength(3);
+    expect(rpc.calls).toHaveLength(1);
+  });
+
+  it("still refuses a single block sitting exactly on the cap", async () => {
+    const rpc = rpcDouble({ logs: () => [log(), log()] });
+
+    await expect(
+      fetchLogsChecked(rpc, {
+        fromBlock: 5,
+        toBlock: 5,
+        addresses: [CORE],
+        suspectLogCount: 2,
+      }),
+    ).rejects.toThrow(/cannot be distinguished from a truncated one/);
+  });
+});
+
+describe("createLogStream finalized announcements", () => {
+  it("announces finality on a chain that finalises near the head", async () => {
+    // The refresh happens at the top of a tick, when the cursor still holds last
+    // tick's value. On a fast-finality chain that stale cursor is always behind
+    // the finalized block, so checking there and only there would mute the
+    // message permanently and freeze finalized_order_key.
+    // `head` is where our cursor got to last poll. The chain has moved on since,
+    // so when finality is read at the top of a tick it is already ahead of the
+    // cursor -- which is exactly the condition that would mute it forever.
+    let head = 100;
+    const rpc = rpcDouble({
+      blocks: (tag) => {
+        if (tag === "finalized")
+          return { number: head + 4, hash: `0xf${head}`, timestamp: 1_700_000_000 };
+        head += 5;
+        return { number: head, hash: `0x${head}`, timestamp: 1_700_000_000 };
+      },
+      logs: () => [],
+    });
+
+    const messages = await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 100n },
+        options: {
+          pollIntervalMs: 1,
+          finalizedRefreshIntervalMs: 1,
+          heartbeatIntervalMs: 1_000_000,
+          reorgWindowBlocks: 32,
+        },
+      }),
+      10,
+      (out) => out.some((m) => m._tag === "finalize"),
+      600,
+    );
+
+    const finalizes = messages.filter((m) => m._tag === "finalize");
+    expect(finalizes.length).toBeGreaterThan(0);
+  });
+
+  it("never announces finality ahead of the cursor", async () => {
+    const rpc = rpcDouble({
+      blocks: (tag) =>
+        tag === "finalized"
+          ? { number: 150, hash: "0x150", timestamp: 1_700_000_000 }
+          : { number: 200, hash: "0x200", timestamp: 1_700_000_000 },
+      logs: () => [],
+    });
+
+    const messages = await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 100n },
+        options: {
+          pollIntervalMs: 1,
+          finalizedRefreshIntervalMs: 1,
+          heartbeatIntervalMs: 1_000_000,
+          reorgWindowBlocks: 32,
+        },
+      }),
+      6,
+      undefined,
+      400,
+    );
+
+    // Data for the tail comes first; finality only once the cursor passed it.
+    expect(messages[0]!._tag).toBe("data");
+    for (const message of messages) {
+      if (message._tag !== "finalize") continue;
+      expect(message.finalize.cursor.orderKey).toBe(150n);
+    }
+  });
+});
+
+describe("createLogStream rollback cursor", () => {
+  it("carries the landing block's hash so a restart can still verify it", async () => {
+    // Without a uniqueKey the stored cursor has nothing to check against, and a
+    // restart in the window right after a reorg would skip verification
+    // entirely -- after the one event that makes it worth doing.
+    let headReads = 0;
+    const reorged = () => headReads > 2;
+    const rpc = rpcDouble({
+      blocks: (tag) => {
+        if (tag === "finalized")
+          return { number: 90, hash: "0x90", timestamp: 1_700_000_000 };
+        headReads++;
+        return {
+          number: 103,
+          hash: reorged() ? "0x103b" : "0x103a",
+          timestamp: 1_700_000_000,
+        };
+      },
+      // 101 keeps its hash; 102 changes, so the rollback lands on 101.
+      logs: () =>
+        [
+          log({
+            blockNumber: numberToHex(101n),
+            blockHash: "0xaaa",
+            logIndex: "0x0",
+          }),
+          log({
+            blockNumber: numberToHex(102n),
+            blockHash: reorged() ? "0xccc" : "0xbbb",
+            logIndex: "0x1",
+          }),
+        ],
+    });
+
+    const messages = await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 100n },
+        options: {
+          pollIntervalMs: 1,
+          finalizedRefreshIntervalMs: 1_000_000,
+          heartbeatIntervalMs: 1_000_000,
+          reorgWindowBlocks: 16,
+        },
+      }),
+      12,
+      (out) => out.some((m) => m._tag === "invalidate"),
+      800,
+    );
+
+    const invalidate = messages.find((m) => m._tag === "invalidate");
+    expect(invalidate).toBeDefined();
+    if (invalidate?._tag === "invalidate") {
+      expect(invalidate.invalidate.cursor.orderKey).toBe(101n);
+      expect(invalidate.invalidate.cursor.uniqueKey).toBe("0xaaa");
+    }
+  });
+});
