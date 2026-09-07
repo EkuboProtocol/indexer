@@ -858,6 +858,28 @@ function initStream({
   };
 }
 
+/**
+ * Gives the head block its own base fee, which this poll already fetched.
+ *
+ * `eth_getLogs` carries no base fee, so a log-derived block has none. That is
+ * honest for blocks below the head -- we genuinely do not know theirs, and
+ * nothing stores it now that 00127 drops `blocks.base_fee_per_gas`; the DAO
+ * coalesces a null rather than blanking the head column with it.
+ *
+ * The head is the exception: when the last block read is the head itself, this
+ * poll's `eth_getBlockByNumber("latest")` already holds its real base fee, so
+ * the block can carry its true value at no cost. That is what keeps
+ * `indexer_cursor.head_base_fee_per_gas` -- which quoter-service reads to price
+ * gas -- both fresh and never null.
+ */
+function stampHeadBaseFee(blocks: StreamBlock[], head: LatestBlock): void {
+  for (const block of blocks) {
+    if (Number(block.header.blockNumber) === head.number) {
+      block.header.baseFeePerGas = head.baseFeePerGas;
+    }
+  }
+}
+
 /** Records each block in the reorg window and yields it downstream. */
 async function* emitFresh(
   state: StreamState,
@@ -1025,6 +1047,7 @@ export async function* createLogStream(
       (block) => Number(block.header.blockNumber) > state.cursorBlock,
     );
     await requireTimestamps(rpc, fresh);
+    stampHeadBaseFee(fresh, plan.head);
     yield* emitFresh(state, fresh);
 
     const tail = await tailMessage(rpc, state, fresh, plan);

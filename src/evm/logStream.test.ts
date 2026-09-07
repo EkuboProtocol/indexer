@@ -184,7 +184,12 @@ describe("firstDivergentBlock", () => {
 /** Minimal RPC double that records every method it was asked for. */
 function rpcDouble(handlers: {
   logs?: (from: number, to: number) => RawLog[];
-  blocks?: (tag: string) => { number: number; hash: string; timestamp: number } | null;
+  blocks?: (tag: string) => {
+    number: number;
+    hash: string;
+    timestamp: number;
+    baseFeePerGas?: bigint;
+  } | null;
 }): RpcLike & { calls: string[] } {
   const calls: string[] = [];
   return {
@@ -203,6 +208,9 @@ function rpcDouble(handlers: {
               number: numberToHex(BigInt(b.number)),
               hash: b.hash,
               timestamp: numberToHex(BigInt(b.timestamp)),
+              ...(b.baseFeePerGas !== undefined
+                ? { baseFeePerGas: numberToHex(b.baseFeePerGas) }
+                : {}),
             }
           : null;
       }
@@ -1290,5 +1298,68 @@ describe("fetchLogsChecked at the suspect count", () => {
         suspectLogCount: 2,
       }),
     ).rejects.toThrow(/cannot be distinguished from a truncated one/);
+  });
+});
+
+describe("createLogStream head base fee", () => {
+  // indexer_cursor.head_base_fee_per_gas is the only surviving consumer of a
+  // base fee (00122 moved it off blocks, 00127 drops the column). The runtime
+  // writes it from every block it processes, so a log-derived block carrying
+  // null would blank out the value the quoter prices gas with.
+  const headBaseFee = 12_345_678n;
+
+  const streamWith = (logsFor: number[]) =>
+    createLogStream({
+      rpc: rpcDouble({
+        blocks: (tag) =>
+          tag === "finalized"
+            ? { number: 90, hash: "0x90", timestamp: 1_700_000_000 }
+            : {
+                number: 103,
+                hash: "0x103",
+                timestamp: 1_700_000_000,
+                baseFeePerGas: headBaseFee,
+              },
+        logs: (from, to) =>
+          logsFor
+            .filter((n) => n >= from && n <= to)
+            .map((n) =>
+              log({
+                blockNumber: numberToHex(BigInt(n)),
+                blockHash: `0x${n}` as Hex,
+                blockTimestamp: numberToHex(1_700_000_000n),
+              }),
+            ),
+      }),
+      filters: [filter()],
+      startingCursor: { orderKey: 100n },
+      options: {
+        pollIntervalMs: 1,
+        finalizedRefreshIntervalMs: 1_000_000,
+        heartbeatIntervalMs: 1_000_000,
+        reorgWindowBlocks: 32,
+      },
+    });
+
+  it("gives the head block its own base fee", async () => {
+    // 103 is the head, so its real value is already in hand from this poll's
+    // latest-block read and it carries it. Blocks below the head report null,
+    // which is honest -- the DAO coalesces rather than blanking the column.
+    const messages = await take(streamWith([101, 102, 103]), 6, undefined, 400);
+
+    const blocks = messages.flatMap((m) => (m._tag === "data" ? m.data.data : []));
+    const head = blocks.find((b) => Number(b.header.blockNumber) === 103);
+    expect(head).toBeDefined();
+    expect(head!.header.baseFeePerGas).toBe(headBaseFee);
+  });
+
+  it("carries it on the trailing block of a quiet chain too", async () => {
+    const messages = await take(streamWith([]), 4, undefined, 400);
+
+    const blocks = messages.flatMap((m) => (m._tag === "data" ? m.data.data : []));
+    expect(blocks.length).toBeGreaterThan(0);
+    for (const block of blocks) {
+      expect(block.header.baseFeePerGas).toBe(headBaseFee);
+    }
   });
 });

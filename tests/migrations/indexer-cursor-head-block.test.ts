@@ -85,8 +85,8 @@ test("get_chain_head_time prefers the cursor and falls back to blocks", async ()
   // A chain that has not produced a block since the migration still resolves
   // through blocks.
   await client.query(
-    `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, base_fee_per_gas, num_events)
-     VALUES (7, 100, 1, '2024-03-01T00:00:00Z', 1, 1)`
+    `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
+     VALUES (7, 100, 1, '2024-03-01T00:00:00Z', 1)`
   );
   const { rows: viaBlocks } = await client.query<{ head: Date }>(
     `SELECT public.get_chain_head_time(7) AS head`
@@ -160,8 +160,8 @@ test("rewinding the cursor clears the head rather than keeping the orphaned one"
   const client = await createClient();
   await seedCursor(client, 7);
   await client.query(
-    `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, base_fee_per_gas, num_events)
-     VALUES (7, 100, 1, '2024-03-01T00:00:00Z', 1, 1)`
+    `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
+     VALUES (7, 100, 1, '2024-03-01T00:00:00Z', 1)`
   );
   await client.query(
     `UPDATE indexer_cursor
@@ -212,4 +212,79 @@ test("the oracle TWAP window ends at the chain head", async () => {
   // Otherwise every TWAP on a quiet chain silently shortens to the last block
   // that happened to carry an event.
   expect(rows[0]!.prosrc).toContain("get_chain_head_time");
+});
+
+test("writeCursor keeps the last known head base fee instead of blanking it", async () => {
+  // quoter-service reads indexer_cursor.head_base_fee_per_gas to price gas into
+  // quotes (shared-quoter-service/src/db.rs). A block derived from eth_getLogs
+  // has no base fee to report, and 00127 removes the only other place one was
+  // stored, so a null write must not clobber the column.
+  const client = await createClient();
+  const chainId = 991_001;
+
+  await client.query(`DELETE FROM indexer_cursor WHERE chain_id = $1`, [
+    chainId,
+  ]);
+  await client.query(
+    `INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated,
+                                 fork_counter, head_block_number, head_base_fee_per_gas)
+     VALUES ($1, 10, NULL, NOW(), 0, 10, 4242)`,
+    [chainId]
+  );
+
+  // The same upsert writeCursor issues, with a null base fee on the excluded row.
+  await client.query(
+    `INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated,
+                                 head_block_number, head_block_hash,
+                                 head_block_time, head_base_fee_per_gas)
+     VALUES ($1, 11, NULL, NOW(), 11, NULL, NOW(), NULL)
+     ON CONFLICT (chain_id) DO UPDATE
+       SET order_key = excluded.order_key,
+           head_block_number = excluded.head_block_number,
+           head_base_fee_per_gas = COALESCE(excluded.head_base_fee_per_gas,
+                                            indexer_cursor.head_base_fee_per_gas)`,
+    [chainId]
+  );
+
+  const { rows } = await client.query<{
+    head_base_fee_per_gas: string | null;
+    head_block_number: string;
+  }>(
+    `SELECT head_base_fee_per_gas, head_block_number
+     FROM indexer_cursor WHERE chain_id = $1`,
+    [chainId]
+  );
+
+  // The head advanced, but the base fee survived.
+  expect(String(rows[0]!.head_block_number)).toBe("11");
+  expect(String(rows[0]!.head_base_fee_per_gas)).toBe("4242");
+
+  // A real value still overwrites.
+  await client.query(
+    `INSERT INTO indexer_cursor (chain_id, order_key, last_updated, head_base_fee_per_gas)
+     VALUES ($1, 12, NOW(), 5555)
+     ON CONFLICT (chain_id) DO UPDATE
+       SET head_base_fee_per_gas = COALESCE(excluded.head_base_fee_per_gas,
+                                            indexer_cursor.head_base_fee_per_gas)`,
+    [chainId]
+  );
+  const { rows: after } = await client.query<{
+    head_base_fee_per_gas: string;
+  }>(`SELECT head_base_fee_per_gas FROM indexer_cursor WHERE chain_id = $1`, [
+    chainId,
+  ]);
+  expect(String(after[0]!.head_base_fee_per_gas)).toBe("5555");
+
+  await client.query(`DELETE FROM indexer_cursor WHERE chain_id = $1`, [
+    chainId,
+  ]);
+});
+
+test("blocks no longer carries base_fee_per_gas", async () => {
+  const client = await createClient();
+  const { rows } = await client.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_name = 'blocks' AND column_name = 'base_fee_per_gas'`
+  );
+  expect(rows).toHaveLength(0);
 });
