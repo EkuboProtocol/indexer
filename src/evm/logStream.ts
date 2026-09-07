@@ -332,22 +332,27 @@ export async function fetchLogsChecked(
       ],
     } as never)) as unknown as RawLog[];
   } catch (error) {
-    // The other half of the same problem. A provider at its limit either
-    // truncates silently (handled below) or refuses the range outright;
-    // Alchemy does the latter, so on Alchemy this is the branch that runs.
-    // Splitting is the only response that makes progress -- retrying the same
-    // span would just fail again, and the worker would restart into it forever.
+    // Fail fast. An earlier version tried to recognise "the range was too wide"
+    // from the error text and recover by splitting, but every provider words
+    // that differently and any of them can reword it in a release. A match list
+    // that silently stops matching turns recovery into a crash loop, and nothing
+    // would notice until it happened in production -- so the classification is
+    // the liability, not the thing being classified.
     //
-    // Only when the error is actually about the size of the range. A numeric
-    // JSON-RPC `code` is not enough to tell: Alchemy reports a compute-unit
-    // overage as an error with code 429, and Infura reuses -32005 for rate
-    // limits as well as for result caps. Splitting one of those would aim a
-    // fan-out at an endpoint that just asked us to slow down, which is the storm
-    // this is supposed to avoid. So match the message, and let anything
-    // unrecognised propagate -- the worker restarts and resumes from a durable
-    // cursor, which is the safe failure.
-    if (fromBlock === toBlock || !isRangeTooLarge(error)) throw error;
-    return splitRange(rpc, args);
+    // Nothing is lost by refusing here. viem's transport already retries the
+    // errors worth retrying, with backoff: HTTP 403/408/413/429/500/502/503 and
+    // JSON-RPC -1, -32005, -32603 and 429 (Alchemy reports a compute-unit
+    // overage as an HTTP 200 carrying code 429, which viem handles by name).
+    // Anything reaching here has already survived that, so it is a real error,
+    // and the range is ours to choose: GET_LOGS_RANGE_SIZE is the knob.
+    throw new Error(
+      `eth_getLogs failed for blocks ${fromBlock}..${toBlock} (${
+        toBlock - fromBlock + 1
+      } blocks, ${addresses.length} addresses). If this is the provider refusing the span rather than a transient fault, lower GET_LOGS_RANGE_SIZE. Cause: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { cause: error },
+    );
   }
 
   // Only a count landing *exactly* on the cap is ambiguous. More than the cap
@@ -367,82 +372,12 @@ export async function fetchLogsChecked(
 }
 
 /**
- * Phrasings that mean the *result set* was too big, whatever the range.
- *
- * Collected from live endpoints rather than guessed: guessing is how the first
- * version of this list missed two of the three chains it was aimed at.
- */
-const RESULT_TOO_LARGE = [
-  "more than 10000 results",
-  "query returned more than",
-  "response size exceeded",
-  "log response size",
-  "too many logs",
-  // Not the server refusing but the client giving up on the body. Alchemy caps
-  // results at 10K logs only for spans wider than its block-range limit; inside
-  // that limit it returns everything, and a busy span can produce a body the
-  // HTTP layer will not accept. Splitting is the same right answer.
-  "response body exceeded",
-  "body exceeded the size limit",
-];
-
-/** Phrasings that mean slow down, which must never be answered by fanning out. */
-const RATE_LIMITED = [
-  "rate limit",
-  "too many requests",
-  "compute unit",
-  "capacity",
-  "throughput",
-  "exceeded its",
-];
-
-/**
- * Words that, alongside "range", mean the span itself was refused.
- *
- * Every public endpoint words this differently -- "eth_getLogs is limited to a
- * 10,000 range" (Base), "block range greater than 10000 max" (Ink), "Block
- * range is too large" (Optimism), "invalid block range params" (what apibara
- * matched on) -- so this pairs the subject with any of the complaints rather
- * than trying to enumerate whole sentences.
- */
-const RANGE_COMPLAINTS = [
-  "too large",
-  "too wide",
-  "too big",
-  "limited to",
-  "limit",
-  "exceed",
-  "greater than",
-  "max",
-  "invalid",
-];
-
-/**
- * True when the provider refused because it was asked for too much.
- *
- * Deliberately not "the error has a numeric code": Alchemy reports a
- * compute-unit overage as code 429 and Infura reuses -32005 for rate limits as
- * well as result caps, so a code-based test answers a throttle with a fan-out.
- * The client-side body-size failure carries no code at all, which settles it.
- */
-function isRangeTooLarge(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const message = String(
-    (error as { message?: unknown }).message ?? "",
-  ).toLowerCase();
-
-  // Checked first: a throttle must never be answered by splitting.
-  if (RATE_LIMITED.some((hint) => message.includes(hint))) return false;
-
-  if (RESULT_TOO_LARGE.some((hint) => message.includes(hint))) return true;
-  return (
-    message.includes("range") &&
-    RANGE_COMPLAINTS.some((hint) => message.includes(hint))
-  );
-}
-
-/**
  * Halves a span and reads both sides, one after the other.
+ *
+ * Only ever reached from the truncation guard, which fires on a *successful*
+ * response whose count lands exactly on the configured cap. That is a decision
+ * about a number we were handed, not about text a provider chose, so it cannot
+ * rot the way error matching does.
  *
  * Sequentially, deliberately. Bisecting concurrently would turn one oversized
  * range into an exponentially widening burst of in-flight requests, which is a

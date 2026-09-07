@@ -194,25 +194,21 @@ surfaces later as a wrong number downstream. Three choices follow from that.
   answered by backends with different views of the chain. One endpoint fails by
   stopping, which is safe, because the cursor is durable.
 
-- **A refused range is split, not retried.** The other half of the truncation
-  problem: a provider at its limit either truncates silently or rejects the
-  range outright. Alchemy does the latter, so on Alchemy that is the branch that
-  runs. Re-issuing the same span would fail identically and restart the worker
-  into it forever, so the span is halved instead, and only a single block that
-  still fails throws. Only a count landing *exactly* on the cap is treated as
-  suspect; more than the cap proves no cap was applied. Splitting is gated on the
-  error *message*, not on the presence of a JSON-RPC `code`: Alchemy reports a compute-unit overage as an
-  error with code 429 and Infura reuses `-32005` for rate limits as well as
-  result caps, so bisecting on a code would aim a fan-out at an endpoint that
-  just asked us to slow down. Anything unrecognised propagates instead, and the
-  worker resumes from its durable cursor. The split runs sequentially for the
-  same reason. Note that inside its block-range limit Alchemy applies no result
-  cap at all, so a busy span fails as a client-side response-body error with no
-  code on it whatsoever — which is the case that settles this design. The match
-  list is built from wording captured off live endpoints, since every provider
-  phrases it differently: `eth_getLogs is limited to a 10,000 range` (Base),
-  `block range greater than 10000 max` (Ink), `Block range is too large`
-  (Optimism), `Log response size exceeded` (Alchemy).
+- **A refused range fails fast.** An earlier version recognised "the range was
+  too wide" from the error text and recovered by splitting. Every provider words
+  that differently — `eth_getLogs is limited to a 10,000 range` (Base), `block
+  range greater than 10000 max` (Ink), `Block range is too large` (Optimism),
+  `Log response size exceeded` (Alchemy) — and any of them can reword it in a
+  release, at which point recovery silently becomes a crash loop. The
+  classification was the liability, so it is gone. Nothing is lost: viem's
+  transport already retries what is worth retrying, with backoff (HTTP
+  403/408/413/429/500/502/503 and JSON-RPC -1, -32005, -32603 and 429), so
+  anything reaching the stream has survived that and is a real error. The range
+  is ours to choose, so the error names `GET_LOGS_RANGE_SIZE` as the knob and
+  carries the provider's own words as the cause.
+
+  Keep `GET_LOGS_RANGE_SIZE` under 5,000 on Alchemy: below that boundary it
+  applies no result cap at all, so a refusal is not reachable in the first place.
 
 Reorgs are found by re-reading `REORG_WINDOW_BLOCKS` (default 64) at the head
 each poll and comparing it against what was emitted. A block that changed hash,

@@ -223,22 +223,6 @@ describe("fetchLogsChecked", () => {
     expect(rpc.calls).toEqual(["eth_getLogs"]);
   });
 
-  it("splits the range when a response lands exactly on the cap", async () => {
-    // Exactly at the cap for the full range, under it once split.
-    const rpc = rpcDouble({
-      logs: (from, to) => (to - from >= 9 ? [log(), log()] : [log()]),
-    });
-    const logs = await fetchLogsChecked(rpc, {
-      fromBlock: 1,
-      toBlock: 10,
-      addresses: [CORE],
-      suspectLogCount: 2,
-    });
-    expect(logs).toHaveLength(2);
-    // One refused call, then the two halves.
-    expect(rpc.calls.length).toBe(3);
-  });
-
   it("refuses rather than indexing short when a single block is at the cap", async () => {
     const rpc = rpcDouble({ logs: () => [log(), log()] });
     await expect(
@@ -889,118 +873,6 @@ function rpcError(message: string, code: number): Error {
   return error;
 }
 
-describe("fetchLogsChecked error handling", () => {
-  it("splits on the message Alchemy actually returns", async () => {
-    const rpc = rpcDouble({
-      logs: (from, to) => {
-        if (to - from >= 5) throw rpcError(ALCHEMY_TOO_LARGE, -32602);
-        return [log({ blockNumber: numberToHex(BigInt(from)) })];
-      },
-    });
-
-    const logs = await fetchLogsChecked(rpc, {
-      fromBlock: 1,
-      toBlock: 10,
-      addresses: [CORE],
-      suspectLogCount: 10_000,
-    });
-    expect(logs).toHaveLength(2);
-  });
-
-  it("does not split a rate limit, even though it carries a numeric code", async () => {
-    // Alchemy reports a compute-unit overage as a JSON-RPC error with code 429.
-    // Bisecting it would aim a fan-out at an endpoint that just asked us to
-    // slow down, which is the storm the split is supposed to avoid.
-    const rpc = rpcDouble({
-      logs: () => {
-        throw rpcError("Your app has exceeded its compute units per second capacity.", 429);
-      },
-    });
-
-    await expect(
-      fetchLogsChecked(rpc, {
-        fromBlock: 1,
-        toBlock: 1_000,
-        addresses: [CORE],
-        suspectLogCount: 10_000,
-      }),
-    ).rejects.toThrow(/compute units/);
-    expect(rpc.calls).toHaveLength(1);
-  });
-
-  it("does not split an Infura-style rate limit sharing the -32005 code", async () => {
-    const rpc = rpcDouble({
-      logs: () => {
-        throw rpcError("daily request count exceeded, rate limit reached", -32005);
-      },
-    });
-
-    await expect(
-      fetchLogsChecked(rpc, {
-        fromBlock: 1,
-        toBlock: 1_000,
-        addresses: [CORE],
-        suspectLogCount: 10_000,
-      }),
-    ).rejects.toThrow(/rate limit/);
-    expect(rpc.calls).toHaveLength(1);
-  });
-
-  it("splits an Infura-style result cap on the same code", async () => {
-    const rpc = rpcDouble({
-      logs: (from, to) => {
-        if (to - from >= 5) {
-          throw rpcError("query returned more than 10000 results", -32005);
-        }
-        return [log({ blockNumber: numberToHex(BigInt(from)) })];
-      },
-    });
-
-    const logs = await fetchLogsChecked(rpc, {
-      fromBlock: 1,
-      toBlock: 10,
-      addresses: [CORE],
-      suspectLogCount: 10_000,
-    });
-    expect(logs).toHaveLength(2);
-  });
-
-  it("propagates an error it does not recognise rather than guessing", async () => {
-    const rpc = rpcDouble({
-      logs: () => {
-        throw rpcError("something else went wrong", -32000);
-      },
-    });
-
-    await expect(
-      fetchLogsChecked(rpc, {
-        fromBlock: 1,
-        toBlock: 1_000,
-        addresses: [CORE],
-        suspectLogCount: 10_000,
-      }),
-    ).rejects.toThrow(/something else/);
-    expect(rpc.calls).toHaveLength(1);
-  });
-
-  it("survives a thrown non-object", async () => {
-    const rpc = rpcDouble({
-      logs: () => {
-        throw "a string, not an Error";
-      },
-    });
-
-    await expect(
-      fetchLogsChecked(rpc, {
-        fromBlock: 1,
-        toBlock: 10,
-        addresses: [CORE],
-        suspectLogCount: 10_000,
-      }),
-    ).rejects.toBeDefined();
-  });
-});
-
 describe("groupLogsByBlock event index", () => {
   it("carries the block-wide log index through unchanged", () => {
     // event_index in evm.ts is this value. The apibara RPC stream never
@@ -1155,163 +1027,6 @@ describe("createLogStream cursor safety", () => {
   });
 });
 
-describe("fetchLogsChecked on a transport failure", () => {
-  it("does not bisect a timeout into a request storm", async () => {
-    // A refused range is a statement about the range; a timeout or a 429 is
-    // not. Splitting one would turn a single transient failure into a burst of
-    // requests aimed at an endpoint that is already struggling.
-    const rpc = rpcDouble({
-      logs: () => {
-        throw new Error("fetch failed");
-      },
-    });
-
-    await expect(
-      fetchLogsChecked(rpc, {
-        fromBlock: 1,
-        toBlock: 1_000,
-        addresses: [CORE],
-        suspectLogCount: 10_000,
-      }),
-    ).rejects.toThrow(/fetch failed/);
-    expect(rpc.calls).toHaveLength(1);
-  });
-
-  it("gives up on a single block, since there is nothing left to split", async () => {
-    const rpc = rpcDouble({
-      logs: () => {
-        throw rpcError("query returned more than 10000 results", -32005);
-      },
-    });
-
-    await expect(
-      fetchLogsChecked(rpc, {
-        fromBlock: 7,
-        toBlock: 7,
-        addresses: [CORE],
-        suspectLogCount: 10_000,
-      }),
-    ).rejects.toThrow(/more than 10000 results/);
-  });
-});
-
-describe("fetchLogsChecked when the body is too large", () => {
-  it("splits a client-side response size failure", async () => {
-    // Observed against production Alchemy: inside its block-range limit it
-    // applies no result cap, so a busy span returns a body the HTTP layer
-    // refuses. There is no JSON-RPC code on this one at all, which is why the
-    // split is gated on the message rather than on the presence of a code.
-    const rpc = rpcDouble({
-      logs: (from, to) => {
-        if (to - from >= 5) {
-          throw new Error("HTTP response body exceeded the size limit.");
-        }
-        return [log({ blockNumber: numberToHex(BigInt(from)) })];
-      },
-    });
-
-    const logs = await fetchLogsChecked(rpc, {
-      fromBlock: 1,
-      toBlock: 10,
-      addresses: [CORE],
-      suspectLogCount: 10_000,
-    });
-    expect(logs).toHaveLength(2);
-  });
-});
-
-describe("fetchLogsChecked against real provider wording", () => {
-  // Captured live, not guessed. The first version of the match list was guessed
-  // and missed two of the three chains it was written for.
-  const REFUSALS = [
-    ["base", "eth_getLogs is limited to a 10,000 range"],
-    ["ink", "block range greater than 10000 max"],
-    ["optimism", "Block range is too large"],
-    ["apibara-era", "invalid block range params"],
-    ["alchemy", "Details: Log response size exceeded. You can make eth_getLogs requests with up to a 5,000 block range"],
-    ["infura", "query returned more than 10000 results"],
-    ["body", "HTTP response body exceeded the size limit."],
-  ] as const;
-
-  for (const [name, message] of REFUSALS) {
-    it(`splits on the ${name} phrasing`, async () => {
-      const rpc = rpcDouble({
-        logs: (from, to) => {
-          if (to - from >= 5) throw new Error(message);
-          return [log({ blockNumber: numberToHex(BigInt(from)) })];
-        },
-      });
-
-      const logs = await fetchLogsChecked(rpc, {
-        fromBlock: 1,
-        toBlock: 10,
-        addresses: [CORE],
-        suspectLogCount: 10_000,
-      });
-      expect(logs).toHaveLength(2);
-    });
-  }
-
-  const THROTTLES = [
-    ["alchemy", "Your app has exceeded its compute units per second capacity."],
-    ["infura", "daily request count exceeded, rate limit reached"],
-    ["generic", "429 Too Many Requests"],
-  ] as const;
-
-  for (const [name, message] of THROTTLES) {
-    it(`does not split the ${name} throttle`, async () => {
-      const rpc = rpcDouble({
-        logs: () => {
-          throw new Error(message);
-        },
-      });
-
-      await expect(
-        fetchLogsChecked(rpc, {
-          fromBlock: 1,
-          toBlock: 1_000,
-          addresses: [CORE],
-          suspectLogCount: 10_000,
-        }),
-      ).rejects.toBeDefined();
-      // The whole point: one request, not a bisection into the endpoint.
-      expect(rpc.calls).toHaveLength(1);
-    });
-  }
-});
-
-describe("fetchLogsChecked at the suspect count", () => {
-  it("believes a response that overshoots the cap", async () => {
-    // Only landing exactly on the cap is ambiguous. More than the cap proves no
-    // cap was applied, and inside Alchemy's block-range limit there is no result
-    // cap at all -- so treating "over" like "at" would stall a chain on any
-    // single block genuinely carrying that many logs.
-    const rpc = rpcDouble({ logs: () => [log(), log(), log()] });
-
-    const logs = await fetchLogsChecked(rpc, {
-      fromBlock: 5,
-      toBlock: 5,
-      addresses: [CORE],
-      suspectLogCount: 2,
-    });
-    expect(logs).toHaveLength(3);
-    expect(rpc.calls).toHaveLength(1);
-  });
-
-  it("still refuses a single block sitting exactly on the cap", async () => {
-    const rpc = rpcDouble({ logs: () => [log(), log()] });
-
-    await expect(
-      fetchLogsChecked(rpc, {
-        fromBlock: 5,
-        toBlock: 5,
-        addresses: [CORE],
-        suspectLogCount: 2,
-      }),
-    ).rejects.toThrow(/cannot be distinguished from a truncated one/);
-  });
-});
-
 describe("createLogStream finalized announcements", () => {
   it("announces finality on a chain that finalises near the head", async () => {
     // The refresh happens at the top of a tick, when the cursor still holds last
@@ -1445,5 +1160,135 @@ describe("createLogStream rollback cursor", () => {
       expect(invalidate.invalidate.cursor.orderKey).toBe(101n);
       expect(invalidate.invalidate.cursor.uniqueKey).toBe("0xaaa");
     }
+  });
+});
+describe("fetchLogsChecked on an eth_getLogs error", () => {
+  // These are the real phrasings, captured live from the endpoints this repo
+  // uses. An earlier version tried to recognise them and split; they are kept
+  // here to pin the opposite property, that none of them is treated specially.
+  // A provider rewording one must not be able to change what the stream does.
+  const REFUSALS = [
+    ["base", "eth_getLogs is limited to a 10,000 range"],
+    ["ink", "block range greater than 10000 max"],
+    ["optimism", "Block range is too large"],
+    ["alchemy", "Log response size exceeded. You can make eth_getLogs requests"],
+    ["infura", "query returned more than 10000 results"],
+    ["body", "HTTP response body exceeded the size limit."],
+    ["throttle", "Your app has exceeded its compute units per second capacity."],
+    ["unknown", "something nobody has seen before"],
+  ] as const;
+
+  for (const [name, message] of REFUSALS) {
+    it(`fails fast on the ${name} phrasing, in one request`, async () => {
+      const rpc = rpcDouble({
+        logs: () => {
+          throw new Error(message);
+        },
+      });
+
+      await expect(
+        fetchLogsChecked(rpc, {
+          fromBlock: 1,
+          toBlock: 1_000,
+          addresses: [CORE],
+          suspectLogCount: 10_000,
+        }),
+      ).rejects.toThrow(/eth_getLogs failed for blocks 1\.\.1000/);
+      // No bisection: the range is ours to choose, so a refusal is a
+      // configuration problem to surface, not one to work around.
+      expect(rpc.calls).toHaveLength(1);
+    });
+  }
+
+  it("names the range and the knob, and keeps the original as the cause", async () => {
+    const original = new Error("Block range is too large");
+    const rpc = rpcDouble({
+      logs: () => {
+        throw original;
+      },
+    });
+
+    const failure = await fetchLogsChecked(rpc, {
+      fromBlock: 500,
+      toBlock: 1_499,
+      addresses: [CORE],
+      suspectLogCount: 10_000,
+    }).then(
+      () => null,
+      (error: unknown) => error as Error,
+    );
+    expect(failure).not.toBeNull();
+    if (!failure) return;
+
+    expect(failure.message).toContain("500..1499");
+    expect(failure.message).toContain("1000 blocks");
+    expect(failure.message).toContain("GET_LOGS_RANGE_SIZE");
+    // The provider's own words survive for diagnosis, they just do not steer.
+    expect(failure.message).toContain("Block range is too large");
+    expect((failure as { cause?: unknown }).cause).toBe(original);
+  });
+
+  it("survives a thrown non-object", async () => {
+    const rpc = rpcDouble({
+      logs: () => {
+        throw "a string, not an Error";
+      },
+    });
+
+    await expect(
+      fetchLogsChecked(rpc, {
+        fromBlock: 1,
+        toBlock: 10,
+        addresses: [CORE],
+        suspectLogCount: 10_000,
+      }),
+    ).rejects.toThrow(/a string, not an Error/);
+  });
+});
+
+describe("fetchLogsChecked at the suspect count", () => {
+  it("still splits a successful response sitting exactly on the cap", async () => {
+    // The one split that remains. It keys off a count we were handed rather
+    // than text a provider chose, so it cannot rot the way matching does.
+    const rpc = rpcDouble({
+      logs: (from, to) => (to - from >= 9 ? [log(), log()] : [log()]),
+    });
+
+    const logs = await fetchLogsChecked(rpc, {
+      fromBlock: 1,
+      toBlock: 10,
+      addresses: [CORE],
+      suspectLogCount: 2,
+    });
+    expect(logs).toHaveLength(2);
+    expect(rpc.calls.length).toBe(3);
+  });
+
+  it("believes a response that overshoots the cap", async () => {
+    // Only landing exactly on the cap is ambiguous. Going over proves no cap
+    // was applied, and inside Alchemy's block-range limit there is none at all.
+    const rpc = rpcDouble({ logs: () => [log(), log(), log()] });
+
+    const logs = await fetchLogsChecked(rpc, {
+      fromBlock: 5,
+      toBlock: 5,
+      addresses: [CORE],
+      suspectLogCount: 2,
+    });
+    expect(logs).toHaveLength(3);
+    expect(rpc.calls).toHaveLength(1);
+  });
+
+  it("refuses a single block sitting exactly on the cap", async () => {
+    const rpc = rpcDouble({ logs: () => [log(), log()] });
+
+    await expect(
+      fetchLogsChecked(rpc, {
+        fromBlock: 5,
+        toBlock: 5,
+        addresses: [CORE],
+        suspectLogCount: 2,
+      }),
+    ).rejects.toThrow(/cannot be distinguished from a truncated one/);
   });
 });
