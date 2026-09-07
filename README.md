@@ -144,6 +144,59 @@ Catalogs are refreshed hourly by default, controlled by `CHAINLINK_FEED_CATALOG_
 
 Chainlink jobs are disabled when the interval is zero/unset or the config is empty. Valid observations are stored under the `cl1` source using the feed round's `updatedAt` timestamp, and unchanged rounds are not inserted repeatedly. One failing feed does not prevent fresh observations from other configured feeds on that chain.
 
+## EVM stream
+
+The EVM entrypoint drives its own log-driven stream (`src/evm/logStream.ts`)
+rather than fetching a header per block. A poll is two requests whatever the
+chain's block time:
+
+1. `eth_getBlockByNumber("latest")`, which gives the head and a real block hash
+   for the cursor.
+2. `eth_getLogs` over everything since the last poll, which returns `blockHash`
+   and `blockTimestamp` on each log.
+
+Those two log fields are the only header data the runtime persists, so no
+per-block header read is needed. `base_fee_per_gas` is still written but is read
+by nothing, and rows for blocks with no events are removed within a day by
+`delete_old_empty_blocks`.
+
+Measured against the previous stream on Monad (0.3 s blocks), at the same two
+second cadence: 9.7 requests per poll became 2.1.
+
+### Correctness
+
+Missing an event is the failure that matters, because nothing errors and the gap
+surfaces later as a wrong number downstream. Three choices follow from that.
+
+- **Range queries, not subscriptions.** An `eth_getLogs` call answers for the
+  blocks it was asked about or it errors. A dropped WebSocket frame is
+  indistinguishable from silence, and no provider guarantees delivery.
+- **Silent truncation is refused.** A provider that caps results and returns
+  exactly the cap looks identical to one that found exactly that many.
+  `SUSPECT_LOG_COUNT` (default 10,000, Alchemy's documented limit) is the count
+  treated as suspect: the range is split and re-read rather than believed, and a
+  single block still landing on the cap throws.
+- **One endpoint per chain.** A comma-separated `EVM_RPC_URL` still parses, but
+  viem routes per request, so a fallback list lets two calls in one poll be
+  answered by backends with different views of the chain. One endpoint fails by
+  stopping, which is safe, because the cursor is durable.
+
+Reorgs are found by re-reading `REORG_WINDOW_BLOCKS` (default 64) at the head
+each poll and comparing it against what was emitted. A block that changed hash,
+lost its logs, or gained logs it did not have produces an `invalidate`. The
+window must be deeper than any reorg the chain can produce; a reorg touching no
+log of ours changes nothing we store and is not looked for.
+
+`scripts/verifyLogStream.ts` settles the question directly for a given chain and
+range, replaying it through the stream and diffing against a direct query:
+
+```
+bun scripts/verifyLogStream.ts https://mainnet.base.org base 600 100 \
+  0x4200000000000000000000000000000000000006
+```
+
+It exits non-zero on any mismatch.
+
 ## Database migrations
 
 - Local: `bun run migrate` or `bun scripts/migrate.ts` (both invoke `scripts/migrate.ts`).

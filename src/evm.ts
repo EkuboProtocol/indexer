@@ -1,7 +1,5 @@
 import { Block as EvmBlock } from "@apibara/evm";
-import { EvmRpcStream, rateLimitedHttp } from "@apibara/evm-rpc";
-import { createRpcClient } from "@apibara/protocol/rpc";
-import { createPublicClient, fallback } from "viem";
+import { createPublicClient, fallback, http } from "viem";
 import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
 import { parseCommonBlockHeader } from "./_shared/parseBlockHeader";
@@ -13,6 +11,7 @@ import {
 import { withNullBlockRetry } from "./_shared/nullBlockRetry";
 import { assertRpcChainIds } from "./_shared/rpcChainId";
 import { parseEvmRpcUrls } from "./_shared/streamEndpoints";
+import { createLogStream, type LogStreamFilter } from "./evm/logStream";
 import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
 import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
 import { parsePositionsProtocolFeeConfigs } from "./evm/positionsProtocolFeeConfig";
@@ -157,10 +156,11 @@ export async function createEvmEntrypoint(
       : []),
   ];
 
+  // The stream makes two requests per poll and never bursts, so viem's own
+  // transport is enough; the rate-limited one came with the apibara stream that
+  // fetched a header per block.
   const createTransportFromUrl = (url: string) =>
-    withNullBlockRetry(rateLimitedHttp(url, { rps: 100, retryCount: 0 }), {
-      url,
-    });
+    withNullBlockRetry(http(url, { retryCount: 2 }), { url });
 
   const evmRpcUrls = parseEvmRpcUrls(process.env.EVM_RPC_URL);
 
@@ -194,35 +194,43 @@ export async function createEvmEntrypoint(
     },
   );
 
-  const mergeGetLogsFilter = process.env.MERGE_GET_LOGS_FILTER;
+  const filters: LogStreamFilter[] = processors.map((processor, ix) => ({
+    id: ix + 1,
+    address: processor.address,
+    topics: processor.filter.topics,
+    strict: processor.filter.strict,
+  }));
+
+  const positiveInt = (name: string, fallbackValue: number): number => {
+    const raw = process.env[name];
+    if (raw === undefined || raw === "") return fallbackValue;
+    const parsed = Number(raw);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+      throw new Error(`${name} must be a positive integer, got ${raw}`);
+    }
+    return parsed;
+  };
 
   return {
     createStream(streamOptions: StreamOptions) {
-      return createRpcClient(
-        new EvmRpcStream(publicClient, {
-          headRefreshIntervalMs: 2000,
-          getLogsRangeSize: BigInt(
-            process.env.GET_LOGS_RANGE_SIZE ?? 1_000_000n,
+      return createLogStream({
+        rpc: publicClient,
+        filters,
+        startingCursor: streamOptions.startingCursor,
+        options: {
+          pollIntervalMs: positiveInt("POLL_INTERVAL_MS", 2_000),
+          maxLogRangeBlocks: positiveInt("GET_LOGS_RANGE_SIZE", 1_000),
+          // Deeper than any reorg the chain can produce. Raising it costs one
+          // wider eth_getLogs per poll; lowering it too far loses events.
+          reorgWindowBlocks: positiveInt("REORG_WINDOW_BLOCKS", 64),
+          // Alchemy's documented eth_getLogs result cap. A response landing
+          // exactly here is refused rather than indexed short.
+          suspectLogCount: positiveInt("SUSPECT_LOG_COUNT", 10_000),
+          heartbeatIntervalMs: Number(
+            streamOptions.heartbeatInterval.seconds * 1000n,
           ),
-          alwaysSendAcceptedHeaders: true,
-          mergeGetLogsFilter:
-            mergeGetLogsFilter &&
-            ["always", "accepted"].includes(mergeGetLogsFilter.toLowerCase())
-              ? (mergeGetLogsFilter as "always" | "accepted")
-              : false,
-        }),
-      ).streamData({
-        ...streamOptions,
-        filter: [
-          {
-            logs: processors.map((processor, ix) => ({
-              id: ix + 1,
-              address: processor.address,
-              topics: processor.filter.topics,
-              strict: processor.filter.strict,
-            })),
-          },
-        ],
+          onWarning: (message, detail) => logger.warn({ message, ...detail }),
+        },
       });
     },
     getPlannedEvents(block: EvmBlock) {
