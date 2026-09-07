@@ -291,16 +291,27 @@ export async function fetchLogsChecked(
 ): Promise<RawLog[]> {
   const { fromBlock, toBlock, addresses, suspectLogCount } = args;
 
-  const logs = (await rpc.request({
-    method: "eth_getLogs",
-    params: [
-      {
-        fromBlock: numberToHex(BigInt(fromBlock)),
-        toBlock: numberToHex(BigInt(toBlock)),
-        address: addresses,
-      },
-    ],
-  } as never)) as unknown as RawLog[];
+  let logs: RawLog[];
+  try {
+    logs = (await rpc.request({
+      method: "eth_getLogs",
+      params: [
+        {
+          fromBlock: numberToHex(BigInt(fromBlock)),
+          toBlock: numberToHex(BigInt(toBlock)),
+          address: addresses,
+        },
+      ],
+    } as never)) as unknown as RawLog[];
+  } catch (error) {
+    // The other half of the same problem. A provider at its limit either
+    // truncates silently (handled below) or refuses the range outright;
+    // Alchemy does the latter, so on Alchemy this is the branch that runs.
+    // Splitting is the only response that makes progress -- retrying the same
+    // span would just fail again, and the worker would restart into it forever.
+    if (fromBlock === toBlock) throw error;
+    return splitRange(rpc, args);
+  }
 
   if (logs.length < suspectLogCount) return logs;
 
@@ -310,6 +321,20 @@ export async function fetchLogsChecked(
     );
   }
 
+  return splitRange(rpc, args);
+}
+
+/** Halves a span and reads both sides. */
+async function splitRange(
+  rpc: RpcLike,
+  args: {
+    fromBlock: number;
+    toBlock: number;
+    addresses: Address[];
+    suspectLogCount: number;
+  },
+): Promise<RawLog[]> {
+  const { fromBlock, toBlock } = args;
   const middle = fromBlock + Math.floor((toBlock - fromBlock) / 2);
   const [left, right] = await Promise.all([
     fetchLogsChecked(rpc, { ...args, fromBlock, toBlock: middle }),
@@ -371,7 +396,18 @@ interface StreamState {
   emitted: Map<number, BlockDigest>;
   finalized: LatestBlock | null;
   lastFinalizedRefresh: number;
+  /** Highest finalized block already announced downstream, 0 before the first. */
+  finalizedEmitted: number;
   lastHeartbeat: number;
+  /**
+   * False until the first window has been read.
+   *
+   * `emitted` starts empty because nothing has been observed yet, not because
+   * the chain is empty, so the first read seeds it instead of diffing against
+   * it. Restart safety comes from the cursor hash check instead, which is both
+   * cheaper and stronger: a block hash commits to its whole ancestry.
+   */
+  seeded: boolean;
 }
 
 type Resolved = Required<Omit<LogStreamOptions, "onWarning">> &
@@ -385,10 +421,15 @@ function windowFor(
 ): { from: number; to: number } {
   const nearHead = head - state.cursorBlock <= opts.reorgWindowBlocks;
   const earliest = (state.finalized?.number ?? 0) + 1;
+  // Never start above the cursor. `earliest` is an optimisation -- a finalized
+  // block cannot reorg, so there is no point re-reading below it -- but on a
+  // chain that finalises in under a second it can overtake a cursor that fell a
+  // few blocks behind, and letting it raise `from` would skip those blocks
+  // silently.
   const start = nearHead
-    ? Math.max(
-        earliest,
-        Math.min(state.cursorBlock + 1, head - opts.reorgWindowBlocks),
+    ? Math.min(
+        state.cursorBlock + 1,
+        Math.max(earliest, head - opts.reorgWindowBlocks),
       )
     : state.cursorBlock + 1;
   const from = Math.max(1, start);
@@ -454,11 +495,20 @@ async function refreshFinalized(
     });
     return null;
   }
-  if (state.finalized && finalized.number === state.finalized.number) {
+  state.finalized = finalized;
+
+  // Never announce a finalized block ahead of the cursor. The runtime's own
+  // recovery path resets the cursor to the last finalized one, so a finalized
+  // cursor past ours would move it *forward* on the next unhandled error and
+  // skip every block in between. Holding it back only ever costs a re-index.
+  if (
+    finalized.number > state.cursorBlock ||
+    finalized.number <= state.finalizedEmitted
+  ) {
     return null;
   }
 
-  state.finalized = finalized;
+  state.finalizedEmitted = finalized.number;
   return {
     _tag: "finalize",
     finalize: {
@@ -551,6 +601,24 @@ function maybeRollback(
 }
 
 /**
+ * Adopts the first window read as the baseline rather than diffing against it.
+ *
+ * Only blocks at or below the cursor are taken; anything above is new and is
+ * recorded as it is emitted. Without this, a restart within the reorg window
+ * would find every log-bearing block in it "missing" from an empty map and roll
+ * the chain back on every deploy.
+ */
+function seedWindow(
+  state: StreamState,
+  digests: Map<number, BlockDigest>,
+): void {
+  for (const [blockNumber, digest] of digests) {
+    if (blockNumber <= state.cursorBlock) state.emitted.set(blockNumber, digest);
+  }
+  state.seeded = true;
+}
+
+/**
  * The trailing block that moves the cursor to the end of the span.
  *
  * Without it a quiet chain would re-read the same blocks forever, since the
@@ -559,9 +627,15 @@ function maybeRollback(
  */
 async function tailMessage(
   rpc: RpcLike,
+  state: StreamState,
   fresh: StreamBlock[],
   plan: { to: number; head: LatestBlock },
 ): Promise<StreamMessage | null> {
+  // Once caught up, the span ends where the cursor already is. Emitting it
+  // again would cost a write transaction per poll on every chain forever,
+  // moving nothing.
+  if (plan.to <= state.cursorBlock) return null;
+
   const last = fresh.at(-1);
   if (last && Number(last.header.blockNumber) >= plan.to) return null;
 
@@ -606,7 +680,9 @@ function initStream({
       emitted: new Map(),
       finalized: null,
       lastFinalizedRefresh: 0,
+      finalizedEmitted: 0,
       lastHeartbeat: Date.now(),
+      seeded: false,
     },
   };
 }
@@ -641,6 +717,44 @@ function finishTick(
 }
 
 /**
+ * Rolls back when the block the stored cursor names is no longer canonical.
+ *
+ * The stream this replaces checked this on every start, and the runtime's
+ * reorg-retry loop exists to catch its failure. A log diff cannot replace it: a
+ * reorg during downtime leaves nothing to disagree with, since the window is
+ * seeded from whatever the chain says now. One `eth_getBlockByNumber` at
+ * startup settles it for the whole ancestry, because a block hash commits to
+ * every block beneath it.
+ */
+async function checkStartingCursor(
+  rpc: RpcLike,
+  state: StreamState,
+  startingCursor: IndexerCursor,
+  opts: Resolved,
+): Promise<StreamMessage | null> {
+  const expected = startingCursor.uniqueKey;
+  if (typeof expected !== "string" || state.cursorBlock <= 0) return null;
+
+  const block = await fetchBlockByNumber(rpc, state.cursorBlock);
+  // An absent block is a pruned or lagging node answering, not a reorg. Reading
+  // forward from an unverified cursor is the safe failure: it re-reads.
+  if (!block) return null;
+
+  // The stored key round-trips through a numeric column, so leading zeroes are
+  // gone by the time it comes back. Compare the values, not the strings.
+  if (BigInt(block.hash) === BigInt(expected)) return null;
+
+  const target = Math.max(1, state.cursorBlock - opts.reorgWindowBlocks);
+  opts.onWarning?.("stored cursor is not canonical; rolling back", {
+    block: state.cursorBlock,
+    expected,
+    found: block.hash,
+    rollbackTo: target - 1,
+  });
+  return rollbackTo(state, target);
+}
+
+/**
  * Yields the same messages the previous stream did, so the runtime, the DAO and
  * every processor are untouched.
  */
@@ -652,6 +766,14 @@ export async function* createLogStream(
 
   const sleep = (ms: number) =>
     new Promise((resolve) => setTimeout(resolve, ms));
+
+  const notCanonical = await checkStartingCursor(
+    rpc,
+    state,
+    args.startingCursor,
+    opts,
+  );
+  if (notCanonical) yield notCanonical;
 
   while (true) {
     const now = Date.now();
@@ -675,10 +797,14 @@ export async function* createLogStream(
       opts,
     );
 
-    const rollback = maybeRollback(state, digests, plan, opts);
-    if (rollback) {
-      yield rollback;
-      continue;
+    if (state.seeded) {
+      const rollback = maybeRollback(state, digests, plan, opts);
+      if (rollback) {
+        yield rollback;
+        continue;
+      }
+    } else {
+      seedWindow(state, digests);
     }
 
     const fresh = blocks.filter(
@@ -687,7 +813,7 @@ export async function* createLogStream(
     await requireTimestamps(rpc, fresh);
     yield* emitFresh(state, fresh);
 
-    const tail = await tailMessage(rpc, fresh, plan);
+    const tail = await tailMessage(rpc, state, fresh, plan);
     if (tail) yield tail;
 
     finishTick(state, plan, opts);

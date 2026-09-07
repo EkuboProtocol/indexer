@@ -475,3 +475,304 @@ describe("digestBlocks", () => {
     });
   });
 });
+
+describe("createLogStream, once caught up", () => {
+  it("emits nothing further while the head stands still", async () => {
+    // Every data message costs the runtime a write transaction. A head that has
+    // not moved must not produce one, or thirteen workers churn the database
+    // every poll forever.
+    const rpc = rpcDouble({
+      blocks: (tag) =>
+        tag === "finalized"
+          ? { number: 90, hash: "0x90", timestamp: 1_700_000_000 }
+          : { number: 100, hash: "0x100", timestamp: 1_700_000_000 },
+      logs: () => [],
+    });
+
+    const messages = await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 100n },
+        options: {
+          pollIntervalMs: 1,
+          finalizedRefreshIntervalMs: 1_000_000,
+          heartbeatIntervalMs: 1_000_000,
+          reorgWindowBlocks: 32,
+        },
+      }),
+      4,
+      undefined,
+      300,
+    );
+
+    expect(messages.filter((m) => m._tag === "data")).toHaveLength(0);
+    // It kept polling rather than stalling.
+    expect(rpc.calls.filter((c) => c === "eth_getLogs").length).toBeGreaterThan(
+      2,
+    );
+  });
+
+  it("still emits the trailing block when the head has moved", async () => {
+    const rpc = rpcDouble({
+      blocks: (tag) =>
+        tag === "finalized"
+          ? { number: 90, hash: "0x90", timestamp: 1_700_000_000 }
+          : { number: 101, hash: "0x101", timestamp: 1_700_000_000 },
+      logs: () => [],
+    });
+
+    const messages = await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 100n },
+        options: {
+          pollIntervalMs: 1,
+          finalizedRefreshIntervalMs: 1_000_000,
+          heartbeatIntervalMs: 1_000_000,
+          reorgWindowBlocks: 32,
+        },
+      }),
+      3,
+      undefined,
+      300,
+    );
+
+    const data = messages.filter((m) => m._tag === "data");
+    expect(data).toHaveLength(1);
+    expect(data[0]!.data.endCursor.orderKey).toBe(101n);
+  });
+});
+
+describe("createLogStream finalized handling", () => {
+  it("holds back a finalized block that is ahead of the cursor", async () => {
+    // The runtime's recovery path resets the cursor to the last finalized one.
+    // Announcing a finalized block past ours would let that jump the cursor
+    // forward on the next unhandled error, skipping every block in between.
+    const rpc = rpcDouble({
+      blocks: (tag) =>
+        tag === "finalized"
+          ? { number: 150, hash: "0x150", timestamp: 1_700_000_000 }
+          : { number: 200, hash: "0x200", timestamp: 1_700_000_000 },
+      logs: () => [],
+    });
+
+    const messages = await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 100n },
+        options: {
+          pollIntervalMs: 1,
+          finalizedRefreshIntervalMs: 1,
+          heartbeatIntervalMs: 1_000_000,
+          reorgWindowBlocks: 32,
+        },
+      }),
+      4,
+      undefined,
+      400,
+    );
+
+    // Nothing was announced before the cursor reached 200.
+    expect(messages[0]!._tag).toBe("data");
+    const finalizes = messages.filter((m) => m._tag === "finalize");
+    expect(finalizes.length).toBeGreaterThan(0);
+    // And when it is announced it is still 150, never ahead of where we are.
+    for (const message of finalizes) {
+      if (message._tag !== "finalize") continue;
+      expect(message.finalize.cursor.orderKey).toBe(150n);
+    }
+  });
+
+  it("does not skip blocks when finality overtakes the cursor", async () => {
+    // On a sub-second-finality chain the finalized block can pass a cursor that
+    // fell a few blocks behind. Clamping the re-read to the finalized block
+    // would then start it above the cursor and drop 96..98 without a word.
+    const rpc = rpcDouble({
+      blocks: (tag) =>
+        tag === "finalized"
+          ? { number: 98, hash: "0x98", timestamp: 1_700_000_000 }
+          : { number: 100, hash: "0x100", timestamp: 1_700_000_000 },
+      logs: (from, to) =>
+        97 >= from && 97 <= to
+          ? [
+              log({
+                blockNumber: numberToHex(97n),
+                blockHash: "0x97",
+                blockTimestamp: numberToHex(1_700_000_000n),
+              }),
+            ]
+          : [],
+    });
+
+    const messages = await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 95n },
+        options: {
+          pollIntervalMs: 1,
+          finalizedRefreshIntervalMs: 1_000_000,
+          heartbeatIntervalMs: 1_000_000,
+          reorgWindowBlocks: 64,
+        },
+      }),
+      3,
+      (out) => out.some((m) => m._tag === "data"),
+      400,
+    );
+
+    const blocks = messages.flatMap((m) =>
+      m._tag === "data" ? m.data.data.map((b) => b.header.blockNumber) : [],
+    );
+    expect(blocks).toContain(97n);
+  });
+});
+
+describe("createLogStream on restart", () => {
+  const canonical = `0x${"7f".repeat(32)}` as Hex;
+
+  const restartRpc = (cursorHash: string) =>
+    rpcDouble({
+      blocks: (tag) => {
+        if (tag === "finalized")
+          return { number: 50, hash: "0x50", timestamp: 1_700_000_000 };
+        if (tag === "latest")
+          return { number: 110, hash: "0x110", timestamp: 1_700_000_000 };
+        // A numbered read: only the cursor block is ever asked for by number.
+        return { number: 100, hash: cursorHash, timestamp: 1_700_000_000 };
+      },
+      logs: (from, to) =>
+        [98, 99]
+          .filter((n) => n >= from && n <= to)
+          .map((n) =>
+            log({
+              blockNumber: numberToHex(BigInt(n)),
+              blockHash: `0x${n}` as Hex,
+              blockTimestamp: numberToHex(1_700_000_000n),
+            }),
+          ),
+    });
+
+  const run = (rpc: RpcLike, warnings: string[]) =>
+    take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 100n, uniqueKey: canonical },
+        options: {
+          pollIntervalMs: 1,
+          finalizedRefreshIntervalMs: 1_000_000,
+          heartbeatIntervalMs: 1_000_000,
+          reorgWindowBlocks: 20,
+          onWarning: (m) => warnings.push(m),
+        },
+      }),
+      3,
+      (out) => out.some((m) => m._tag === "data"),
+      400,
+    );
+
+  it("rolls back when the stored cursor is no longer canonical", async () => {
+    const warnings: string[] = [];
+    const messages = await run(restartRpc(`0x${"11".repeat(32)}`), warnings);
+
+    const first = messages[0]!;
+    expect(first._tag).toBe("invalidate");
+    // Back to cursor minus the reorg window, so the window is re-read.
+    if (first._tag === "invalidate") {
+      expect(first.invalidate.cursor.orderKey).toBe(79n);
+    }
+    expect(warnings[0]).toMatch(/not canonical/);
+  });
+
+  it("does not roll back when the stored cursor still matches", async () => {
+    // The first window read is a baseline, not a disagreement. Diffing against
+    // an empty map would invalidate on every deploy.
+    const warnings: string[] = [];
+    const messages = await run(restartRpc(canonical), warnings);
+
+    expect(messages.filter((m) => m._tag === "invalidate")).toHaveLength(0);
+    expect(warnings).toHaveLength(0);
+  });
+
+  it("compares cursor hashes by value, since the column drops leading zeroes", async () => {
+    const stored = "0x0f" as Hex;
+    const rpc = rpcDouble({
+      blocks: (tag) => {
+        if (tag === "finalized")
+          return { number: 50, hash: "0x50", timestamp: 1_700_000_000 };
+        if (tag === "latest")
+          return { number: 110, hash: "0x110", timestamp: 1_700_000_000 };
+        return { number: 100, hash: `0x${"0".repeat(63)}f`, timestamp: 1 };
+      },
+      logs: () => [],
+    });
+
+    const warnings: string[] = [];
+    const messages = await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 100n, uniqueKey: stored },
+        options: {
+          pollIntervalMs: 1,
+          finalizedRefreshIntervalMs: 1_000_000,
+          heartbeatIntervalMs: 1_000_000,
+          reorgWindowBlocks: 20,
+          onWarning: (m) => warnings.push(m),
+        },
+      }),
+      2,
+      (out) => out.some((m) => m._tag === "data"),
+      400,
+    );
+
+    expect(messages.filter((m) => m._tag === "invalidate")).toHaveLength(0);
+    expect(warnings).toHaveLength(0);
+  });
+});
+
+describe("fetchLogsChecked when the provider refuses a range", () => {
+  it("splits on an error rather than restarting into the same span", async () => {
+    // Alchemy errors at its log cap instead of truncating, so this is the
+    // branch that actually runs in production.
+    const rpc = rpcDouble({
+      logs: (from, to) => {
+        if (to - from >= 5) {
+          throw new Error("query returned more than 10000 results");
+        }
+        return [log({ blockNumber: numberToHex(BigInt(from)) })];
+      },
+    });
+
+    const logs = await fetchLogsChecked(rpc, {
+      fromBlock: 1,
+      toBlock: 10,
+      addresses: [CORE],
+      suspectLogCount: 10_000,
+    });
+
+    expect(logs).toHaveLength(2);
+    expect(rpc.calls.length).toBeGreaterThan(1);
+  });
+
+  it("gives up on a single block, since there is nothing left to split", async () => {
+    const rpc = rpcDouble({
+      logs: () => {
+        throw new Error("query returned more than 10000 results");
+      },
+    });
+
+    await expect(
+      fetchLogsChecked(rpc, {
+        fromBlock: 7,
+        toBlock: 7,
+        addresses: [CORE],
+        suspectLogCount: 10_000,
+      }),
+    ).rejects.toThrow(/more than 10000 results/);
+  });
+});

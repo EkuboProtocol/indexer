@@ -181,11 +181,48 @@ surfaces later as a wrong number downstream. Three choices follow from that.
   answered by backends with different views of the chain. One endpoint fails by
   stopping, which is safe, because the cursor is durable.
 
+- **A refused range is split, not retried.** The other half of the truncation
+  problem: a provider at its limit either truncates silently or rejects the
+  range outright. Alchemy does the latter, so on Alchemy that is the branch that
+  runs. Re-issuing the same span would fail identically and restart the worker
+  into it forever, so the span is halved instead, and only a single block that
+  still fails throws.
+
 Reorgs are found by re-reading `REORG_WINDOW_BLOCKS` (default 64) at the head
 each poll and comparing it against what was emitted. A block that changed hash,
 lost its logs, or gained logs it did not have produces an `invalidate`. The
 window must be deeper than any reorg the chain can produce; a reorg touching no
 log of ours changes nothing we store and is not looked for.
+
+### On restart
+
+A log diff cannot tell a restart apart from a reorg: the window is seeded from
+whatever the chain says now, so there is nothing to disagree with. So the stored
+cursor is checked directly, once, with a single `eth_getBlockByNumber`. If its
+hash no longer matches, the stream invalidates back a full reorg window before
+reading anything. A block hash commits to its entire ancestry, so that one
+comparison settles every block beneath it — this is strictly stronger than the
+diff it replaces, and it is what preserves the guarantee the previous stream's
+`initializeStartingCursor` provided.
+
+Two related rules keep a restart from doing damage of its own:
+
+- The first window read is adopted as the baseline rather than diffed against,
+  so a deploy does not roll the chain back on every start.
+- A finalized block ahead of the cursor is held back rather than announced. The
+  runtime's recovery path resets the cursor to the last finalized one, so
+  announcing a finalized block past ours would let a later error move the cursor
+  *forward* and skip everything in between. Holding it back only ever costs a
+  re-index.
+
+For the same reason the re-read never begins above the cursor. On a chain that
+finalises in well under a second, finality can overtake a cursor that has fallen
+a few blocks behind, and clamping the read to the finalized block would drop the
+blocks in between without an error.
+
+Once caught up, a head that has not moved emits nothing. Each data message costs
+the runtime a write transaction, so re-announcing the same head every poll would
+churn the database on all thirteen workers indefinitely.
 
 `scripts/verifyLogStream.ts` settles the question directly for a given chain and
 range, replaying it through the stream and diffing against a direct query:
