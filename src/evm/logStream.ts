@@ -519,6 +519,8 @@ interface StreamState {
   blockRate: number | null;
   /** The older end of the interval `blockRate` is measured over. */
   rateSample: { number: number; timeSec: number } | null;
+  /** Effective window last warned about, so the cap is reported once. */
+  warnedCapSeconds: number | null;
   /**
    * False until the first window has been read.
    *
@@ -570,7 +572,26 @@ export function observeBlockRate(state: StreamState, head: LatestBlock): void {
     return;
   }
 
-  if (elapsed < MIN_RATE_SAMPLE_SECONDS) return;
+  if (elapsed < MIN_RATE_SAMPLE_SECONDS) {
+    // A partial baseline is too short to measure the rate, but it can still
+    // *witness* a chain going faster than the stored rate says -- and adopting
+    // that early is free while waiting is not. Everything the rate sizes is
+    // safe wide and unsafe narrow: the window re-reads more blocks (one
+    // `eth_getLogs` either way) and the backoff sleeps less. So a rise is taken
+    // on the spot and only a fall waits for a full baseline.
+    //
+    // Without this the stream keeps a stale, lower rate for up to
+    // MIN_RATE_SAMPLE_SECONDS after a chain speeds up -- a sequencer catching
+    // up after downtime is the realistic case -- and blocks emitted in that
+    // window can land further below the cursor than the window reaches.
+    if (elapsed > 0) {
+      const witnessed = advanced / elapsed;
+      if (state.blockRate === null || witnessed > state.blockRate) {
+        state.blockRate = witnessed;
+      }
+    }
+    return;
+  }
 
   state.blockRate = advanced / elapsed;
   state.rateSample = { number: head.number, timeSec };
@@ -592,34 +613,68 @@ export function observeBlockRate(state: StreamState, head: LatestBlock): void {
  * narrow silently loses events, so the unmeasured case takes the widest window
  * on offer and narrows as the chain is observed.
  */
+/**
+ * The widest window `reorgWindowBlocksFor` can ever return for this span.
+ *
+ * Half the span, which is what guarantees the other half is forward progress.
+ * Load-bearing beyond sizing a read: it is also how far back `emitted` has to
+ * be retained, since a window that grows must not scan blocks the last tick
+ * forgot.
+ */
+export function maxReorgWindowBlocks(
+  opts: Pick<Resolved, "maxLogRangeBlocks">,
+): number {
+  return Math.max(1, Math.floor(opts.maxLogRangeBlocks / 2));
+}
+
 export function reorgWindowBlocksFor(
   state: Pick<StreamState, "blockRate">,
-  opts: Pick<
-    Resolved,
-    "reorgWindowSeconds" | "maxLogRangeBlocks" | "onWarning"
-  >,
+  opts: Pick<Resolved, "reorgWindowSeconds" | "maxLogRangeBlocks">,
 ): number {
-  const cap = Math.max(1, Math.floor(opts.maxLogRangeBlocks / 2));
+  const cap = maxReorgWindowBlocks(opts);
   if (state.blockRate === null) return cap;
-
-  const wanted = Math.max(
-    1,
-    Math.ceil(state.blockRate * opts.reorgWindowSeconds),
+  return Math.min(
+    cap,
+    Math.max(1, Math.ceil(state.blockRate * opts.reorgWindowSeconds)),
   );
-  if (wanted > cap) {
-    // Not an error -- the stream is still correct, just protected for less
-    // history than asked for. Worth saying out loud because the remedy is one
-    // env var: GET_LOGS_RANGE_SIZE bounds this, and raising it is free until
-    // the provider's own range limit.
-    opts.onWarning?.("reorg window capped by the log range size", {
-      wantedBlocks: wanted,
-      cappedToBlocks: cap,
-      effectiveSeconds: Math.round(cap / state.blockRate),
-      reorgWindowSeconds: opts.reorgWindowSeconds,
-      maxLogRangeBlocks: opts.maxLogRangeBlocks,
-    });
-  }
-  return Math.min(cap, wanted);
+}
+
+/**
+ * Says once, not every poll, that the span is holding the window narrower than
+ * `reorgWindowSeconds` asked for.
+ *
+ * Deliberately separate from `reorgWindowBlocksFor`, which several call sites
+ * hit more than once per tick -- `windowFor`, `finishTick`, `pollIntervalFor`
+ * and the finalized refresh all size themselves from it. A warning in there is
+ * four identical lines per poll forever on any chain where the cap binds, which
+ * is how a real signal becomes noise nobody reads.
+ *
+ * Not an error: the stream is still correct, just protected for less history
+ * than requested. Worth saying at all because the remedy is one env var --
+ * GET_LOGS_RANGE_SIZE bounds it, and raising it is free up to the provider's
+ * own range limit.
+ */
+function warnIfWindowCapped(state: StreamState, opts: Resolved): void {
+  const rate = state.blockRate;
+  if (rate === null) return;
+
+  const cap = maxReorgWindowBlocks(opts);
+  const wanted = Math.max(1, Math.ceil(rate * opts.reorgWindowSeconds));
+  if (wanted <= cap) return;
+
+  // Re-warn only when the shortfall actually changes, so a chain whose rate
+  // drifts says so again while a steady one says it once.
+  const effectiveSeconds = Math.round(cap / rate);
+  if (state.warnedCapSeconds === effectiveSeconds) return;
+  state.warnedCapSeconds = effectiveSeconds;
+
+  opts.onWarning?.("reorg window capped by the log range size", {
+    wantedBlocks: wanted,
+    cappedToBlocks: cap,
+    effectiveSeconds,
+    reorgWindowSeconds: opts.reorgWindowSeconds,
+    maxLogRangeBlocks: opts.maxLogRangeBlocks,
+  });
 }
 
 /** The span to re-read: back into the reorg window, or forward when behind it. */
@@ -956,6 +1011,7 @@ async function planRead(
   if (!head) return null;
   // Before `windowFor`, which sizes itself from the rate this updates.
   observeBlockRate(state, head);
+  warnIfWindowCapped(state, opts);
   const { from, to } = windowFor(state, head.number, opts);
   return from > to ? null : { from, to, head };
 }
@@ -1102,6 +1158,7 @@ function initStream({
       quietPolls: 0,
       blockRate: null,
       rateSample: null,
+      warnedCapSeconds: null,
       seeded: false,
     },
   };
@@ -1163,9 +1220,26 @@ function finishTick(
   state.cursorBlock = Math.max(state.cursorBlock, plan.to);
   state.lastHeadHash = plan.head.hash;
   const earliest = (state.finalized?.number ?? 0) + 1;
+  // Retain to the widest window any later tick could scan, not to this tick's.
+  //
+  // The window is measured, so it grows when the chain speeds up. Forgetting to
+  // the current width means the next tick -- whose `windowFor` may have just
+  // re-measured wider -- scans blocks that were dropped from `emitted` a moment
+  // ago. `firstDivergentBlock` cannot tell "I forgot this" from "this block is
+  // new below my cursor": it sees `before === undefined, after !== undefined`
+  // and reports a reorg. `rollbackTo` then clears every remaining entry, so the
+  // next tick diffs against an empty map and rolls back again, walking the
+  // cursor backwards a window at a time until `earliest` floors it. Measured on
+  // a chain whose hashes were pure functions of block number, so nothing ever
+  // reorged: 34 invalidates, ~30 blocks each. Ethereum at 640 s is squarely in
+  // range -- one missed slot inside a sample swings the window by ~18 blocks.
+  //
+  // `reorgWindowBlocksFor` is bounded by half the span, so that bound is the
+  // widest scan possible and retaining to it is sufficient. `emitted` holds
+  // only log-bearing blocks, so the extra entries cost nothing.
   forgetBelow(
     state,
-    Math.max(earliest, state.cursorBlock - reorgWindowBlocksFor(state, opts)),
+    Math.max(earliest, state.cursorBlock - maxReorgWindowBlocks(opts)),
   );
 }
 
@@ -1224,6 +1298,28 @@ async function checkStartingCursor(
       return null;
     },
   );
+  // Seed the rate from the two blocks already in hand, at no extra cost.
+  //
+  // This runs before the loop, so without it `state.blockRate` is null here and
+  // the window is the half-span cap -- 500 blocks by default and 2500 on
+  // Arbitrum and Robinhood, against the 64 this used to rewind. `finalized + 1`
+  // floors it, so that only bites on a node that cannot serve the finalized tag
+  // (which this function already tolerates), but there it means deleting and
+  // reprocessing thousands of blocks on a cursor that moved by one.
+  //
+  // The cursor block and the finalized block are separated by the chain's
+  // finality lag, which is a far longer baseline than the loop's 30 s sample
+  // ever gets.
+  if (finalized) {
+    const elapsedSec = Math.floor(
+      (block.timestamp.getTime() - finalized.timestamp.getTime()) / 1000,
+    );
+    const advanced = block.number - finalized.number;
+    if (elapsedSec >= MIN_RATE_SAMPLE_SECONDS && advanced > 0) {
+      state.blockRate = advanced / elapsedSec;
+    }
+  }
+
   const floor = finalized ? finalized.number + 1 : 1;
   // Never past the cursor itself: if even the finalized block disagrees, the
   // least we can do is re-read the block we are standing on rather than skip it.

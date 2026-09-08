@@ -969,7 +969,9 @@ describe("createLogStream configuration", () => {
     }
   });
 
-  it("accepts a span wider than the window", async () => {
+  it("accepts the tightest span that can still make progress", async () => {
+    // Two blocks: one re-read, one new. The window is capped at half the span,
+    // so this is the narrowest configuration that is not degenerate.
     const rpc = rpcDouble({
       blocks: () => ({ number: 100, hash: "0x100", timestamp: 1_700_000_000 }),
       logs: () => [],
@@ -980,9 +982,7 @@ describe("createLogStream configuration", () => {
       filters: [filter()],
       startingCursor: { orderKey: 100n },
       options: {
-        maxLogRangeBlocks: 65,
-        // A window of 64: it is capped at half the span.
-        maxLogRangeBlocks: 128,
+        maxLogRangeBlocks: 2,
         pollIntervalMs: 1,
         heartbeatIntervalMs: 1,
       },
@@ -1494,13 +1494,32 @@ describe("observeBlockRate", () => {
   });
   const fresh = () => ({ blockRate: null, rateSample: null }) as never;
 
-  it("does not guess from a baseline shorter than the sample window", () => {
+  it("does not let a short baseline talk the rate down", () => {
     // Block timestamps have one-second resolution and Robinhood fits eleven
     // blocks inside one, so a short baseline measures rounding, not the chain.
+    // Everything the rate sizes is safe wide and unsafe narrow, so a partial
+    // baseline may raise it but must never lower it.
     const state = fresh() as { blockRate: number | null; rateSample: unknown };
     observeBlockRate(state as never, head(1_000, 1_700_000_000));
-    observeBlockRate(state as never, head(1_100, 1_700_000_010));
-    expect(state.blockRate).toBeNull();
+    observeBlockRate(state as never, head(1_330, 1_700_000_030));
+    expect(state.blockRate).toBeCloseTo(11, 5);
+
+    // A quiet second that would imply 1 block/s leaves the rate alone.
+    observeBlockRate(state as never, head(1_331, 1_700_000_031));
+    expect(state.blockRate).toBeCloseTo(11, 5);
+  });
+
+  it("adopts a rate increase without waiting for a full baseline", () => {
+    // A sequencer catching up after downtime. Waiting the full sample would
+    // leave the window sized for the old, slower chain while blocks pile up
+    // past the end of it.
+    const state = fresh() as { blockRate: number | null; rateSample: unknown };
+    observeBlockRate(state as never, head(1_000, 1_700_000_000));
+    observeBlockRate(state as never, head(1_030, 1_700_000_030));
+    expect(state.blockRate).toBeCloseTo(1, 5);
+
+    observeBlockRate(state as never, head(1_530, 1_700_000_035));
+    expect(state.blockRate).toBeCloseTo(100, 5);
   });
 
   it("measures the rate once the baseline is long enough", () => {
@@ -1524,24 +1543,94 @@ describe("observeBlockRate", () => {
 describe("reorgWindowBlocksFor", () => {
   const opts = { reorgWindowSeconds: 120, maxLogRangeBlocks: 1_000 };
 
-  it("warns when the span forces a narrower window than asked for", () => {
+  it("reports a capped window once, not on every poll", async () => {
+    // The warning deliberately does not live in `reorgWindowBlocksFor`: four
+    // call sites size themselves from it per tick, so a warning in there is
+    // four identical lines a poll forever.
     const warnings: { message: string; detail: Record<string, unknown> }[] = [];
-    reorgWindowBlocksFor(
-      { blockRate: 11 },
-      { ...opts, onWarning: (message, detail) => warnings.push({ message, detail }) },
+    let poll = 0;
+    const rpc = rpcDouble({
+      blocks: (tag) => {
+        if (tag === "finalized") {
+          return { number: 900, hash: "0x900", timestamp: 1_700_000_000 };
+        }
+        // 11 blocks a second, sampled over a full baseline.
+        const step = poll++;
+        return {
+          number: 1_000 + step * 330,
+          hash: `0x${step}`,
+          timestamp: 1_700_000_000 + step * 30,
+        };
+      },
+      logs: () => [],
+    });
+
+    await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 1_000n },
+        options: {
+          pollIntervalMs: 1,
+          maxPollIntervalMs: 1,
+          reorgWindowSeconds: 120,
+          maxLogRangeBlocks: 1_000,
+          finalizedRefreshIntervalMs: 1_000_000,
+          onWarning: (message, detail) => warnings.push({ message, detail }),
+        },
+      }),
+      20,
+      undefined,
+      400,
     );
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]!.message).toMatch(/capped by the log range size/);
-    expect(warnings[0]!.detail.effectiveSeconds).toBe(45);
+
+    const capped = warnings.filter((w) =>
+      /capped by the log range size/.test(w.message),
+    );
+    // 11 blocks/s wants 1320 against a 500 cap, so it is capped -- and said once.
+    expect(capped).toHaveLength(1);
+    expect(capped[0]!.detail.cappedToBlocks).toBe(500);
+    expect(capped[0]!.detail.effectiveSeconds).toBe(45);
   });
 
-  it("says nothing when the window fits", () => {
+  it("says nothing when the window fits inside the span", async () => {
     const warnings: string[] = [];
-    reorgWindowBlocksFor(
-      { blockRate: 0.1 },
-      { ...opts, onWarning: (m) => warnings.push(m) },
+    let poll = 0;
+    const rpc = rpcDouble({
+      blocks: (tag) => {
+        if (tag === "finalized") {
+          return { number: 900, hash: "0x900", timestamp: 1_700_000_000 };
+        }
+        const step = poll++;
+        return {
+          number: 1_000 + step * 3,
+          hash: `0x${step}`,
+          timestamp: 1_700_000_000 + step * 30,
+        };
+      },
+      logs: () => [],
+    });
+
+    await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 1_000n },
+        options: {
+          pollIntervalMs: 1,
+          maxPollIntervalMs: 1,
+          reorgWindowSeconds: 120,
+          maxLogRangeBlocks: 1_000,
+          finalizedRefreshIntervalMs: 1_000_000,
+          onWarning: (m) => warnings.push(m),
+        },
+      }),
+      20,
+      undefined,
+      400,
     );
-    expect(warnings).toEqual([]);
+
+    expect(warnings.filter((w) => /capped/.test(w))).toEqual([]);
   });
 
   it("means the same amount of history on chains 100x apart in block time", () => {
@@ -1701,24 +1790,22 @@ describe("poll backoff on a quiet chain", () => {
     return rpc.calls.filter((c) => c === "eth_getLogs").length;
   }
 
-  it("makes far fewer requests than a fixed interval would", async () => {
+  it("settles at the ceiling instead of the floor", async () => {
     const backedOff = await pollsInWindow({
       pollIntervalMs: 2,
       maxPollIntervalMs: 200,
       quietPollsBeforeBackoff: 2,
     });
-    const fixed = await pollsInWindow({
-      pollIntervalMs: 2,
-      maxPollIntervalMs: 2, // backoff disabled
-      quietPollsBeforeBackoff: 2,
-    });
 
-    // Over the same window the backed-off stream should settle at the 200ms
-    // ceiling (a handful of polls) while the fixed one keeps hammering. The
-    // assertion is deliberately loose -- this is a timing test -- but the two
-    // differ by more than an order of magnitude in practice.
-    expect(backedOff).toBeLessThan(fixed / 5);
+    // Asserted as an absolute ceiling rather than a ratio against a second run.
+    // A ratio needs the un-backed-off arm to stay fast, and a contended CI
+    // runner slows that arm toward this one and fails a test about backoff for
+    // reasons that have nothing to do with backoff. Contention can only make
+    // this number smaller, which is the safe direction: 400ms at a 200ms
+    // ceiling is 2-3 polls plus the few at the floor before it ramps, against
+    // ~200 with backoff off.
     expect(backedOff).toBeGreaterThan(0);
+    expect(backedOff).toBeLessThanOrEqual(12);
   });
 
   it("keeps polling at the floor while the chain keeps producing events", async () => {
@@ -1758,11 +1845,80 @@ describe("poll backoff on a quiet chain", () => {
     })();
     await new Promise((r) => setTimeout(r, 300));
 
-    // At a 2ms floor over 300ms this is dozens of reads; at the 200ms ceiling
-    // it would be one or two. Anything comfortably above the ceiling's rate
-    // proves the interval never grew.
+    // At a 2ms floor over 300ms this is ~150 reads; at the 200ms ceiling it
+    // would be one or two. The threshold is set far below the expected count
+    // and far above the ceiling's, so only an interval that actually grew can
+    // fail it -- not a slow runner.
     expect(rpc.calls.filter((c) => c === "eth_getLogs").length).toBeGreaterThan(
-      20,
+      10,
     );
+  });
+});
+
+describe("a measured window that changes width", () => {
+  it("does not invent a reorg when the window grows", async () => {
+    // The window is measured, so it widens when the chain speeds up. If
+    // `emitted` were pruned to the window in force when a tick ended, the next
+    // tick's wider scan would cover blocks it had just forgotten, and
+    // `firstDivergentBlock` cannot tell "I forgot this" from "this is new below
+    // my cursor" -- it reports a reorg, `rollbackTo` clears the rest of the
+    // map, and the next tick does it again, walking the cursor backwards.
+    //
+    // Nothing in this chain ever reorgs: every hash is a pure function of its
+    // block number. Any invalidate is therefore fabricated.
+    let poll = 0;
+    // Slow, slower, then slow again -- the middle patch shrinks the measured
+    // rate and the recovery grows it back, which is the transition that bit.
+    const heads = [
+      { n: 1_000, t: 1_700_000_000 },
+      { n: 1_003, t: 1_700_000_036 },
+      { n: 1_004, t: 1_700_000_072 },
+      { n: 1_007, t: 1_700_000_108 },
+      { n: 1_010, t: 1_700_000_144 },
+      { n: 1_013, t: 1_700_000_180 },
+    ];
+    const rpc = rpcDouble({
+      blocks: (tag) => {
+        if (tag === "finalized") {
+          return { number: 800, hash: "0x800", timestamp: 1_700_000_000 };
+        }
+        const h = heads[Math.min(poll++, heads.length - 1)]!;
+        return { number: h.n, hash: `0x${h.n}`, timestamp: h.t };
+      },
+      // Every block carries a log, and its hash depends only on its number.
+      logs: (from, to) => {
+        const out: RawLog[] = [];
+        for (let n = from; n <= to; n++) {
+          out.push(
+            log({
+              blockNumber: numberToHex(BigInt(n)),
+              blockHash: `0x${n}` as Hex,
+              blockTimestamp: numberToHex(BigInt(1_700_000_000 + n)),
+            }),
+          );
+        }
+        return out;
+      },
+    });
+
+    const messages = await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 1_000n },
+        options: {
+          pollIntervalMs: 1,
+          maxPollIntervalMs: 1,
+          reorgWindowSeconds: 360,
+          maxLogRangeBlocks: 200,
+          finalizedRefreshIntervalMs: 1_000_000,
+        },
+      }),
+      40,
+      undefined,
+      600,
+    );
+
+    expect(messages.filter((m) => m._tag === "invalidate")).toEqual([]);
   });
 });

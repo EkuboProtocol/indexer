@@ -223,8 +223,15 @@ export async function createEvmEntrypoint(
           // Most chains we index have produced fewer than sixty events in
           // their entire indexed history, and a poll costs the same eighty
           // compute units whether it finds one or none. Backing off on a chain
-          // that is doing nothing is what makes indexing all of them cheap;
-          // one that is doing something never leaves POLL_INTERVAL_MS.
+          // that is doing nothing is what makes indexing all of them cheap.
+          //
+          // The cost is latency on a chain that goes quiet for longer than
+          // POLL_INTERVAL_MS * QUIET_POLLS_BEFORE_BACKOFF -- 60s -- which is
+          // not only the dead chains: Ethereum in a lull reaches the ceiling
+          // too. Then an event takes up to MAX_POLL_INTERVAL_MS to be indexed
+          // and indexer_cursor.head_base_fee_per_gas, which quoter-service
+          // reads to price gas, is that stale. Set MAX_POLL_INTERVAL_MS equal
+          // to POLL_INTERVAL_MS on a chain where that is not acceptable.
           maxPollIntervalMs: positiveInt("MAX_POLL_INTERVAL_MS", 30_000),
           quietPollsBeforeBackoff: positiveInt(
             "QUIET_POLLS_BEFORE_BACKOFF",
