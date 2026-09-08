@@ -1509,6 +1509,17 @@ describe("observeBlockRate", () => {
     expect(state.blockRate).toBeCloseTo(11, 5);
   });
 
+  it("never adopts a rate of zero from a tip replaced in place", () => {
+    // A null rate makes the rise-only comparison adopt anything, so a head that
+    // keeps its number but gains a later timestamp would store zero -- and a
+    // zero rate sizes the reorg window down to one block.
+    const state = fresh() as { blockRate: number | null; rateSample: unknown };
+    observeBlockRate(state as never, head(1_000, 1_700_000_000));
+    observeBlockRate(state as never, head(1_000, 1_700_000_005));
+    expect(state.blockRate).not.toBe(0);
+    expect(state.blockRate).toBeNull();
+  });
+
   it("adopts a rate increase without waiting for a full baseline", () => {
     // A sequencer catching up after downtime. Waiting the full sample would
     // leave the window sized for the old, slower chain while blocks pile up

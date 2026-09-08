@@ -584,7 +584,11 @@ export function observeBlockRate(state: StreamState, head: LatestBlock): void {
     // MIN_RATE_SAMPLE_SECONDS after a chain speeds up -- a sequencer catching
     // up after downtime is the realistic case -- and blocks emitted in that
     // window can land further below the cursor than the window reaches.
-    if (elapsed > 0) {
+    // `advanced > 0` matters: a null rate makes the comparison below adopt
+    // anything, so a tip replaced at the same height by a block with a later
+    // timestamp would store a rate of zero and collapse the window to a single
+    // block. This branch only ever wants to raise the rate; zero is not a rise.
+    if (elapsed > 0 && advanced > 0) {
       const witnessed = advanced / elapsed;
       if (state.blockRate === null || witnessed > state.blockRate) {
         state.blockRate = witnessed;

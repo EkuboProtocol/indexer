@@ -507,20 +507,78 @@ export async function fetchChainlinkTokenPricesWithMulticall(
   return prices;
 }
 
+/**
+ * Verified clients, keyed by the chain and the endpoints they talk to.
+ *
+ * Both halves of this are worth keeping across calls. Building the client
+ * allocates a fresh transport, and the `eth_chainId` that verifies it is a
+ * request: this function runs once a minute per configured chain, so re-doing
+ * both meant four `eth_chainId` calls a minute answering a question whose
+ * answer cannot change -- a chain ID is a property of the endpoint, and the
+ * endpoint comes from configuration that is fixed for the life of the process.
+ *
+ * The check itself is worth keeping. It is the only thing standing between an
+ * RPC URL pointed at the wrong chain and a table of confidently wrong prices.
+ * Once is enough.
+ */
+const verifiedClients = new Map<
+  string,
+  Promise<ChainlinkReader & ChainlinkMulticallReader>
+>();
+
+function createChainlinkClient(
+  rpcUrls: readonly string[],
+): ChainlinkReader & ChainlinkMulticallReader {
+  return createPublicClient({
+    transport: fallback(rpcUrls.map((rpcUrl) => http(rpcUrl))),
+  }) as unknown as ChainlinkReader & ChainlinkMulticallReader;
+}
+
+export async function verifiedClient(
+  chainId: string,
+  rpcUrls: readonly string[],
+  create: (
+    urls: readonly string[],
+  ) => ChainlinkReader & ChainlinkMulticallReader = createChainlinkClient,
+): Promise<ChainlinkReader & ChainlinkMulticallReader> {
+  const key = `${chainId}\u0000${rpcUrls.join(",")}`;
+
+  const cached = verifiedClients.get(key);
+  if (cached) return cached;
+
+  const pending = (async () => {
+    const client = create(rpcUrls);
+
+    const rpcChainId = await client.getChainId();
+    if (BigInt(rpcChainId) !== BigInt(chainId)) {
+      throw new Error(
+        `Chainlink RPC for chain ${chainId} returned chain ID ${rpcChainId}`,
+      );
+    }
+    return client;
+  })();
+
+  // Cache the attempt so concurrent callers share one `eth_chainId`, but drop
+  // it again if it fails. A misconfigured URL will fail identically next minute;
+  // a network blip during the first check should not disable the chain for the
+  // life of the process.
+  verifiedClients.set(key, pending);
+  pending.catch(() => {
+    if (verifiedClients.get(key) === pending) verifiedClients.delete(key);
+  });
+
+  return pending;
+}
+
+/** Test seam: forget every verified client. */
+export function resetVerifiedChainlinkClients(): void {
+  verifiedClients.clear();
+}
+
 export async function fetchChainlinkTokenPrices(
   chainId: string,
   config: ChainlinkChainConfig,
 ): Promise<Record<string, ChainlinkPriceObservation>> {
-  const client = createPublicClient({
-    transport: fallback(config.rpcUrls.map((rpcUrl) => http(rpcUrl))),
-  }) as unknown as ChainlinkReader & ChainlinkMulticallReader;
-
-  const rpcChainId = await client.getChainId();
-  if (BigInt(rpcChainId) !== BigInt(chainId)) {
-    throw new Error(
-      `Chainlink RPC for chain ${chainId} returned chain ID ${rpcChainId}`,
-    );
-  }
-
+  const client = await verifiedClient(chainId, config.rpcUrls);
   return fetchChainlinkTokenPricesWithMulticall(client, chainId, config);
 }
