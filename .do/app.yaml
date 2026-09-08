@@ -41,7 +41,7 @@ workers:
       - key: STARKNET_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://starknet-mainnet.g.alchemy.com/starknet/version/rpc/v0_10/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://starknet-mainnet.g.alchemy.com/starknet/version/rpc/v0_10/${ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet
@@ -65,7 +65,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://eth-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet
@@ -78,7 +78,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://base-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: base-mainnet
@@ -94,7 +94,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://robinhood-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://robinhood-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
     run_command: scripts/restart.sh bun src/evm.ts
   - name: arb-mainnet
     image: *indexer-image
@@ -104,7 +104,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://arb-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: arb-mainnet
@@ -117,7 +117,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://opt-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://opt-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: opt-mainnet
@@ -130,7 +130,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://bnb-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://bnb-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: bsc-mainnet
@@ -143,7 +143,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://gnosis-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://gnosis-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: gnosis-mainnet
@@ -156,7 +156,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://unichain-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://unichain-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: unichain-mainnet
@@ -169,7 +169,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://polygon-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://polygon-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: polygon-mainnet
@@ -182,7 +182,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://monad-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://monad-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: monad
@@ -195,7 +195,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://worldchain-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://worldchain-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: worldchain-mainnet
@@ -208,7 +208,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://megaeth-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://megaeth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: megaeth
@@ -221,7 +221,7 @@ workers:
       - key: EVM_RPC_URL
         scope: RUN_TIME
         type: SECRET
-        value: "https://ink-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"
+        value: "https://ink-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: ink-mainnet
@@ -256,7 +256,7 @@ workers:
         scope: RUN_TIME
         type: SECRET
         value: >-
-          {"1":{"rpcUrls":["https://eth-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"],"catalogUrl":"https://reference-data-directory.vercel.app/feeds-mainnet.json"},"8453":{"rpcUrls":["https://base-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"],"catalogUrl":"https://reference-data-directory.vercel.app/feeds-ethereum-mainnet-base-1.json"},"42161":{"rpcUrls":["https://arb-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"],"catalogUrl":"https://reference-data-directory.vercel.app/feeds-ethereum-mainnet-arbitrum-1.json"},"4663":{"rpcUrls":["https://robinhood-mainnet.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}"],"catalogUrl":"https://reference-data-directory.vercel.app/feeds-robinhood-mainnet.json"}}
+          {"1":{"rpcUrls":["https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"],"catalogUrl":"https://reference-data-directory.vercel.app/feeds-mainnet.json"},"8453":{"rpcUrls":["https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"],"catalogUrl":"https://reference-data-directory.vercel.app/feeds-ethereum-mainnet-base-1.json"},"42161":{"rpcUrls":["https://arb-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"],"catalogUrl":"https://reference-data-directory.vercel.app/feeds-ethereum-mainnet-arbitrum-1.json"},"4663":{"rpcUrls":["https://robinhood-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}"],"catalogUrl":"https://reference-data-directory.vercel.app/feeds-robinhood-mainnet.json"}}
     run_command: bun src/price-sync/index.ts
 jobs:
   - name: run-migrations

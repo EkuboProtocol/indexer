@@ -57,7 +57,7 @@ jobs:
 
       - name: Deploy App
         env:
-          EVM_RPC_ALCHEMY_API_KEY: ${{ secrets.EVM_RPC_ALCHEMY_API_KEY }}
+          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
           PG_CONNECTION_STRING: ${{ secrets.PRIVATE_PG_CONNECTION_STRING }}
           VPC_ID: ${{ secrets.VPC_ID }}

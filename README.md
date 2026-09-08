@@ -402,7 +402,7 @@ Starknet is now indexed by the same stream as every EVM chain
 manual steps:
 
 1. **`starknet-mainnet` must be enabled on the Alchemy app** whose key
-   `EVM_RPC_ALCHEMY_API_KEY` holds. It was an EVM-only app, so the worker will
+   `ALCHEMY_API_KEY` holds. It was an EVM-only app, so the worker will
    fail to read the chain until it is. (Already done.)
 2. **`STARKNET_RPC_URL`** is a new secret in the app spec.
 
@@ -772,7 +772,7 @@ manual step if wanted.
 Added mainnet workers for Optimism, Gnosis, Unichain, World Chain, Ink, BNB
 Smart Chain and Polygon alongside the existing Ethereum, Base, Arbitrum,
 Robinhood, Monad and MegaETH. Each new worker takes its production RPC from
-`https://<network>.g.alchemy.com/v2/${EVM_RPC_ALCHEMY_API_KEY}` in `.do/app.yaml`,
+`https://<network>.g.alchemy.com/v2/${ALCHEMY_API_KEY}` in `.do/app.yaml`,
 falling back to the chain's public endpoint where one exists; the committed
 `.env.evm.*` files keep key-free public URLs for local runs.
 
