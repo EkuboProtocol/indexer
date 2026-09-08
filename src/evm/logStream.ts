@@ -522,6 +522,13 @@ interface StreamState {
   /** Effective window last warned about, so the cap is reported once. */
   warnedCapSeconds: number | null;
   /**
+   * Lowest block `emitted` is authoritative for.
+   *
+   * Below this the map is silent because entries were pruned, not because the
+   * chain had nothing -- and those two are indistinguishable to a diff.
+   */
+  retainedFrom: number;
+  /**
    * False until the first window has been read.
    *
    * `emitted` starts empty because nothing has been observed yet, not because
@@ -588,12 +595,28 @@ export function observeBlockRate(state: StreamState, head: LatestBlock): void {
     // anything, so a tip replaced at the same height by a block with a later
     // timestamp would store a rate of zero and collapse the window to a single
     // block. This branch only ever wants to raise the rate; zero is not a rise.
-    if (elapsed > 0 && advanced > 0) {
+    // Only ever a *rise*, and only against a rate we already trust.
+    //
+    // Adopting a short sample when the rate is unset would be a narrowing, not
+    // a rise: an unset rate already sizes the window at the cap, the widest
+    // available. A first sample quantised to one second on an eleven-block
+    // chain can read half the true rate, which would halve the window for the
+    // next thirty seconds on exactly the argument that short samples cannot be
+    // trusted.
+    if (state.blockRate !== null && elapsed > 0 && advanced > 0) {
       const witnessed = advanced / elapsed;
-      if (state.blockRate === null || witnessed > state.blockRate) {
-        state.blockRate = witnessed;
-      }
+      if (witnessed > state.blockRate) state.blockRate = witnessed;
     }
+    return;
+  }
+
+  // A full baseline that saw no blocks is a halted chain, not a rate of zero.
+  // Dividing anyway stores 0, and `reorgWindowBlocksFor` turns that into a
+  // one-block window -- so the poll that has to reconcile the reorg that
+  // *resumes* the chain would re-read a single block. Keep the last known rate
+  // and start a fresh sample.
+  if (advanced <= 0) {
+    state.rateSample = { number: head.number, timeSec };
     return;
   }
 
@@ -738,6 +761,9 @@ function forgetBelow(state: StreamState, keepFrom: number): void {
   for (const key of [...state.emitted.keys()]) {
     if (key < keepFrom) state.emitted.delete(key);
   }
+  // Only ever rises. What was pruned cannot be un-pruned, so this is the record
+  // of how far down the map can still be trusted.
+  state.retainedFrom = Math.max(state.retainedFrom, keepFrom);
 }
 
 function rollbackTo(state: StreamState, block: number): StreamMessage {
@@ -1032,10 +1058,28 @@ function maybeRollback(
   plan: { from: number; to: number },
   opts: Resolved,
 ): StreamMessage | null {
+  // Never diff below what `emitted` still holds.
+  //
+  // "I have no record of this block" and "this block is new" are the same
+  // observation to `firstDivergentBlock` -- `before === undefined,
+  // after !== undefined` -- and one of them is a reorg while the other is
+  // bookkeeping. The scan can reach below the retention floor whenever the
+  // cursor moves *down*, which is exactly what `rollbackTo` does: it skips
+  // `finishTick`, so a real reorg lowers the cursor without lowering the floor,
+  // and the next cursor-anchored scan starts a full window below where the last
+  // prune assumed. Every log-bearing block in the gap then reads as diverged,
+  // `rollbackTo` clears the remainder of the map, and the next tick diffs
+  // against nothing -- the cursor walks down to `earliest` on a chain that
+  // reorged exactly once.
+  //
+  // Flooring the comparison is what makes that structurally impossible, rather
+  // than merely unlikely at the current window widths. Blocks below the floor
+  // are older than a full window beneath a cursor we have already passed, which
+  // is the depth this stream does not claim to protect anyway.
   const divergent = firstDivergentBlock(
     state.emitted,
     digests,
-    plan.from,
+    Math.max(plan.from, state.retainedFrom),
     plan.to,
   );
   if (divergent === undefined || divergent > state.cursorBlock) return null;
@@ -1056,7 +1100,7 @@ function reconcileWindow(
   opts: Resolved,
 ): StreamMessage | null {
   if (!state.seeded) {
-    seedWindow(state, digests);
+    seedWindow(state, digests, plan.from);
     return null;
   }
   return maybeRollback(state, digests, plan, opts);
@@ -1073,10 +1117,14 @@ function reconcileWindow(
 function seedWindow(
   state: StreamState,
   digests: Map<number, BlockDigest>,
+  from: number,
 ): void {
   for (const [blockNumber, digest] of digests) {
     if (blockNumber <= state.cursorBlock) state.emitted.set(blockNumber, digest);
   }
+  // The seed read is the first thing `emitted` knows anything about, so it is
+  // where the authoritative range begins.
+  state.retainedFrom = from;
   state.seeded = true;
 }
 
@@ -1163,6 +1211,7 @@ function initStream({
       blockRate: null,
       rateSample: null,
       warnedCapSeconds: null,
+      retainedFrom: 0,
       seeded: false,
     },
   };

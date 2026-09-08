@@ -214,11 +214,42 @@ surfaces later as a wrong number downstream. Three choices follow from that.
   stream fails fast on a refusal rather than splitting out of one, a 2x wider
   backfill is not worth an occasional stall.
 
-Reorgs are found by re-reading `REORG_WINDOW_BLOCKS` (default 64) at the head
-each poll and comparing it against what was emitted. A block that changed hash,
-lost its logs, or gained logs it did not have produces an `invalidate`. The
-window must be deeper than any reorg the chain can produce; a reorg touching no
-log of ours changes nothing we store and is not looked for.
+Reorgs are found by re-reading a window below the cursor each poll and comparing
+it against what was emitted. A block that changed hash, lost its logs, or gained
+logs it did not have produces an `invalidate`. The window must be deeper than any
+reorg the chain can produce; a reorg touching no log of ours changes nothing we
+store and is not looked for.
+
+The window is configured in seconds — `REORG_WINDOW_SECONDS`, default 120 — and
+converted to a block count per chain from a block rate measured off the head read
+each poll already makes. A block is not a unit of time, and these chains run from
+12s to 0.09s apart, so the block count this used to take meant 768s of protection
+on Ethereum and 6s on Robinhood. Ethereum is pinned at 1152s in
+`.env.evm.mainnet`, its worst-case head-to-finalized span, because above finality
+the window is its only protection.
+
+The derived count is capped at half `GET_LOGS_RANGE_SIZE`, which guarantees the
+other half of every read is forward progress no matter what the chain's block
+rate turns out to be. When the cap binds, the stream warns once with the window
+it actually got; raising `GET_LOGS_RANGE_SIZE` is the remedy.
+
+### Backing off on a quiet chain
+
+A poll costs the same two requests whether it finds an event or none, so a chain
+that has produced nothing in months costs exactly what the busiest one does. The
+interval therefore holds at `POLL_INTERVAL_MS` (default 2,000) for
+`QUIET_POLLS_BEFORE_BACKOFF` (default 30) consecutive polls that index nothing,
+then doubles per empty poll up to `MAX_POLL_INTERVAL_MS` (default 30,000). Any
+matched log, or any reorg, puts it straight back to the floor.
+
+That first stretch is the latency guarantee: a chain that indexed anything in the
+last minute keeps polling at full rate, so a busy chain never leaves the floor.
+Backing off is a delay and never a miss — a range query asked less often reads a
+wider range, not a narrower one. The cost is that an event on a dormant chain can
+take up to `MAX_POLL_INTERVAL_MS` to be indexed, and
+`indexer_cursor.head_base_fee_per_gas` is that stale meanwhile. Set
+`MAX_POLL_INTERVAL_MS` equal to `POLL_INTERVAL_MS` to switch it off for a chain
+where that is not acceptable, as `.env.evm.mainnet` does.
 
 ### On restart
 

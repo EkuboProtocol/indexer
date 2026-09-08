@@ -1933,3 +1933,115 @@ describe("a measured window that changes width", () => {
     expect(messages.filter((m) => m._tag === "invalidate")).toEqual([]);
   });
 });
+
+describe("a rollback that moves the cursor down", () => {
+  it("does not fabricate a second reorg below the retention floor", async () => {
+    // `rollbackTo` lowers the cursor and `continue`s, skipping `finishTick` --
+    // so a real reorg moves the cursor down without lowering the floor
+    // `emitted` was last pruned to. The next cursor-anchored scan then starts a
+    // full window below where that prune assumed, and every log-bearing block
+    // in the gap reads as `before === undefined, after !== undefined`: a
+    // fabricated reorg, which clears the rest of the map so the next tick has
+    // nothing to diff against and does it again.
+    //
+    // One real reorg here, at block 1180. Everything below it is stable -- its
+    // hash is a pure function of its number -- so exactly one invalidate is
+    // correct and any further one is invented.
+    let poll = 0;
+    const reorgAt = 1_180;
+    const hashFor = (n: number) =>
+      (n === reorgAt && poll > 2 ? `0x${n}-b` : `0x${n}-a`) as Hex;
+
+    const rpc = rpcDouble({
+      blocks: (tag) => {
+        // No finality floor to hide behind: `earliest` stays at 1, which is the
+        // condition that makes the gap reachable.
+        if (tag === "finalized") return null;
+        poll++;
+        return {
+          number: 1_200 + poll,
+          hash: `0xhead${poll}`,
+          timestamp: 1_700_000_000 + poll,
+        };
+      },
+      logs: (from, to) => {
+        const out: RawLog[] = [];
+        for (let n = Math.max(from, 1); n <= to; n++) {
+          out.push(
+            log({
+              blockNumber: numberToHex(BigInt(n)),
+              blockHash: hashFor(n),
+              blockTimestamp: numberToHex(BigInt(1_700_000_000 + n)),
+            }),
+          );
+        }
+        return out;
+      },
+    });
+
+    const messages = await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 1_200n },
+        options: {
+          pollIntervalMs: 1,
+          maxPollIntervalMs: 1,
+          // Unmeasured rate parks the window at the cap (50), which is the
+          // width at which the gap opens.
+          maxLogRangeBlocks: 100,
+          reorgWindowSeconds: 120,
+          finalizedRefreshIntervalMs: 1_000_000,
+        },
+      }),
+      60,
+      undefined,
+      800,
+    );
+
+    const invalidates = messages.filter((m) => m._tag === "invalidate");
+    // The one real reorg, and nothing else. Before the retention floor was
+    // honoured this walked the cursor down repeatedly.
+    expect(invalidates.length).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("observeBlockRate on a halted chain", () => {
+  const head = (number: number, timeSec: number) => ({
+    number,
+    hash: "0x0" as Hex,
+    timestamp: new Date(timeSec * 1_000),
+    baseFeePerGas: null,
+  });
+
+  it("a full baseline that saw no blocks keeps the last known rate", () => {
+    // A halted sequencer whose tip is replaced in place still advances the
+    // timestamp, so the baseline completes with `advanced === 0`. Dividing
+    // stores a rate of zero, and a zero rate sizes the reorg window down to one
+    // block -- on the very poll that has to reconcile the reorg that resumes
+    // the chain.
+    const state = { blockRate: null, rateSample: null } as never as {
+      blockRate: number | null;
+      rateSample: unknown;
+    };
+    observeBlockRate(state as never, head(1_000, 1_700_000_000));
+    observeBlockRate(state as never, head(1_330, 1_700_000_030));
+    expect(state.blockRate).toBeCloseTo(11, 5);
+
+    // 60s pass, tip replaced at the same height.
+    observeBlockRate(state as never, head(1_330, 1_700_000_090));
+    expect(state.blockRate).toBeCloseTo(11, 5);
+  });
+
+  it("a short first sample does not narrow the window below the cap", () => {
+    // With no rate yet the window is already the cap, the widest available, so
+    // adopting a one-second sample is a narrowing dressed as a rise.
+    const state = { blockRate: null, rateSample: null } as never as {
+      blockRate: number | null;
+      rateSample: unknown;
+    };
+    observeBlockRate(state as never, head(1_000, 1_700_000_000));
+    observeBlockRate(state as never, head(1_005, 1_700_000_001));
+    expect(state.blockRate).toBeNull();
+  });
+});
