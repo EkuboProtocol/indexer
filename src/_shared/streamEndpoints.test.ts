@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parseEvmRpcUrls, requireStarknetApibaraUrl } from "./streamEndpoints";
+import { parseEvmRpcUrls, requireStarknetRpcUrl } from "./streamEndpoints";
 
 describe("parseEvmRpcUrls", () => {
   it("splits and trims comma-separated urls", () => {
@@ -15,19 +15,19 @@ describe("parseEvmRpcUrls", () => {
   });
 });
 
-describe("requireStarknetApibaraUrl", () => {
+describe("requireStarknetRpcUrl", () => {
   it("returns a trimmed value", () => {
-    expect(requireStarknetApibaraUrl(" https://mainnet.starkstream.io ")).toBe(
-      "https://mainnet.starkstream.io",
+    expect(requireStarknetRpcUrl(" https://starknet-mainnet.example/rpc ")).toBe(
+      "https://starknet-mainnet.example/rpc",
     );
   });
 
   it("throws when missing", () => {
-    expect(() => requireStarknetApibaraUrl(undefined)).toThrow(
-      "Missing APIBARA_URL",
+    expect(() => requireStarknetRpcUrl(undefined)).toThrow(
+      "Missing STARKNET_RPC_URL",
     );
-    expect(() => requireStarknetApibaraUrl("   ")).toThrow(
-      "Missing APIBARA_URL",
+    expect(() => requireStarknetRpcUrl("   ")).toThrow(
+      "Missing STARKNET_RPC_URL",
     );
   });
 });

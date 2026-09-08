@@ -1,4 +1,3 @@
-import { Block as EvmBlock } from "@apibara/evm";
 import { createPublicClient, fallback, http } from "viem";
 import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
@@ -11,7 +10,11 @@ import {
 import { withNullBlockRetry } from "./_shared/nullBlockRetry";
 import { assertRpcChainIds } from "./_shared/rpcChainId";
 import { parseEvmRpcUrls } from "./_shared/streamEndpoints";
-import { createLogStream, type LogStreamFilter } from "./evm/logStream";
+import {
+  createLogStream,
+  type LogStreamFilter,
+  type StreamBlock as EvmBlock,
+} from "./evm/logStream";
 import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
 import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
 import { parsePositionsProtocolFeeConfigs } from "./evm/positionsProtocolFeeConfig";
@@ -51,6 +54,8 @@ export function parseEvmBlockHeader(
     block: evmBlock as EvmBlock,
     header: {
       ...common,
+      // Only the head block carries one; `stampHeadBaseFee` is what puts it
+      // there, since a log-derived block has no base fee of its own.
       baseFeePerGas: header.baseFeePerGas ?? null,
     },
   };
@@ -256,21 +261,21 @@ export async function createEvmEntrypoint(
       });
     },
     getPlannedEvents(block: EvmBlock) {
-      return block.logs.reduce(
-        (total, log) => total + (log.filterIds?.length ?? 0),
-        0,
-      );
+      return block.logs.reduce((total, log) => total + log.filterIds.length, 0);
     },
     async processBlock({ block, blockNumber, dao }) {
       let eventsProcessed = 0;
 
-      for (let i = 0; i < block.logs.length; i++) {
-        const log = block.logs[i];
-
+      for (const log of block.logs) {
         const eventKey: EventKey = {
           blockNumber,
-          transactionIndex: log.transactionIndex ?? 0,
-          eventIndex: log.logIndexInTransaction ?? log.logIndex ?? i,
+          transactionIndex: log.transactionIndex,
+          // The block-wide log index, which is what `event_id` has always been
+          // packed from on EVM. This used to read
+          // `logIndexInTransaction ?? logIndex ?? i`, but the first was a field
+          // of the apibara block type that no stream ever populated and the
+          // last could not be reached, so both fell through to this every time.
+          eventIndex: log.logIndex,
           emitter: log.address,
           transactionHash: log.transactionHash,
         };
