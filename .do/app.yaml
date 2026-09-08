@@ -13,6 +13,9 @@ envs:
     scope: RUN_TIME
     type: SECRET
     value: ${PG_CONNECTION_STRING}
+  # No worker reads this any more: Starknet moved off the apibara DNA stream
+  # onto its own RPC. Kept for one release so reverting that is a code revert
+  # and not also a secret to put back. Delete it once the RPC stream has held.
   - key: DNA_TOKEN
     scope: RUN_TIME
     type: SECRET
@@ -21,6 +24,18 @@ envs:
     scope: RUN_TIME
     value: "1"
 workers:
+  # Starknet range-reads its own RPC, the same way every EVM worker does, so the
+  # one endpoint rule below applies to it too.
+  #
+  # The path carries the JSON-RPC spec version rather than the `/v2/` the EVM
+  # URLs use, and v0.10 is a floor rather than a preference: it is the first
+  # version where `EMITTED_EVENT` carries `transaction_index` and `event_index`,
+  # which are packed into `event_id`. On v0.9 the stream refuses to index rather
+  # than defaulting them, so a downgrade here stops the worker instead of
+  # silently writing wrong primary keys.
+  #
+  # NOTE: starknet-mainnet must be enabled on the Alchemy app this key belongs
+  # to before this deploys; it was an EVM-only app until this change.
   - name: starknet-mainnet
     image: &indexer-image
       registry_type: GHCR
@@ -30,6 +45,10 @@ workers:
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
     envs:
+      - key: STARKNET_RPC_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: "https://starknet-mainnet.g.alchemy.com/starknet/version/rpc/v0_10/${EVM_RPC_ALCHEMY_API_KEY}"
       - key: NETWORK
         scope: RUN_TIME
         value: mainnet

@@ -62,7 +62,7 @@ interface EvmConfig extends CommonConfiguration {
 }
 
 interface StarknetConfig extends CommonConfiguration {
-  APIBARA_URL: string;
+  STARKNET_RPC_URL: string;
 
   CORE_ADDRESS: `0x${string}`;
   POSITIONS_ADDRESS: `0x${string}`;

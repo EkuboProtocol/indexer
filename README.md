@@ -4,7 +4,7 @@ Service for indexing Ekubo events into a Postgres database.
 
 ## Overview
 
-The indexer focuses on producing an always-consistent realtime view of Ekubo events, using the Starkstream service to get a stream of relevant data.
+The indexer focuses on producing an always-consistent realtime view of Ekubo events. Every network — Starknet included — is read by polling its own RPC over block ranges; see [Block streams](#block-streams).
 
 Events are not transformed by the indexer, simply cataloged for later use such as in materialized views or complex analytical queries.
 
@@ -144,10 +144,18 @@ Catalogs are refreshed hourly by default, controlled by `CHAINLINK_FEED_CATALOG_
 
 Chainlink jobs are disabled when the interval is zero/unset or the config is empty. Valid observations are stored under the `cl1` source using the feed round's `updatedAt` timestamp, and unchanged rounds are not inserted repeatedly. One failing feed does not prevent fresh observations from other configured feeds on that chain.
 
-## EVM stream
+## Block streams
 
-The EVM entrypoint drives its own log-driven stream (`src/evm/logStream.ts`)
-rather than fetching a header per block. A poll is two requests whatever the
+Every network is indexed by one polling, range-reading stream
+(`src/_shared/blockStream.ts`). Polling, reorg detection, the poll backoff, the
+retention window and the cursor live there and are identical on every chain; the
+per-chain adapters supply only what a chain family actually does differently --
+`src/evm/logStream.ts` and `src/starknet/eventStream.ts`.
+
+### EVM
+
+The EVM adapter is log-driven rather than fetching a header per block. A poll is
+two requests whatever the
 chain's block time:
 
 1. `eth_getBlockByNumber("latest")`, which gives the head and a real block hash
@@ -175,6 +183,51 @@ by nothing, and rows for blocks with no events are removed within a day by
 
 Measured against the previous stream on Monad (0.3 s blocks), at the same two
 second cadence: 9.7 requests per poll became 2.1.
+
+### Starknet
+
+Starknet reads `starknet_getEvents` over the same window the EVM chains read
+`eth_getLogs` over, and shares everything below that. Three things differ, and
+all three are in the adapter:
+
+- **One address per request.** `starknet_getEvents` takes a single address, not
+  a list, so asking per contract would be twelve requests a poll. The range read
+  is filtered by event selector instead -- which the RPC accepts as an OR-list --
+  and narrowed to our contracts locally. On mainnet that prefilter takes a range
+  read from 15.9 to 3.3 events per block. A processor filtering on address alone
+  disables the prefilter rather than silently narrowing the read.
+- **The URL pins JSON-RPC v0.10.** That is the first version where
+  `EMITTED_EVENT` carries `transaction_index` and `event_index`; on v0.9 they
+  are absent and the `continuation_token` counts *matched* results, so it cannot
+  supply them either. The stream refuses to index an event without them rather
+  than defaulting to zero, so pointing this at an older spec stops the worker
+  instead of silently writing wrong primary keys. One block read remains, for
+  the timestamp, and only for blocks above the cursor -- the reorg window is
+  re-read every poll and paying a per-block cost for it would be ~390k requests
+  a day instead of ~6k.
+- **`event_index` is per transaction**, counting every event the transaction
+  emitted rather than only ours. That is what the apibara DNA stream stored and
+  what `compute_event_id` has packed into every Starknet `event_id` ever
+  written, so it is not ours to renumber. It counts the events in between, so it
+  is emphatically not a position within the filtered results: block 14555766
+  holds 3 and 19 for one transaction, where numbering only the matched events
+  would give 0 and 1.
+
+Those two numbers were checked three ways before this relied on them: v0.10's
+values, a reconstruction from `starknet_getBlockWithReceipts`, and the rows the
+DNA stream wrote years ago all agree, over 5,000 mainnet blocks and 44 event
+tables with no row missed.
+
+Note that this differs from EVM, where `event_index` is the block-wide
+`logIndex`. Both are inherited from the streams they replace.
+
+Finality is `l1_accepted` -- settlement on Ethereum, hours behind the head --
+rather than EVM's `finalized`. `latest` is `ACCEPTED_ON_L2` and can still be
+reorged; `pre_confirmed` has no hash at all, so nothing that cannot be rolled
+back to is indexed.
+
+`scripts/verifyStarknetStream.ts` replays a settled range and asserts the
+positions it reconstructs are exactly the ones already in the database.
 
 ### Correctness
 
@@ -328,7 +381,7 @@ Migration files live under `migrations/` and execute in order via `scripts/migra
 The DigitalOcean Apps spec in `.do/app.yaml` documents the full production stack:
 
 - Workers for each network (e.g.: `starknet-mainnet`, `eth-mainnet`, `base-mainnet`) that run the corresponding network entrypoint (`bun src/starknet.ts` or `bun src/evm.ts`) with the appropriate `NETWORK` value, pulling the published Docker image (`ghcr.io/ekuboprotocol/indexer:${IMAGE_TAG}`).
-- Managed Postgres (`indexer-db-nyc1`) wired in via the `PG_CONNECTION_STRING` env var along with secrets such as `DNA_TOKEN`.
+- Managed Postgres (`indexer-db-nyc1`) wired in via the `PG_CONNECTION_STRING` env var, alongside the per-worker RPC secrets (`EVM_RPC_URL`, `STARKNET_RPC_URL`).
 - A `run-migrations` pre-deploy job and the long-running `src/price-sync/index.ts` process. Each price source/chain job has an independent timer, with separately configured CoinGecko and Chainlink cadences. The app spec discovers Chainlink feeds for eligible tokens on Ethereum, Base, Arbitrum, and Robinhood through Chainlink's multi-network catalogs and the existing Alchemy API key secret.
 
 Use this file as a base to recreate the stack in a new DigitalOcean App Platform project or as a reference for configuring similar infrastructure elsewhere.
@@ -339,6 +392,31 @@ This log records indexer deployments that:
 
 - require **manual intervention beyond running `scripts/migrate.ts`** (e.g., backfilling data, reseeding state, or pausing workers), or
 - introduce **schema changes**, even when the standard migration workflow can apply them automatically. Schema-only updates may not mandate manual steps but can still break downstream consumers that rely on the previous structure, so they belong here as well.
+
+### 2026-09-08: Starknet moves off apibara DNA onto its own RPC
+
+**No schema change. Requires configuration before deploying.**
+
+Starknet is now indexed by the same stream as every EVM chain
+(`src/_shared/blockStream.ts`) instead of the apibara DNA gRPC stream. Two
+manual steps:
+
+1. **`starknet-mainnet` must be enabled on the Alchemy app** whose key
+   `EVM_RPC_ALCHEMY_API_KEY` holds. It was an EVM-only app, so the worker will
+   fail to read the chain until it is.
+2. **`STARKNET_RPC_URL`** is a new secret in the app spec. `APIBARA_URL` is gone
+   from `.env.starknet.mainnet`; `DNA_TOKEN` is deliberately left in the app
+   spec for one release so reverting is a code revert and not also a secret to
+   put back.
+
+`event_id` is unchanged: `transaction_index` and `event_index` come from
+`starknet_getEvents` under JSON-RPC v0.10 and match what DNA wrote, verified
+over 5,000 mainnet blocks against 44 event tables with no row missed. The URL
+must name v0.10 or later; the stream refuses to index without those fields
+rather than defaulting them.
+
+Adds ~1.9M Alchemy compute units a day (~$26/month at a 2 s poll floor), where
+DNA was billed separately.
 
 ### 2026-09-06: Market depth refresh, 25 s → 10 s, and a 10-minute schedule
 
