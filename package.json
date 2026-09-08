@@ -31,7 +31,7 @@
     "@electric-sql/pglite": "^0.5.8",
     "@types/bun": "^1.4.0",
     "@typescript-eslint/parser": "8.68.0",
-    "eslint": "10.9.1"
+    "eslint": "10.10.0"
   },
   "dependencies": {
     "@effect/platform-bun": "4.0.0-rc.112",
