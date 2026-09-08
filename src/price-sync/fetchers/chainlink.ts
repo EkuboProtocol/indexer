@@ -3,7 +3,7 @@ import type { Sql } from "postgres";
 import { PriceSyncError, tryPriceSync } from "../errors";
 import type { ChainlinkCatalogCache } from "./chainlinkCatalog";
 import {
-  discoverChainlinkFeeds,
+  discoverChainlinkFeedsDetailed,
   fetchChainlinkTokenPrices,
   type ChainlinkChainConfig,
   type ChainlinkFeedConfig,
@@ -61,6 +61,16 @@ export function makeChainlinkRoundTracker(): ChainlinkRoundTracker {
   };
 }
 
+// Most-rejected rule first. The tail is the long list of Chainlink products
+// this indexer was never going to price, so the head is the interesting part:
+// it is where a feed that should have appeared went.
+function formatSkippedFeeds(skipped: ReadonlyMap<string, number>): string {
+  return [...skipped]
+    .sort(([, a], [, b]) => b - a)
+    .map(([reason, count]) => `${count}x ${reason}`)
+    .join("; ");
+}
+
 // Feed discovery and the on-chain reads both need full-width EVM addresses,
 // unlike the numeric form the database stores prices under.
 function toEvmAddress(address: string): `0x${string}` {
@@ -99,6 +109,7 @@ export function chainlinkPriceFetcher({
   catalogCache,
 }: ChainlinkPriceFetcherOptions): PriceSyncJob {
   const shouldReportRound = makeChainlinkRoundTracker();
+  let lastFeedSummary: string | undefined;
 
   // Validity is anchored at the round's own updatedAt and extends through the
   // feed's staleness window -- mirroring the read-side contract -- floored at
@@ -141,7 +152,26 @@ export function chainlinkPriceFetcher({
 
       const tokens = yield* fetchChainlinkTokens(sql, chainId);
       const catalog = yield* catalogCache(catalogUrl, catalogRefreshIntervalMs);
-      return discoverChainlinkFeeds(catalog, tokens);
+      const { feeds, skipped } = discoverChainlinkFeedsDetailed(
+        catalog,
+        tokens,
+      );
+
+      // Reported at info, because a debug line would not be emitted: this
+      // worker installs no Logger and never lowers the minimum level, so
+      // `logDebug` is dropped and LOG_LEVEL only reaches the Winston logger
+      // that the Effect code does not use. Info is therefore the only level
+      // that makes this reachable -- and it only stays quiet because a
+      // summary is logged when it changes rather than on every plan, which
+      // runs once a job interval against a catalog cached for an hour.
+      const summary = `${feeds.length} feeds; skipped ${formatSkippedFeeds(skipped)}`;
+      if (summary !== lastFeedSummary) {
+        lastFeedSummary = summary;
+        yield* Effect.logInfo(
+          `Chainlink catalog for chain ${chainId} yielded ${summary}`,
+        );
+      }
+      return feeds;
     },
     Effect.catch((error) =>
       Effect.logWarning(

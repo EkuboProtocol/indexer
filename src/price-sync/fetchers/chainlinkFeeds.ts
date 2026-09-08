@@ -1,3 +1,4 @@
+import { Result, Schema } from "effect";
 import {
   createPublicClient,
   fallback,
@@ -82,23 +83,6 @@ export interface ChainlinkToken {
   address: Address;
   symbol: string;
 }
-
-type ChainlinkCatalogEntry = {
-  proxyAddress?: unknown;
-  secondaryProxyAddress?: unknown;
-  heartbeat?: unknown;
-  path?: unknown;
-  feedCategory?: unknown;
-  docs?: {
-    baseAsset?: unknown;
-    quoteAsset?: unknown;
-    deliveryChannelCode?: unknown;
-    productType?: unknown;
-    productTypeCode?: unknown;
-    hidden?: unknown;
-    shutdownDate?: unknown;
-  };
-};
 
 interface ChainlinkReader {
   getChainId(): Promise<number>;
@@ -284,74 +268,125 @@ function groupTokensBySymbol(
   return bySymbol;
 }
 
-// The catalog carries every Chainlink data product, most of which are not USD
-// spot price feeds we can read. These are the admissibility rules, as a table
-// rather than one long conjunction: each rule is named, so a feed that fails to
-// appear can be traced to the exact rule that rejected it.
-const CATALOG_ENTRY_RULES: [string, (value: ChainlinkCatalogEntry) => boolean][] =
-  [
-    ["is a data feed", (v) => v.docs?.deliveryChannelCode === "DF"],
-    ["is a price product", (v) => v.docs?.productType === "Price"],
-    [
-      "is a reference or tokenized price",
-      (v) =>
-        ["RefPrice", "primaryTokenizedPrice"].includes(
-          String(v.docs?.productTypeCode),
-        ),
-    ],
-    ["is quoted in USD", (v) => v.docs?.quoteAsset === "USD"],
-    ["names a base asset", (v) => typeof v.docs?.baseAsset === "string"],
-    ["is not hidden", (v) => v.docs?.hidden !== true],
-    ["is not shut down", (v) => !v.docs?.shutdownDate],
-    ["is not deprecating", (v) => v.feedCategory !== "deprecating"],
-    ["has a path", (v) => typeof v.path === "string"],
-    [
-      "has a proxy address",
-      (v) => typeof v.proxyAddress === "string" && isAddress(v.proxyAddress),
-    ],
-    [
-      "has a usable heartbeat",
-      (v) =>
-        typeof v.heartbeat === "number" &&
-        Number.isSafeInteger(v.heartbeat) &&
-        v.heartbeat > 0 &&
-        v.heartbeat <= MAX_CHAINLINK_HEARTBEAT_SECONDS,
-    ],
-  ];
+/** An unconstrained field carrying only the named rule it must satisfy. */
+function rule(name: string, holds: (value: unknown) => boolean) {
+  return Schema.Unknown.pipe(
+    Schema.refine((value): value is unknown => holds(value), {
+      message: name,
+    }),
+  );
+}
 
-function isUsableCatalogEntry(value: ChainlinkCatalogEntry): boolean {
-  return CATALOG_ENTRY_RULES.every(([, holds]) => holds(value));
+// The catalog carries every Chainlink data product, most of which are not USD
+// spot price feeds we can read. This schema is the table of admissibility
+// rules, and decoding an entry against it is what applies them.
+//
+// It replaces a table that paired each rule with a name and then threw the
+// names away, so a feed that failed to appear could not be traced to the rule
+// that rejected it. Decoding reports one: a structural rule reports the field
+// and the value it wanted (`Expected "USD" at ["docs"]["quoteAsset"]`), which
+// is more specific than a name; the rules that are bare predicates carry the
+// name instead, since a path alone would say nothing.
+//
+// Decoding rather than validating is also what makes an accepted entry typed:
+// `proxyAddress` is an `Address` and `heartbeat` a bounded integer on the way
+// out, so building a feed from one needs no casts. The two `unknown`s that
+// forced those casts were the last type errors in this file.
+const UsableCatalogEntry = Schema.Struct({
+  proxyAddress: Schema.String.pipe(
+    Schema.refine((value): value is Address => isAddress(value), {
+      message: "has a proxy address",
+    }),
+  ),
+  heartbeat: Schema.Int.check(
+    Schema.isBetween(
+      { minimum: 1, maximum: MAX_CHAINLINK_HEARTBEAT_SECONDS },
+      { message: "has a usable heartbeat" },
+    ),
+  ),
+  path: Schema.String,
+  secondaryProxyAddress: Schema.optional(Schema.Unknown),
+  feedCategory: Schema.optional(
+    rule("is not deprecating", (v) => v !== "deprecating"),
+  ),
+  docs: Schema.Struct({
+    baseAsset: Schema.String,
+    quoteAsset: Schema.Literal("USD"),
+    deliveryChannelCode: Schema.Literal("DF"),
+    productType: Schema.Literal("Price"),
+    productTypeCode: Schema.Literals(["RefPrice", "primaryTokenizedPrice"]),
+    hidden: Schema.optional(rule("is not hidden", (v) => v !== true)),
+    shutdownDate: Schema.optional(rule("is not shut down", (v) => !v)),
+  }),
+});
+
+type UsableCatalogEntry = typeof UsableCatalogEntry.Type;
+
+const decodeCatalogEntry = Schema.decodeUnknownResult(UsableCatalogEntry);
+
+// Decode failures are multi-line, and these are counted as map keys and read
+// from a log line.
+function rejectionReason(error: { readonly message: string }): string {
+  return error.message.replace(/\s+/g, " ").trim();
 }
 
 // Lower is better. A feed with no secondary proxy is the plain one and wins
 // outright; among the rest, the shared SVR path is preferred.
-function feedRank(value: ChainlinkCatalogEntry): number {
+function feedRank(value: UsableCatalogEntry): number {
   if (!value.secondaryProxyAddress) return 0;
-  return String(value.path).includes("shared-svr") ? 1 : 2;
+  return value.path.includes("shared-svr") ? 1 : 2;
 }
 
-export function discoverChainlinkFeeds(
+// Reasons a decodable entry still does not become a feed. Both are ordinary,
+// and both are otherwise invisible: a symbol the indexer does not carry, or
+// carries twice, and two equally ranked feeds for one symbol where picking
+// either would be a guess.
+const NO_UNIQUE_TOKEN = "matches exactly one indexed token";
+const NO_RANK_WINNER = "outranks the other feeds for its symbol";
+
+export interface ChainlinkFeedDiscovery {
+  readonly feeds: ChainlinkFeedConfig[];
+  /**
+   * How many catalog entries each rule rejected.
+   *
+   * The catalog lists every Chainlink product, so rejecting most of it is the
+   * ordinary case and not a fault. This exists so that "why is this feed
+   * missing" is answerable from a log line rather than a debugger.
+   */
+  readonly skipped: ReadonlyMap<string, number>;
+}
+
+export function discoverChainlinkFeedsDetailed(
   catalog: unknown,
   tokens: ChainlinkToken[],
-): ChainlinkFeedConfig[] {
+): ChainlinkFeedDiscovery {
   if (!Array.isArray(catalog)) {
     throw new Error("Chainlink feed catalog must be an array");
   }
 
   const tokensBySymbol = groupTokensBySymbol(tokens);
+  const skipped = new Map<string, number>();
+  const skip = (reason: string) =>
+    skipped.set(reason, (skipped.get(reason) ?? 0) + 1);
 
   const catalogFeedsBySymbol = new Map<
     string,
     { feed: ChainlinkFeedConfig; rank: number }[]
   >();
   for (const rawValue of catalog) {
-    if (!rawValue || typeof rawValue !== "object") continue;
-    const value = rawValue as ChainlinkCatalogEntry;
-    if (!isUsableCatalogEntry(value)) continue;
+    const decoded = decodeCatalogEntry(rawValue);
+    if (Result.isFailure(decoded)) {
+      skip(rejectionReason(decoded.failure));
+      continue;
+    }
+    const value = decoded.success;
 
-    const symbol = normalizeSymbol(value.docs!.baseAsset as string);
+    const symbol = normalizeSymbol(value.docs.baseAsset);
     const matchingTokens = tokensBySymbol.get(symbol);
-    if (matchingTokens?.length !== 1) continue;
+    if (matchingTokens?.length !== 1) {
+      skip(NO_UNIQUE_TOKEN);
+      continue;
+    }
 
     const feed: ChainlinkFeedConfig = {
       tokenAddress: matchingTokens[0].address,
@@ -363,13 +398,25 @@ export function discoverChainlinkFeeds(
     catalogFeedsBySymbol.set(symbol, feeds);
   }
 
-  return [...catalogFeedsBySymbol.values()]
-    .map((feeds) => {
-      const bestRank = Math.min(...feeds.map(({ rank }) => rank));
-      const bestFeeds = feeds.filter(({ rank }) => rank === bestRank);
-      return bestFeeds.length === 1 ? bestFeeds[0].feed : null;
-    })
-    .filter((feed): feed is ChainlinkFeedConfig => feed !== null);
+  const feeds: ChainlinkFeedConfig[] = [];
+  for (const candidates of catalogFeedsBySymbol.values()) {
+    const bestRank = Math.min(...candidates.map(({ rank }) => rank));
+    const best = candidates.filter(({ rank }) => rank === bestRank);
+    if (best.length === 1) {
+      feeds.push(best[0].feed);
+    } else {
+      skip(NO_RANK_WINNER);
+    }
+  }
+
+  return { feeds, skipped };
+}
+
+export function discoverChainlinkFeeds(
+  catalog: unknown,
+  tokens: ChainlinkToken[],
+): ChainlinkFeedConfig[] {
+  return discoverChainlinkFeedsDetailed(catalog, tokens).feeds;
 }
 
 export async function fetchChainlinkFeedCatalog(
