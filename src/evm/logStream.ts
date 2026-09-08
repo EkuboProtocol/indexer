@@ -14,6 +14,14 @@
  * rate: one `eth_getBlockByNumber("latest")` to learn the head and to give the
  * cursor a real hash, and one `eth_getLogs` over everything since the last one.
  *
+ * What that leaves is a cost that no longer scales with block time but still
+ * scales with nothing at all: eighty compute units per poll on every chain,
+ * whether it produced an event or has produced none in four months. Most of the
+ * chains we index are the latter, so `pollIntervalFor` backs the interval off
+ * while a chain indexes nothing and snaps it back to the floor the moment it
+ * does. Backing off is a delay and never a miss -- a range query asked less
+ * often reads a wider range, not a narrower one.
+ *
  * Correctness notes, since missing an event is the failure that matters:
  *
  * - A range query is self-describing in a way a subscription is not. It either
@@ -45,6 +53,18 @@ export interface LogStreamFilter {
 export interface LogStreamOptions {
   /** How long to wait after catching up to the head before polling again. */
   pollIntervalMs?: number;
+  /**
+   * The ceiling `pollIntervalMs` backs off to on a chain that is producing
+   * nothing we index. Set it equal to `pollIntervalMs` to disable backoff.
+   */
+  maxPollIntervalMs?: number;
+  /**
+   * How many consecutive polls may find nothing before the interval starts
+   * growing. This is the latency guarantee: a chain that indexed anything
+   * within the last `pollIntervalMs * quietPollsBeforeBackoff` keeps polling at
+   * full rate.
+   */
+  quietPollsBeforeBackoff?: number;
   /** Widest block span to ask for in one `eth_getLogs`. */
   maxLogRangeBlocks?: number;
   /**
@@ -66,6 +86,8 @@ export interface LogStreamOptions {
 
 const DEFAULTS = {
   pollIntervalMs: 2_000,
+  maxPollIntervalMs: 30_000,
+  quietPollsBeforeBackoff: 30,
   maxLogRangeBlocks: 1_000,
   reorgWindowBlocks: 64,
   suspectLogCount: 10_000,
@@ -466,6 +488,11 @@ interface StreamState {
   /** Hash of the head as of the last completed read, "" before the first. */
   lastHeadHash: string;
   /**
+   * Consecutive caught-up polls that indexed nothing, which is what the poll
+   * interval backs off on. Reset to 0 by anything worth being fast for.
+   */
+  quietPolls: number;
+  /**
    * False until the first window has been read.
    *
    * `emitted` starts empty because nothing has been observed yet, not because
@@ -479,26 +506,51 @@ interface StreamState {
 type Resolved = Required<Omit<LogStreamOptions, "onWarning">> &
   Pick<LogStreamOptions, "onWarning">;
 
-/** The span to re-read: back into the window when near the head, else forward. */
+/** The span to re-read: back into the reorg window, or forward when behind it. */
 function windowFor(
   state: StreamState,
   head: number,
   opts: Resolved,
 ): { from: number; to: number } {
-  const nearHead = head - state.cursorBlock <= opts.reorgWindowBlocks;
   const earliest = (state.finalized?.number ?? 0) + 1;
+  // The window hangs below the cursor, not below the head, and it is re-read
+  // unconditionally. Both of those matter once the poll interval can grow.
+  //
+  // This used to read back from `head - reorgWindowBlocks`, and only when the
+  // head was within that distance of the cursor; otherwise it read straight
+  // forward from the cursor. The reasoning was that a cursor further back than
+  // the window is catching up and has nothing recently emitted to protect. At a
+  // two-second poll that held on every chain we index -- the head is always a
+  // few blocks ahead -- so the forward-only branch belonged to backfill alone.
+  //
+  // Backing off to thirty seconds breaks the assumption in both parts. An L2 at
+  // four blocks a second advances ~120 blocks between polls, so a caught-up
+  // stream is permanently "further back than the window": it would take the
+  // forward branch forever and never re-read a block it had already emitted,
+  // silently giving up reorg detection on exactly the chains whose finality
+  // lags furthest behind their head. Anchoring to the head instead of the
+  // cursor has the same hole, because `head - reorgWindowBlocks` then sits
+  // above the cursor and the `min` below collapses to `cursorBlock + 1`.
+  //
+  // Anchoring to the cursor is what actually re-reads the blocks at risk: they
+  // are the ones *we emitted*, which is a fact about the cursor and nothing
+  // else. It costs no compute units -- `eth_getLogs` is billed per request, so
+  // a span 64 blocks wider is the same 60 units -- and slows a backfill by
+  // `reorgWindowBlocks / maxLogRangeBlocks`, 6% at the defaults, since each
+  // read now overlaps the last by the width of the window.
+  //
   // Never start above the cursor. `earliest` is an optimisation -- a finalized
   // block cannot reorg, so there is no point re-reading below it -- but on a
   // chain that finalises in under a second it can overtake a cursor that fell a
   // few blocks behind, and letting it raise `from` would skip those blocks
   // silently.
-  const start = nearHead
-    ? Math.min(
-        state.cursorBlock + 1,
-        Math.max(earliest, head - opts.reorgWindowBlocks),
-      )
-    : state.cursorBlock + 1;
-  const from = Math.max(1, start);
+  const from = Math.max(
+    1,
+    Math.min(
+      state.cursorBlock + 1,
+      Math.max(earliest, state.cursorBlock + 1 - opts.reorgWindowBlocks),
+    ),
+  );
   return { from, to: Math.min(head, from + opts.maxLogRangeBlocks - 1) };
 }
 
@@ -559,7 +611,18 @@ async function refreshFinalized(
   opts: Resolved,
   now: number,
 ): Promise<void> {
-  if (now - state.lastFinalizedRefresh < opts.finalizedRefreshIntervalMs) {
+  // Scaled by the effective poll interval, not fixed. At the floor this is the
+  // configured thirty seconds; at a thirty-second backoff a fixed interval
+  // would fire on every single poll, and its twenty compute units would be a
+  // fifth of what a quiet chain costs -- turning a 93% saving into a 76% one.
+  // A staler finalized block on a dormant chain buys back nothing worth having:
+  // it only widens the re-read, which is free, and slows `finalized_order_key`,
+  // which nothing on such a chain is waiting for.
+  const due = Math.max(
+    opts.finalizedRefreshIntervalMs,
+    pollIntervalFor(state.quietPolls, opts) * 4,
+  );
+  if (now - state.lastFinalizedRefresh < due) {
     return;
   }
   state.lastFinalizedRefresh = now;
@@ -684,6 +747,46 @@ function heartbeatIfDue(
   if (now - state.lastHeartbeat < opts.heartbeatIntervalMs) return null;
   state.lastHeartbeat = now;
   return { _tag: "heartbeat" };
+}
+
+/**
+ * How long to sleep before the next poll, given how long the chain has been
+ * quiet.
+ *
+ * The cost of this stream is polls times eighty compute units, and it does not
+ * care whether a poll found anything: `eth_getLogs` is billed per request, so a
+ * chain that has never emitted an event costs exactly what the busiest one
+ * does. That is the whole bill on a deployment like ours, where most chains are
+ * indexed for completeness rather than volume.
+ *
+ * So the interval tracks whether the chain is doing anything we index. It holds
+ * at the floor for `quietPollsBeforeBackoff` consecutive empty polls -- the
+ * latency guarantee, and the reason a busy chain never notices this exists --
+ * then doubles per empty poll up to `maxPollIntervalMs`. Anything worth being
+ * fast for puts it straight back to the floor.
+ *
+ * Backing off is only ever a delay, never a miss: `eth_getLogs` answers for a
+ * block range, so a wider gap between polls means a wider range, not a gap in
+ * what is read. The worst case is noticing the first event on a dormant chain
+ * up to `maxPollIntervalMs` late, after which the chain is at the floor again
+ * for at least `quietPollsBeforeBackoff` polls.
+ */
+export function pollIntervalFor(
+  quietPolls: number,
+  opts: Pick<
+    Resolved,
+    "pollIntervalMs" | "maxPollIntervalMs" | "quietPollsBeforeBackoff"
+  >,
+): number {
+  const floor = opts.pollIntervalMs;
+  const ceiling = Math.max(floor, opts.maxPollIntervalMs);
+  const over = quietPolls - opts.quietPollsBeforeBackoff;
+  if (over <= 0) return floor;
+  // Cap the exponent before it is applied. `2 ** 1024` is Infinity, and a
+  // chain quiet for a week would get there; `Math.min` would still return the
+  // ceiling, but the intermediate is a trap for anyone reworking this line.
+  const doubled = floor * 2 ** Math.min(over, 32);
+  return Math.min(ceiling, doubled);
 }
 
 /**
@@ -853,6 +956,7 @@ function initStream({
       finalizedEmitted: 0,
       lastHeartbeat: Date.now(),
       lastHeadHash: "",
+      quietPolls: 0,
       seeded: false,
     },
   };
@@ -885,6 +989,11 @@ async function* emitFresh(
   state: StreamState,
   fresh: StreamBlock[],
 ): AsyncGenerator<StreamMessage> {
+  // Any matched log means the chain is in use, so drop straight back to the
+  // floor. `groupLogsByBlock` keeps only blocks carrying a log one of our
+  // filters matched, so a non-empty `fresh` is exactly "we indexed something".
+  if (fresh.length > 0) state.quietPolls = 0;
+
   for (const block of fresh) {
     state.emitted.set(Number(block.header.blockNumber), {
       hash: block.header.blockHash,
@@ -1017,12 +1126,21 @@ export async function* createLogStream(
 
     const plan = await planRead(rpc, state, opts);
     if (!plan) {
-      await sleep(opts.pollIntervalMs);
+      // An unreadable head is not evidence the chain is quiet, so this does not
+      // count towards backoff -- but it must not poll a struggling endpoint
+      // faster than a healthy one either, so it sleeps for the interval already
+      // in force.
+      await sleep(pollIntervalFor(state.quietPolls, opts));
       continue;
     }
 
     if (headUnchanged(state, plan.head)) {
-      await sleep(opts.pollIntervalMs);
+      // The head has not moved, so there is provably nothing new to index: a
+      // head hash commits to its whole ancestry. That is a quiet poll in the
+      // sense that matters, and counting it is what lets a chain with a block
+      // time longer than the poll interval back off at all.
+      state.quietPolls++;
+      await sleep(pollIntervalFor(state.quietPolls, opts));
       continue;
     }
 
@@ -1036,6 +1154,9 @@ export async function* createLogStream(
     const rollback = reconcileWindow(state, digests, plan, opts);
     if (rollback) {
       yield rollback;
+      // A reorg is the last moment to be slow: the blocks being rolled back
+      // have to be re-read and re-emitted before the chain is correct again.
+      state.quietPolls = 0;
       // An endpoint serving two views alternately would otherwise rollback,
       // re-read and rollback again with no pause between, one DB transaction per
       // turn. Back off exactly as the caught-up path does.
@@ -1058,7 +1179,14 @@ export async function* createLogStream(
     // Now that the cursor has moved, the finalized block may be behind it.
     yield* announceFinalized(rpc, state, opts, null);
 
-    if (plan.to >= plan.head.number) await sleep(opts.pollIntervalMs);
+    // Only a caught-up poll can be a quiet one. While catching up the loop does
+    // not sleep at all, and counting those polls would let a long backfill --
+    // which is all empty ranges until it reaches the interesting blocks -- back
+    // the stream off just as it arrives at the head.
+    if (plan.to >= plan.head.number) {
+      if (fresh.length === 0) state.quietPolls++;
+      await sleep(pollIntervalFor(state.quietPolls, opts));
+    }
   }
 }
 

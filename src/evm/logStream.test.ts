@@ -8,6 +8,7 @@ import {
   firstDivergentBlock,
   groupLogsByBlock,
   logMatchesFilter,
+  pollIntervalFor,
   type LogStreamFilter,
   type RawLog,
   type RpcLike,
@@ -1361,5 +1362,244 @@ describe("createLogStream head base fee", () => {
     for (const block of blocks) {
       expect(block.header.baseFeePerGas).toBe(headBaseFee);
     }
+  });
+});
+
+describe("pollIntervalFor", () => {
+  const opts = {
+    pollIntervalMs: 2_000,
+    maxPollIntervalMs: 30_000,
+    quietPollsBeforeBackoff: 30,
+  };
+
+  it("holds at the floor for the whole quiet allowance", () => {
+    // The latency guarantee: a chain that indexed anything in the last
+    // pollIntervalMs * quietPollsBeforeBackoff keeps polling at full rate.
+    for (const quiet of [0, 1, 29, 30]) {
+      expect(pollIntervalFor(quiet, opts)).toBe(2_000);
+    }
+  });
+
+  it("doubles per quiet poll past the allowance, then caps", () => {
+    expect(pollIntervalFor(31, opts)).toBe(4_000);
+    expect(pollIntervalFor(32, opts)).toBe(8_000);
+    expect(pollIntervalFor(33, opts)).toBe(16_000);
+    expect(pollIntervalFor(34, opts)).toBe(30_000);
+    expect(pollIntervalFor(3_000, opts)).toBe(30_000);
+  });
+
+  it("never returns Infinity for a chain quiet for a very long time", () => {
+    // 2 ** 1024 is Infinity, and a chain quiet for a week gets that far. The
+    // Math.min would still return the ceiling, but the intermediate is a trap.
+    expect(Number.isFinite(pollIntervalFor(Number.MAX_SAFE_INTEGER, opts))).toBe(
+      true,
+    );
+  });
+
+  it("is disabled by setting the ceiling to the floor", () => {
+    const off = { ...opts, maxPollIntervalMs: 2_000 };
+    expect(pollIntervalFor(10_000, off)).toBe(2_000);
+  });
+
+  it("never returns less than the floor, even if the ceiling is below it", () => {
+    const bad = { ...opts, maxPollIntervalMs: 5 };
+    expect(pollIntervalFor(10_000, bad)).toBe(2_000);
+  });
+});
+
+describe("reorg detection once the poll interval can back off", () => {
+  it("re-reads the window even when the head has run far past it", async () => {
+    // The regression that backing off introduces. `windowFor` used to read back
+    // from `head - reorgWindowBlocks`, and only while the head was within that
+    // distance of the cursor. At a two-second poll that was every chain, always.
+    // At a thirty-second poll an L2 advances hundreds of blocks between polls,
+    // so a caught-up stream looks exactly like one that is catching up, takes
+    // the read-forward branch, and never looks at a block it already emitted.
+    //
+    // Drive the head independently of the log reads: a double whose head only
+    // moves when `logs` is called cannot exercise this at all.
+    let poll = 0;
+    const rpc = rpcDouble({
+      blocks: (tag) => {
+        if (tag === "finalized") {
+          return { number: 900, hash: "0x900", timestamp: 1_700_000_000 };
+        }
+        // Poll 1 sits just above the cursor; poll 2 has run 490 blocks past it,
+        // far beyond the 8-block reorg window.
+        poll++;
+        return poll <= 2
+          ? { number: 1010, hash: "0x1010", timestamp: 1_700_000_010 }
+          : { number: 1500, hash: "0x1500", timestamp: 1_700_000_600 };
+      },
+      logs: (from, to) => {
+        // Block 1005 changes hash once the head has moved on -- a reorg of a
+        // block this stream has already emitted.
+        const hash = poll <= 2 ? "0xaaa" : "0xbbb";
+        return 1005 >= from && 1005 <= to
+          ? [log({ blockNumber: numberToHex(1005n), blockHash: hash as Hex })]
+          : [];
+      },
+    });
+
+    const messages = await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 1000n },
+        options: {
+          pollIntervalMs: 1,
+          reorgWindowBlocks: 8,
+          maxLogRangeBlocks: 100,
+          finalizedRefreshIntervalMs: 1_000_000,
+        },
+      }),
+      12,
+      (out) => out.some((m) => m._tag === "invalidate"),
+    );
+
+    const invalidate = messages.find((m) => m._tag === "invalidate");
+    expect(invalidate).toBeDefined();
+    // Rolls back to just below the block that changed.
+    expect(Number(invalidate!.invalidate.cursor.orderKey)).toBe(1004);
+  });
+
+  it("still reads forward, not backward, while catching up from far behind", async () => {
+    // The window hangs below the cursor, so a backfill overlaps its last read
+    // by the width of the window and never stalls or rewinds.
+    const spans: [number, number][] = [];
+    const rpc = rpcDouble({
+      blocks: (tag) =>
+        tag === "finalized"
+          ? { number: 500, hash: "0x500", timestamp: 1_700_000_000 }
+          : { number: 100_000, hash: "0xhead", timestamp: 1_700_100_000 },
+      logs: (from, to) => {
+        spans.push([from, to]);
+        return [];
+      },
+    });
+
+    await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 1000n },
+        options: {
+          pollIntervalMs: 1,
+          reorgWindowBlocks: 64,
+          maxLogRangeBlocks: 1_000,
+          finalizedRefreshIntervalMs: 1_000_000,
+        },
+      }),
+      3,
+    );
+
+    expect(spans.length).toBeGreaterThanOrEqual(2);
+    // First read starts one window below the cursor, not at the cursor.
+    expect(spans[0]).toEqual([937, 1936]);
+    // And it makes real forward progress: 936 blocks per read, not zero.
+    expect(spans[1]![0]).toBe(1873);
+  });
+});
+
+describe("poll backoff on a quiet chain", () => {
+  /** Counts eth_getLogs over a fixed wall-clock window on a chain that never emits. */
+  async function pollsInWindow(options: {
+    pollIntervalMs: number;
+    maxPollIntervalMs: number;
+    quietPollsBeforeBackoff: number;
+  }): Promise<number> {
+    let head = 5_000;
+    const rpc = rpcDouble({
+      // The head advances every poll, as it does on every chain we index whose
+      // block time is under the poll interval. That is what makes the existing
+      // unchanged-head skip useless there, and what leaves the interval as the
+      // only lever.
+      blocks: (tag) =>
+        tag === "finalized"
+          ? { number: 4_000, hash: "0x4000", timestamp: 1_700_000_000 }
+          : { number: head++, hash: `0x${head}`, timestamp: 1_700_000_000 },
+      logs: () => [],
+    });
+
+    const stream = createLogStream({
+      rpc,
+      filters: [filter()],
+      startingCursor: { orderKey: 5_000n },
+      options: { ...options, finalizedRefreshIntervalMs: 1_000_000 },
+    });
+
+    const deadline = Date.now() + 400;
+    void (async () => {
+      for await (const _ of stream) {
+        if (Date.now() > deadline) break;
+      }
+    })();
+    await new Promise((r) => setTimeout(r, 400));
+    return rpc.calls.filter((c) => c === "eth_getLogs").length;
+  }
+
+  it("makes far fewer requests than a fixed interval would", async () => {
+    const backedOff = await pollsInWindow({
+      pollIntervalMs: 2,
+      maxPollIntervalMs: 200,
+      quietPollsBeforeBackoff: 2,
+    });
+    const fixed = await pollsInWindow({
+      pollIntervalMs: 2,
+      maxPollIntervalMs: 2, // backoff disabled
+      quietPollsBeforeBackoff: 2,
+    });
+
+    // Over the same window the backed-off stream should settle at the 200ms
+    // ceiling (a handful of polls) while the fixed one keeps hammering. The
+    // assertion is deliberately loose -- this is a timing test -- but the two
+    // differ by more than an order of magnitude in practice.
+    expect(backedOff).toBeLessThan(fixed / 5);
+    expect(backedOff).toBeGreaterThan(0);
+  });
+
+  it("keeps polling at the floor while the chain keeps producing events", async () => {
+    // A busy chain must never notice backoff exists.
+    let head = 5_000;
+    const rpc = rpcDouble({
+      blocks: (tag) =>
+        tag === "finalized"
+          ? { number: 4_000, hash: "0x4000", timestamp: 1_700_000_000 }
+          : { number: ++head, hash: `0x${head}`, timestamp: 1_700_000_000 },
+      logs: (from, to) =>
+        [
+          log({
+            blockNumber: numberToHex(BigInt(to)),
+            blockHash: `0x${to}` as Hex,
+          }),
+        ].filter(() => to >= from),
+    });
+
+    const stream = createLogStream({
+      rpc,
+      filters: [filter()],
+      startingCursor: { orderKey: 5_000n },
+      options: {
+        pollIntervalMs: 2,
+        maxPollIntervalMs: 200,
+        quietPollsBeforeBackoff: 2,
+        finalizedRefreshIntervalMs: 1_000_000,
+      },
+    });
+
+    const deadline = Date.now() + 300;
+    void (async () => {
+      for await (const _ of stream) {
+        if (Date.now() > deadline) break;
+      }
+    })();
+    await new Promise((r) => setTimeout(r, 300));
+
+    // At a 2ms floor over 300ms this is dozens of reads; at the 200ms ceiling
+    // it would be one or two. Anything comfortably above the ceiling's rate
+    // proves the interval never grew.
+    expect(rpc.calls.filter((c) => c === "eth_getLogs").length).toBeGreaterThan(
+      20,
+    );
   });
 });

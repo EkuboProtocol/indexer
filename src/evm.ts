@@ -220,6 +220,16 @@ export async function createEvmEntrypoint(
         startingCursor: streamOptions.startingCursor,
         options: {
           pollIntervalMs: positiveInt("POLL_INTERVAL_MS", 2_000),
+          // Most chains we index have produced fewer than sixty events in
+          // their entire indexed history, and a poll costs the same eighty
+          // compute units whether it finds one or none. Backing off on a chain
+          // that is doing nothing is what makes indexing all of them cheap;
+          // one that is doing something never leaves POLL_INTERVAL_MS.
+          maxPollIntervalMs: positiveInt("MAX_POLL_INTERVAL_MS", 30_000),
+          quietPollsBeforeBackoff: positiveInt(
+            "QUIET_POLLS_BEFORE_BACKOFF",
+            30,
+          ),
           maxLogRangeBlocks: positiveInt("GET_LOGS_RANGE_SIZE", 1_000),
           // Deeper than any reorg the chain can produce. Raising it costs one
           // wider eth_getLogs per poll; lowering it too far loses events.
