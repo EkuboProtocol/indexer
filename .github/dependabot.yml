@@ -7,7 +7,3 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "daily"
-    groups:
-      apibara:
-        patterns:
-          - "@apibara/*"

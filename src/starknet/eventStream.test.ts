@@ -364,6 +364,22 @@ describe("readRange", () => {
     expect(params.address).toBeUndefined();
   });
 
+  it("stops on a token the node ends the listing with as null", async () => {
+    // `continuation_token` is optional in the spec, so implementations differ
+    // on whether the last page omits it or sends an explicit null. Testing for
+    // `undefined` alone would keep the loop alive while the falsy token was
+    // dropped from the request -- page one re-fetched until `maxPages`, then an
+    // error blaming the range size, which is not the problem.
+    const { rpc, calls } = rpcReturning({
+      starknet_getEvents: [{ events: [emitted()], continuation_token: null }],
+    });
+    const adapter = createStarknetAdapter({ rpc, filters: [coreFilter] });
+
+    const blocks = await adapter.readRange(BLOCK_NUMBER, BLOCK_NUMBER);
+    expect(blocks[0]!.logs).toHaveLength(1);
+    expect(calls).toHaveLength(1);
+  });
+
   it("refuses a range that will not finish paginating", async () => {
     const { rpc } = rpcReturning({
       starknet_getEvents: [{ events: [], continuation_token: "forever" }],
@@ -528,5 +544,90 @@ describe("createStarknetRpc", () => {
     );
     expect(result).toBe(1);
     expect(calls).toBe(2);
+  });
+});
+
+describe("createStarknetRpc retry envelope", () => {
+  const withFetch = async <T>(
+    responses: (() => Response | Promise<Response>)[],
+    run: (rpc: ReturnType<typeof createStarknetRpc>) => Promise<T>,
+  ): Promise<{ result: T | Error; calls: number }> => {
+    const original = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () =>
+      responses[Math.min(calls++, responses.length - 1)]!()) as unknown as typeof fetch;
+    try {
+      return {
+        result: await run(createStarknetRpc("https://x", { retryDelayMs: 1 })),
+        calls,
+      };
+    } catch (error) {
+      return { result: error as Error, calls };
+    } finally {
+      globalThis.fetch = original;
+    }
+  };
+  const json = (body: unknown, status = 200) => () =>
+    new Response(JSON.stringify(body), { status });
+
+  it("retries a 403, which an edge can return transiently", async () => {
+    // viem retries 403 and 413 for the EVM streams. Throwing here instead would
+    // exit the generator, and runtime.ts exits the process on that -- a worker
+    // restart where an EVM worker retries in place.
+    const { result, calls } = await withFetch(
+      [json({}, 403), json({ result: 5 })],
+      (rpc) => rpc.request("starknet_blockNumber", []),
+    );
+    expect(result).toBe(5);
+    expect(calls).toBe(2);
+  });
+
+  it("retries a 413", async () => {
+    const { result } = await withFetch(
+      [json({}, 413), json({ result: 6 })],
+      (rpc) => rpc.request("starknet_blockNumber", []),
+    );
+    expect(result).toBe(6);
+  });
+
+  it("retries a 200 whose body is not JSON", async () => {
+    // A proxy or CDN error page served with a 200. That is a failure to answer
+    // rather than an answer, so it is retried like one.
+    const { result, calls } = await withFetch(
+      [() => new Response("<html>502</html>", { status: 200 }), json({ result: 7 })],
+      (rpc) => rpc.request("starknet_blockNumber", []),
+    );
+    expect(result).toBe(7);
+    expect(calls).toBe(2);
+  });
+
+  it("gives up with the cause attached once retries are spent", async () => {
+    const { result, calls } = await withFetch([json({}, 503)], (rpc) =>
+      rpc.request("starknet_blockNumber", []),
+    );
+    expect(result).toBeInstanceOf(Error);
+    expect((result as Error).message).toMatch(/after 4 attempts.*503/s);
+    expect(calls).toBe(4);
+  });
+
+  it("bounds a request that never answers", async () => {
+    // Without a deadline a half-open socket parks the generator forever: the
+    // retry loop never runs, and the only backstop left is the five-minute
+    // NO_BLOCKS_TIMEOUT_MS.
+    const rpc = createStarknetRpc("https://x", { retries: 0, timeoutMs: 20 });
+    const original = globalThis.fetch;
+    globalThis.fetch = ((_u: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () =>
+          reject(new Error("aborted")),
+        );
+      })) as unknown as typeof fetch;
+    try {
+      await expect(rpc.request("starknet_blockNumber", [])).rejects.toThrow(
+        /after 1 attempts/,
+      );
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 });

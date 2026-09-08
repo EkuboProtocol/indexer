@@ -318,7 +318,7 @@ export function createStarknetAdapter({
 
     async readRange(from, to) {
       const events: EmittedEvent[] = [];
-      let continuationToken: string | undefined;
+      let continuationToken: string | null | undefined;
       let pages = 0;
 
       do {
@@ -330,7 +330,9 @@ export function createStarknetAdapter({
 
         const page = await rpc.request<{
           events: EmittedEvent[];
-          continuation_token?: string;
+          // Nullable, not merely optional: the field is optional in the spec, so
+          // a node may end a listing either by omitting it or by sending null.
+          continuation_token?: string | null;
         }>("starknet_getEvents", [
           {
             from_block: { block_number: from },
@@ -345,7 +347,12 @@ export function createStarknetAdapter({
 
         events.push(...page.events);
         continuationToken = page.continuation_token;
-      } while (continuationToken !== undefined);
+        // `!= null` deliberately: the field is optional in the spec, so a node
+        // may end a listing with an explicit JSON `null` rather than by omitting
+        // it. Testing only for `undefined` would keep this loop alive while the
+        // falsy token was dropped from the request below -- page one re-fetched
+        // until `maxPages`, then an error blaming the range size.
+      } while (continuationToken != null);
 
       // Unlike `eth_getLogs` there is no truncation to guard against. A capped
       // response says so by handing back a continuation token, and the loop
@@ -415,72 +422,118 @@ export function createStarknetAdapter({
 const RETRYABLE_RPC_CODES = new Set([-1, -32005, -32603, 429]);
 
 /**
+ * HTTP statuses viem retries for the EVM streams, enumerated so this client
+ * matches them rather than approximating them.
+ *
+ * 403 and 413 are the two a `status >= 500 || 408 || 429` test misses. A
+ * transient 403 from a provider edge would otherwise throw straight out of
+ * `fetchHead`, and `runtime.ts` exits the process on a generator throw -- a
+ * worker restart where an EVM worker would have retried in place.
+ */
+const RETRYABLE_HTTP_STATUSES = new Set([403, 408, 413, 429]);
+
+function isRetryableStatus(status: number): boolean {
+  return RETRYABLE_HTTP_STATUSES.has(status) || status >= 500;
+}
+
+/** One attempt, classified into a value, a retry, or a throw. */
+type Attempt<T> =
+  | { outcome: "ok"; value: T }
+  | { outcome: "retry"; error: Error }
+  | { outcome: "fail"; error: Error };
+
+/**
  * A JSON-RPC client with the retry behaviour viem gives the EVM streams.
  *
- * Retries a transport failure, a status the server says is transient, and the
- * JSON-RPC codes above. Anything else is an answer, and is returned or thrown
- * as one.
+ * Retries a transport failure, a timeout, a status the server says is
+ * transient, a body that is not the JSON it claimed, and the JSON-RPC codes
+ * above. Anything else is an answer, and is returned or thrown as one.
  */
 export function createStarknetRpc(
   url: string,
-  { retries = 3, retryDelayMs = 250 }: { retries?: number; retryDelayMs?: number } = {},
+  {
+    retries = 3,
+    retryDelayMs = 250,
+    timeoutMs = 20_000,
+  }: { retries?: number; retryDelayMs?: number; timeoutMs?: number } = {},
 ): StarknetRpc {
+  // Split out of `request` so each half stays under the lint's complexity cap,
+  // and so the classification can be read without the retry loop around it.
+  const attempt = async <T>(
+    method: string,
+    params: unknown,
+  ): Promise<Attempt<T>> => {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        // Nothing else bounds how long this may hang. Without it a half-open
+        // socket blocks the poll indefinitely: the generator is parked on this
+        // await, so the retry loop below never runs, and because `runtime.ts`
+        // does not reset the no-blocks timer on heartbeats the only backstop
+        // left is NO_BLOCKS_TIMEOUT_MS -- five minutes of not indexing. viem
+        // gives the EVM streams this for free; this is the equivalent.
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      return { outcome: "retry", error: error as Error };
+    }
+
+    if (isRetryableStatus(response.status)) {
+      return {
+        outcome: "retry",
+        error: new Error(`${method} failed with HTTP ${response.status}`),
+      };
+    }
+    if (!response.ok) {
+      return {
+        outcome: "fail",
+        error: new Error(`${method} failed with HTTP ${response.status}`),
+      };
+    }
+
+    let body: { result?: T; error?: { code: number; message: string } };
+    try {
+      body = (await response.json()) as typeof body;
+    } catch (error) {
+      // A 200 carrying a proxy or CDN error page rather than JSON. That is a
+      // failure to answer, not an answer, so it is retried like one.
+      return {
+        outcome: "retry",
+        error: new Error(
+          `${method} returned a body that is not JSON: ${String(error).slice(0, 120)}`,
+        ),
+      };
+    }
+
+    if (body.error) {
+      const failure = new Error(
+        `${method} failed: ${body.error.message} (code ${body.error.code})`,
+      );
+      return RETRYABLE_RPC_CODES.has(body.error.code)
+        ? { outcome: "retry", error: failure }
+        : { outcome: "fail", error: failure };
+    }
+    return { outcome: "ok", value: body.result as T };
+  };
+
   return {
     async request<T>(method: string, params: unknown): Promise<T> {
       let lastError: unknown;
 
-      for (let attempt = 0; attempt <= retries; attempt++) {
-        if (attempt > 0) {
+      for (let i = 0; i <= retries; i++) {
+        if (i > 0) {
           await new Promise((resolve) =>
-            setTimeout(resolve, retryDelayMs * 2 ** (attempt - 1)),
+            setTimeout(resolve, retryDelayMs * 2 ** (i - 1)),
           );
         }
 
-        let response: Response;
-        try {
-          response = await fetch(url, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              jsonrpc: "2.0",
-              id: 1,
-              method,
-              params,
-            }),
-          });
-        } catch (error) {
-          lastError = error;
-          continue;
-        }
-
-        if (
-          response.status === 429 ||
-          response.status === 408 ||
-          response.status >= 500
-        ) {
-          lastError = new Error(`${method} failed with HTTP ${response.status}`);
-          continue;
-        }
-
-        if (!response.ok) {
-          throw new Error(`${method} failed with HTTP ${response.status}`);
-        }
-
-        const body = (await response.json()) as {
-          result?: T;
-          error?: { code: number; message: string };
-        };
-        if (body.error) {
-          const failure = new Error(
-            `${method} failed: ${body.error.message} (code ${body.error.code})`,
-          );
-          if (RETRYABLE_RPC_CODES.has(body.error.code)) {
-            lastError = failure;
-            continue;
-          }
-          throw failure;
-        }
-        return body.result as T;
+        const result = await attempt<T>(method, params);
+        if (result.outcome === "ok") return result.value;
+        if (result.outcome === "fail") throw result.error;
+        lastError = result.error;
       }
 
       throw new Error(
