@@ -22,6 +22,17 @@
  * does. Backing off is a delay and never a miss -- a range query asked less
  * often reads a wider range, not a narrower one.
  *
+ * Nothing here is sized in blocks. A block is not a unit of time and the chains
+ * we index run from 10 s to 0.09 s apart, so any constant expressed as a block
+ * count means something different on each one -- the 64-block reorg window this
+ * used to carry bought Ethereum 640 s of protection and Robinhood, the busiest
+ * chain we run, six. The window is configured in seconds and converted per
+ * chain from a block rate measured off the head reads the poll already makes
+ * (`observeBlockRate`), and the backoff ceiling is bounded by what one
+ * `eth_getLogs` can actually drain at that rate. The only block count left is
+ * `maxLogRangeBlocks`, which is a real provider limit rather than a guess about
+ * the chain.
+ *
  * Correctness notes, since missing an event is the failure that matters:
  *
  * - A range query is self-describing in a way a subscription is not. It either
@@ -68,11 +79,19 @@ export interface LogStreamOptions {
   /** Widest block span to ask for in one `eth_getLogs`. */
   maxLogRangeBlocks?: number;
   /**
-   * How far back to re-read at the head to notice a reorg. Must be at least the
-   * deepest reorg the chain can produce; the cost of being generous is one
-   * wider `eth_getLogs`, the cost of being stingy is a missed event.
+   * How far back to re-read at the head to notice a reorg, in seconds of chain
+   * time. Must be at least as long as the deepest reorg the chain can produce;
+   * the cost of being generous is one wider `eth_getLogs`, which is free, and
+   * the cost of being stingy is a missed event.
+   *
+   * In seconds rather than blocks because a block is not a unit of anything.
+   * The chains we index run from 10 s to 0.09 s a block, so one block count
+   * means two very different amounts of history: at the 64 blocks this used to
+   * default to, Ethereum got 640 s of protection and Robinhood -- the busiest
+   * chain we run -- got 6. The equivalent block count is derived per chain from
+   * the observed block rate.
    */
-  reorgWindowBlocks?: number;
+  reorgWindowSeconds?: number;
   /**
    * A log count that is suspected of being a provider's cap rather than a real
    * result. Set it to the provider's documented `eth_getLogs` limit.
@@ -89,7 +108,7 @@ const DEFAULTS = {
   maxPollIntervalMs: 30_000,
   quietPollsBeforeBackoff: 30,
   maxLogRangeBlocks: 1_000,
-  reorgWindowBlocks: 64,
+  reorgWindowSeconds: 120,
   suspectLogCount: 10_000,
   finalizedRefreshIntervalMs: 30_000,
   heartbeatIntervalMs: 10_000,
@@ -493,6 +512,14 @@ interface StreamState {
    */
   quietPolls: number;
   /**
+   * Observed blocks per second, or null until enough of the chain has gone by
+   * to measure it. Every sizing decision that would otherwise be a block count
+   * goes through this.
+   */
+  blockRate: number | null;
+  /** The older end of the interval `blockRate` is measured over. */
+  rateSample: { number: number; timeSec: number } | null;
+  /**
    * False until the first window has been read.
    *
    * `emitted` starts empty because nothing has been observed yet, not because
@@ -505,6 +532,95 @@ interface StreamState {
 
 type Resolved = Required<Omit<LogStreamOptions, "onWarning">> &
   Pick<LogStreamOptions, "onWarning">;
+
+/**
+ * Chain time that must elapse before a block-rate sample is believed.
+ *
+ * Block timestamps have one-second resolution, and Robinhood produces eleven
+ * blocks inside one of those, so a short baseline measures rounding rather than
+ * the chain. Thirty seconds is long enough that the quantisation is noise on
+ * every chain we index and short enough to be learnt within one backoff cycle.
+ */
+const MIN_RATE_SAMPLE_SECONDS = 30;
+
+/**
+ * Updates the observed block rate from a head this poll already fetched.
+ *
+ * Free: `eth_getBlockByNumber("latest")` returns the number and the timestamp
+ * together, and the stream reads it every poll anyway. No request is made for
+ * this, which is the only reason it is worth measuring continuously rather than
+ * configuring per chain.
+ */
+export function observeBlockRate(state: StreamState, head: LatestBlock): void {
+  const timeSec = Math.floor(head.timestamp.getTime() / 1000);
+  const sample = state.rateSample;
+
+  if (!sample) {
+    state.rateSample = { number: head.number, timeSec };
+    return;
+  }
+
+  const elapsed = timeSec - sample.timeSec;
+  const advanced = head.number - sample.number;
+
+  // A head that went backwards, or a timestamp that did, means the sample is
+  // measuring a different view of the chain rather than its rate. Start over.
+  if (elapsed < 0 || advanced < 0) {
+    state.rateSample = { number: head.number, timeSec };
+    return;
+  }
+
+  if (elapsed < MIN_RATE_SAMPLE_SECONDS) return;
+
+  state.blockRate = advanced / elapsed;
+  state.rateSample = { number: head.number, timeSec };
+}
+
+/**
+ * How many blocks `reorgWindowSeconds` is worth on this chain right now.
+ *
+ * Capped at half `maxLogRangeBlocks`, which is what makes an unusable
+ * configuration unreachable rather than merely rejected. A read span no wider
+ * than the window it re-reads cannot reach past it: nothing is emitted, the
+ * cursor never advances, and because the span never reaches the head the loop
+ * never sleeps -- it spins at CPU speed issuing two requests a turn while
+ * looking perfectly healthy. Holding the window at half the span guarantees at
+ * least half the span is forward progress, whatever the chain does.
+ *
+ * Before the rate is known the window is that cap. Erring wide is free -- one
+ * `eth_getLogs` is 60 compute units for any span it accepts -- and erring
+ * narrow silently loses events, so the unmeasured case takes the widest window
+ * on offer and narrows as the chain is observed.
+ */
+export function reorgWindowBlocksFor(
+  state: Pick<StreamState, "blockRate">,
+  opts: Pick<
+    Resolved,
+    "reorgWindowSeconds" | "maxLogRangeBlocks" | "onWarning"
+  >,
+): number {
+  const cap = Math.max(1, Math.floor(opts.maxLogRangeBlocks / 2));
+  if (state.blockRate === null) return cap;
+
+  const wanted = Math.max(
+    1,
+    Math.ceil(state.blockRate * opts.reorgWindowSeconds),
+  );
+  if (wanted > cap) {
+    // Not an error -- the stream is still correct, just protected for less
+    // history than asked for. Worth saying out loud because the remedy is one
+    // env var: GET_LOGS_RANGE_SIZE bounds this, and raising it is free until
+    // the provider's own range limit.
+    opts.onWarning?.("reorg window capped by the log range size", {
+      wantedBlocks: wanted,
+      cappedToBlocks: cap,
+      effectiveSeconds: Math.round(cap / state.blockRate),
+      reorgWindowSeconds: opts.reorgWindowSeconds,
+      maxLogRangeBlocks: opts.maxLogRangeBlocks,
+    });
+  }
+  return Math.min(cap, wanted);
+}
 
 /** The span to re-read: back into the reorg window, or forward when behind it. */
 function windowFor(
@@ -535,9 +651,10 @@ function windowFor(
   // Anchoring to the cursor is what actually re-reads the blocks at risk: they
   // are the ones *we emitted*, which is a fact about the cursor and nothing
   // else. It costs no compute units -- `eth_getLogs` is billed per request, so
-  // a span 64 blocks wider is the same 60 units -- and slows a backfill by
-  // `reorgWindowBlocks / maxLogRangeBlocks`, 6% at the defaults, since each
-  // read now overlaps the last by the width of the window.
+  // a wider span is the same 60 units -- and slows a backfill by the window as
+  // a fraction of the span, since each read now overlaps the last by the width
+  // of the window. That fraction is at most a half, and is whatever
+  // `reorgWindowSeconds` works out to on this chain once the rate is known.
   //
   // Never start above the cursor. `earliest` is an optimisation -- a finalized
   // block cannot reorg, so there is no point re-reading below it -- but on a
@@ -548,7 +665,10 @@ function windowFor(
     1,
     Math.min(
       state.cursorBlock + 1,
-      Math.max(earliest, state.cursorBlock + 1 - opts.reorgWindowBlocks),
+      Math.max(
+        earliest,
+        state.cursorBlock + 1 - reorgWindowBlocksFor(state, opts),
+      ),
     ),
   );
   return { from, to: Math.min(head, from + opts.maxLogRangeBlocks - 1) };
@@ -620,7 +740,7 @@ async function refreshFinalized(
   // which nothing on such a chain is waiting for.
   const due = Math.max(
     opts.finalizedRefreshIntervalMs,
-    pollIntervalFor(state.quietPolls, opts) * 4,
+    pollIntervalFor(state, opts) * 4,
   );
   if (now - state.lastFinalizedRefresh < due) {
     return;
@@ -772,15 +892,36 @@ function heartbeatIfDue(
  * for at least `quietPollsBeforeBackoff` polls.
  */
 export function pollIntervalFor(
-  quietPolls: number,
+  state: Pick<StreamState, "quietPolls" | "blockRate">,
   opts: Pick<
     Resolved,
-    "pollIntervalMs" | "maxPollIntervalMs" | "quietPollsBeforeBackoff"
+    | "pollIntervalMs"
+    | "maxPollIntervalMs"
+    | "quietPollsBeforeBackoff"
+    | "maxLogRangeBlocks"
+    | "reorgWindowSeconds"
   >,
 ): number {
   const floor = opts.pollIntervalMs;
-  const ceiling = Math.max(floor, opts.maxPollIntervalMs);
-  const over = quietPolls - opts.quietPollsBeforeBackoff;
+
+  // The ceiling is whichever is lower: what was configured, and what one
+  // `eth_getLogs` can actually drain.
+  //
+  // A poll has to read every block produced since the last one, and it can only
+  // ask for `maxLogRangeBlocks` at a time, of which the reorg window is re-read
+  // rather than new. Sleep for longer than the remainder takes to accumulate
+  // and the stream never catches up in a single read: it stops sleeping, reads
+  // spans back to back, and pays more compute units than it saved. Where that
+  // line falls is a fact about the chain's block rate, so it is derived from
+  // the measured one rather than assumed -- 30 s is 3 blocks on Ethereum and
+  // 329 on Robinhood.
+  const drain = opts.maxLogRangeBlocks - reorgWindowBlocksFor(state, opts);
+  const rate = state.blockRate;
+  const drainCeiling =
+    rate !== null && rate > 0 ? (drain / rate) * 1_000 : Number.POSITIVE_INFINITY;
+  const ceiling = Math.max(floor, Math.min(opts.maxPollIntervalMs, drainCeiling));
+
+  const over = state.quietPolls - opts.quietPollsBeforeBackoff;
   if (over <= 0) return floor;
   // Cap the exponent before it is applied. `2 ** 1024` is Infinity, and a
   // chain quiet for a week would get there; `Math.min` would still return the
@@ -813,6 +954,8 @@ async function planRead(
 ): Promise<{ from: number; to: number; head: LatestBlock } | null> {
   const head = await fetchBlockByTag(rpc, "latest");
   if (!head) return null;
+  // Before `windowFor`, which sizes itself from the rate this updates.
+  observeBlockRate(state, head);
   const { from, to } = windowFor(state, head.number, opts);
   return from > to ? null : { from, to, head };
 }
@@ -933,15 +1076,15 @@ function initStream({
 
   const opts: Resolved = { ...DEFAULTS, ...options };
 
-  // A read span no wider than the reorg window can end below the cursor on every
-  // single poll: the window reaches back further than the span can reach
-  // forward. Nothing is emitted, the cursor never advances, and because the span
-  // also never reaches the head the loop does not sleep -- so it spins at CPU
-  // speed issuing two requests a turn while looking perfectly healthy. Refuse
-  // the configuration instead of letting it run.
-  if (opts.maxLogRangeBlocks <= opts.reorgWindowBlocks) {
+  // The window used to be a block count that could be configured wider than the
+  // span that has to contain it, which spins the loop -- so the constructor
+  // refused it. `reorgWindowBlocksFor` now caps the window at half the span, so
+  // there is no such configuration to refuse: forward progress is at least half
+  // of `maxLogRangeBlocks` whatever the chain's block rate turns out to be.
+  // What remains is the degenerate span, which no cap can rescue.
+  if (opts.maxLogRangeBlocks < 2) {
     throw new Error(
-      `GET_LOGS_RANGE_SIZE (${opts.maxLogRangeBlocks}) must exceed REORG_WINDOW_BLOCKS (${opts.reorgWindowBlocks}), otherwise a poll can never read past the window it re-reads and the stream makes no progress.`,
+      `GET_LOGS_RANGE_SIZE (${opts.maxLogRangeBlocks}) must be at least 2, otherwise a poll cannot both re-read a block and read a new one.`,
     );
   }
 
@@ -957,6 +1100,8 @@ function initStream({
       lastHeartbeat: Date.now(),
       lastHeadHash: "",
       quietPolls: 0,
+      blockRate: null,
+      rateSample: null,
       seeded: false,
     },
   };
@@ -1020,7 +1165,7 @@ function finishTick(
   const earliest = (state.finalized?.number ?? 0) + 1;
   forgetBelow(
     state,
-    Math.max(earliest, state.cursorBlock - opts.reorgWindowBlocks),
+    Math.max(earliest, state.cursorBlock - reorgWindowBlocksFor(state, opts)),
   );
 }
 
@@ -1084,7 +1229,7 @@ async function checkStartingCursor(
   // least we can do is re-read the block we are standing on rather than skip it.
   const target = Math.min(
     state.cursorBlock,
-    Math.max(floor, 1, state.cursorBlock - opts.reorgWindowBlocks),
+    Math.max(floor, 1, state.cursorBlock - reorgWindowBlocksFor(state, opts)),
   );
   opts.onWarning?.("stored cursor is not canonical; rolling back", {
     block: state.cursorBlock,
@@ -1130,7 +1275,7 @@ export async function* createLogStream(
       // count towards backoff -- but it must not poll a struggling endpoint
       // faster than a healthy one either, so it sleeps for the interval already
       // in force.
-      await sleep(pollIntervalFor(state.quietPolls, opts));
+      await sleep(pollIntervalFor(state, opts));
       continue;
     }
 
@@ -1140,7 +1285,7 @@ export async function* createLogStream(
       // sense that matters, and counting it is what lets a chain with a block
       // time longer than the poll interval back off at all.
       state.quietPolls++;
-      await sleep(pollIntervalFor(state.quietPolls, opts));
+      await sleep(pollIntervalFor(state, opts));
       continue;
     }
 
@@ -1185,7 +1330,7 @@ export async function* createLogStream(
     // the stream off just as it arrives at the head.
     if (plan.to >= plan.head.number) {
       if (fresh.length === 0) state.quietPolls++;
-      await sleep(pollIntervalFor(state.quietPolls, opts));
+      await sleep(pollIntervalFor(state, opts));
     }
   }
 }

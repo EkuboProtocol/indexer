@@ -231,9 +231,13 @@ export async function createEvmEntrypoint(
             30,
           ),
           maxLogRangeBlocks: positiveInt("GET_LOGS_RANGE_SIZE", 1_000),
-          // Deeper than any reorg the chain can produce. Raising it costs one
-          // wider eth_getLogs per poll; lowering it too far loses events.
-          reorgWindowBlocks: positiveInt("REORG_WINDOW_BLOCKS", 64),
+          // Deeper than any reorg the chain can produce. In seconds, not
+          // blocks: our chains run from 10s to 0.09s a block, so a single block
+          // count meant 640s of protection on Ethereum and 6s on Robinhood.
+          // The block count is derived per chain from the observed rate.
+          // Raising it costs one wider eth_getLogs per poll, which is free;
+          // lowering it too far loses events.
+          reorgWindowSeconds: positiveInt("REORG_WINDOW_SECONDS", 120),
           // Alchemy's documented eth_getLogs result cap. A response landing
           // exactly here is refused rather than indexed short.
           suspectLogCount: positiveInt("SUSPECT_LOG_COUNT", 10_000),
