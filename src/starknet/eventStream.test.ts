@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { Hex } from "viem";
 import {
   createStarknetAdapter,
+  createStarknetRpc,
   eventMatchesFilter,
   groupEventsByBlock,
   matchingFilterIds,
@@ -395,7 +396,8 @@ describe("fetchHead", () => {
 
     expect(await adapter.fetchHead()).toEqual({
       number: BLOCK_NUMBER,
-      hash: BLOCK_HASH,
+      // Padded to 32 bytes on the way out; the node sends 62 hex characters.
+      hash: `0x00${BLOCK_HASH.slice(2)}`,
       timestamp: new Date(BLOCK_TIMESTAMP * 1000),
       baseFeePerGas: 28_776_978_417n,
     });
@@ -433,5 +435,98 @@ describe("matchingFilterIds", () => {
         { id: 3, fromAddress: OTHER_CONTRACT, keys: [SWAPPED] },
       ]),
     ).toEqual([1, 2]);
+  });
+});
+
+describe("canonical block hashes", () => {
+  // The adapter compares felts by value, but the shared core cannot:
+  // `firstDivergentBlock` diffs hash strings and `headUnchanged` compares them
+  // outright. A node that strips leading zeroes on one request and not the next
+  // would read as a block that changed hash -- a reorg that never happened,
+  // with rows deleted and re-indexed for it.
+  const PADDED = `0x${"0".repeat(2)}${BLOCK_HASH.slice(2)}` as Hex;
+
+  it("pads a block hash carried on an event", () => {
+    const [short] = groupEventsByBlock([emitted()], [coreFilter]);
+    const [long] = groupEventsByBlock(
+      [emitted({ block_hash: PADDED })],
+      [coreFilter],
+    );
+    expect(short!.header.blockHash).toBe(long!.header.blockHash);
+    expect(short!.header.blockHash).toHaveLength(66);
+  });
+
+  it("pads a block hash carried on a header", async () => {
+    const { rpc } = rpcReturning({
+      starknet_getBlockWithTxHashes: [header(), header({ block_hash: PADDED })],
+    });
+    const adapter = createStarknetAdapter({ rpc, filters: [coreFilter] });
+    const first = await adapter.fetchHead();
+    const second = await adapter.fetchHead();
+    expect(first!.hash).toBe(second!.hash);
+    expect(first!.hash).toHaveLength(66);
+  });
+
+  it("still matches the cursor it is compared against numerically", () => {
+    const [block] = groupEventsByBlock([emitted()], [coreFilter]);
+    expect(BigInt(block!.header.blockHash)).toBe(BigInt(BLOCK_HASH));
+  });
+});
+
+describe("createStarknetRpc", () => {
+  const withFetch = async <T>(
+    responses: (() => Response)[],
+    run: (rpc: ReturnType<typeof createStarknetRpc>) => Promise<T>,
+  ): Promise<{ result: T | Error; calls: number }> => {
+    const original = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      const next = responses[Math.min(calls++, responses.length - 1)]!;
+      return next();
+    }) as unknown as typeof fetch;
+    try {
+      return { result: await run(createStarknetRpc("https://x", { retryDelayMs: 1 })), calls };
+    } catch (error) {
+      return { result: error as Error, calls };
+    } finally {
+      globalThis.fetch = original;
+    }
+  };
+
+  const json = (body: unknown, status = 200) =>
+    () => new Response(JSON.stringify(body), { status });
+
+  it("retries a compute-unit overage, which arrives as HTTP 200 code 429", async () => {
+    // The trap: Alchemy reports an overage as a *successful* HTTP response
+    // carrying a JSON-RPC error. Throwing here would exit the generator and
+    // restart.sh would poll the throttling endpoint a second later, forever.
+    const { result, calls } = await withFetch(
+      [
+        json({ error: { code: 429, message: "capacity" } }),
+        json({ result: { block_number: 7 } }),
+      ],
+      (rpc) => rpc.request("starknet_blockNumber", []),
+    );
+    expect(result).toEqual({ block_number: 7 });
+    expect(calls).toBe(2);
+  });
+
+  it("does not retry an error that is an answer", async () => {
+    const { result, calls } = await withFetch(
+      [json({ error: { code: -32602, message: "Invalid params" } })],
+      (rpc) => rpc.request("starknet_getEvents", []),
+    );
+    expect(result).toBeInstanceOf(Error);
+    expect((result as Error).message).toMatch(/Invalid params/);
+    expect(calls).toBe(1);
+  });
+
+  it("retries a transient HTTP status", async () => {
+    const { result, calls } = await withFetch(
+      [json({}, 503), json({ result: 1 })],
+      (rpc) => rpc.request("starknet_blockNumber", []),
+    );
+    expect(result).toBe(1);
+    expect(calls).toBe(2);
   });
 });

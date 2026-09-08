@@ -35,7 +35,7 @@
  *    filters are written unpadded, and the database stores them as numerics, so
  *    every comparison here is on the value and never on the string.
  */
-import type { Hex } from "viem";
+import { toHex, type Hex } from "viem";
 import type { IndexerCursor } from "../_shared/dao";
 import {
   createBlockStream,
@@ -85,6 +85,29 @@ export type StarknetStreamMessage = SharedStreamMessage<StarknetStreamEvent>;
 /** Felts compare by value: nodes pad them inconsistently and we do not. */
 function feltEquals(a: string, b: string): boolean {
   return BigInt(a) === BigInt(b);
+}
+
+/**
+ * A felt in one fixed spelling, applied to every block hash leaving this
+ * adapter.
+ *
+ * The adapter compares felts by value, but the shared core it feeds does not
+ * and cannot: `firstDivergentBlock` diffs `before.hash.toLowerCase() ===
+ * after.hash.toLowerCase()` and `headUnchanged` compares strings outright.
+ * Starknet nodes strip leading zeroes -- block 14555766 comes back as 62 hex
+ * characters, not 64 -- and two nodes behind one endpoint have historically
+ * disagreed about whether to. If the same block is ever spelled two ways, the
+ * digest diff reads it as a block that changed hash, `rollbackTo` invalidates
+ * and clears the window, and the next poll can do it again: rows deleted and
+ * re-indexed on a chain that never reorged, looking exactly like a real reorg
+ * in the logs.
+ *
+ * Canonicalising here rather than teaching the core about felts keeps the core
+ * chain-agnostic, and costs nothing downstream: the hash is stored in a numeric
+ * column, so padding never reaches the database either way.
+ */
+function canonicalFelt(felt: string): Hex {
+  return toHex(BigInt(felt), { size: 32 });
 }
 
 /**
@@ -184,7 +207,7 @@ export function groupEventsByBlock(
       block = {
         header: {
           blockNumber: BigInt(event.block_number),
-          blockHash: event.block_hash,
+          blockHash: canonicalFelt(event.block_hash),
           // Filled by `completeFresh`, which reads the block anyway.
           timestamp: new Date(0),
           baseFeePerGas: null,
@@ -244,7 +267,7 @@ function toChainHead(block: BlockHeaderResponse | null): ChainHead | null {
   const priceInFri = block.l2_gas_price?.price_in_fri;
   return {
     number: block.block_number,
-    hash: block.block_hash,
+    hash: canonicalFelt(block.block_hash),
     timestamp: new Date(block.timestamp * 1000),
     // What the DNA stream reported as the header's base fee, and what
     // `indexer_cursor.head_base_fee_per_gas` has held for Starknet all along.
@@ -374,11 +397,29 @@ export function createStarknetAdapter({
 }
 
 /**
+ * Retryable JSON-RPC error codes, matching the list viem applies to the EVM
+ * streams.
+ *
+ * A JSON-RPC error is usually an answer rather than a failure to answer, so
+ * most are not retried. These are the exceptions, and 429 is the one that
+ * matters here: Alchemy reports a compute-unit overage as an **HTTP 200
+ * carrying code 429**, so a client that only inspects the status code sees a
+ * successful response containing an error and gives up.
+ *
+ * Getting this wrong is not a dropped request. Throwing propagates out of
+ * `fetchHead`, exits the generator, and `restart.sh` restarts the worker a
+ * second later -- so the response to being throttled would be to poll the
+ * throttling endpoint harder, forever, while every EVM worker quietly backs
+ * off. Under the account's spend cap that is exactly when it would fire.
+ */
+const RETRYABLE_RPC_CODES = new Set([-1, -32005, -32603, 429]);
+
+/**
  * A JSON-RPC client with the retry behaviour viem gives the EVM streams.
  *
- * Retries only what is worth retrying -- a transport failure or a status the
- * server itself says is transient -- and never a JSON-RPC error, which is an
- * answer rather than a failure to answer.
+ * Retries a transport failure, a status the server says is transient, and the
+ * JSON-RPC codes above. Anything else is an answer, and is returned or thrown
+ * as one.
  */
 export function createStarknetRpc(
   url: string,
@@ -430,9 +471,14 @@ export function createStarknetRpc(
           error?: { code: number; message: string };
         };
         if (body.error) {
-          throw new Error(
+          const failure = new Error(
             `${method} failed: ${body.error.message} (code ${body.error.code})`,
           );
+          if (RETRYABLE_RPC_CODES.has(body.error.code)) {
+            lastError = failure;
+            continue;
+          }
+          throw failure;
         }
         return body.result as T;
       }
