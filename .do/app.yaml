@@ -13,13 +13,6 @@ envs:
     scope: RUN_TIME
     type: SECRET
     value: ${PG_CONNECTION_STRING}
-  # No worker reads this any more: Starknet moved off the apibara DNA stream
-  # onto its own RPC. Kept for one release so reverting that is a code revert
-  # and not also a secret to put back. Delete it once the RPC stream has held.
-  - key: DNA_TOKEN
-    scope: RUN_TIME
-    type: SECRET
-    value: ${APIBARA_DNA_TOKEN}
   - key: RESTART_DELAY_SECONDS
     scope: RUN_TIME
     value: "1"

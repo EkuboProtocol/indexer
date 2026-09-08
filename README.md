@@ -403,11 +403,28 @@ manual steps:
 
 1. **`starknet-mainnet` must be enabled on the Alchemy app** whose key
    `EVM_RPC_ALCHEMY_API_KEY` holds. It was an EVM-only app, so the worker will
-   fail to read the chain until it is.
-2. **`STARKNET_RPC_URL`** is a new secret in the app spec. `APIBARA_URL` is gone
-   from `.env.starknet.mainnet`; `DNA_TOKEN` is deliberately left in the app
-   spec for one release so reverting is a code revert and not also a secret to
-   put back.
+   fail to read the chain until it is. (Already done.)
+2. **`STARKNET_RPC_URL`** is a new secret in the app spec.
+
+Apibara is gone entirely: the four `@apibara/*` packages, `APIBARA_URL`,
+`DNA_TOKEN`, and the `APIBARA_DNA_TOKEN`, `STARKNET_MAINNET_APIBARA_URL` and
+`ETH_MAINNET_APIBARA_URL` secrets the deploy workflow passed to `envsubst`. The
+repository secrets themselves can be deleted in GitHub once this has shipped;
+nothing reads them.
+
+Downstream is unaffected, checked rather than assumed. `api` and
+`quoter-service` are the only things that read this database directly (`mcp`,
+`interface` and `wallet` go through the api), and both read the same five
+`indexer_cursor` columns plus `event_id`. Against a live cursor row written by
+the DNA stream, the new adapter returns an identical `head_block_hash`,
+`head_block_time` and `head_base_fee_per_gas`; `event_id` is unchanged, which is
+what quoter-service's incremental sync keys on (`last_event_id > $n`); and
+`fork_counter`, which it compares to decide a full refetch, only moves on an
+invalidate, of which a live boot from the real cursor produced none.
+
+The one behavioural difference is latency: DNA pushed a block as it was
+produced, and this polls, so Starknet events land up to `POLL_INTERVAL_MS`
+(2 s) later than they used to.
 
 `event_id` is unchanged: `transaction_index` and `event_index` come from
 `starknet_getEvents` under JSON-RPC v0.10 and match what DNA wrote, verified
