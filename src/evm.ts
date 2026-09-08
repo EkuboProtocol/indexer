@@ -220,10 +220,31 @@ export async function createEvmEntrypoint(
         startingCursor: streamOptions.startingCursor,
         options: {
           pollIntervalMs: positiveInt("POLL_INTERVAL_MS", 2_000),
+          // Most chains we index have produced fewer than sixty events in
+          // their entire indexed history, and a poll costs the same eighty
+          // compute units whether it finds one or none. Backing off on a chain
+          // that is doing nothing is what makes indexing all of them cheap.
+          //
+          // The cost is latency on a chain that goes quiet for longer than
+          // POLL_INTERVAL_MS * QUIET_POLLS_BEFORE_BACKOFF -- 60s -- which is
+          // not only the dead chains: Ethereum in a lull reaches the ceiling
+          // too. Then an event takes up to MAX_POLL_INTERVAL_MS to be indexed
+          // and indexer_cursor.head_base_fee_per_gas, which quoter-service
+          // reads to price gas, is that stale. Set MAX_POLL_INTERVAL_MS equal
+          // to POLL_INTERVAL_MS on a chain where that is not acceptable.
+          maxPollIntervalMs: positiveInt("MAX_POLL_INTERVAL_MS", 30_000),
+          quietPollsBeforeBackoff: positiveInt(
+            "QUIET_POLLS_BEFORE_BACKOFF",
+            30,
+          ),
           maxLogRangeBlocks: positiveInt("GET_LOGS_RANGE_SIZE", 1_000),
-          // Deeper than any reorg the chain can produce. Raising it costs one
-          // wider eth_getLogs per poll; lowering it too far loses events.
-          reorgWindowBlocks: positiveInt("REORG_WINDOW_BLOCKS", 64),
+          // Deeper than any reorg the chain can produce. In seconds, not
+          // blocks: our chains run from 10s to 0.09s a block, so a single block
+          // count meant 640s of protection on Ethereum and 6s on Robinhood.
+          // The block count is derived per chain from the observed rate.
+          // Raising it costs one wider eth_getLogs per poll, which is free;
+          // lowering it too far loses events.
+          reorgWindowSeconds: positiveInt("REORG_WINDOW_SECONDS", 120),
           // Alchemy's documented eth_getLogs result cap. A response landing
           // exactly here is refused rather than indexed short.
           suspectLogCount: positiveInt("SUSPECT_LOG_COUNT", 10_000),

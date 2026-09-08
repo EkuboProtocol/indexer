@@ -72,7 +72,13 @@ const stream = createLogStream({
   rpc: { request: (client as never as { request: never }).request },
   filters,
   startingCursor: { orderKey: BigInt(from - 1) },
-  options: { pollIntervalMs: 50, maxLogRangeBlocks: CHUNK, reorgWindowBlocks: 32 },
+  options: {
+    pollIntervalMs: 50,
+    // No backoff: this script wants every poll it can get inside its run.
+    maxPollIntervalMs: 50,
+    maxLogRangeBlocks: CHUNK,
+    reorgWindowSeconds: 120,
+  },
 });
 
 for await (const msg of stream) {

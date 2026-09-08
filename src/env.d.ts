@@ -27,8 +27,10 @@ interface EvmConfig extends CommonConfiguration {
   EVM_RPC_URL: string;
 
   POLL_INTERVAL_MS?: string; // How long to wait at the head before polling again; defaults to 2000
-  GET_LOGS_RANGE_SIZE?: string; // Widest block span per eth_getLogs; defaults to 1000. Must exceed REORG_WINDOW_BLOCKS, or the stream cannot read past the window it re-reads and makes no progress
-  REORG_WINDOW_BLOCKS?: string; // How far back to re-read at the head to notice a reorg; defaults to 64. Must be deeper than any reorg the chain can produce, and below GET_LOGS_RANGE_SIZE
+  MAX_POLL_INTERVAL_MS?: string; // Ceiling the poll interval backs off to while the chain indexes nothing; defaults to 30000. Set equal to POLL_INTERVAL_MS to disable backoff
+  QUIET_POLLS_BEFORE_BACKOFF?: string; // Consecutive empty polls tolerated before the interval grows; defaults to 30. POLL_INTERVAL_MS * this is the window in which a chain that indexed anything keeps polling at full rate
+  GET_LOGS_RANGE_SIZE?: string; // Widest block span per eth_getLogs; defaults to 1000. The reorg window is capped at half of it, so at least half of every span is forward progress
+  REORG_WINDOW_SECONDS?: string; // How far back to re-read at the head to notice a reorg, in seconds of chain time; defaults to 120. Converted to a block count per chain from the observed block rate, so it means the same amount of history on a 10s chain and a 0.09s one
   SUSPECT_LOG_COUNT?: string; // A log count treated as a provider cap rather than a real result; defaults to 10000
 
   CORE_ADDRESS: `0x${string}`;

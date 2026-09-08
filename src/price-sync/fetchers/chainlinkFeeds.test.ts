@@ -6,6 +6,8 @@ import {
   fetchChainlinkTokenPricesWithMulticall,
   parseChainlinkPriceConfig,
   readChainlinkFeedPrice,
+  resetVerifiedChainlinkClients,
+  verifiedClient,
   type ChainlinkFeedConfig,
 } from "./chainlinkFeeds";
 
@@ -361,5 +363,88 @@ describe("fetchChainlinkTokenPricesWithMulticall", () => {
         },
       ],
     });
+  });
+});
+
+describe("verifiedClient", () => {
+  const fake = (chainId: number, calls: { n: number }) =>
+    ({
+      getChainId: async () => {
+        calls.n++;
+        return chainId;
+      },
+    }) as never;
+
+  test("asks the chain for its ID once, not once per price fetch", async () => {
+    // This runs on a timer, once a minute per configured chain. Re-verifying
+    // every time was four eth_chainId calls a minute answering a question whose
+    // answer is a property of the endpoint and cannot change.
+    resetVerifiedChainlinkClients();
+    const calls = { n: 0 };
+    const create = () => fake(1, calls);
+
+    const first = await verifiedClient("1", ["https://rpc.example"], create);
+    for (let i = 0; i < 10; i++) {
+      const again = await verifiedClient("1", ["https://rpc.example"], create);
+      expect(again).toBe(first);
+    }
+    expect(calls.n).toBe(1);
+  });
+
+  test("shares one check between callers racing on a cold cache", async () => {
+    resetVerifiedChainlinkClients();
+    const calls = { n: 0 };
+    const create = () => fake(1, calls);
+
+    await Promise.all(
+      Array.from({ length: 8 }, () =>
+        verifiedClient("1", ["https://rpc.example"], create),
+      ),
+    );
+    expect(calls.n).toBe(1);
+  });
+
+  test("keeps a separate client per chain and per endpoint set", async () => {
+    resetVerifiedChainlinkClients();
+    const calls = { n: 0 };
+
+    const a = await verifiedClient("1", ["https://a"], () => fake(1, calls));
+    const b = await verifiedClient("10", ["https://b"], () => fake(10, calls));
+    const c = await verifiedClient("1", ["https://c"], () => fake(1, calls));
+
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(c);
+    expect(calls.n).toBe(3);
+  });
+
+  test("rejects an endpoint serving a different chain", async () => {
+    resetVerifiedChainlinkClients();
+    const calls = { n: 0 };
+    await expect(
+      verifiedClient("1", ["https://wrong"], () => fake(137, calls)),
+    ).rejects.toThrow(/returned chain ID 137/);
+  });
+
+  test("does not cache a failed check, so a blip cannot disable the chain", async () => {
+    // A misconfigured URL fails again next minute at no cost. A transient
+    // network error during the first check must not be remembered forever.
+    resetVerifiedChainlinkClients();
+    let attempt = 0;
+    const create = () =>
+      ({
+        getChainId: async () => {
+          attempt++;
+          if (attempt === 1) throw new Error("connection reset");
+          return 1;
+        },
+      }) as never;
+
+    await expect(
+      verifiedClient("1", ["https://flaky"], create),
+    ).rejects.toThrow(/connection reset/);
+
+    const client = await verifiedClient("1", ["https://flaky"], create);
+    expect(client).toBeDefined();
+    expect(attempt).toBe(2);
   });
 });
