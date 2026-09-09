@@ -168,6 +168,8 @@ export interface StreamState {
    */
   emitted: Map<number, BlockDigest>;
   finalized: ChainHead | null;
+  /** Observed finality, held back until the old window has been reconciled. */
+  pendingFinalized: ChainHead | null;
   lastFinalizedRefresh: number;
   /** Highest finalized block already announced downstream, 0 before the first. */
   finalizedEmitted: number;
@@ -570,27 +572,36 @@ async function refreshFinalized<TEvent>(
   });
   if (!finalized) return;
 
-  if (state.finalized && finalized.number < state.finalized.number) {
+  const held = state.pendingFinalized ?? state.finalized;
+  if (held && finalized.number < held.number) {
     opts.onWarning?.("finalized block moved backwards; ignoring", {
       seen: finalized.number,
-      held: state.finalized.number,
+      held: held.number,
     });
     return;
   }
-  state.finalized = finalized;
+  state.pendingFinalized = finalized;
 }
 
 /**
- * Refreshes the finalized block when due, then announces it if the cursor has
- * reached it. `now` of null skips the refresh and only re-checks.
+ * Accept observed finality only after reconciling with the previous read floor.
+ * A block may have reorged before becoming finalized between two polls. Using
+ * the new floor to plan that read would hide the divergence permanently.
+ * Also hold it back while catching up, until its history has been indexed.
  */
 async function* announceFinalized<TEvent>(
-  adapter: ChainAdapter<TEvent>,
   state: StreamState,
-  opts: Resolved,
-  now: number | null,
+  reconciledThrough: number,
 ): AsyncGenerator<StreamMessage<TEvent>> {
-  if (now !== null) await refreshFinalized(adapter, state, opts, now);
+  const pending = state.pendingFinalized;
+  if (
+    pending &&
+    pending.number <= state.cursorBlock &&
+    reconciledThrough >= state.cursorBlock
+  ) {
+    state.finalized = pending;
+    state.pendingFinalized = null;
+  }
   const message = finalizeIfDue<TEvent>(state);
   if (message) yield message;
 }
@@ -882,6 +893,7 @@ export function initStreamState(
       cursorBlock: Number(startingCursor.orderKey),
       emitted: new Map(),
       finalized: null,
+      pendingFinalized: null,
       lastFinalizedRefresh: 0,
       finalizedEmitted: 0,
       lastHeartbeat: Date.now(),
@@ -972,20 +984,15 @@ async function checkStartingCursor<TEvent>(
   const expected = startingCursor.uniqueKey;
   if (typeof expected !== "string" || state.cursorBlock <= 0) return null;
 
-  // An absent or unreadable block is a pruned or lagging node answering, not a
-  // reorg, and `withNullBlockRetry` surfaces the null case as a throw. Reading
-  // forward from an unverified cursor is the safe failure -- it re-reads -- and
-  // is far better than crash-looping a worker whose node cannot serve the block.
-  const block = await adapter
-    .fetchBlock(state.cursorBlock)
-    .catch((error: unknown) => {
-      opts.onWarning?.("could not verify the stored cursor", {
-        block: state.cursorBlock,
-        error: String(error).slice(0, 200),
-      });
-      return null;
-    });
-  if (!block) return null;
+  // A failed lookup does not establish canonicality. Do not seed the window
+  // from a potentially different branch and then advance past persisted events.
+  // Transport retries (and the runtime's process restart) retry verification.
+  const block = await adapter.fetchBlock(state.cursorBlock);
+  if (!block) {
+    throw new Error(
+      `Could not verify the stored cursor at block ${state.cursorBlock}; refusing to index from an unverified cursor`,
+    );
+  }
 
   // The stored key round-trips through a numeric column, so leading zeroes are
   // gone by the time it comes back -- and on Starknet a felt is routinely
@@ -993,10 +1000,9 @@ async function checkStartingCursor<TEvent>(
   // the strings.
   if (BigInt(block.hash) === BigInt(expected)) return null;
 
-  // A finalized block cannot be the reorg point, so there is no reason to
-  // rewind past one -- and every reason not to, since the rows below it are
-  // settled. Costs one request, and only on the branch that already found a
-  // mismatch.
+  // Read finality only to estimate the block rate. Newly observed finality
+  // cannot bound recovery: those blocks may have reorged during downtime
+  // before becoming finalized, while our persisted events are still orphaned.
   // Tolerated the same way `refreshFinalized` tolerates it, and for a sharper
   // reason: this line is only reached once the cursor is already known to be
   // non-canonical. Letting it throw would exit before the `invalidate` is
@@ -1012,10 +1018,9 @@ async function checkStartingCursor<TEvent>(
   //
   // This runs before the loop, so without it `state.blockRate` is null here and
   // the window is the half-span cap -- 500 blocks by default and 2500 on
-  // Arbitrum and Robinhood, against the 64 this used to rewind. `finalized + 1`
-  // floors it, so that only bites on a node that cannot serve the finalized tag
-  // (which this function already tolerates), but there it means deleting and
-  // reprocessing thousands of blocks on a cursor that moved by one.
+  // Arbitrum and Robinhood, against the 64 this used to rewind. Measuring the
+  // rate avoids deleting and reprocessing thousands of blocks on a cursor
+  // that moved by one.
   //
   // The cursor block and the finalized block are separated by the chain's
   // finality lag, which is a far longer baseline than the loop's 30 s sample
@@ -1030,12 +1035,11 @@ async function checkStartingCursor<TEvent>(
     }
   }
 
-  const floor = finalized ? finalized.number + 1 : 1;
-  // Never past the cursor itself: if even the finalized block disagrees, the
-  // least we can do is re-read the block we are standing on rather than skip it.
-  const target = Math.min(
-    state.cursorBlock,
-    Math.max(floor, 1, state.cursorBlock - reorgWindowBlocksFor(state, opts)),
+  // No verified finality checkpoint is available here. Re-read the protected
+  // window even if the node now considers some of it finalized.
+  const target = Math.max(
+    1,
+    state.cursorBlock - reorgWindowBlocksFor(state, opts),
   );
   opts.onWarning?.("stored cursor is not canonical; rolling back", {
     block: state.cursorBlock,
@@ -1079,7 +1083,7 @@ export async function* createBlockStream<TEvent>(
     const heartbeat = heartbeatIfDue<TEvent>(state, opts, now);
     if (heartbeat) yield heartbeat;
 
-    yield* announceFinalized(adapter, state, opts, now);
+    await refreshFinalized(adapter, state, opts, now);
 
     const plan = await planRead(adapter, state, opts);
     if (!plan) {
@@ -1096,6 +1100,7 @@ export async function* createBlockStream<TEvent>(
       // head hash commits to its whole ancestry. That is a quiet poll in the
       // sense that matters, and counting it is what lets a chain with a block
       // time longer than the poll interval back off at all.
+      yield* announceFinalized<TEvent>(state, plan.head.number);
       state.quietPolls++;
       await sleep(pollIntervalFor(state, opts));
       continue;
@@ -1133,7 +1138,7 @@ export async function* createBlockStream<TEvent>(
     finishTick(state, plan, opts);
 
     // Now that the cursor has moved, the finalized block may be behind it.
-    yield* announceFinalized(adapter, state, opts, null);
+    yield* announceFinalized<TEvent>(state, plan.to);
 
     // Only a caught-up poll can be a quiet one. While catching up the loop does
     // not sleep at all, and counting those polls would let a long backfill --

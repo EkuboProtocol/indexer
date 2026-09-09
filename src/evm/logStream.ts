@@ -385,6 +385,11 @@ async function requireTimestamps(
         `Log for block ${block.header.blockNumber} carried no blockTimestamp and the block could not be read`,
       );
     }
+    if (filled.hash.toLowerCase() !== block.header.blockHash.toLowerCase()) {
+      throw new Error(
+        `Block ${block.header.blockNumber} changed hash between the log read (${block.header.blockHash}) and the header read (${filled.hash}); refusing to timestamp its logs from a different block`,
+      );
+    }
     block.header.timestamp = filled.timestamp;
     block.header.baseFeePerGas = filled.baseFeePerGas;
   }

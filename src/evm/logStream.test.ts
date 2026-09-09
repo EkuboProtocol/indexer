@@ -3,6 +3,7 @@ import type { Address, Hex } from "viem";
 import { numberToHex } from "viem";
 import {
   createLogStream,
+  createEvmAdapter,
   digestBlocks,
   fetchLogsChecked,
   firstDivergentBlock,
@@ -826,9 +827,9 @@ describe("createLogStream when the head repeats", () => {
 });
 
 describe("createLogStream startup rollback depth", () => {
-  it("does not rewind past the finalized block", async () => {
-    // A finalized block cannot be the reorg point, and the rows below it are
-    // settled, so there is no reason to throw them away.
+  it("rewinds past newly observed finality when the stored cursor differs", async () => {
+    // These blocks may have reorged during downtime before finalizing.
+    // The current finalized tag does not verify the persisted history.
     const warnings: string[] = [];
     const rpc = rpcDouble({
       blocks: (tag) => {
@@ -869,9 +870,9 @@ describe("createLogStream startup rollback depth", () => {
 
     const first = messages[0]!;
     expect(first._tag).toBe("invalidate");
-    // Window would reach back to 36; finality stops it at 95.
+    // Re-read from 36 even though the RPC now finalizes through 95.
     if (first._tag === "invalidate") {
-      expect(first.invalidate.cursor.orderKey).toBe(95n);
+      expect(first.invalidate.cursor.orderKey).toBe(35n);
     }
     expect(warnings[0]).toMatch(/not canonical/);
   });
@@ -2043,5 +2044,26 @@ describe("observeBlockRate on a halted chain", () => {
     observeBlockRate(state as never, head(1_000, 1_700_000_000));
     observeBlockRate(state as never, head(1_005, 1_700_000_001));
     expect(state.blockRate).toBeNull();
+  });
+});
+
+
+describe("EVM timestamp completion across a reorg", () => {
+  const makeAdapter = (hash: Hex) => createEvmAdapter(rpcDouble({
+    blocks: () => ({ number: 100, hash, timestamp: 1_700_000_000 }),
+    logs: () => [],
+  }), [filter()], 10_000);
+  const head = { number: 101, hash: "0x101" as Hex, timestamp: new Date(), baseFeePerGas: null };
+
+  it("refuses to attach a different fork's timestamp to logs", async () => {
+    const blocks = groupLogsByBlock([log({ blockHash: "0xaaa", blockTimestamp: undefined })], [filter()]);
+    await expect(makeAdapter("0xbbb").completeFresh(blocks, head)).rejects.toThrow(/changed hash/);
+    expect(blocks[0]!.header.timestamp.getTime()).toBe(0);
+  });
+
+  it("fills timestamps when the hash matches case-insensitively", async () => {
+    const blocks = groupLogsByBlock([log({ blockHash: "0xaaa", blockTimestamp: undefined })], [filter()]);
+    await makeAdapter("0xAAA").completeFresh(blocks, head);
+    expect(blocks[0]!.header.timestamp.getTime()).toBe(1_700_000_000_000);
   });
 });
