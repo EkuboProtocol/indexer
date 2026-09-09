@@ -134,6 +134,14 @@ export async function runIndexer<TBlock>({
       const streamOptions = {
         finality: "accepted",
         startingCursor: currentCursor!,
+        loadPreviousCursor: async (before: number) => {
+          const stored = await dao.loadPreviousBlockCursor(before);
+          if (stored) return stored;
+          // An empty database still has the operator's explicit indexing
+          // boundary. Preserve it instead of backfilling from genesis.
+          const initial = BigInt(process.env.STARTING_CURSOR_BLOCK_NUMBER!);
+          return initial < BigInt(before) ? { orderKey: initial } : null;
+        },
         heartbeatInterval: {
           seconds: 10n,
           nanos: 0,

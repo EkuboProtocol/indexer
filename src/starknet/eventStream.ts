@@ -37,6 +37,8 @@
  */
 import { toHex, type Hex } from "viem";
 import type { IndexerCursor } from "../_shared/dao";
+import { parseRpcEnvelope, type RpcEnvelope } from "../_shared/rpcEnvelope";
+import { checkContinuationToken, recordEventIdentity, requireBlockInRange } from "../_shared/rpcRecords";
 import {
   createBlockStream,
   requireRepresentableIndex,
@@ -189,6 +191,7 @@ export function groupEventsByBlock(
   filters: StarknetStreamFilter[],
 ): StarknetStreamBlock[] {
   const byBlock = new Map<number, StarknetStreamBlock>();
+  const seen = new Map<string, string>();
 
   for (const event of events) {
     if (event.block_number === undefined || event.block_hash === undefined) {
@@ -227,12 +230,15 @@ export function groupEventsByBlock(
       );
     }
 
+    recordEventIdentity(seen, event.block_number, event.block_hash, `${event.transaction_index}:${event.event_index}`);
     block.logs.push({
       address: event.from_address,
       keys: event.keys,
       data: event.data,
       transactionHash: event.transaction_hash,
-      transactionIndex: event.transaction_index,
+      transactionIndex: requireRepresentableIndex(
+        event.transaction_index, event.block_number, "the transaction index",
+      ),
       eventIndex: requireRepresentableIndex(
         event.event_index,
         event.block_number,
@@ -244,7 +250,10 @@ export function groupEventsByBlock(
 
   return [...byBlock.entries()]
     .sort(([a], [b]) => a - b)
-    .map(([, block]) => block);
+    .map(([, block]) => {
+      block.logs.sort((a, b) => a.transactionIndex - b.transactionIndex || a.eventIndex - b.eventIndex);
+      return block;
+    });
 }
 
 export interface StarknetRpc {
@@ -316,10 +325,11 @@ export function createStarknetAdapter({
 
     fetchBlock: (blockNumber) => fetchHeader({ block_number: blockNumber }),
 
-    async readRange(from, to) {
+    async readRange(from, to, endHash) {
       const events: EmittedEvent[] = [];
       let continuationToken: string | null | undefined;
       let pages = 0;
+      const tokens = new Set<string>();
 
       do {
         if (++pages > maxPages) {
@@ -336,7 +346,7 @@ export function createStarknetAdapter({
         }>("starknet_getEvents", [
           {
             from_block: { block_number: from },
-            to_block: { block_number: to },
+            to_block: endHash ? { block_hash: endHash } : { block_number: to },
             ...(keysPrefilter ? { keys: [keysPrefilter] } : {}),
             chunk_size: chunkSize,
             ...(continuationToken
@@ -345,8 +355,13 @@ export function createStarknetAdapter({
           },
         ]);
 
-        events.push(...page.events);
+        for (const event of page.events) {
+          requireBlockInRange(event.block_number!, from, to);
+          if (event.block_hash == null) throw new Error("Numbered event range returned an event without a block hash");
+          events.push(event);
+        }
         continuationToken = page.continuation_token;
+        checkContinuationToken(continuationToken, tokens);
         // `!= null` deliberately: the field is optional in the spec, so a node
         // may end a listing with an explicit JSON `null` rather than by omitting
         // it. Testing only for `undefined` would keep this loop alive while the
@@ -382,7 +397,7 @@ export function createStarknetAdapter({
         // `blocks.block_time` with nothing to flag it, so a block that changed
         // identity is refused instead. The cursor is durable and the runtime
         // restarts, so the next pass re-reads a consistent block.
-        if (!feltEquals(header.hash, block.header.blockHash)) {
+        if (header.number !== blockNumber || !feltEquals(header.hash, block.header.blockHash)) {
           throw new Error(
             `Block ${blockNumber} changed hash between the event read (${block.header.blockHash}) and the header read (${header.hash}); refusing to timestamp its events from a different block`,
           );
@@ -494,16 +509,16 @@ export function createStarknetRpc(
       };
     }
 
-    let body: { result?: T; error?: { code: number; message: string } };
+    let body: RpcEnvelope<T>;
     try {
-      body = (await response.json()) as typeof body;
+      body = parseRpcEnvelope<T>(await response.json());
     } catch (error) {
       // A 200 carrying a proxy or CDN error page rather than JSON. That is a
       // failure to answer, not an answer, so it is retried like one.
       return {
         outcome: "retry",
         error: new Error(
-          `${method} returned a body that is not JSON: ${String(error).slice(0, 120)}`,
+          `${method} returned an invalid JSON-RPC response: ${String(error).slice(0, 120)}`,
         ),
       };
     }
@@ -550,6 +565,7 @@ export interface CreateStarknetEventStreamArgs {
   rpc: StarknetRpc;
   filters: StarknetStreamFilter[];
   startingCursor: IndexerCursor;
+  loadPreviousCursor?: (before: number) => Promise<IndexerCursor | null>;
   options?: BlockStreamOptions & { chunkSize?: number; maxPages?: number };
 }
 
@@ -570,6 +586,7 @@ export function createStarknetEventStream(
       maxPages,
     }),
     startingCursor: args.startingCursor,
+    loadPreviousCursor: args.loadPreviousCursor,
     options,
   });
 }

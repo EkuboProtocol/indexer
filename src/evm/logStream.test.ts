@@ -196,28 +196,37 @@ function rpcDouble(handlers: {
   } | null;
 }): RpcLike & { calls: string[] } {
   const calls: string[] = [];
+  // Headers read by number share the current fixture snapshot, rather than
+  // advancing a simulated poll as a latest-head request would.
+  const headers = new Map<number, { number: number; hash: string; timestamp: number; baseFeePerGas?: bigint }>();
+  const getLogs = (params: unknown[]) => {
+    const p = params[0] as { fromBlock: Hex; toBlock: Hex };
+    const logs = handlers.logs?.(Number(p.fromBlock), Number(p.toBlock)) ?? [];
+    for (const log of logs) {
+      headers.set(Number(log.blockNumber), {
+        number: Number(log.blockNumber), hash: log.blockHash,
+        timestamp: Number(log.blockTimestamp ?? "0x0"),
+      });
+    }
+    return logs;
+  };
+  const getBlock = (tag: string) => {
+    const b = headers.get(Number(tag)) ?? handlers.blocks?.(tag);
+    if (!b) return null;
+    const number = tag === "latest" || tag === "finalized" ? b.number : Number(tag);
+    headers.set(number, b);
+    return {
+      number: numberToHex(BigInt(number)), hash: b.hash,
+      timestamp: numberToHex(BigInt(b.timestamp)),
+      ...(b.baseFeePerGas !== undefined ? { baseFeePerGas: numberToHex(b.baseFeePerGas) } : {}),
+    };
+  };
   return {
     calls,
     request: (async (args: { method: string; params: unknown[] }) => {
       calls.push(args.method);
-      if (args.method === "eth_getLogs") {
-        const p = args.params[0] as { fromBlock: Hex; toBlock: Hex };
-        return handlers.logs?.(Number(p.fromBlock), Number(p.toBlock)) ?? [];
-      }
-      if (args.method === "eth_getBlockByNumber") {
-        const tag = args.params[0] as string;
-        const b = handlers.blocks?.(tag);
-        return b
-          ? {
-              number: numberToHex(BigInt(b.number)),
-              hash: b.hash,
-              timestamp: numberToHex(BigInt(b.timestamp)),
-              ...(b.baseFeePerGas !== undefined
-                ? { baseFeePerGas: numberToHex(b.baseFeePerGas) }
-                : {}),
-            }
-          : null;
-      }
+      if (args.method === "eth_getLogs") return getLogs(args.params);
+      if (args.method === "eth_getBlockByNumber") return getBlock(args.params[0] as string);
       throw new Error(`unexpected ${args.method}`);
     }) as RpcLike["request"],
   };
@@ -317,7 +326,7 @@ describe("createLogStream", () => {
     expect(data[0]!.data.data[0]!.header.blockHash).toBe("0x101");
   });
 
-  it("does not fetch a header for any block other than the head", async () => {
+  it("bounds header reads per quiet range rather than per block", async () => {
     const rpc = rpcDouble({
       blocks: (tag) =>
         tag === "finalized"
@@ -339,10 +348,10 @@ describe("createLogStream", () => {
       3,
     );
 
-    // Two blocks carried logs and the head advanced by five, yet the only
-    // header reads are for tags, never per block.
+    // Two event-bearing headers plus the head/finality/snapshot checks;
+    // the empty intermediate blocks need no individual header reads.
     const headerReads = rpc.calls.filter((c) => c === "eth_getBlockByNumber");
-    expect(headerReads.length).toBeLessThanOrEqual(2);
+    expect(headerReads.length).toBeLessThanOrEqual(5);
   });
 
   it("does not mistake a quiet chain for a reorg", async () => {
@@ -393,6 +402,7 @@ describe("createLogStream", () => {
       blocks: (tag) => {
         if (tag === "finalized")
           return { number: 90, hash: "0x90", timestamp: 1_700_000_000 };
+        if (tag === "0x64") return { number: 100, hash: "0x100", timestamp: 1_700_000_000 };
         headReads++;
         return {
           number: 102,
@@ -412,7 +422,8 @@ describe("createLogStream", () => {
       createLogStream({
         rpc,
         filters: [filter()],
-        startingCursor: { orderKey: 100n },
+        startingCursor: { orderKey: 100n, uniqueKey: "0x100" },
+        loadPreviousCursor: async () => ({ orderKey: 100n, uniqueKey: "0x100" }),
         options: {
           pollIntervalMs: 1,
           finalizedRefreshIntervalMs: 1_000_000,
@@ -691,9 +702,9 @@ describe("createLogStream on restart", () => {
 
     const first = messages[0]!;
     expect(first._tag).toBe("invalidate");
-    // Back to cursor minus the reorg window, so the window is re-read.
+    // No durable common checkpoint is supplied, so recovery starts at zero.
     if (first._tag === "invalidate") {
-      expect(first.invalidate.cursor.orderKey).toBe(79n);
+      expect(first.invalidate.cursor.orderKey).toBe(0n);
     }
     expect(warnings[0]).toMatch(/not canonical/);
   });
@@ -870,9 +881,9 @@ describe("createLogStream startup rollback depth", () => {
 
     const first = messages[0]!;
     expect(first._tag).toBe("invalidate");
-    // Re-read from 36 even though the RPC now finalizes through 95.
+    // Current finality does not prove persisted history; no checkpoint means zero.
     if (first._tag === "invalidate") {
-      expect(first.invalidate.cursor.orderKey).toBe(35n);
+      expect(first.invalidate.cursor.orderKey).toBe(0n);
     }
     expect(warnings[0]).toMatch(/not canonical/);
   });
@@ -1732,7 +1743,7 @@ describe("reorg detection once the poll interval can back off", () => {
       blocks: (tag) =>
         tag === "finalized"
           ? { number: 500, hash: "0x500", timestamp: 1_700_000_000 }
-          : { number: 100_000, hash: "0xhead", timestamp: 1_700_100_000 },
+          : { number: 100_000, hash: "0xdead", timestamp: 1_700_100_000 },
       logs: (from, to) => {
         spans.push([from, to]);
         return [];
@@ -1951,7 +1962,7 @@ describe("a rollback that moves the cursor down", () => {
     let poll = 0;
     const reorgAt = 1_180;
     const hashFor = (n: number) =>
-      (n === reorgAt && poll > 2 ? `0x${n}-b` : `0x${n}-a`) as Hex;
+      (n === reorgAt && poll > 2 ? `0x${n}b` : `0x${n}a`) as Hex;
 
     const rpc = rpcDouble({
       blocks: (tag) => {
@@ -1961,7 +1972,7 @@ describe("a rollback that moves the cursor down", () => {
         poll++;
         return {
           number: 1_200 + poll,
-          hash: `0xhead${poll}`,
+          hash: hashFor(1_200 + poll),
           timestamp: 1_700_000_000 + poll,
         };
       },
@@ -2061,9 +2072,26 @@ describe("EVM timestamp completion across a reorg", () => {
     expect(blocks[0]!.header.timestamp.getTime()).toBe(0);
   });
 
+  it("also rejects stale logs that already carry a timestamp", async () => {
+    const blocks = groupLogsByBlock([log({ blockHash: "0xaaa" })], [filter()]);
+    await expect(makeAdapter("0xbbb").completeFresh(blocks, head)).rejects.toThrow(/changed hash/);
+  });
+
   it("fills timestamps when the hash matches case-insensitively", async () => {
     const blocks = groupLogsByBlock([log({ blockHash: "0xaaa", blockTimestamp: undefined })], [filter()]);
     await makeAdapter("0xAAA").completeFresh(blocks, head);
     expect(blocks[0]!.header.timestamp.getTime()).toBe(1_700_000_000_000);
+  });
+});
+
+
+describe("RPC log consistency", () => {
+  it("rejects duplicate positions and mixed block hashes", () => {
+    expect(() => groupLogsByBlock([log(), log()], [filter()])).toThrow(/Duplicate/);
+    expect(() => groupLogsByBlock([log(), log({ blockHash: "0x123", logIndex: "0x2" })], [filter()])).toThrow(/Mixed block hashes/);
+  });
+  it("rejects logs outside the requested range", async () => {
+    const adapter = createEvmAdapter(rpcDouble({ logs: () => [log()] }), [filter()], 10_000);
+    await expect(adapter.readRange(1, 2)).rejects.toThrow(/outside requested range/);
   });
 });

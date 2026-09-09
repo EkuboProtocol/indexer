@@ -38,7 +38,9 @@ export function parseStarknetBlockHeader(
   };
 }
 
-export function createStarknetEntrypoint(): NetworkEntrypoint<StarknetStreamBlock> {
+export async function createStarknetEntrypoint(
+  chainId: bigint,
+): Promise<NetworkEntrypoint<StarknetStreamBlock>> {
   const starknetAddressConfig = loadHexAddresses({
     nftAddress: "NFT_ADDRESS",
     coreAddress: "CORE_ADDRESS",
@@ -65,6 +67,11 @@ export function createStarknetEntrypoint(): NetworkEntrypoint<StarknetStreamBloc
     requireStarknetRpcUrl(process.env.STARKNET_RPC_URL),
   );
 
+  const reportedChainId = await rpc.request<string>("starknet_chainId", []);
+  if (BigInt(reportedChainId) !== chainId) {
+    throw new Error(`Starknet RPC chain ID ${reportedChainId} conflicts with ${chainId}`);
+  }
+
   const filters: StarknetStreamFilter[] = processors.map((processor, ix) => ({
     id: ix + 1,
     fromAddress: processor.filter.fromAddress,
@@ -87,6 +94,7 @@ export function createStarknetEntrypoint(): NetworkEntrypoint<StarknetStreamBloc
         rpc,
         filters,
         startingCursor: streamOptions.startingCursor,
+        loadPreviousCursor: streamOptions.loadPreviousCursor,
         options: {
           pollIntervalMs: positiveInt("POLL_INTERVAL_MS", 2_000),
           // Starknet is never quiet for long -- it lands an event we index
@@ -144,7 +152,7 @@ export function createStarknetEntrypoint(): NetworkEntrypoint<StarknetStreamBloc
 if (import.meta.main) {
   await runIndexer({
     networkType: "starknet",
-    createEntrypoint: () => createStarknetEntrypoint(),
+    createEntrypoint: createStarknetEntrypoint,
     parseBlockHeader: parseStarknetBlockHeader,
   });
 }

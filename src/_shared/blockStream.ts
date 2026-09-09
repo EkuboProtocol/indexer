@@ -18,11 +18,9 @@
  * - A range query is self-describing in a way a subscription is not. It either
  *   answers for the blocks asked for or it errors; a dropped WebSocket frame
  *   looks like silence. That is why this polls.
- * - Reorgs are detected by re-reading a window at the head every poll and
- *   diffing it against what was emitted, so a block whose hash changed or whose
- *   events disappeared is caught even though no header was fetched. A reorg
- *   that touches no event of ours changes nothing we store, so it is not
- *   looked for.
+ * - Cursor hashes and a re-read event window detect changed ancestry. Recovery
+ *   uses verified stored history rather than assuming the fork fits the window.
+ * - A range is fenced by its ending header and emitted only after validation.
  * - The adapter is responsible for refusing a range read it cannot vouch for.
  *   A provider that caps results and returns exactly the cap is
  *   indistinguishable from one that found exactly that many, and believing it
@@ -30,6 +28,8 @@
  */
 import type { Hex } from "viem";
 import type { IndexerCursor } from "./dao";
+import { readSnapshot, requireHeader, sameHash } from "./blockSnapshot";
+import { commonStoredCursor, type LoadPreviousCursor } from "./cursorRecovery";
 
 /** Identity of a block, as far as this stream is concerned. */
 export type ChainHead = {
@@ -105,7 +105,7 @@ export interface ChainAdapter<TEvent> {
    * range read, so recording one would make it look like it had disappeared on
    * the very next re-read.
    */
-  readRange(from: number, to: number): Promise<StreamBlock<TEvent>[]>;
+  readRange(from: number, to: number, endHash?: Hex): Promise<StreamBlock<TEvent>[]>;
 
   /**
    * Fills in whatever `readRange` could not carry, for fresh blocks only.
@@ -132,9 +132,8 @@ export interface BlockStreamOptions {
   /** Widest block span to ask for in one range read. */
   maxLogRangeBlocks?: number;
   /**
-   * How far back to re-read at the head to notice a reorg. Must be at least the
-   * deepest reorg the chain can produce; the cost of being generous is one
-   * wider range read, the cost of being stingy is a missed event.
+   * How far back to re-read for inexpensive event comparisons. Cursor-hash
+   * verification and stored-history recovery also cover deeper reorgs.
    */
   reorgWindowSeconds?: number;
   /** How often to re-read the finalized block. */
@@ -159,6 +158,7 @@ export type Resolved = Required<Omit<BlockStreamOptions, "onWarning">> &
 /** Everything the loop carries between iterations. */
 export interface StreamState {
   cursorBlock: number;
+  cursorHash: string | null;
   /**
    * Digests of the event-bearing blocks inside the reorg window.
    *
@@ -230,7 +230,7 @@ export function requireRepresentableIndex(
   blockNumber: number,
   numbering: string,
 ): number {
-  if (eventIndex >= MAX_EVENT_INDEX) {
+  if (!Number.isSafeInteger(eventIndex) || eventIndex < 0 || eventIndex >= MAX_EVENT_INDEX) {
     throw new Error(
       `Block ${blockNumber} contains an event at index ${eventIndex}, which compute_event_id cannot represent (the limit is ${MAX_EVENT_INDEX}). event_index is ${numbering}, so a block reaching that many cannot be indexed without re-basing event_id.`,
     );
@@ -373,7 +373,7 @@ export function maxReorgWindowBlocks(
  *
  * Before the rate is known the window is that cap. Erring wide is free -- a
  * range read is billed per request, so a wider span is the same cost -- and
- * erring narrow silently loses events, so the unmeasured case takes the widest
+ * erring narrow needs more stored-history recovery, so the unmeasured case takes the widest
  * window on offer and narrows as the chain is observed.
  */
 export function reorgWindowBlocksFor(
@@ -398,8 +398,7 @@ export function reorgWindowBlocksFor(
  * four identical lines per poll forever on any chain where the cap binds, which
  * is how a real signal becomes noise nobody reads.
  *
- * Not an error: the stream is still correct, just protected for less history
- * than requested. Worth saying at all because the remedy is one env var --
+ * Not an error: the stream may need stored-history recovery more often. Worth saying at all because the remedy is one env var --
  * the range size bounds it, and raising it is free up to the provider's own
  * range limit.
  */
@@ -503,6 +502,7 @@ function rollbackTo<TEvent>(
   // entirely -- right after the one event that makes it worth doing. Only
   // event-bearing blocks are in `emitted`, so this is best-effort by nature.
   const landing = state.emitted.get(block - 1);
+  state.cursorHash = landing?.hash ?? null;
 
   return {
     _tag: "invalidate",
@@ -590,6 +590,7 @@ async function refreshFinalized<TEvent>(
  * Also hold it back while catching up, until its history has been indexed.
  */
 async function* announceFinalized<TEvent>(
+  adapter: ChainAdapter<TEvent>,
   state: StreamState,
   reconciledThrough: number,
 ): AsyncGenerator<StreamMessage<TEvent>> {
@@ -599,6 +600,8 @@ async function* announceFinalized<TEvent>(
     pending.number <= state.cursorBlock &&
     reconciledThrough >= state.cursorBlock
   ) {
+    const canonical = requireHeader(await adapter.fetchBlock(pending.number), pending.number);
+    if (!sameHash(canonical.hash, pending.hash)) throw new Error("Finalized block disagrees with the canonical chain");
     state.finalized = pending;
     state.pendingFinalized = null;
   }
@@ -838,32 +841,18 @@ function seedWindow(
  * runtime only advances its cursor on a data message. The head's own header is
  * already in hand; any other endpoint costs one read.
  */
-async function tailMessage<TEvent>(
-  adapter: ChainAdapter<TEvent>,
+function tailMessage<TEvent>(
   state: StreamState,
   fresh: StreamBlock<TEvent>[],
-  plan: { to: number; head: ChainHead },
-): Promise<StreamMessage<TEvent> | null> {
-  // Once caught up, the span ends where the cursor already is. Emitting it
-  // again would cost a write transaction per poll on every chain forever,
-  // moving nothing.
-  if (plan.to <= state.cursorBlock) return null;
-
+  anchor: ChainHead,
+): StreamMessage<TEvent> | null {
+  if (anchor.number <= state.cursorBlock) return null;
   const last = fresh.at(-1);
-  if (last && Number(last.header.blockNumber) >= plan.to) return null;
-
-  const tail =
-    plan.to === plan.head.number
-      ? plan.head
-      : await adapter.fetchBlock(plan.to);
-  if (!tail) return null;
-
+  if (last && Number(last.header.blockNumber) === anchor.number) return null;
   return dataMessage<TEvent>({
     header: {
-      blockNumber: BigInt(tail.number),
-      blockHash: tail.hash,
-      timestamp: tail.timestamp,
-      baseFeePerGas: tail.baseFeePerGas,
+      blockNumber: BigInt(anchor.number), blockHash: anchor.hash,
+      timestamp: anchor.timestamp, baseFeePerGas: anchor.baseFeePerGas,
     },
     logs: [],
   });
@@ -874,6 +863,17 @@ export function initStreamState(
   options: BlockStreamOptions = {},
 ): { opts: Resolved; state: StreamState } {
   const opts: Resolved = { ...BLOCK_STREAM_DEFAULTS, ...options };
+
+  for (const [name, value] of Object.entries(opts)) {
+    if (name === "onWarning") continue;
+    if (!Number.isSafeInteger(value) || Number(value) <= 0) {
+      throw new Error(`${name} must be a positive safe integer`);
+    }
+  }
+  const cursorNumber = Number(startingCursor.orderKey);
+  if (!Number.isSafeInteger(cursorNumber) || cursorNumber < 0) {
+    throw new Error("Starting cursor must be a non-negative safe integer");
+  }
 
   // The window used to be a block count that could be configured wider than the
   // span that has to contain it, which spins the loop -- so the constructor
@@ -891,6 +891,7 @@ export function initStreamState(
     opts,
     state: {
       cursorBlock: Number(startingCursor.orderKey),
+      cursorHash: typeof startingCursor.uniqueKey === "string" ? startingCursor.uniqueKey : null,
       emitted: new Map(),
       finalized: null,
       pendingFinalized: null,
@@ -940,7 +941,8 @@ function finishTick(
   // re-emitting blocks already indexed. A rollback is the only thing allowed to
   // move the cursor back, and it says so.
   state.cursorBlock = Math.max(state.cursorBlock, plan.to);
-  state.lastHeadHash = plan.head.hash;
+  if (plan.to >= state.cursorBlock) state.cursorHash = plan.head.hash;
+  state.lastHeadHash = state.cursorHash ?? "";
   const earliest = (state.finalized?.number ?? 0) + 1;
   // Retain to the widest window any later tick could scan, not to this tick's.
   //
@@ -980,79 +982,54 @@ async function checkStartingCursor<TEvent>(
   state: StreamState,
   startingCursor: IndexerCursor,
   opts: Resolved,
+  loadPreviousCursor?: LoadPreviousCursor,
 ): Promise<StreamMessage<TEvent> | null> {
+  if (state.cursorBlock <= 0) return null;
   const expected = startingCursor.uniqueKey;
-  if (typeof expected !== "string" || state.cursorBlock <= 0) return null;
-
-  // A failed lookup does not establish canonicality. Do not seed the window
-  // from a potentially different branch and then advance past persisted events.
-  // Transport retries (and the runtime's process restart) retry verification.
+  if (typeof expected !== "string" && !loadPreviousCursor) return null;
   const block = await adapter.fetchBlock(state.cursorBlock);
-  if (!block) {
-    throw new Error(
-      `Could not verify the stored cursor at block ${state.cursorBlock}; refusing to index from an unverified cursor`,
-    );
+  if (!block || block.number !== state.cursorBlock) {
+    throw new Error(`Could not verify the stored cursor at block ${state.cursorBlock}`);
   }
+  if (typeof expected === "string" && BigInt(block.hash) === BigInt(expected)) return null;
 
-  // The stored key round-trips through a numeric column, so leading zeroes are
-  // gone by the time it comes back -- and on Starknet a felt is routinely
-  // written unpadded by the node in the first place. Compare the values, not
-  // the strings.
-  if (BigInt(block.hash) === BigInt(expected)) return null;
-
-  // Read finality only to estimate the block rate. Newly observed finality
-  // cannot bound recovery: those blocks may have reorged during downtime
-  // before becoming finalized, while our persisted events are still orphaned.
-  // Tolerated the same way `refreshFinalized` tolerates it, and for a sharper
-  // reason: this line is only reached once the cursor is already known to be
-  // non-canonical. Letting it throw would exit before the `invalidate` is
-  // emitted, and the restart would land on this same branch again -- a crash
-  // loop precisely where recovery is what is needed.
-  const finalized = await adapter.fetchFinalized().catch((error: unknown) => {
-    opts.onWarning?.("could not read the finalized block while rolling back", {
-      error: String(error).slice(0, 200),
-    });
-    return null;
+  const cursor = await commonStoredCursor(adapter, state.cursorBlock + 1, loadPreviousCursor);
+  opts.onWarning?.("stored cursor is not canonical; rolling back to verified history", {
+    block: state.cursorBlock, expected, found: block.hash, rollbackTo: Number(cursor.orderKey),
   });
-  // Seed the rate from the two blocks already in hand, at no extra cost.
-  //
-  // This runs before the loop, so without it `state.blockRate` is null here and
-  // the window is the half-span cap -- 500 blocks by default and 2500 on
-  // Arbitrum and Robinhood, against the 64 this used to rewind. Measuring the
-  // rate avoids deleting and reprocessing thousands of blocks on a cursor
-  // that moved by one.
-  //
-  // The cursor block and the finalized block are separated by the chain's
-  // finality lag, which is a far longer baseline than the loop's 30 s sample
-  // ever gets.
-  if (finalized) {
-    const elapsedSec = Math.floor(
-      (block.timestamp.getTime() - finalized.timestamp.getTime()) / 1000,
-    );
-    const advanced = block.number - finalized.number;
-    if (elapsedSec >= MIN_RATE_SAMPLE_SECONDS && advanced > 0) {
-      state.blockRate = advanced / elapsedSec;
-    }
-  }
+  rollbackTo<TEvent>(state, Number(cursor.orderKey) + 1);
+  state.cursorHash = typeof cursor.uniqueKey === "string" ? cursor.uniqueKey : null;
+  return { _tag: "invalidate", invalidate: { cursor } };
+}
 
-  // No verified finality checkpoint is available here. Re-read the protected
-  // window even if the node now considers some of it finalized.
-  const target = Math.max(
-    1,
-    state.cursorBlock - reorgWindowBlocksFor(state, opts),
-  );
-  opts.onWarning?.("stored cursor is not canonical; rolling back", {
-    block: state.cursorBlock,
-    expected,
-    found: block.hash,
-    rollbackTo: target - 1,
+async function reconcileSnapshot<T>(
+  args: CreateBlockStreamArgs<T>,
+  state: StreamState,
+  snapshot: { blocks: StreamBlock<T>[]; cursorChanged: boolean },
+  plan: { from: number; to: number },
+  opts: Resolved,
+): Promise<StreamMessage<T> | null> {
+  const digests = digestBlocks(snapshot.blocks);
+  if (!snapshot.cursorChanged) return reconcileWindow<T>(state, digests, plan, opts);
+
+  // A matching stored block proves the whole ancestry beneath it, even when
+  // the actual fork point is deeper than the configured polling window.
+  const common = [...state.emitted.entries()].reverse().find(([number, old]) => {
+    const next = digests.get(number);
+    return next && sameHash(old.hash, next.hash) && old.logCount === next.logCount;
   });
-  return rollbackTo<TEvent>(state, target);
+  if (common) return rollbackTo<T>(state, common[0] + 1);
+
+  const cursor = await commonStoredCursor(args.adapter, state.cursorBlock + 1, args.loadPreviousCursor);
+  rollbackTo<T>(state, Number(cursor.orderKey) + 1);
+  state.cursorHash = typeof cursor.uniqueKey === "string" ? cursor.uniqueKey : null;
+  return { _tag: "invalidate", invalidate: { cursor } };
 }
 
 export interface CreateBlockStreamArgs<TEvent> {
   adapter: ChainAdapter<TEvent>;
   startingCursor: IndexerCursor;
+  loadPreviousCursor?: LoadPreviousCursor;
   options?: BlockStreamOptions;
 }
 
@@ -1074,6 +1051,7 @@ export async function* createBlockStream<TEvent>(
     state,
     args.startingCursor,
     opts,
+    args.loadPreviousCursor,
   );
   if (notCanonical) yield notCanonical;
 
@@ -1100,16 +1078,16 @@ export async function* createBlockStream<TEvent>(
       // head hash commits to its whole ancestry. That is a quiet poll in the
       // sense that matters, and counting it is what lets a chain with a block
       // time longer than the poll interval back off at all.
-      yield* announceFinalized<TEvent>(state, plan.head.number);
+      yield* announceFinalized<TEvent>(adapter, state, plan.head.number);
       state.quietPolls++;
       await sleep(pollIntervalFor(state, opts));
       continue;
     }
 
-    const blocks = await adapter.readRange(plan.from, plan.to);
-    const digests = digestBlocks(blocks);
-
-    const rollback = reconcileWindow<TEvent>(state, digests, plan, opts);
+    const snapshot = await readSnapshot(adapter, plan, {
+      number: state.cursorBlock, hash: state.cursorHash,
+    });
+    const rollback = await reconcileSnapshot(args, state, snapshot, plan, opts);
     if (rollback) {
       yield rollback;
       // A reorg is the last moment to be slow: the blocks being rolled back
@@ -1122,23 +1100,16 @@ export async function* createBlockStream<TEvent>(
       continue;
     }
 
-    const fresh = blocks.filter(
-      (block) => Number(block.header.blockNumber) > state.cursorBlock,
-    );
-    // Fresh only. Everything below the cursor in this window has already been
-    // indexed and is being re-read solely to diff its digest, which `readRange`
-    // alone answers -- so paying a per-block completion cost for it would be
-    // the reorg window's width in wasted requests, every poll, forever.
-    await adapter.completeFresh(fresh, plan.head);
+    const { fresh, anchor } = snapshot;
+    const completedPlan = { ...plan, head: anchor };
+    const tail = tailMessage(state, fresh, anchor);
     yield* emitFresh(state, fresh);
-
-    const tail = await tailMessage(adapter, state, fresh, plan);
     if (tail) yield tail;
 
-    finishTick(state, plan, opts);
+    finishTick(state, completedPlan, opts);
 
     // Now that the cursor has moved, the finalized block may be behind it.
-    yield* announceFinalized<TEvent>(state, plan.to);
+    yield* announceFinalized<TEvent>(adapter, state, plan.to);
 
     // Only a caught-up poll can be a quiet one. While catching up the loop does
     // not sleep at all, and counting those polls would let a long backfill --

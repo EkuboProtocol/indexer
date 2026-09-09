@@ -83,3 +83,11 @@ describe("assertRpcChainIds", () => {
     ).rejects.toThrow(/No EVM_RPC_URL transport/);
   });
 });
+
+
+it("returns only verified transports so an unreachable wrong-chain endpoint cannot join fallback later", async () => {
+  expect(await assertRpcChainIds([
+    { url: "unverified", getChainId: failing("temporary failure") },
+    { url: "verified", getChainId: answering(SEPOLIA) },
+  ], SEPOLIA)).toEqual(["verified"]);
+});

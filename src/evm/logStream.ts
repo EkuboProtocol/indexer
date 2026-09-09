@@ -1,27 +1,12 @@
 /**
- * The EVM adapter for the shared block stream.
- *
- * The stream this replaces asked the chain for one block header per block the
- * chain produced, so its cost scaled with block time rather than with how much
- * we actually index. On a 0.3 s chain that was ~9.7 requests per two-second
- * poll to deliver, almost always, nothing.
- *
- * Nothing in a header is needed to do this job. `eth_getLogs` already returns
- * `blockHash` and `blockTimestamp` on every log, which are the only two header
- * fields the runtime persists (`base_fee_per_gas` is written but read by
- * nothing, and rows for blocks with no events are deleted within a day by
- * `delete_old_empty_blocks`). So a poll is two requests regardless of block
- * rate: one `eth_getBlockByNumber("latest")` to learn the head and to give the
- * cursor a real hash, and one `eth_getLogs` over everything since the last one.
- *
- * Polling, reorg detection, backoff, retention and the cursor live in
- * `_shared/blockStream`, which Starknet uses too. What stays here is what only
- * EVM knows: topic matching, `eth_getLogs` and its truncation guard, and the
- * header reads.
+ * EVM range adapter. Logs provide event identities and usually timestamps;
+ * each fresh event-bearing header is fetched and hash-checked. The snapshot reader
+ * verifies the cursor and ending header before committing the range.
  */
 import type { Address, Hex, PublicClient } from "viem";
 import { hexToBigInt, hexToNumber, numberToHex } from "viem";
 import type { IndexerCursor } from "../_shared/dao";
+import { recordEventIdentity, requireBlockInRange } from "../_shared/rpcRecords";
 import {
   createBlockStream,
   digestBlocks,
@@ -149,6 +134,7 @@ export function groupLogsByBlock(
   filters: LogStreamFilter[],
 ): StreamBlock[] {
   const byBlock = new Map<number, { block: StreamBlock }>();
+  const seen = new Map<string, string>();
 
   for (const log of logs) {
     if (log.removed) continue;
@@ -157,6 +143,7 @@ export function groupLogsByBlock(
     const filterIds = matchingFilterIds(log, filters);
     if (filterIds.length === 0) continue;
 
+    recordEventIdentity(seen, blockNumber, log.blockHash, String(hexToNumber(log.logIndex)));
     let entry = byBlock.get(blockNumber);
     if (!entry) {
       entry = {
@@ -182,7 +169,9 @@ export function groupLogsByBlock(
       topics: log.topics,
       data: log.data,
       transactionHash: log.transactionHash,
-      transactionIndex: hexToNumber(log.transactionIndex),
+      transactionIndex: requireRepresentableIndex(
+        hexToNumber(log.transactionIndex), blockNumber, "the transaction index",
+      ),
       // `evm.ts` uses a log's block-wide `logIndex` as its `event_index`,
       // because the apibara RPC stream this replaces never populated
       // `logIndexInTransaction` either.
@@ -369,23 +358,21 @@ async function fetchBlockByNumber(
   };
 }
 
-/** Fills in a timestamp for the rare provider that omits `blockTimestamp`. */
-async function requireTimestamps(
+/** Verify every fresh event-bearing block, even when logs carry a timestamp. */
+async function completeBlocks(
   rpc: RpcLike,
   blocks: StreamBlock[],
+  head: ChainHead,
 ): Promise<void> {
   for (const block of blocks) {
-    if (block.header.timestamp.getTime() !== 0) continue;
-    const filled = await fetchBlockByNumber(
-      rpc,
-      Number(block.header.blockNumber),
-    );
+    const number = Number(block.header.blockNumber);
+    const filled = number === head.number ? head : await fetchBlockByNumber(rpc, number);
     if (!filled) {
       throw new Error(
-        `Log for block ${block.header.blockNumber} carried no blockTimestamp and the block could not be read`,
+        `Could not verify event-bearing block ${block.header.blockNumber}`,
       );
     }
-    if (filled.hash.toLowerCase() !== block.header.blockHash.toLowerCase()) {
+    if (filled.number !== Number(block.header.blockNumber) || filled.hash.toLowerCase() !== block.header.blockHash.toLowerCase()) {
       throw new Error(
         `Block ${block.header.blockNumber} changed hash between the log read (${block.header.blockHash}) and the header read (${filled.hash}); refusing to timestamp its logs from a different block`,
       );
@@ -395,32 +382,11 @@ async function requireTimestamps(
   }
 }
 
-/**
- * Gives the head block its own base fee, which this poll already fetched.
- *
- * `eth_getLogs` carries no base fee, so a log-derived block has none. That is
- * honest for blocks below the head -- we genuinely do not know theirs, and
- * nothing stores it now that 00127 drops `blocks.base_fee_per_gas`; the DAO
- * coalesces a null rather than blanking the head column with it.
- *
- * The head is the exception: when the last block read is the head itself, this
- * poll's `eth_getBlockByNumber("latest")` already holds its real base fee, so
- * the block can carry its true value at no cost. That is what keeps
- * `indexer_cursor.head_base_fee_per_gas` -- which quoter-service reads to price
- * gas -- both fresh and never null.
- */
-function stampHeadBaseFee(blocks: StreamBlock[], head: ChainHead): void {
-  for (const block of blocks) {
-    if (Number(block.header.blockNumber) === head.number) {
-      block.header.baseFeePerGas = head.baseFeePerGas;
-    }
-  }
-}
-
 export interface CreateLogStreamArgs {
   rpc: RpcLike;
   filters: LogStreamFilter[];
   startingCursor: IndexerCursor;
+  loadPreviousCursor?: (before: number) => Promise<IndexerCursor | null>;
   options?: LogStreamOptions;
 }
 
@@ -448,11 +414,14 @@ export function createEvmAdapter(
         addresses,
         suspectLogCount,
       });
+      for (const log of logs) {
+        requireBlockInRange(hexToNumber(log.blockNumber), from, to);
+        if (log.removed) throw new Error("eth_getLogs returned a removed log in a numbered range");
+      }
       return groupLogsByBlock(logs, filters);
     },
     async completeFresh(blocks, head) {
-      await requireTimestamps(rpc, blocks);
-      stampHeadBaseFee(blocks, head);
+      await completeBlocks(rpc, blocks, head);
     },
   };
 }
@@ -470,6 +439,7 @@ export function createLogStream(
   return createBlockStream<StreamLog>({
     adapter: createEvmAdapter(args.rpc, args.filters, suspectLogCount),
     startingCursor: args.startingCursor,
+    loadPreviousCursor: args.loadPreviousCursor,
     options,
   });
 }

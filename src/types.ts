@@ -11,6 +11,7 @@ export function isNetworkTypeValid(
 export interface StreamOptions {
   finality: "accepted";
   startingCursor: IndexerCursor;
+  loadPreviousCursor?: (before: number) => Promise<IndexerCursor | null>;
   heartbeatInterval: {
     seconds: bigint;
     nanos: number;

@@ -146,217 +146,98 @@ Chainlink jobs are disabled when the interval is zero/unset or the config is emp
 
 ## Block streams
 
-Every network is indexed by one polling, range-reading stream
-(`src/_shared/blockStream.ts`). Polling, reorg detection, the poll backoff, the
-retention window and the cursor live there and are identical on every chain; the
-per-chain adapters supply only what a chain family actually does differently --
-`src/evm/logStream.ts` and `src/starknet/eventStream.ts`.
+EVM and Starknet share `src/_shared/blockStream.ts`. The adapters read filtered
+ranges of events; only event-bearing blocks need event processing. Empty ranges
+still write a durable cursor and head, without inserting empty `blocks` rows.
 
-### EVM
+### RPC snapshots and failover
 
-The EVM adapter is log-driven rather than fetching a header per block. A poll is
-two requests whatever the
-chain's block time:
+Each range is fenced by its ending block hash: read the ending header, fetch all
+logs/pages and missing timestamps, verify the previous cursor, then re-read the
+ending header. Nothing is emitted until those checks succeed. A missing or
+incorrect trailing header cannot advance the in-memory cursor. Events in the
+ending block must agree with its header. Starknet also pins the event query's
+`to_block` to that hash.
 
-1. `eth_getBlockByNumber("latest")`, which gives the head and a real block hash
-   for the cursor.
-2. `eth_getLogs` over everything since the last poll, which returns `blockHash`
-   and `blockTimestamp` on each log.
+This adds constant header reads per range, rather than a header for every empty
+block. Both adapters fetch and hash-check each fresh event-bearing header, even when
+EVM logs already carry timestamps. This rejects stale logs served by a different
+backend behind the same provider URL. The ending header is reused when possible.
+The ending block carries its own gas price.
 
-Those two log fields are the only header data the runtime persists, so no
-per-block header read is needed.
+EVM checks every configured endpoint's chain ID and excludes endpoints that
+cannot verify it. An indexing attempt uses one endpoint throughout. On failure,
+the next verified endpoint starts a new stream at the last emitted cursor and
+verifies it before proceeding. Requests within a range never fail over separately.
+Starknet checks `starknet_chainId` before constructing its stream.
 
-`event_index` is the log's block-wide `logIndex`, unchanged. The apibara RPC
-stream never populated `logIndexInTransaction` either, so keeping it identical
-is what makes this a stream swap rather than a change to a primary key other
-tables order on.
+These checks assume the selected provider returns complete, internally consistent
+range results. They detect observed branch changes and malformed results; they do
+not cryptographically prove the completeness of a provider's event index.
 
-That scheme has an inherited ceiling: `compute_event_id` packs the index into 16
-bits, and `logIndex` counts every contract's logs in the block, so a block with
-more than 65,535 logs in total cannot be indexed at all. The stream now refuses
-such a log with a message naming the cause, rather than letting it surface as a
-failure deep inside a Postgres function. Raising the ceiling means re-basing
-`event_id` onto a per-transaction index, which is a migration, not a stream
-change. `base_fee_per_gas` is still written but is read
-by nothing, and rows for blocks with no events are removed within a day by
-`delete_old_empty_blocks`.
+### Event identity and pagination
 
-Measured against the previous stream on Monad (0.3 s blocks), at the same two
-second cadence: 9.7 requests per poll became 2.1.
+EVM preserves the block-wide `logIndex` as `event_index`. Starknet preserves the
+transaction-local `event_index` and sorts events by transaction and event index.
+Starknet requires JSON-RPC v0.10 or later, where those positions are supplied by
+[`EMITTED_EVENT`](https://github.com/starkware-libs/starknet-specs/blob/master/api/starknet_api_openrpc.json).
+Both transaction and event indices must fit the database's unsigned 16-bit fields;
+unsupported indices fail before processing instead of producing wrong IDs.
 
-### Starknet
+Duplicate event positions, mixed hashes for one block, events outside the requested
+range, and unhashed events in a numbered Starknet range are rejected. Starknet
+pagination rejects repeated or invalid continuation tokens. Malformed JSON-RPC
+envelopes, including mismatched response IDs, are retried as transport failures.
 
-Starknet reads `starknet_getEvents` over the same window the EVM chains read
-`eth_getLogs` over, and shares everything below that. Three things differ, and
-all three are in the adapter:
+`SUSPECT_LOG_COUNT` defaults to 10,000. EVM responses with exactly that many logs
+are split and re-read; a single block still hitting the configured cap is refused
+because completeness cannot be established. Provider range errors retain their
+cause and name `GET_LOGS_RANGE_SIZE` as the configuration knob. Starknet also
+bounds pages per range. Configure the range and cap for the provider in use.
 
-- **One address per request.** `starknet_getEvents` takes a single address, not
-  a list, so asking per contract would be twelve requests a poll. The range read
-  is filtered by event selector instead -- which the RPC accepts as an OR-list --
-  and narrowed to our contracts locally. On mainnet that prefilter takes a range
-  read from 15.9 to 3.3 events per block. A processor filtering on address alone
-  disables the prefilter rather than silently narrowing the read.
-- **The URL pins JSON-RPC v0.10.** That is the first version where
-  `EMITTED_EVENT` carries `transaction_index` and `event_index`; on v0.9 they
-  are absent and the `continuation_token` counts *matched* results, so it cannot
-  supply them either. The stream refuses to index an event without them rather
-  than defaulting to zero, so pointing this at an older spec stops the worker
-  instead of silently writing wrong primary keys. One block read remains, for
-  the timestamp, and only for blocks above the cursor -- the reorg window is
-  re-read every poll and paying a per-block cost for it would be ~390k requests
-  a day instead of ~6k.
-- **`event_index` is per transaction**, counting every event the transaction
-  emitted rather than only ours. That is what the apibara DNA stream stored and
-  what `compute_event_id` has packed into every Starknet `event_id` ever
-  written, so it is not ours to renumber. It counts the events in between, so it
-  is emphatically not a position within the filtered results: block 14555766
-  holds 3 and 19 for one transaction, where numbering only the matched events
-  would give 0 and 1.
+### Reorgs, restart, and finality
 
-Those two numbers were checked three ways before this relied on them: v0.10's
-values, a reconstruction from `starknet_getBlockWithReceipts`, and the rows the
-DNA stream wrote years ago all agree, over 5,000 mainnet blocks and 44 event
-tables with no row missed.
+The stream re-reads an event window below the cursor and compares hashes and
+counts. It also verifies the saved cursor hash, which commits to the history below
+it. A deeper reorg therefore cannot be hidden merely by falling outside the
+polling window. Recovery uses a matching block in the window when possible;
+otherwise it walks persisted event-bearing blocks backwards until a canonical
+hash matches. Without a verified checkpoint it rebuilds from the configured initial indexing
+boundary (block zero if none is supplied), rather than guessing a rewind depth.
+An unavailable checkpoint stops recovery.
 
-Note that this differs from EVM, where `event_index` is the block-wide
-`logIndex`. Both are inherited from the streams they replace.
+Startup verifies the persisted cursor before seeding the window. If its hash is
+missing, recovery replays from verified stored history. A second check during the
+range catches a reorg between startup verification and seeding. Rollback clears
+orphaned head/gas metadata and any finalized cursor above the rollback height.
 
-Finality is `l1_accepted` -- settlement on Ethereum, hours behind the head --
-rather than EVM's `finalized`. `latest` is `ACCEPTED_ON_L2` and can still be
-reorged; `pre_confirmed` has no hash at all, so nothing that cannot be rolled
-back to is indexed.
+Newly reported finality remains pending until the previous window has been
+reconciled, its hash checked, and its history indexed. It cannot move the read
+floor first and hide a reorg that happened just before finalization. Current RPC
+finality is not used to bound recovery of previously stored, possibly orphaned
+events. EVM uses `finalized`; Starknet uses `l1_accepted`.
 
-`scripts/verifyStarknetStream.ts` replays a settled range and asserts the
-positions it reconstructs are exactly the ones already in the database.
+`REORG_WINDOW_SECONDS` (default 120) determines the inexpensive comparison window
+from the observed block rate. It is capped at half `GET_LOGS_RANGE_SIZE` to ensure
+forward progress. A smaller window can make recovery replay more history; cursor
+verification remains active regardless of that cap.
 
-### Correctness
+### Polling and backoff
 
-Missing an event is the failure that matters, because nothing errors and the gap
-surfaces later as a wrong number downstream. Three choices follow from that.
+`POLL_INTERVAL_MS` defaults to 2,000. After `QUIET_POLLS_BEFORE_BACKOFF` (default
+30) consecutive polls without indexed events, the interval doubles up to
+`MAX_POLL_INTERVAL_MS` (default 30,000). Events or a reorg reset it. Set the maximum
+equal to the minimum to disable backoff. Backoff also delays head/gas freshness.
 
-- **Range queries, not subscriptions.** An `eth_getLogs` call answers for the
-  blocks it was asked about or it errors. A dropped WebSocket frame is
-  indistinguishable from silence, and no provider guarantees delivery.
-- **Silent truncation is refused.** A provider that caps results and returns
-  exactly the cap looks identical to one that found exactly that many.
-  `SUSPECT_LOG_COUNT` (default 10,000, Alchemy's documented limit) is the count
-  treated as suspect: the range is split and re-read rather than believed, and a
-  single block still landing on the cap throws.
-- **One endpoint per chain.** A comma-separated `EVM_RPC_URL` still parses, but
-  viem routes per request, so a fallback list lets two calls in one poll be
-  answered by backends with different views of the chain. One endpoint fails by
-  stopping, which is safe, because the cursor is durable.
+An unchanged head hash can skip the range read because its ancestry is unchanged.
+Range queries still cover every intervening block when the head advances.
 
-- **A refused range fails fast.** An earlier version recognised "the range was
-  too wide" from the error text and recovered by splitting. Every provider words
-  that differently — `eth_getLogs is limited to a 10,000 range` (Base), `block
-  range greater than 10000 max` (Ink), `Block range is too large` (Optimism),
-  `Log response size exceeded` (Alchemy) — and any of them can reword it in a
-  release, at which point recovery silently becomes a crash loop. The
-  classification was the liability, so it is gone. Nothing is lost: viem's
-  transport already retries what is worth retrying, with backoff (HTTP
-  403/408/413/429/500/502/503 and JSON-RPC -1, -32005, -32603 and 429), so
-  anything reaching the stream has survived that and is a real error. The range
-  is ours to choose, so the error names `GET_LOGS_RANGE_SIZE` as the knob and
-  carries the provider's own words as the cause.
+### Verification
 
-  Keep `GET_LOGS_RANGE_SIZE` at or under 5,000 on Alchemy. Below that boundary it
-  applies no result cap, so a range refusal is not reachable; above it, a 10K log
-  cap applies. Measured density suggests 10,000 would be fine too — Robinhood
-  averages 0.04 matched events per block and Arbitrum 0.0002 — but since the
-  stream fails fast on a refusal rather than splitting out of one, a 2x wider
-  backfill is not worth an occasional stall.
-
-Reorgs are found by re-reading a window below the cursor each poll and comparing
-it against what was emitted. A block that changed hash, lost its logs, or gained
-logs it did not have produces an `invalidate`. The window must be deeper than any
-reorg the chain can produce; a reorg touching no log of ours changes nothing we
-store and is not looked for.
-
-The window is configured in seconds — `REORG_WINDOW_SECONDS`, default 120 — and
-converted to a block count per chain from a block rate measured off the head read
-each poll already makes. A block is not a unit of time, and these chains run from
-12s to 0.09s apart, so the block count this used to take meant 768s of protection
-on Ethereum and 6s on Robinhood. Ethereum is pinned at 1152s in
-`.env.evm.mainnet`, its worst-case head-to-finalized span, because above finality
-the window is its only protection.
-
-The derived count is capped at half `GET_LOGS_RANGE_SIZE`, which guarantees the
-other half of every read is forward progress no matter what the chain's block
-rate turns out to be. When the cap binds, the stream warns once with the window
-it actually got; raising `GET_LOGS_RANGE_SIZE` is the remedy.
-
-### Backing off on a quiet chain
-
-A poll costs the same two requests whether it finds an event or none, so a chain
-that has produced nothing in months costs exactly what the busiest one does. The
-interval therefore holds at `POLL_INTERVAL_MS` (default 2,000) for
-`QUIET_POLLS_BEFORE_BACKOFF` (default 30) consecutive polls that index nothing,
-then doubles per empty poll up to `MAX_POLL_INTERVAL_MS` (default 30,000). Any
-matched log, or any reorg, puts it straight back to the floor.
-
-That first stretch is the latency guarantee: a chain that indexed anything in the
-last minute keeps polling at full rate, so a busy chain never leaves the floor.
-Backing off is a delay and never a miss — a range query asked less often reads a
-wider range, not a narrower one. The cost is that an event on a dormant chain can
-take up to `MAX_POLL_INTERVAL_MS` to be indexed, and
-`indexer_cursor.head_base_fee_per_gas` is that stale meanwhile. Set
-`MAX_POLL_INTERVAL_MS` equal to `POLL_INTERVAL_MS` to switch it off for a chain
-where that is not acceptable, as `.env.evm.mainnet` does.
-
-### On restart
-
-A log diff cannot tell a restart apart from a reorg: the window is seeded from
-whatever the chain says now, so there is nothing to disagree with. So the stored
-cursor is checked directly, once, with a single `eth_getBlockByNumber`. If its
-hash no longer matches, the stream invalidates back a full reorg window before
-reading anything. A block hash commits to its entire ancestry, so that one
-comparison settles every block beneath it — this is strictly stronger than the
-diff it replaces, and it is what preserves the guarantee the previous stream's
-`initializeStartingCursor` provided.
-
-Two related rules keep a restart from doing damage of its own:
-
-- The first window read is adopted as the baseline rather than diffed against,
-  so a deploy does not roll the chain back on every start.
-- A rollback's cursor carries the landing block's hash when that block is one the
-  stream recorded, so a restart in the window right after a reorg can still check
-  canonicality. Only log-bearing blocks are recorded, so this is best-effort.
-- A finalized block ahead of the cursor is held back rather than announced, and
-  the check runs *after* the cursor advances rather than at the top of the tick.
-  On a chain that finalises within a block or two of the head, comparing against
-  a cursor that still holds last tick's value would suppress the message forever
-  and freeze `finalized_order_key`. The
-  runtime's recovery path resets the cursor to the last finalized one, so
-  announcing a finalized block past ours would let a later error move the cursor
-  *forward* and skip everything in between. Holding it back only ever costs a
-  re-index.
-
-For the same reason the re-read never begins above the cursor. On a chain that
-finalises in well under a second, finality can overtake a cursor that has fallen
-a few blocks behind, and clamping the read to the finalized block would drop the
-blocks in between without an error.
-
-The rollback never rewinds past the finalized block, since a finalized block
-cannot be the reorg point and the rows beneath it are settled.
-
-### Standing still
-
-Once caught up, a head that has not moved emits nothing, and the window is not
-re-read at all. A block hash commits to its entire ancestry, so a head that is
-byte-for-byte last poll's proves nothing below it has changed and the re-read
-could not find anything. `eth_getLogs` is 60 of the roughly 80 Alchemy compute
-units a poll costs, so on a 12 s chain polled every 2 s this is where the cost
-stops scaling with block time: five polls in six become a single head read.
-
-The comparison is on hash, not height, because a one-block reorg leaves the
-height alone.
-
-The trade is that a stale answer lingers slightly longer. If `latest` reports one
-hash while the `eth_getLogs` in the same poll is answered by a backend still on
-the previous one, the mismatch is not noticed until the next block arrives rather
-than on the next poll. That is a consequence of the single-endpoint rule above
-being violated, and it self-heals by rollback either way.
+`scripts/verifyStarknetStream.ts` compares a settled range against stored events.
+The new consistency checks prevent future inconsistent commits; correcting an
+already inconsistent historical range requires replaying from a verified point
+before that range.
 
 `scripts/verifyLogStream.ts` settles the question directly for a given chain and
 range, replaying it through the stream and diffing against a direct query:

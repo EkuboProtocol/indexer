@@ -336,7 +336,7 @@ describe("readRange", () => {
     const { rpc, calls } = rpcReturning({
       starknet_getEvents: [
         { events: [emitted()], continuation_token: "14555766-1" },
-        { events: [emitted({ transaction_hash: TX1 })] },
+        { events: [emitted({ transaction_hash: TX1, transaction_index: 1 })] },
       ],
     });
     const adapter = createStarknetAdapter({ rpc, filters: [coreFilter] });
@@ -391,7 +391,7 @@ describe("readRange", () => {
     });
 
     await expect(adapter.readRange(1, 1_000)).rejects.toThrow(
-      /did not finish paginating/,
+      /invalid or repeated continuation token/,
     );
   });
 });
@@ -510,7 +510,7 @@ describe("createStarknetRpc", () => {
   };
 
   const json = (body: unknown, status = 200) =>
-    () => new Response(JSON.stringify(body), { status });
+    () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, ...(body as object) }), { status });
 
   it("retries a compute-unit overage, which arrives as HTTP 200 code 429", async () => {
     // The trap: Alchemy reports an overage as a *successful* HTTP response
@@ -568,7 +568,7 @@ describe("createStarknetRpc retry envelope", () => {
     }
   };
   const json = (body: unknown, status = 200) => () =>
-    new Response(JSON.stringify(body), { status });
+    new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, ...(body as object) }), { status });
 
   it("retries a 403, which an edge can return transiently", async () => {
     // viem retries 403 and 413 for the EVM streams. Throwing here instead would
@@ -628,6 +628,32 @@ describe("createStarknetRpc retry envelope", () => {
       );
     } finally {
       globalThis.fetch = original;
+    }
+  });
+});
+
+
+describe("RPC event consistency", () => {
+  it("orders events by transaction and event index across pages", () => {
+    const [block] = groupEventsByBlock([
+      emitted({ transaction_index: 1, event_index: 0 }),
+      emitted({ event_index: 19 }), emitted({ event_index: 3 }),
+    ], [coreFilter]);
+    expect(block!.logs.map(e => [e.transactionIndex, e.eventIndex])).toEqual([[0, 3], [0, 19], [1, 0]]);
+  });
+  it("rejects duplicate positions and mixed block hashes", () => {
+    expect(() => groupEventsByBlock([emitted(), emitted()], [coreFilter])).toThrow(/Duplicate/);
+    expect(() => groupEventsByBlock([emitted(), emitted({ block_hash: "0x123", event_index: 19 })], [coreFilter])).toThrow(/Mixed block hashes/);
+  });
+  it("rejects negative, fractional and overflowing transaction indices", () => {
+    for (const transaction_index of [-1, 0.5, 65536, NaN]) {
+      expect(() => groupEventsByBlock([emitted({ transaction_index })], [coreFilter])).toThrow(/cannot represent/);
+    }
+  });
+  it("rejects events outside a requested range and unhashed events", async () => {
+    for (const event of [emitted({ block_number: BLOCK_NUMBER + 1 }), emitted({ block_hash: undefined })]) {
+      const { rpc } = rpcReturning({ starknet_getEvents: [{ events: [event] }] });
+      await expect(createStarknetAdapter({ rpc, filters: [coreFilter] }).readRange(BLOCK_NUMBER, BLOCK_NUMBER)).rejects.toThrow();
     }
   });
 });

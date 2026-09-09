@@ -25,7 +25,7 @@ export async function assertRpcChainIds(
   {
     onUnreachable,
   }: { onUnreachable?: (url: string, error: unknown) => void } = {},
-): Promise<void> {
+): Promise<string[]> {
   const results = await Promise.allSettled(
     probes.map(async ({ url, getChainId }) => ({
       url,
@@ -62,4 +62,6 @@ export async function assertRpcChainIds(
       `EVM_RPC_URL transports return chain IDs [${details}] which conflict with environment chain ID ${expectedChainId}`,
     );
   }
+
+  return answered.map(({ url }) => url);
 }

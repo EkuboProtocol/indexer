@@ -555,6 +555,18 @@ export class DAO {
     return null;
   }
 
+  public async loadPreviousBlockCursor(before: number): Promise<IndexerCursor | null> {
+    const [block] = await this.sql<{ block_number: string; block_hash: string }[]>`
+      SELECT block_number, block_hash FROM blocks
+      WHERE chain_id = ${this.chainId} AND block_number < ${before}
+      ORDER BY block_number DESC LIMIT 1;
+    `;
+    return block ? {
+      orderKey: BigInt(block.block_number),
+      uniqueKey: `0x${BigInt(block.block_hash).toString(16)}`,
+    } : null;
+  }
+
   public async loadFinalizedCursor(): Promise<IndexerCursor | null> {
     const [cursor] = await this.sql<
       {
@@ -621,6 +633,10 @@ export class DAO {
         SET order_key = excluded.order_key,
             unique_key = excluded.unique_key,
             last_updated = NOW(),
+            finalized_order_key = CASE WHEN indexer_cursor.finalized_order_key > excluded.order_key
+              THEN NULL ELSE indexer_cursor.finalized_order_key END,
+            finalized_unique_key = CASE WHEN indexer_cursor.finalized_order_key > excluded.order_key
+              THEN NULL ELSE indexer_cursor.finalized_unique_key END,
             head_block_number = excluded.head_block_number,
             head_block_hash = excluded.head_block_hash,
             head_block_time = excluded.head_block_time,
@@ -632,8 +648,8 @@ export class DAO {
             -- derived from eth_getLogs has no base fee to report, so writing
             -- NULL through would blank the column on every block carrying
             -- events. A value one poll old prices gas fine; NULL does not.
-            head_base_fee_per_gas = COALESCE(excluded.head_base_fee_per_gas,
-                                             indexer_cursor.head_base_fee_per_gas)
+            head_base_fee_per_gas = CASE WHEN excluded.head_block_number IS NULL THEN NULL
+              ELSE COALESCE(excluded.head_base_fee_per_gas, indexer_cursor.head_base_fee_per_gas) END
         WHERE indexer_cursor.order_key = ${expectedCursor.orderKey}
           AND indexer_cursor.unique_key IS NOT DISTINCT FROM ${this.numeric(
             expectedUniqueKey,

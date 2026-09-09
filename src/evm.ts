@@ -1,4 +1,5 @@
-import { createPublicClient, fallback, http } from "viem";
+import { createPublicClient, http } from "viem";
+import type { IndexerCursor } from "./_shared/dao";
 import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
 import { parseCommonBlockHeader } from "./_shared/parseBlockHeader";
@@ -7,6 +8,7 @@ import {
   loadOptionalHexAddress,
   type HexAddress,
 } from "./_shared/loadHexAddresses";
+import { withRpcFailover } from "./_shared/rpcFailover";
 import { withNullBlockRetry } from "./_shared/nullBlockRetry";
 import { assertRpcChainIds } from "./_shared/rpcChainId";
 import { parseEvmRpcUrls } from "./_shared/streamEndpoints";
@@ -162,7 +164,7 @@ export async function createEvmEntrypoint(
       : []),
   ];
 
-  // The stream makes two requests per poll and never bursts, so viem's own
+  // Range and snapshot reads are sequential, so viem's own
   // transport is enough; the rate-limited one came with the apibara stream that
   // fetched a header per block.
   const createTransportFromUrl = (url: string) =>
@@ -179,11 +181,7 @@ export async function createEvmEntrypoint(
     transport: createTransportFromUrl(url),
   }));
 
-  const publicClient = createPublicClient({
-    transport: fallback(evmRpcTransports.map(({ transport }) => transport)),
-  });
-
-  await assertRpcChainIds(
+  const verifiedUrls = await assertRpcChainIds(
     evmRpcTransports.map(({ url, transport }) => ({
       url,
       getChainId: async () =>
@@ -199,6 +197,12 @@ export async function createEvmEntrypoint(
         }),
     },
   );
+
+  // Every stream uses one provider. A failure starts a new stream, with
+  // cursor verification, rather than mixing providers inside one range read.
+  const clients = evmRpcTransports
+    .filter(({ url }) => verifiedUrls.includes(url))
+    .map(({ transport }) => createPublicClient({ transport }));
 
   const filters: LogStreamFilter[] = processors.map((processor, ix) => ({
     id: ix + 1,
@@ -219,10 +223,11 @@ export async function createEvmEntrypoint(
 
   return {
     createStream(streamOptions: StreamOptions) {
-      return createLogStream({
-        rpc: publicClient,
+      const sources = clients.map((rpc) => (startingCursor: IndexerCursor) => createLogStream({
+        rpc,
         filters,
-        startingCursor: streamOptions.startingCursor,
+        startingCursor,
+        loadPreviousCursor: streamOptions.loadPreviousCursor,
         options: {
           pollIntervalMs: positiveInt("POLL_INTERVAL_MS", 2_000),
           // Most chains we index have produced fewer than sixty events in
@@ -243,12 +248,8 @@ export async function createEvmEntrypoint(
             30,
           ),
           maxLogRangeBlocks: positiveInt("GET_LOGS_RANGE_SIZE", 1_000),
-          // Deeper than any reorg the chain can produce. In seconds, not
-          // blocks: our chains run from 10s to 0.09s a block, so a single block
-          // count meant 640s of protection on Ethereum and 6s on Robinhood.
-          // The block count is derived per chain from the observed rate.
-          // Raising it costs one wider eth_getLogs per poll, which is free;
-          // lowering it too far loses events.
+          // Compare this much recent history directly; cursor hashes and
+          // persisted checkpoints also detect and recover deeper reorgs.
           reorgWindowSeconds: positiveInt("REORG_WINDOW_SECONDS", 120),
           // Alchemy's documented eth_getLogs result cap. A response landing
           // exactly here is refused rather than indexed short.
@@ -258,6 +259,9 @@ export async function createEvmEntrypoint(
           ),
           onWarning: (message, detail) => logger.warn({ message, ...detail }),
         },
+      }));
+      return withRpcFailover(sources, streamOptions.startingCursor, (index, error) => {
+        logger.warn({ message: "RPC stream failed; restarting with the next verified provider", index, error: String(error) });
       });
     },
     getPlannedEvents(block: EvmBlock) {

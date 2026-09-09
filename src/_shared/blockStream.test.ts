@@ -38,9 +38,13 @@ it("reconciles a reorg before accepting finality and preserves pending finality 
   const end = new Error("end fixture");
   const adapter: ChainAdapter<string> = {
     label: "fixture",
-    async fetchBlock(n) { return head(n); },
+    async fetchBlock(n) {
+      if (n === 90) return head(90);
+      if (n === 100) return head(n, tick <= 1 ? "0xaaa" : "0xbbb");
+      return head(n, tick <= 1 ? "0xa101" : `0xb${n}`);
+    },
     async fetchHead() {
-      if (++tick > 3) throw end;
+      if (++tick > 4) throw end;
       return head(100 + tick, tick === 1 ? "0xa101" : `0xb${100 + tick}`);
     },
     async fetchFinalized() {
