@@ -12,7 +12,12 @@ export function sameHash(a: string, b: string): boolean {
   return BigInt(a) === BigInt(b);
 }
 
-/** All calls use one provider. Fence a range, including pagination, with its end hash. */
+/**
+ * All calls use one consistent endpoint (see README.md). An unchanged end hash
+ * must imply the intervening range read used that block's ancestry, including
+ * blocks with no matching events. Separate header checks cannot prove this
+ * contract: in particular an A -> B -> A view change can evade the fence.
+ */
 export async function readSnapshot<T>(
   adapter: ChainAdapter<T>,
   plan: { from: number; to: number; head: ChainHead },

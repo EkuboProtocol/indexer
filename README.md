@@ -150,30 +150,40 @@ EVM and Starknet share `src/_shared/blockStream.ts`. The adapters read filtered
 ranges of events; only event-bearing blocks need event processing. Empty ranges
 still write a durable cursor and head, without inserting empty `blocks` rows.
 
-### RPC snapshots and failover
+### RPC endpoint consistency contract
+
+Each indexer accepts exactly one HTTP(S) endpoint: `EVM_RPC_URL` for EVM or
+`STARKNET_RPC_URL` for Starknet. Endpoint lists are rejected. The endpoint must
+report the configured chain ID before indexing can start. Failed requests retry
+against the same endpoint; persistent failures restart from the durable cursor.
+
+The provider must return complete range results and a consistent canonical view
+across requests, including across its own caches and load-balanced backends.
+Specifically, if `eth_getLogs(fromBlock, toBlock)` is sandwiched between header
+reads for `toBlock` and both headers have the same hash, the entire range result
+must correspond to that ending block's ancestry. This includes blocks with no
+matching logs. Returning a transient different branch between matching header
+reads (A -> B -> A) violates this assumption. A single URL alone cannot enforce
+this contract; do not put an uncoordinated multi-provider proxy behind it.
+Starknet requires the equivalent consistency for its paginated event reads.
 
 Each range is fenced by its ending block hash: read the ending header, fetch all
 logs/pages and missing timestamps, verify the previous cursor, then re-read the
 ending header. Nothing is emitted until those checks succeed. A missing or
-incorrect trailing header cannot advance the in-memory cursor. Events in the
-ending block must agree with its header. Starknet also pins the event query's
-`to_block` to that hash.
+incorrect trailing header cannot advance the cursor. Events in the ending block
+must agree with its header. Starknet also pins the event query's `to_block` to
+that hash. Cursor verification and stored-history recovery remain necessary for
+real chain reorgs, including those that happen while the indexer is offline.
 
-This adds constant header reads per range, rather than a header for every empty
-block. Both adapters fetch and hash-check each fresh event-bearing header, even when
-EVM logs already carry timestamps. This rejects stale logs served by a different
-backend behind the same provider URL. The ending header is reused when possible.
-The ending block carries its own gas price.
+EVM uses timestamps supplied with logs and fetches intermediate headers only
+when a timestamp is unavailable or invalid; fallback headers are hash-checked.
+The ending header is reused for its timestamp and base fee. Historical base fees
+are not stored in `blocks`; the head fee remains on `indexer_cursor` for quoting.
+Starknet still completes fresh event-bearing blocks from its block API.
 
-EVM checks every configured endpoint's chain ID and excludes endpoints that
-cannot verify it. An indexing attempt uses one endpoint throughout. On failure,
-the next verified endpoint starts a new stream at the last emitted cursor and
-verifies it before proceeding. Requests within a range never fail over separately.
-Starknet checks `starknet_chainId` before constructing its stream.
-
-These checks assume the selected provider returns complete, internally consistent
-range results. They detect observed branch changes and malformed results; they do
-not cryptographically prove the completeness of a provider's event index.
+These checks rely on the provider contract above. They detect observed branch
+changes and malformed results; they do not cryptographically prove event
+completeness or independently enforce consistency across requests.
 
 ### Event identity and pagination
 
@@ -268,6 +278,16 @@ The DigitalOcean Apps spec in `.do/app.yaml` documents the full production stack
 Use this file as a base to recreate the stack in a new DigitalOcean App Platform project or as a reference for configuring similar infrastructure elsewhere.
 
 ## Breaking changelog (tracking as of 2025-11-17)
+
+### 2026-09-09: Require a single consistent RPC endpoint
+
+EVM and Starknet workers now require one HTTP(S) URL in `EVM_RPC_URL` or
+`STARKNET_RPC_URL`. Before deploying, replace any comma-separated EVM endpoint
+list with one provider satisfying the RPC endpoint consistency contract above.
+Uncoordinated proxy pools are unsupported. EVM no longer fetches intermediate
+headers when event logs already supply timestamps. No database migration is
+required; existing cursors are preserved.
+
 
 This log records indexer deployments that:
 

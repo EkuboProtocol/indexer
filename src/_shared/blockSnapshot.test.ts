@@ -2,7 +2,6 @@ import { expect, it } from "bun:test";
 import type { ChainAdapter, ChainHead } from "./blockStream";
 import { readSnapshot } from "./blockSnapshot";
 import { commonStoredCursor } from "./cursorRecovery";
-import { withRpcFailover } from "./rpcFailover";
 import { parseRpcEnvelope } from "./rpcEnvelope";
 
 const header = (number: number, hash = `0x${number.toString(16)}`): ChainHead => ({
@@ -56,20 +55,6 @@ it("finds common persisted history beyond the polling window", async () => {
 
 it("does not treat an unavailable recovery block as proof of a deeper reorg", async () => {
   await expect(commonStoredCursor(adapter({ fetchBlock: async () => null }), 100, async () => ({ orderKey: 90n, uniqueKey: "0x90" }))).rejects.toThrow(/verify recovery/);
-});
-
-it("restarts failover from the last emitted cursor instead of mixing range requests", async () => {
-  const starts: bigint[] = [];
-  const messages = [];
-  for await (const message of withRpcFailover<string>([
-    async function* () {
-      yield { _tag: "invalidate", invalidate: { cursor: { orderKey: 50n, uniqueKey: "0x50" } } };
-      throw new Error("provider failed during its next snapshot");
-    },
-    async function* (cursor) { starts.push(cursor.orderKey); yield { _tag: "heartbeat" }; },
-  ], { orderKey: 100n }, () => {})) messages.push(message);
-  expect(starts).toEqual([50n]);
-  expect(messages.map(m => m._tag)).toEqual(["invalidate", "heartbeat"]);
 });
 
 it("rejects malformed successful HTTP responses and mismatched JSON-RPC IDs", () => {

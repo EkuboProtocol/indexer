@@ -1,23 +1,26 @@
-export function parseEvmRpcUrls(evmRpcUrl: string | undefined): string[] {
-  return (evmRpcUrl ?? "")
-    .split(",")
-    .map((url) => url.trim())
-    .filter(Boolean);
+/** One endpoint whose range and header reads share a consistent canonical view. */
+function requireRpcUrl(value: string | undefined, name: string): string {
+  const url = value?.trim();
+  if (!url) throw new Error(`Missing ${name}`);
+  if (url.includes(",") || /\s/.test(url)) {
+    throw new Error(`${name} must contain a single HTTP(S) RPC URL, not an endpoint list`);
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`${name} must contain a valid HTTP(S) RPC URL`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`${name} must contain an HTTP(S) RPC URL`);
+  }
+  return url;
 }
 
-/**
- * One URL, not a list.
- *
- * The EVM side takes a comma-separated list for historical reasons and switches only between complete stream attempts, because two endpoints can serve two
- * different views of the same chain and a stream that alternates between them
- * reorgs against itself. Starknet never had the list, so it does not get one.
- */
-export function requireStarknetRpcUrl(rpcUrl: string | undefined): string {
-  const trimmed = rpcUrl?.trim();
+export function requireEvmRpcUrl(value: string | undefined): string {
+  return requireRpcUrl(value, "EVM_RPC_URL");
+}
 
-  if (!trimmed) {
-    throw new Error("Missing STARKNET_RPC_URL");
-  }
-
-  return trimmed;
+export function requireStarknetRpcUrl(value: string | undefined): string {
+  return requireRpcUrl(value, "STARKNET_RPC_URL");
 }

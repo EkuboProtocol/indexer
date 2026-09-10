@@ -1,33 +1,27 @@
 import { describe, expect, it } from "bun:test";
-import { parseEvmRpcUrls, requireStarknetRpcUrl } from "./streamEndpoints";
+import { requireEvmRpcUrl, requireStarknetRpcUrl } from "./streamEndpoints";
 
-describe("parseEvmRpcUrls", () => {
-  it("splits and trims comma-separated urls", () => {
-    expect(parseEvmRpcUrls(" https://a.rpc ,https://b.rpc ")).toEqual([
-      "https://a.rpc",
-      "https://b.rpc",
-    ]);
+for (const [name, parse] of [["EVM_RPC_URL", requireEvmRpcUrl], ["STARKNET_RPC_URL", requireStarknetRpcUrl]] as const) {
+  describe(name, () => {
+    it("accepts a trimmed single HTTP endpoint", () => {
+      expect(parse(" https://rpc.example/v2/key ")).toBe("https://rpc.example/v2/key");
+      expect(parse("http://localhost:8545")).toBe("http://localhost:8545");
+    });
+    it("rejects missing values", () => {
+      for (const value of [undefined, "", "   "]) {
+        expect(() => parse(value)).toThrow(`Missing ${name}`);
+      }
+    });
+    it("rejects lists instead of silently choosing an endpoint", () => {
+      for (const value of ["https://a,https://b", "https://a,", "https://a https://b", "https://a\nhttps://b"]) {
+        expect(() => parse(value)).toThrow(/single/);
+      }
+    });
+    it("rejects malformed and unsupported URLs without exposing credentials", () => {
+      for (const value of ["not-a-url", "wss://rpc.example/secret", "file:///secret"]) {
+        expect(() => parse(value)).toThrow(/HTTP\(S\)/);
+        try { parse(value); } catch (error) { expect(String(error)).not.toContain(value); }
+      }
+    });
   });
-
-  it("returns an empty array for missing or blank values", () => {
-    expect(parseEvmRpcUrls(undefined)).toEqual([]);
-    expect(parseEvmRpcUrls(" ,  ")).toEqual([]);
-  });
-});
-
-describe("requireStarknetRpcUrl", () => {
-  it("returns a trimmed value", () => {
-    expect(requireStarknetRpcUrl(" https://starknet-mainnet.example/rpc ")).toBe(
-      "https://starknet-mainnet.example/rpc",
-    );
-  });
-
-  it("throws when missing", () => {
-    expect(() => requireStarknetRpcUrl(undefined)).toThrow(
-      "Missing STARKNET_RPC_URL",
-    );
-    expect(() => requireStarknetRpcUrl("   ")).toThrow(
-      "Missing STARKNET_RPC_URL",
-    );
-  });
-});
+}

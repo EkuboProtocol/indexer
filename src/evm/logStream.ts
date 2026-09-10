@@ -1,6 +1,6 @@
 /**
  * EVM range adapter. Logs provide event identities and usually timestamps;
- * each fresh event-bearing header is fetched and hash-checked. The snapshot reader
+ * headers are fetched only when timestamps are missing. The snapshot reader
  * verifies the cursor and ending header before committing the range.
  */
 import type { Address, Hex, PublicClient } from "viem";
@@ -358,7 +358,10 @@ async function fetchBlockByNumber(
   };
 }
 
-/** Verify every fresh event-bearing block, even when logs carry a timestamp. */
+/**
+ * Trust timestamped logs under the provider consistency contract in README.md.
+ * Reuse the anchor for the head fee; hash-check any missing-timestamp fallback.
+ */
 async function completeBlocks(
   rpc: RpcLike,
   blocks: StreamBlock[],
@@ -366,6 +369,7 @@ async function completeBlocks(
 ): Promise<void> {
   for (const block of blocks) {
     const number = Number(block.header.blockNumber);
+    if (number !== head.number && Number.isFinite(block.header.timestamp.getTime()) && block.header.timestamp.getTime() > 0) continue;
     const filled = number === head.number ? head : await fetchBlockByNumber(rpc, number);
     if (!filled) {
       throw new Error(

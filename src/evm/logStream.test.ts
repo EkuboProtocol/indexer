@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { Address, Hex } from "viem";
 import { numberToHex } from "viem";
+import { readSnapshot } from "../_shared/blockSnapshot";
 import {
   createLogStream,
   createEvmAdapter,
@@ -2072,9 +2073,13 @@ describe("EVM timestamp completion across a reorg", () => {
     expect(blocks[0]!.header.timestamp.getTime()).toBe(0);
   });
 
-  it("also rejects stale logs that already carry a timestamp", async () => {
+  it("uses timestamped intermediate logs without requesting their headers", async () => {
     const blocks = groupLogsByBlock([log({ blockHash: "0xaaa" })], [filter()]);
-    await expect(makeAdapter("0xbbb").completeFresh(blocks, head)).rejects.toThrow(/changed hash/);
+    const timestamp = blocks[0]!.header.timestamp;
+    const adapter = createEvmAdapter({ request: async () => { throw new Error("unexpected RPC"); } } as RpcLike, [filter()], 10_000);
+    await adapter.completeFresh(blocks, head);
+    expect(blocks[0]!.header.timestamp).toEqual(timestamp);
+    expect(blocks[0]!.header.baseFeePerGas).toBeNull();
   });
 
   it("fills timestamps when the hash matches case-insensitively", async () => {
@@ -2094,4 +2099,35 @@ describe("RPC log consistency", () => {
     const adapter = createEvmAdapter(rpcDouble({ logs: () => [log()] }), [filter()], 10_000);
     await expect(adapter.readRange(1, 2)).rejects.toThrow(/outside requested range/);
   });
+});
+
+
+describe("timestamped EVM range fencing", () => {
+  for (const changed of [false, true]) {
+    it(changed ? "rejects a changed anchor without intermediate header reads" : "checks only cursor and anchor after timestamped range results", async () => {
+      const requests: string[] = [];
+      const rpc = { request: async ({ method, params }: { method: string; params: unknown[] }) => {
+        if (method === "eth_getLogs") {
+          requests.push("logs");
+          return [log({ blockNumber: "0x64", blockHash: "0xaaa" })];
+        }
+        const number = Number(params[0]);
+        requests.push(`header:${number}`);
+        if (number !== 99 && number !== 101) throw new Error("unexpected intermediate header");
+        return { number: numberToHex(number), hash: changed && number === 101 ? "0xdead" : numberToHex(number), timestamp: "0x6553f100" };
+      } } as RpcLike;
+      const adapter = createEvmAdapter(rpc, [filter()], 10_000);
+      const pending = readSnapshot(adapter, {
+        from: 99, to: 101,
+        head: { number: 101, hash: "0x65", timestamp: new Date(1_700_000_000_000), baseFeePerGas: 5n },
+      }, { number: 99, hash: "0x63" });
+      if (changed) await expect(pending).rejects.toThrow(/changed hash/);
+      else {
+        const result = await pending;
+        expect(result.fresh).toHaveLength(1);
+        expect(result.cursorChanged).toBe(false);
+      }
+      expect(requests).toEqual(["logs", "header:99", "header:101"]);
+    });
+  }
 });

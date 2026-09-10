@@ -1,5 +1,4 @@
 import { createPublicClient, http } from "viem";
-import type { IndexerCursor } from "./_shared/dao";
 import type { EventKey } from "./_shared/eventKey";
 import { logger } from "./_shared/logger";
 import { parseCommonBlockHeader } from "./_shared/parseBlockHeader";
@@ -8,10 +7,9 @@ import {
   loadOptionalHexAddress,
   type HexAddress,
 } from "./_shared/loadHexAddresses";
-import { withRpcFailover } from "./_shared/rpcFailover";
 import { withNullBlockRetry } from "./_shared/nullBlockRetry";
-import { assertRpcChainIds } from "./_shared/rpcChainId";
-import { parseEvmRpcUrls } from "./_shared/streamEndpoints";
+import { assertRpcChainId } from "./_shared/rpcChainId";
+import { requireEvmRpcUrl } from "./_shared/streamEndpoints";
 import {
   createLogStream,
   type LogStreamFilter,
@@ -164,45 +162,10 @@ export async function createEvmEntrypoint(
       : []),
   ];
 
-  // Range and snapshot reads are sequential, so viem's own
-  // transport is enough; the rate-limited one came with the apibara stream that
-  // fetched a header per block.
-  const createTransportFromUrl = (url: string) =>
-    withNullBlockRetry(http(url, { retryCount: 2 }), { url });
-
-  const evmRpcUrls = parseEvmRpcUrls(process.env.EVM_RPC_URL);
-
-  if (evmRpcUrls.length === 0) {
-    throw new Error("Missing EVM_RPC_URL");
-  }
-
-  const evmRpcTransports = evmRpcUrls.map((url) => ({
-    url,
-    transport: createTransportFromUrl(url),
-  }));
-
-  const verifiedUrls = await assertRpcChainIds(
-    evmRpcTransports.map(({ url, transport }) => ({
-      url,
-      getChainId: async () =>
-        BigInt(await createPublicClient({ transport }).getChainId()),
-    })),
-    chainId,
-    {
-      onUnreachable: (url, error) =>
-        logger.warn({
-          message: `RPC could not report a chain ID; continuing without it`,
-          url,
-          error: error instanceof Error ? error.message : String(error),
-        }),
-    },
-  );
-
-  // Every stream uses one provider. A failure starts a new stream, with
-  // cursor verification, rather than mixing providers inside one range read.
-  const clients = evmRpcTransports
-    .filter(({ url }) => verifiedUrls.includes(url))
-    .map(({ transport }) => createPublicClient({ transport }));
+  const url = requireEvmRpcUrl(process.env.EVM_RPC_URL);
+  const transport = withNullBlockRetry(http(url, { retryCount: 2 }), { url });
+  const rpc = createPublicClient({ transport });
+  await assertRpcChainId(() => rpc.getChainId().then(BigInt), chainId);
 
   const filters: LogStreamFilter[] = processors.map((processor, ix) => ({
     id: ix + 1,
@@ -223,10 +186,10 @@ export async function createEvmEntrypoint(
 
   return {
     createStream(streamOptions: StreamOptions) {
-      const sources = clients.map((rpc) => (startingCursor: IndexerCursor) => createLogStream({
+      return createLogStream({
         rpc,
         filters,
-        startingCursor,
+        startingCursor: streamOptions.startingCursor,
         loadPreviousCursor: streamOptions.loadPreviousCursor,
         options: {
           pollIntervalMs: positiveInt("POLL_INTERVAL_MS", 2_000),
@@ -259,9 +222,6 @@ export async function createEvmEntrypoint(
           ),
           onWarning: (message, detail) => logger.warn({ message, ...detail }),
         },
-      }));
-      return withRpcFailover(sources, streamOptions.startingCursor, (index, error) => {
-        logger.warn({ message: "RPC stream failed; restarting with the next verified provider", index, error: String(error) });
       });
     },
     getPlannedEvents(block: EvmBlock) {
