@@ -34,7 +34,7 @@
     "eslint": "10.10.0"
   },
   "dependencies": {
-    "@effect/platform-bun": "4.0.0-rc.112",
+    "@effect/platform-bun": "4.0.0-rc.114",
     "dotenv": "^17.4.2",
     "effect": "4.0.0-rc.112",
     "postgres": "^3.4.9",
