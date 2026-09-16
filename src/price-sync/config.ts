@@ -42,29 +42,29 @@ function requireNonNegative(name: string, value: number) {
 }
 
 const raw = Config.all({
-  pgConnectionString: Config.string("PG_CONNECTION_STRING"),
-  defaultIntervalMs: Config.int("TOKEN_PRICE_SYNC_INTERVAL_MS").pipe(
+  pgConnectionString: Config.String("PG_CONNECTION_STRING"),
+  defaultIntervalMs: Config.Int("TOKEN_PRICE_SYNC_INTERVAL_MS").pipe(
     Config.withDefault(60_000),
   ),
-  coingeckoIntervalSeconds: Config.int(
+  coingeckoIntervalSeconds: Config.Int(
     "COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS",
   ).pipe(Config.withDefault(0)),
-  chainlinkIntervalSeconds: Config.int(
+  chainlinkIntervalSeconds: Config.Int(
     "CHAINLINK_TOKEN_PRICE_SYNC_INTERVAL_SECONDS",
   ).pipe(Config.withDefault(0)),
-  chainlinkCatalogRefreshSeconds: Config.int(
+  chainlinkCatalogRefreshSeconds: Config.Int(
     "CHAINLINK_FEED_CATALOG_REFRESH_INTERVAL_SECONDS",
   ).pipe(Config.withDefault(3_600)),
-  chainlinkConfig: Config.string("CHAINLINK_TOKEN_PRICE_CONFIG").pipe(
+  chainlinkConfig: Config.String("CHAINLINK_TOKEN_PRICE_CONFIG").pipe(
     Config.withDefault(""),
   ),
-  coingeckoApiKey: Config.string("COINGECKO_API_KEY").pipe(
+  coingeckoApiKey: Config.String("COINGECKO_API_KEY").pipe(
     Config.withDefault(""),
   ),
-  quoterUrl: Config.string("EKUBO_QUOTER_URL").pipe(
+  quoterUrl: Config.String("EKUBO_QUOTER_URL").pipe(
     Config.withDefault("https://prod-api-quoter.ekubo.org"),
   ),
-  maxQuoterRequestsPerMinute: Config.int(
+  maxQuoterRequestsPerMinute: Config.Int(
     "MAX_QUOTER_REQUESTS_PER_MINUTE",
   ).pipe(Config.withDefault(60)),
 });
