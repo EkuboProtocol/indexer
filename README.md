@@ -279,6 +279,33 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### 2026-09-24: Starknet extension routing metadata (00129, additive)
+
+Deploy the indexer before the quoter release that reads this metadata. Migration
+00129 records `ExtensionCallPointsSet` history and exposes the last canonical
+event per `(chain_id, Core, extension)`, including re-registration and reorgs.
+It does **not** change `all_pool_states_view`, `pool_last_event_id`, their indexes,
+or the per-swap trigger path. Existing quoter versions remain compatible.
+
+After the new Starknet worker is live and its cursor has advanced past
+deployment, run `NETWORK=mainnet bun scripts/backfillStarknetExtensionCallPoints.ts`
+with the production `PG_CONNECTION_STRING` and `STARKNET_RPC_URL` (v0.10 event
+positions). It fetches historical events through a hash-pinned indexed anchor,
+checks latest flags against Core at that anchor, then atomically inserts history
+and publishes the eligible-extension set. The short write transaction locks
+`blocks` first, following migration lock ordering. It never resets the cursor or
+replays pool events; reruns are idempotent. A changed anchor aborts the write;
+later reorgs remove imported events through the normal block cascade. Including
+the unfinalized tail closes the deployment gap without waiting for L1 finality.
+Missing backfill metadata fails closed.
+
+The eligible set is recomputed only on registration insertion/deletion, not on
+pool writes or quote polls. The new quoter reads it with one PK lookup alongside
+its existing head read, passes it as a constant array to its pool query, and
+replaces the routing graph if it changes. This handles both admitting and evicting
+idle pools. Roll the quoter back first if rolling back event ingestion; otherwise
+its allow-set could become stale. Keep the additive schema on rollback.
+
 ### 2026-09-09: Require a single consistent RPC endpoint
 
 EVM and Starknet workers now require one HTTP(S) URL in `EVM_RPC_URL` or

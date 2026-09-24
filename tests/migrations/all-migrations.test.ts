@@ -19,6 +19,6 @@ test("all migrations apply successfully", async () => {
     `SELECT count(1) as result FROM information_schema.tables WHERE table_schema = 'public'`
   );
 
-  // 00123 adds pool_last_event_id.
-  expect(result).toBe(85);
+  // 00129 adds two extension tables and the latest-event view.
+  expect(result).toBe(88);
 });

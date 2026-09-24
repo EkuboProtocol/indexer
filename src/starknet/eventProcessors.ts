@@ -2,6 +2,8 @@ import { logger } from "../_shared/logger";
 import { parseTransferEvent } from "./nft";
 import type { TransferEvent } from "./nft";
 import {
+  encodeCallPoints,
+  parseExtensionCallPointsSet,
   parseFeesAccumulatedEvent,
   parsePoolInitializedEvent,
   parsePositionFeesCollectedEvent,
@@ -12,6 +14,7 @@ import {
   parseSwappedEvent,
 } from "./core";
 import type {
+  ExtensionCallPointsSetEvent,
   FeesAccumulatedEvent,
   PoolInitializationEvent,
   PoolKey,
@@ -153,6 +156,19 @@ export function createEventProcessors({
   }
 
   return [
+    <StarknetEventProcessor<ExtensionCallPointsSetEvent>>{
+      filter: {
+        fromAddress: coreAddress,
+        keys: ["0x38a9213201ed0d67771d34d45fd58a5f718fcaf84ec8f5bcca5b8a4874fd104"],
+      },
+      parser: parseExtensionCallPointsSet,
+      async handle(dao, { parsed, key }): Promise<void> {
+        await dao.insertStarknetExtensionCallPoints({
+          extension: parsed.extension,
+          callPoints: encodeCallPoints(parsed.call_points),
+        }, key);
+      },
+    },
     <StarknetEventProcessor<TransferEvent>>{
       filter: {
         fromAddress: nftAddress,
