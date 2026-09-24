@@ -287,14 +287,17 @@ event per `(chain_id, Core, extension)`, including re-registration and reorgs.
 It does **not** change `all_pool_states_view`, `pool_last_event_id`, their indexes,
 or the per-swap trigger path. Existing quoter versions remain compatible.
 
-After the new Starknet worker is live and its finalized cursor has advanced past
+After the new Starknet worker is live and its cursor has advanced past
 deployment, run `NETWORK=mainnet bun scripts/backfillStarknetExtensionCallPoints.ts`
 with the production `PG_CONNECTION_STRING` and `STARKNET_RPC_URL` (v0.10 event
-positions). It fetches historical events through a finalized indexed anchor,
+positions). It fetches historical events through a hash-pinned indexed anchor,
 checks latest flags against Core at that anchor, then atomically inserts history
 and publishes the eligible-extension set. The short write transaction locks
 `blocks` first, following migration lock ordering. It never resets the cursor or
-replays pool events; reruns are idempotent. Missing backfill metadata fails closed.
+replays pool events; reruns are idempotent. A changed anchor aborts the write;
+later reorgs remove imported events through the normal block cascade. Including
+the unfinalized tail closes the deployment gap without waiting for L1 finality.
+Missing backfill metadata fails closed.
 
 The eligible set is recomputed only on registration insertion/deletion, not on
 pool writes or quote polls. The new quoter reads it with one PK lookup alongside

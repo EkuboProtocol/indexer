@@ -2,7 +2,7 @@
  * After deploying live ExtensionCallPointsSet ingestion:
  * NETWORK=mainnet STARKNET_RPC_URL=... bun scripts/backfillStarknetExtensionCallPoints.ts
  *
- * Reads all history through an indexed, finalized block before taking a short
+ * Reads all history through an indexed block before taking a short
  * database lock. Publishes history and routing eligibility atomically. Never
  * resets a cursor or replays pool events. Requires RPC event positions (v0.10).
  */
@@ -83,12 +83,12 @@ async function main() {
     }
     const [cutoff] = await sql`SELECT b.block_number, b.block_hash::text
       FROM blocks b JOIN indexer_cursor c USING (chain_id)
-      WHERE b.chain_id=${chain} AND b.block_number < c.finalized_order_key
+      WHERE b.chain_id=${chain} AND b.block_number <= c.head_block_number
       ORDER BY b.block_number DESC LIMIT 1`;
-    if (!cutoff) throw new Error("No indexed finalized cutoff");
+    if (!cutoff) throw new Error("No indexed cutoff");
     const through = Number(cutoff.block_number);
     const hash = `0x${BigInt(cutoff.block_hash).toString(16)}`;
-    console.log(`Fetching extension history through finalized block ${through}`);
+    console.log(`Fetching extension history through indexed block ${through}`);
     const events = await readHistory(rpc, CORE_ADDRESS, through);
     await verifyHistory(rpc, CORE_ADDRESS, hash, events);
     const blocks = new Map<number, Block>();
@@ -99,7 +99,7 @@ async function main() {
       blocks.set(event.block_number, block);
     }
     const anchor = await rpc.request<Block>("starknet_getBlockWithTxHashes", [{ block_number: through }]);
-    if (BigInt(anchor.block_hash) !== BigInt(hash)) throw new Error("Finalized anchor changed");
+    if (BigInt(anchor.block_hash) !== BigInt(hash)) throw new Error("Canonical anchor changed");
     await sql.begin(async tx => {
       await tx`SET LOCAL lock_timeout = '10s'`;
       await tx`SET LOCAL statement_timeout = '30s'`;
