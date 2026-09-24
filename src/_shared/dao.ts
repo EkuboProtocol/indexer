@@ -1238,6 +1238,21 @@ export class DAO {
     `;
   }
 
+  public async insertStarknetExtensionCallPoints(
+    event: { extension: AddressValue; callPoints: number },
+    key: EventKey,
+  ) {
+    await this.sql`
+      INSERT INTO starknet_extension_call_points
+        (chain_id, block_number, transaction_index, event_index,
+         transaction_hash, emitter, pool_extension, call_points)
+      VALUES (${this.chainId}, ${key.blockNumber}, ${key.transactionIndex},
+              ${key.eventIndex}, ${this.numeric(key.transactionHash)},
+              ${this.numeric(key.emitter)}, ${this.numeric(event.extension)},
+              ${event.callPoints});
+    `;
+  }
+
   public async insertRegistration(
     event: TokenRegistrationInsert,
     key: EventKey,

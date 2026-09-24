@@ -17,6 +17,34 @@ export const parsePoolKey = combineParsers({
   extension: { index: 4, parser: parseAddress },
 });
 export type PoolKey = GetParserType<typeof parsePoolKey>;
+// Cairo serializes the eight booleans individually; the storage bit positions
+// put before_initialize_pool last (bit 0), not first (bit 7).
+export const parseCallPoints = combineParsers({
+  before_initialize_pool: { index: 0, parser: parseBoolean },
+  after_initialize_pool: { index: 1, parser: parseBoolean },
+  before_swap: { index: 2, parser: parseBoolean },
+  after_swap: { index: 3, parser: parseBoolean },
+  before_update_position: { index: 4, parser: parseBoolean },
+  after_update_position: { index: 5, parser: parseBoolean },
+  before_collect_fees: { index: 6, parser: parseBoolean },
+  after_collect_fees: { index: 7, parser: parseBoolean },
+});
+export const parseExtensionCallPointsSet = combineParsers({
+  extension: { index: 0, parser: parseAddress },
+  call_points: { index: 1, parser: parseCallPoints },
+});
+export type ExtensionCallPointsSetEvent = GetParserType<typeof parseExtensionCallPointsSet>;
+
+export function encodeCallPoints(points: GetParserType<typeof parseCallPoints>): number {
+  return Number(points.before_initialize_pool)
+    + Number(points.after_initialize_pool) * 128
+    + Number(points.before_swap) * 64
+    + Number(points.after_swap) * 32
+    + Number(points.before_update_position) * 16
+    + Number(points.after_update_position) * 8
+    + Number(points.before_collect_fees) * 4
+    + Number(points.after_collect_fees) * 2;
+}
 export const parseBounds = combineParsers({
   lower: { index: 0, parser: parseI129 },
   upper: { index: 1, parser: parseI129 },
