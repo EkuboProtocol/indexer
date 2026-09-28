@@ -667,6 +667,27 @@ function createContinuousAuctionProcessors(
             allocated: false,
           });
         },
+        async RentCollected(dao, key, parsed) {
+          const { salt, lower, upper } = parsePositionId(parsed.positionId);
+          await dao.insertContinuousAuctionRentCollectedEvent(key, {
+            coreAddress,
+            poolId: parsed.poolId,
+            owner: parsed.owner,
+            positionId: parsed.positionId,
+            salt,
+            bounds: { lower, upper },
+            amount: parsed.amount,
+          });
+        },
+        async SwapFeeCharged(dao, key, parsed) {
+          await dao.insertContinuousAuctionSwapFeeChargedEvent(key, {
+            coreAddress,
+            poolId: parsed.poolId,
+            bidder: parsed.bidder,
+            amount0: parsed.amount0,
+            amount1: parsed.amount1,
+          });
+        },
       },
     },
   };

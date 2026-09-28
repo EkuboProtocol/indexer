@@ -20,6 +20,6 @@ test("all migrations apply successfully", async () => {
   );
 
   // 00129 adds two extension tables and the latest-event view; 00130 adds
-  // four continuous auction tables.
-  expect(result).toBe(92);
+  // four continuous auction tables; 00131 adds five tables and four views.
+  expect(result).toBe(101);
 });

@@ -34,6 +34,7 @@ for (const migration of [
   "00120_incremental_rewards_by_position",
   "00123_pool_last_event_id",
   "00130_continuous_auction_pool_states",
+  "00131_continuous_auction_user_value_metrics",
 ]) {
   test(`${migration} parks the indexer workers before taking any other lock`, async () => {
     expect(await leadingStatements(migration)).toEqual([

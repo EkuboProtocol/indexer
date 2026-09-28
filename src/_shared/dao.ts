@@ -338,6 +338,22 @@ export interface ContinuousAuctionRentSettledInsert
   allocated: boolean;
 }
 
+export interface ContinuousAuctionRentCollectedInsert
+  extends ContinuousAuctionPoolEventDescriptor {
+  owner: AddressValue;
+  positionId: NumericValue;
+  salt: NumericValue;
+  bounds: { lower: number; upper: number };
+  amount: NumericValue;
+}
+
+export interface ContinuousAuctionSwapFeeChargedInsert
+  extends ContinuousAuctionPoolEventDescriptor {
+  bidder: NumericValue;
+  amount0: NumericValue;
+  amount1: NumericValue;
+}
+
 export interface TokenRegistrationInsert {
   address: AddressValue;
   name: NumericValue;
@@ -2299,6 +2315,71 @@ export class DAO {
         ${this.numeric(parsed.poolId)},
         ${this.numeric(parsed.amount)},
         ${parsed.allocated}
+      );
+    `;
+  }
+
+  async insertContinuousAuctionRentCollectedEvent(
+    key: EventKey,
+    parsed: ContinuousAuctionRentCollectedInsert,
+  ) {
+    const { lower, upper } = parsed.bounds;
+
+    await this.sql`
+      INSERT INTO continuous_auction_rent_collected
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, owner, position_id, salt, lower_bound, upper_bound, amount)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pk.pool_key_id
+          FROM pool_keys pk
+          WHERE pk.chain_id = ${this.chainId}
+            AND pk.core_address = ${this.numeric(parsed.coreAddress)}
+            AND pk.pool_id = ${this.numeric(parsed.poolId)}
+        ),
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.owner)},
+        ${this.numeric(parsed.positionId)},
+        ${this.numeric(parsed.salt)},
+        ${lower},
+        ${upper},
+        ${this.numeric(parsed.amount)}
+      );
+    `;
+  }
+
+  async insertContinuousAuctionSwapFeeChargedEvent(
+    key: EventKey,
+    parsed: ContinuousAuctionSwapFeeChargedInsert,
+  ) {
+    await this.sql`
+      INSERT INTO continuous_auction_swap_fee_charged
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, bidder, amount0, amount1)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pk.pool_key_id
+          FROM pool_keys pk
+          WHERE pk.chain_id = ${this.chainId}
+            AND pk.core_address = ${this.numeric(parsed.coreAddress)}
+            AND pk.pool_id = ${this.numeric(parsed.poolId)}
+        ),
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.bidder)},
+        ${this.numeric(parsed.amount0)},
+        ${this.numeric(parsed.amount1)}
       );
     `;
   }

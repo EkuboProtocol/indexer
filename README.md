@@ -279,6 +279,50 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### 2026-09-28: ContinuousAuction user-value metrics and alerts (00131, additive)
+
+00131 indexes `RentCollected` and `SwapFeeCharged` and adds read-only views and
+functions over the auction events. Nothing existing changes. The migration parks
+the workers by locking `blocks` first, as 00130 does.
+
+- `continuous_auction_tenures`: the seconds each bid actually held the pool and
+  the rent it paid for them. `continuous_auction_live_segments` is the per-update
+  breakdown behind it.
+- `continuous_auction_displacements`: pending bids replaced by another bidder, and
+  live bids cut short by another bidder's activation.
+- `continuous_auction_rent_collections`: collections with the beneficiary (the
+  NFT owner at the time) and `linked_to_holder`, true when the beneficiary or the
+  position owner ever bid on or executed for that pool. Transaction senders are
+  not indexed, so "independent" is an upper bound. The metrics also report the
+  largest beneficiary's share.
+- `continuous_auction_pool_metrics(chain_id, from, to)`: per pool, over a window
+  in unix seconds clamped to the indexed head. It returns closed seconds and the
+  current closed streak, rent paid (and how much of it paid for tenures with no
+  executable block), rent allocated/unallocated/discarded on liquidity changes,
+  rent collected by independent beneficiaries, the time-weighted and maximum
+  holder fee, and displacement counts.
+- `continuous_auction_alerts(chain_id[, at])`: the alerts that fire under
+  `continuous_auction_alert_thresholds`. Row `chain_id = 0` holds the defaults.
+  Add a row per chain to calibrate it.
+
+Two inputs need an RPC and are written by `scripts/continuousAuctionMonitor.ts`,
+not by the indexer. The first is whether any block fell inside each tenure
+(`continuous_auction_tenure_executability`). The indexer never sees empty blocks,
+so this needs headers. The second is claimable rent at the indexed head
+(`continuous_auction_rent_reconciliations`). Rent discarded by a nonzero
+liquidity change emits no event, so it is measured as allocated minus collected
+minus claimable. Run the monitor per chain on a schedule with the chain's
+indexer env:
+
+    NETWORK=<network> bun scripts/continuousAuctionMonitor.ts
+
+It prints one JSON line. It exits 0 when quiet, 2 on warnings, 3 on a page and 1
+when the check fails. Until the monitor runs, the unexecutable and position-change
+figures are reported as unresolved or NULL, not as zero.
+
+For linkage through NFTs, the AuctionPositions deployment has to be in the
+chain's `POSITIONS_V3_PROTOCOL_FEE_CONFIGS` so that its transfers are indexed.
+
 ### 2026-09-28: ContinuousAuction bid schedule on `all_pool_states_view` (00130, additive)
 
 Deploy this before quoter-service#76, which selects the new columns. Migration

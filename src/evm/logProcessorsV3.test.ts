@@ -176,12 +176,12 @@ describe("createLogProcessorsV3", () => {
         (p) => p.address === continuousAuctionAddress,
       ),
     ).toHaveLength(0);
-    // BidUpdated, RentAccrued, RentUnallocated
+    // BidUpdated, RentAccrued, RentUnallocated, RentCollected, SwapFeeCharged
     expect(
       createLogProcessorsV3({ ...base, continuousAuctionAddress }).filter(
         (p) => p.address === continuousAuctionAddress,
       ),
-    ).toHaveLength(3);
+    ).toHaveLength(5);
   });
 
   it("derives the bidder id the way ContinuousAuctionLib.bidderId does", () => {
@@ -264,6 +264,70 @@ describe("createLogProcessorsV3", () => {
         executor,
         fee: 2 ** 31,
         delta: -5n,
+      },
+    );
+  });
+
+  it("splits RentCollected's position id into salt and bounds", async () => {
+    const continuousAuctionAddress =
+      "0x0000000000000000000000000000000000000040";
+    const processors = createLogProcessorsV3({
+      ...config,
+      twammAddresses: [],
+      ordersAddresses: [],
+      continuousAuctionAddress,
+    });
+    const poolId = `0x${"41".padStart(64, "0")}` as const;
+    const owner = "0x00000000000000000000000000000000000000cc";
+    // salt 9 (the NFT id), lower -10, upper 20
+    const positionId = `0x${(
+      (9n << 64n) |
+      (BigInt.asUintN(32, -10n) << 32n) |
+      20n
+    )
+      .toString(16)
+      .padStart(64, "0")}` as const;
+    const topics = encodeEventTopics({
+      abi: CONTINUOUS_AUCTION_ABI,
+      eventName: "RentCollected",
+      args: { poolId, owner },
+    });
+    const processor = processors.find(
+      (candidate) =>
+        candidate.address === continuousAuctionAddress &&
+        candidate.filter.topics[0] === topics[0],
+    );
+    expect(processor).toBeDefined();
+
+    const insertContinuousAuctionRentCollectedEvent = mock(async () => {});
+    await processor!.handler(
+      { insertContinuousAuctionRentCollectedEvent } as never,
+      {
+        blockNumber: 1,
+        transactionIndex: 2,
+        eventIndex: 3,
+        emitter: continuousAuctionAddress,
+        transactionHash: `0x${"50".padStart(64, "0")}`,
+      },
+      {
+        topics,
+        data: encodeAbiParameters(
+          [{ type: "bytes32" }, { type: "uint256" }],
+          [positionId, 123n],
+        ),
+      },
+    );
+
+    expect(insertContinuousAuctionRentCollectedEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        coreAddress: config.coreAddress,
+        poolId,
+        owner,
+        positionId,
+        salt: 9n,
+        bounds: { lower: -10, upper: 20 },
+        amount: 123n,
       },
     );
   });
