@@ -659,25 +659,43 @@ describe("RPC event consistency", () => {
   });
 });
 
-describe("readRange at the tip", () => {
-  const blockNotFound = async (endHash?: Hex) => {
+describe("reads at the tip", () => {
+  const withBlockNotFound = async <T>(
+    run: (adapter: ReturnType<typeof createStarknetAdapter>) => Promise<T>,
+  ): Promise<T> => {
     const original = globalThis.fetch;
     globalThis.fetch = (async () => new Response(JSON.stringify({
       jsonrpc: "2.0", id: 1, error: { code: 24, message: "Block not found" },
     }))) as unknown as typeof fetch;
     try {
-      const adapter = createStarknetAdapter({
+      return await run(createStarknetAdapter({
         rpc: createStarknetRpc("https://x", { retryDelayMs: 1 }),
         filters: [coreFilter],
-      });
-      return await adapter.readRange(BLOCK_NUMBER - 10, BLOCK_NUMBER, endHash).then(
-        () => { throw new Error("expected a rejection"); },
-        (error: unknown) => error,
-      );
+      }));
     } finally {
       globalThis.fetch = original;
     }
   };
+  const rejection = (read: Promise<unknown>) => read.then(
+    () => { throw new Error("expected a rejection"); },
+    (error: unknown) => error,
+  );
+  const blockNotFound = (endHash?: Hex) => withBlockNotFound(adapter =>
+    rejection(adapter.readRange(BLOCK_NUMBER - 10, BLOCK_NUMBER, endHash)));
+
+  it("reads a header the node cannot find as unreadable", async () => {
+    expect(await withBlockNotFound(adapter => adapter.fetchBlock(BLOCK_NUMBER))).toBeNull();
+  });
+
+  it("treats a cited block whose header the node cannot find as a stale snapshot", async () => {
+    // The range read cited the block, then the backend serving the header read
+    // did not have it yet. Exiting here restarted the worker at 21:18:50.
+    const error = await withBlockNotFound(adapter => rejection(adapter.completeFresh(
+      [{ header: { blockNumber: BigInt(BLOCK_NUMBER), blockHash: BLOCK_HASH, timestamp: new Date(0), baseFeePerGas: null }, logs: [] }],
+      { number: BLOCK_NUMBER, hash: BLOCK_HASH, timestamp: new Date(0), baseFeePerGas: null },
+    )));
+    expect(error).toBeInstanceOf(StaleSnapshotError);
+  });
 
   it("treats an end hash the node cannot find as a stale snapshot", async () => {
     // The anchor was read from the head a moment earlier; the backend serving
