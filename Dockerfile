@@ -7,7 +7,7 @@ ENV NODE_ENV=production
 ENV NODE_OPTIONS=--enable-source-maps
 
 # Install only production dependencies
-COPY package*.json ./
+COPY package.json bun.lock ./
 RUN bun ci --omit=dev
 
 # Copy source files that Bun can execute directly
