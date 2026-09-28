@@ -39,6 +39,7 @@ import { toHex, type Hex } from "viem";
 import type { IndexerCursor } from "../_shared/dao";
 import { parseRpcEnvelope, type RpcEnvelope } from "../_shared/rpcEnvelope";
 import { checkContinuationToken, recordEventIdentity, requireBlockInRange } from "../_shared/rpcRecords";
+import { StaleSnapshotError } from "../_shared/blockSnapshot";
 import {
   createBlockStream,
   requireRepresentableIndex,
@@ -353,7 +354,18 @@ export function createStarknetAdapter({
               ? { continuation_token: continuationToken }
               : {}),
           },
-        ]);
+        ]).catch((error: unknown) => {
+          // At the tip the anchor may not have reached the backend serving
+          // this call yet, or may have been reorged out since the header read.
+          // Either way the snapshot is stale, not the endpoint broken.
+          if (endHash && error instanceof StarknetRpcError && error.code === BLOCK_NOT_FOUND) {
+            throw new StaleSnapshotError(
+              `starknet_getEvents could not find end block ${to} (${endHash}); retry the snapshot`,
+              { cause: error },
+            );
+          }
+          throw error;
+        });
 
         for (const event of page.events) {
           requireBlockInRange(event.block_number!, from, to);
@@ -435,6 +447,17 @@ export function createStarknetAdapter({
  * off. Under the account's spend cap that is exactly when it would fire.
  */
 const RETRYABLE_RPC_CODES = new Set([-1, -32005, -32603, 429]);
+
+/** Starknet's `BLOCK_NOT_FOUND`. */
+const BLOCK_NOT_FOUND = 24;
+
+/** A JSON-RPC error answer, carrying its code so callers can classify it. */
+export class StarknetRpcError extends Error {
+  override readonly name = "StarknetRpcError";
+  constructor(message: string, readonly code: number) {
+    super(message);
+  }
+}
 
 /**
  * HTTP statuses viem retries for the EVM streams, enumerated so this client
@@ -524,8 +547,9 @@ export function createStarknetRpc(
     }
 
     if (body.error) {
-      const failure = new Error(
+      const failure = new StarknetRpcError(
         `${method} failed: ${body.error.message} (code ${body.error.code})`,
+        body.error.code,
       );
       return RETRYABLE_RPC_CODES.has(body.error.code)
         ? { outcome: "retry", error: failure }
