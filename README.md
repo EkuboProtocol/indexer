@@ -279,6 +279,32 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### 2026-09-28: ContinuousAuction bid schedule on `all_pool_states_view` (00130, additive)
+
+Deploy this before quoter-service#76, which selects the new columns. Migration
+00130 indexes the ContinuousAuction extension's `BidUpdated`, `RentAccrued` and
+`RentUnallocated` events. It keeps `continuous_auction_pool_states`, which mirrors
+`ContinuousAuction.auctions(poolId)`, and exposes it on `all_pool_states_view`:
+
+- `continuous_auction_{current,next}_bid_{start,end,fee}`: int8, unix seconds, fee as a 0.32 fraction. The next-bid columns are NULL when nothing is pending.
+- `continuous_auction_last_settled`: int8.
+- `is_continuous_auction_pool`.
+
+The columns are appended, so existing readers keep working. The state table is a
+sixth source for `pool_last_event_id`, so bid updates and settlements move the
+pool's `last_event_id`. The migration parks the workers by locking `blocks`
+first, as 00123 does.
+
+No chain indexes the extension until `CONTINUOUS_AUCTION_V3_ADDRESS` is set in
+that chain's `.env.evm.<network>`. Set it before the deployment block is indexed.
+Pools are flagged from `PoolInitialized`, so a pool initialized before the
+variable was set is only flagged once it has a bid event. Past events need a
+re-index from the deployment block.
+
+Known limitation: a settlement that charges no rent emits no event. That happens
+when no bid is live or pending. Then `last_settled` lags the contract. It never
+affects which bid holds the pool or its fee.
+
 ### 2026-09-24: Starknet extension routing metadata (00129, additive)
 
 Deploy the indexer before the quoter release that reads this metadata. Migration

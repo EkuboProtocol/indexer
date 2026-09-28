@@ -1,7 +1,10 @@
 import { describe, expect, it, mock } from "bun:test";
 import { encodeAbiParameters, encodeEventTopics } from "viem";
-import { VE33_ABI } from "./abis_v3";
-import { createLogProcessorsV3 } from "./logProcessorsV3";
+import { CONTINUOUS_AUCTION_ABI, VE33_ABI } from "./abis_v3";
+import {
+  continuousAuctionBidderId,
+  createLogProcessorsV3,
+} from "./logProcessorsV3";
 
 const config = {
   mevCaptureAddress: "0x0000000000000000000000000000000000000001",
@@ -159,6 +162,108 @@ describe("createLogProcessorsV3", () => {
         weight: 123n,
         votedSwapFee: 17n,
         swapFee: 45n,
+      },
+    );
+  });
+
+  it("indexes ContinuousAuction bid updates and settlements only when configured", () => {
+    const continuousAuctionAddress =
+      "0x0000000000000000000000000000000000000040";
+    const base = { ...config, twammAddresses: [], ordersAddresses: [] };
+
+    expect(
+      createLogProcessorsV3(base).filter(
+        (p) => p.address === continuousAuctionAddress,
+      ),
+    ).toHaveLength(0);
+    // BidUpdated, RentAccrued, RentUnallocated
+    expect(
+      createLogProcessorsV3({ ...base, continuousAuctionAddress }).filter(
+        (p) => p.address === continuousAuctionAddress,
+      ),
+    ).toHaveLength(3);
+  });
+
+  it("derives the bidder id the way ContinuousAuctionLib.bidderId does", () => {
+    // cast keccak $(cast abi-encode "f(address,bytes32)" 0x..aa 0x..bb)
+    expect(
+      continuousAuctionBidderId(
+        "0x00000000000000000000000000000000000000aa",
+        `0x${"bb".padStart(64, "0")}`,
+      ),
+    ).toBe(
+      "0xe75341cef40916e44766738c5c2fc48518809c87d2843a8bec425b4bc23f242e",
+    );
+  });
+
+  it("passes BidUpdated through with the bidder id", async () => {
+    const continuousAuctionAddress =
+      "0x0000000000000000000000000000000000000040";
+    const processors = createLogProcessorsV3({
+      ...config,
+      twammAddresses: [],
+      ordersAddresses: [],
+      continuousAuctionAddress,
+    });
+    const poolId = `0x${"41".padStart(64, "0")}` as const;
+    const locker = "0x00000000000000000000000000000000000000aa";
+    const salt = `0x${"bb".padStart(64, "0")}` as const;
+    const executor = "0x0000000000000000000000000000000000000042";
+    const topics = encodeEventTopics({
+      abi: CONTINUOUS_AUCTION_ABI,
+      eventName: "BidUpdated",
+      args: { poolId, locker },
+    });
+    const processor = processors.find(
+      (candidate) =>
+        candidate.address === continuousAuctionAddress &&
+        candidate.filter.topics[0] === topics[0],
+    );
+    expect(processor).toBeDefined();
+
+    const insertContinuousAuctionBidUpdatedEvent = mock(async () => {});
+    await processor!.handler(
+      { insertContinuousAuctionBidUpdatedEvent } as never,
+      {
+        blockNumber: 1,
+        transactionIndex: 2,
+        eventIndex: 3,
+        emitter: continuousAuctionAddress,
+        transactionHash: `0x${"50".padStart(64, "0")}`,
+      },
+      {
+        topics,
+        data: encodeAbiParameters(
+          [
+            { type: "bytes32" },
+            { type: "uint96" },
+            { type: "uint48" },
+            { type: "uint48" },
+            { type: "address" },
+            { type: "uint32" },
+            { type: "int256" },
+          ],
+          [salt, 7n, 1_700_000_001, 1_700_000_101, executor, 1n << 31n, -5n],
+        ),
+      },
+    );
+
+    expect(insertContinuousAuctionBidUpdatedEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        coreAddress: config.coreAddress,
+        poolId,
+        // viem checksums decoded addresses
+        locker: "0x00000000000000000000000000000000000000AA",
+        salt,
+        bidder:
+          "0xe75341cef40916e44766738c5c2fc48518809c87d2843a8bec425b4bc23f242e",
+        rate: 7n,
+        start: 1_700_000_001,
+        end: 1_700_000_101,
+        executor,
+        fee: 2 ** 31,
+        delta: -5n,
       },
     );
   });

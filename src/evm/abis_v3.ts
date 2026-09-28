@@ -7077,3 +7077,1071 @@ export const AUCTIONS_ABI = [
     inputs: [],
   },
 ] as const;
+
+export const CONTINUOUS_AUCTION_ABI = [
+  {
+    type: "constructor",
+    inputs: [
+      {
+        name: "core",
+        type: "address",
+        internalType: "contract ICore",
+      },
+      {
+        name: "_bidToken",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "accrue",
+    inputs: [
+      {
+        name: "key",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "afterCollectFees",
+    inputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "Locker",
+      },
+      {
+        name: "",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
+      },
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "PositionId",
+      },
+      {
+        name: "",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "afterInitializePool",
+    inputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
+      },
+      {
+        name: "",
+        type: "int32",
+        internalType: "int32",
+      },
+      {
+        name: "",
+        type: "uint96",
+        internalType: "SqrtRatio",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "afterSwap",
+    inputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "Locker",
+      },
+      {
+        name: "",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
+      },
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "SwapParameters",
+      },
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "PoolBalanceUpdate",
+      },
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "PoolState",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "afterUpdatePosition",
+    inputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "Locker",
+      },
+      {
+        name: "",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
+      },
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "PositionId",
+      },
+      {
+        name: "",
+        type: "int128",
+        internalType: "int128",
+      },
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "PoolBalanceUpdate",
+      },
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "PoolState",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "auctions",
+    inputs: [
+      {
+        name: "poolId",
+        type: "bytes32",
+        internalType: "PoolId",
+      },
+    ],
+    outputs: [
+      {
+        name: "current",
+        type: "tuple",
+        internalType: "struct ContinuousAuction.Bid",
+        components: [
+          {
+            name: "bidder",
+            type: "bytes32",
+            internalType: "bytes32",
+          },
+          {
+            name: "rate",
+            type: "uint96",
+            internalType: "uint96",
+          },
+          {
+            name: "executor",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "start",
+            type: "uint48",
+            internalType: "uint48",
+          },
+          {
+            name: "end",
+            type: "uint48",
+            internalType: "uint48",
+          },
+          {
+            name: "fee",
+            type: "uint32",
+            internalType: "uint32",
+          },
+        ],
+      },
+      {
+        name: "next",
+        type: "tuple",
+        internalType: "struct ContinuousAuction.Bid",
+        components: [
+          {
+            name: "bidder",
+            type: "bytes32",
+            internalType: "bytes32",
+          },
+          {
+            name: "rate",
+            type: "uint96",
+            internalType: "uint96",
+          },
+          {
+            name: "executor",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "start",
+            type: "uint48",
+            internalType: "uint48",
+          },
+          {
+            name: "end",
+            type: "uint48",
+            internalType: "uint48",
+          },
+          {
+            name: "fee",
+            type: "uint32",
+            internalType: "uint32",
+          },
+        ],
+      },
+      {
+        name: "lastSettled",
+        type: "uint48",
+        internalType: "uint48",
+      },
+      {
+        name: "accrualRemainder",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "growth",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "beforeCollectFees",
+    inputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "Locker",
+      },
+      {
+        name: "",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
+      },
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "PositionId",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "beforeInitializePool",
+    inputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "key",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
+      },
+      {
+        name: "",
+        type: "int32",
+        internalType: "int32",
+      },
+    ],
+    outputs: [],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "beforeSwap",
+    inputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "Locker",
+      },
+      {
+        name: "",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
+      },
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "SwapParameters",
+      },
+    ],
+    outputs: [],
+    stateMutability: "pure",
+  },
+  {
+    type: "function",
+    name: "beforeUpdatePosition",
+    inputs: [
+      {
+        name: "locker",
+        type: "bytes32",
+        internalType: "Locker",
+      },
+      {
+        name: "key",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
+      },
+      {
+        name: "positionId",
+        type: "bytes32",
+        internalType: "PositionId",
+      },
+      {
+        name: "delta",
+        type: "int128",
+        internalType: "int128",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "bidToken",
+    inputs: [],
+    outputs: [
+      {
+        name: "",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "executorAt",
+    inputs: [
+      {
+        name: "poolId",
+        type: "bytes32",
+        internalType: "PoolId",
+      },
+    ],
+    outputs: [
+      {
+        name: "executor",
+        type: "address",
+        internalType: "address",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "forwarded_2374103877",
+    inputs: [
+      {
+        name: "original",
+        type: "bytes32",
+        internalType: "Locker",
+      },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "getPositionRent",
+    inputs: [
+      {
+        name: "key",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
+      },
+      {
+        name: "owner",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "positionId",
+        type: "bytes32",
+        internalType: "PositionId",
+      },
+    ],
+    outputs: [
+      {
+        name: "amount",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "growthOutside",
+    inputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "PoolId",
+      },
+      {
+        name: "",
+        type: "int32",
+        internalType: "int32",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "holder",
+    inputs: [
+      {
+        name: "poolId",
+        type: "bytes32",
+        internalType: "PoolId",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        internalType: "struct ContinuousAuction.Bid",
+        components: [
+          {
+            name: "bidder",
+            type: "bytes32",
+            internalType: "bytes32",
+          },
+          {
+            name: "rate",
+            type: "uint96",
+            internalType: "uint96",
+          },
+          {
+            name: "executor",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "start",
+            type: "uint48",
+            internalType: "uint48",
+          },
+          {
+            name: "end",
+            type: "uint48",
+            internalType: "uint48",
+          },
+          {
+            name: "fee",
+            type: "uint32",
+            internalType: "uint32",
+          },
+        ],
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "pendingFloor",
+    inputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "PoolId",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "PendingFloor",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "positionRentSnapshot",
+    inputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "PoolId",
+      },
+      {
+        name: "",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "PositionId",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "refundable",
+    inputs: [
+      {
+        name: "",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "",
+        type: "uint256",
+        internalType: "uint256",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "swapFeesOwed",
+    inputs: [
+      {
+        name: "key",
+        type: "tuple",
+        internalType: "struct PoolKey",
+        components: [
+          {
+            name: "token0",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "token1",
+            type: "address",
+            internalType: "address",
+          },
+          {
+            name: "config",
+            type: "bytes32",
+            internalType: "PoolConfig",
+          },
+        ],
+      },
+      {
+        name: "locker",
+        type: "address",
+        internalType: "address",
+      },
+      {
+        name: "salt",
+        type: "bytes32",
+        internalType: "bytes32",
+      },
+    ],
+    outputs: [
+      {
+        name: "amount0",
+        type: "uint128",
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        internalType: "uint128",
+      },
+    ],
+    stateMutability: "view",
+  },
+  {
+    type: "event",
+    name: "BidUpdated",
+    inputs: [
+      {
+        name: "poolId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "PoolId",
+      },
+      {
+        name: "locker",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "salt",
+        type: "bytes32",
+        indexed: false,
+        internalType: "bytes32",
+      },
+      {
+        name: "rate",
+        type: "uint96",
+        indexed: false,
+        internalType: "uint96",
+      },
+      {
+        name: "start",
+        type: "uint48",
+        indexed: false,
+        internalType: "uint48",
+      },
+      {
+        name: "end",
+        type: "uint48",
+        indexed: false,
+        internalType: "uint48",
+      },
+      {
+        name: "executor",
+        type: "address",
+        indexed: false,
+        internalType: "address",
+      },
+      {
+        name: "fee",
+        type: "uint32",
+        indexed: false,
+        internalType: "uint32",
+      },
+      {
+        name: "delta",
+        type: "int256",
+        indexed: false,
+        internalType: "int256",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "RefundCredited",
+    inputs: [
+      {
+        name: "bidder",
+        type: "bytes32",
+        indexed: true,
+        internalType: "bytes32",
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "RentAccrued",
+    inputs: [
+      {
+        name: "poolId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "PoolId",
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "RentCollected",
+    inputs: [
+      {
+        name: "poolId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "PoolId",
+      },
+      {
+        name: "owner",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "positionId",
+        type: "bytes32",
+        indexed: false,
+        internalType: "PositionId",
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "RentUnallocated",
+    inputs: [
+      {
+        name: "poolId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "PoolId",
+      },
+      {
+        name: "amount",
+        type: "uint256",
+        indexed: false,
+        internalType: "uint256",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "SwapFeeCharged",
+    inputs: [
+      {
+        name: "poolId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "PoolId",
+      },
+      {
+        name: "bidder",
+        type: "bytes32",
+        indexed: true,
+        internalType: "bytes32",
+      },
+      {
+        name: "amount0",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "event",
+    name: "SwapFeesCollected",
+    inputs: [
+      {
+        name: "poolId",
+        type: "bytes32",
+        indexed: true,
+        internalType: "PoolId",
+      },
+      {
+        name: "locker",
+        type: "address",
+        indexed: true,
+        internalType: "address",
+      },
+      {
+        name: "salt",
+        type: "bytes32",
+        indexed: false,
+        internalType: "bytes32",
+      },
+      {
+        name: "amount0",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+      {
+        name: "amount1",
+        type: "uint128",
+        indexed: false,
+        internalType: "uint128",
+      },
+    ],
+    anonymous: false,
+  },
+  {
+    type: "error",
+    name: "BaseForwardeeAccountantOnly",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "BidTooLow",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "CallPointNotImplemented",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "CoreOnly",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "InvalidBid",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "InvalidBidToken",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "InvalidPool",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "PoolClosed",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "Reentrancy",
+    inputs: [],
+  },
+  {
+    type: "error",
+    name: "SwapMustHappenThroughForward",
+    inputs: [],
+  },
+] as const;

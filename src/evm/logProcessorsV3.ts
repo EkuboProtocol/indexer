@@ -1,3 +1,4 @@
+import { encodeAbiParameters, keccak256 } from "viem";
 import type { PoolInitializedInsert } from "../_shared/dao";
 import { floatSqrtRatioToFixed, parseSwapEventV3 } from "./swapEvent";
 import { parseOracleEvent } from "./oracleEvent";
@@ -31,6 +32,7 @@ import {
   TWAMM_ABI as TWAMM_ABI_V3,
   VE33_ABI as VE33_ABI_V3,
   BOOSTED_FEES_ABI as BOOSTED_FEES_ABI_V3,
+  CONTINUOUS_AUCTION_ABI as CONTINUOUS_AUCTION_ABI_V3,
 } from "./abis_v3";
 
 export interface LogProcessorConfigV3 {
@@ -47,6 +49,7 @@ export interface LogProcessorConfigV3 {
   ve33Address?: `0x${string}`;
   veTokenAddress?: `0x${string}`;
   ve33PositionsAddress?: `0x${string}`;
+  continuousAuctionAddress?: `0x${string}`;
   positionsContracts: PositionsContractProtocolFeeConfig[];
 }
 
@@ -73,6 +76,19 @@ function stakeDescriptor(stakeId: `0x${string}`) {
   };
 }
 
+// ContinuousAuctionLib.bidderId
+export function continuousAuctionBidderId(
+  locker: `0x${string}`,
+  salt: `0x${string}`,
+): `0x${string}` {
+  return keccak256(
+    encodeAbiParameters(
+      [{ type: "address" }, { type: "bytes32" }],
+      [locker, salt],
+    ),
+  );
+}
+
 export function createLogProcessorsV3({
   mevCaptureAddress,
   boostedFeesConcentratedAddress,
@@ -87,6 +103,7 @@ export function createLogProcessorsV3({
   ve33Address,
   veTokenAddress,
   ve33PositionsAddress,
+  continuousAuctionAddress,
   positionsContracts,
 }: LogProcessorConfigV3): EvmLogProcessor[] {
   const mevCaptureAddressBigInt = BigInt(mevCaptureAddress);
@@ -275,8 +292,17 @@ export function createLogProcessorsV3({
           };
           await dao.insertPoolInitializedEvent(poolInitialized, key);
 
-          if (BigInt(parsedConfig.extension) === mevCaptureAddressBigInt) {
+          const extension = BigInt(parsedConfig.extension);
+          if (extension === mevCaptureAddressBigInt) {
             await dao.insertMEVCapturePoolKey(key.emitter, parsed.poolId);
+          } else if (
+            continuousAuctionAddress &&
+            extension === BigInt(continuousAuctionAddress)
+          ) {
+            await dao.insertContinuousAuctionPoolKey(
+              key.emitter,
+              parsed.poolId,
+            );
           }
         },
         async PositionUpdated(dao, key, parsed) {
@@ -591,8 +617,58 @@ export function createLogProcessorsV3({
       ) ?? [];
 
   return baseProcessors.concat(
+    createContinuousAuctionProcessors(continuousAuctionAddress, coreAddress),
     twammProcessors,
     ordersProcessors,
     positionsProcessors,
   );
+}
+
+function createContinuousAuctionProcessors(
+  address: `0x${string}` | undefined,
+  coreAddress: `0x${string}`,
+): EvmLogProcessor[] {
+  if (!address) return [];
+  const definitions: {
+    ContinuousAuction: ContractHandlers<typeof CONTINUOUS_AUCTION_ABI_V3>;
+  } = {
+    ContinuousAuction: {
+      address,
+      abi: CONTINUOUS_AUCTION_ABI_V3,
+      handlers: {
+        async BidUpdated(dao, key, parsed) {
+          await dao.insertContinuousAuctionBidUpdatedEvent(key, {
+            coreAddress,
+            poolId: parsed.poolId,
+            locker: parsed.locker,
+            salt: parsed.salt,
+            bidder: continuousAuctionBidderId(parsed.locker, parsed.salt),
+            rate: parsed.rate,
+            start: parsed.start,
+            end: parsed.end,
+            executor: parsed.executor,
+            fee: parsed.fee,
+            delta: parsed.delta,
+          });
+        },
+        async RentAccrued(dao, key, parsed) {
+          await dao.insertContinuousAuctionRentSettledEvent(key, {
+            coreAddress,
+            poolId: parsed.poolId,
+            amount: parsed.amount,
+            allocated: true,
+          });
+        },
+        async RentUnallocated(dao, key, parsed) {
+          await dao.insertContinuousAuctionRentSettledEvent(key, {
+            coreAddress,
+            poolId: parsed.poolId,
+            amount: parsed.amount,
+            allocated: false,
+          });
+        },
+      },
+    },
+  };
+  return createProcessorsFromHandlers(definitions);
 }

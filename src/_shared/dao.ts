@@ -314,6 +314,30 @@ export interface Ve33RewardsClaimedInsert extends Ve33PoolEventDescriptor {
   amount: NumericValue;
 }
 
+export interface ContinuousAuctionPoolEventDescriptor {
+  coreAddress: `0x${string}`;
+  poolId: `0x${string}`;
+}
+
+export interface ContinuousAuctionBidUpdatedInsert
+  extends ContinuousAuctionPoolEventDescriptor {
+  locker: AddressValue;
+  salt: NumericValue;
+  bidder: NumericValue;
+  rate: NumericValue;
+  start: NumericValue;
+  end: NumericValue;
+  executor: AddressValue;
+  fee: NumericValue;
+  delta: NumericValue;
+}
+
+export interface ContinuousAuctionRentSettledInsert
+  extends ContinuousAuctionPoolEventDescriptor {
+  amount: NumericValue;
+  allocated: boolean;
+}
+
 export interface TokenRegistrationInsert {
   address: AddressValue;
   name: NumericValue;
@@ -2192,6 +2216,89 @@ export class DAO {
         ),
         ${this.numeric(parsed.poolId)},
         ${this.numeric(parsed.amount)}
+      );
+    `;
+  }
+
+  public async insertContinuousAuctionPoolKey(
+    coreAddress: `0x${string}`,
+    poolId: `0x${string}`,
+  ) {
+    await this.sql`
+      INSERT INTO continuous_auction_pool_keys (pool_key_id)
+      (
+        SELECT pool_key_id
+        FROM pool_keys
+        WHERE chain_id = ${this.chainId}
+          AND core_address = ${this.numeric(coreAddress)}
+          AND pool_id = ${this.numeric(poolId)}
+      )
+      ON CONFLICT DO NOTHING;
+    `;
+  }
+
+  async insertContinuousAuctionBidUpdatedEvent(
+    key: EventKey,
+    parsed: ContinuousAuctionBidUpdatedInsert,
+  ) {
+    await this.sql`
+      INSERT INTO continuous_auction_bid_updated
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, locker, salt, bidder, rate, bid_start, bid_end, executor, fee,
+         delta)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pk.pool_key_id
+          FROM pool_keys pk
+          WHERE pk.chain_id = ${this.chainId}
+            AND pk.core_address = ${this.numeric(parsed.coreAddress)}
+            AND pk.pool_id = ${this.numeric(parsed.poolId)}
+        ),
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.locker)},
+        ${this.numeric(parsed.salt)},
+        ${this.numeric(parsed.bidder)},
+        ${this.numeric(parsed.rate)},
+        ${this.numeric(parsed.start)},
+        ${this.numeric(parsed.end)},
+        ${this.numeric(parsed.executor)},
+        ${this.numeric(parsed.fee)},
+        ${this.numeric(parsed.delta)}
+      );
+    `;
+  }
+
+  async insertContinuousAuctionRentSettledEvent(
+    key: EventKey,
+    parsed: ContinuousAuctionRentSettledInsert,
+  ) {
+    await this.sql`
+      INSERT INTO continuous_auction_rent_settled
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, amount, allocated)
+      VALUES (
+        ${this.chainId},
+        ${key.blockNumber},
+        ${key.transactionIndex},
+        ${key.eventIndex},
+        ${this.numeric(key.transactionHash)},
+        ${this.numeric(key.emitter)},
+        (
+          SELECT pk.pool_key_id
+          FROM pool_keys pk
+          WHERE pk.chain_id = ${this.chainId}
+            AND pk.core_address = ${this.numeric(parsed.coreAddress)}
+            AND pk.pool_id = ${this.numeric(parsed.poolId)}
+        ),
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.amount)},
+        ${parsed.allocated}
       );
     `;
   }

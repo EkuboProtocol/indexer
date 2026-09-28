@@ -203,8 +203,8 @@ test("each state table has both triggers, and the UPDATE one only fires on a rea
      FROM pg_trigger WHERE tgfoid = 'trg_pool_last_event_id'::regproc AND NOT tgisinternal
      ORDER BY 1, 2`
   );
-  const tables = ["boosted_fees_pool_states", "limit_order_pool_states", "pool_states",
-    "twamm_pool_states", "ve33_pool_states"];
+  const tables = ["boosted_fees_pool_states", "continuous_auction_pool_states",
+    "limit_order_pool_states", "pool_states", "twamm_pool_states", "ve33_pool_states"];
   expect(rows.map((r) => r.tgrelid)).toEqual(tables.flatMap((t) => [t, t]));
   for (const t of tables) {
     const [rowEvents, upd] = rows.filter((r) => r.tgrelid === t);
