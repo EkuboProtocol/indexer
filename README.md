@@ -279,6 +279,25 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### 2026-09-28: Market depth includes the fee band (00130)
+
+**`00130_market_depth_include_fee_band`. Redefines `pool_market_depth_view`.
+Same columns, different values. No manual steps.**
+
+Each depth band used to start one fee width away from the price on each side,
+so the liquidity closest to the price was never counted. Bands now cover
+`[tick - depth, tick + depth]`, and a pool gets a row for every band that holds
+liquidity, including bands narrower than its fee. `depth0`/`depth1` therefore
+rise for pools whose liquidity sits within about a fee width of the price.
+Ethereum USDC/USDG's ±0.106% band goes from ~$329k to ~$842k, which is its TVL.
+Consumers read the same columns: the api's pair, pool and boosted-fee APRs and
+the `incentives` campaign view (00088). The APRs fall to match. Reward
+distribution does not read this view.
+
+`pool_market_depth_materialized` is left to the existing 10-minute cron job
+rather than refreshed in the migration, so new values appear within 10 minutes
+of the deploy, plus the api's 600 s cache.
+
 ### 2026-09-24: Starknet extension routing metadata (00129, additive)
 
 Deploy the indexer before the quoter release that reads this metadata. Migration
