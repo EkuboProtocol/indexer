@@ -28,7 +28,7 @@
  */
 import type { Hex } from "viem";
 import type { IndexerCursor } from "./dao";
-import { readSnapshot, requireHeader, sameHash } from "./blockSnapshot";
+import { readSnapshot, requireHeader, sameHash, StaleSnapshotError } from "./blockSnapshot";
 import { commonStoredCursor, type LoadPreviousCursor } from "./cursorRecovery";
 
 /** Identity of a block, as far as this stream is concerned. */
@@ -207,6 +207,8 @@ export interface StreamState {
    * cheaper and stronger: a block hash commits to its whole ancestry.
    */
   seeded: boolean;
+  /** Consecutive snapshots re-planned because they went stale mid-read. */
+  staleSnapshots: number;
 }
 
 /** Packed into 16 bits by `compute_event_id`, so this is a hard ceiling. */
@@ -645,14 +647,14 @@ function finalizeIfDue<TEvent>(
   };
 }
 
-function heartbeatIfDue<TEvent>(
+function* heartbeatIfDue<TEvent>(
   state: StreamState,
   opts: Resolved,
   now: number,
-): StreamMessage<TEvent> | null {
-  if (now - state.lastHeartbeat < opts.heartbeatIntervalMs) return null;
+): Generator<StreamMessage<TEvent>> {
+  if (now - state.lastHeartbeat < opts.heartbeatIntervalMs) return;
   state.lastHeartbeat = now;
-  return { _tag: "heartbeat" };
+  yield { _tag: "heartbeat" };
 }
 
 /**
@@ -905,6 +907,7 @@ export function initStreamState(
       warnedCapSeconds: null,
       retainedFrom: 0,
       seeded: false,
+      staleSnapshots: 0,
     },
   };
 }
@@ -1026,6 +1029,39 @@ async function reconcileSnapshot<T>(
   return { _tag: "invalidate", invalidate: { cursor } };
 }
 
+/** Consecutive stale snapshots tolerated before the stream gives up. */
+export const MAX_STALE_SNAPSHOTS = 30;
+
+/**
+ * `readSnapshot`, or null when the snapshot went stale and should be re-planned.
+ *
+ * Nothing from a stale snapshot has been emitted, so re-planning from a fresh
+ * head is the whole recovery. Exiting instead restarted the Starknet worker
+ * about once a minute at the tip. A streak this long is not the tip, though.
+ */
+async function readFreshSnapshot<TEvent>(
+  adapter: ChainAdapter<TEvent>,
+  state: StreamState,
+  plan: { from: number; to: number; head: ChainHead },
+  opts: Resolved,
+): Promise<Awaited<ReturnType<typeof readSnapshot<TEvent>>> | null> {
+  try {
+    const snapshot = await readSnapshot(adapter, plan, {
+      number: state.cursorBlock, hash: state.cursorHash,
+    });
+    state.staleSnapshots = 0;
+    return snapshot;
+  } catch (error) {
+    if (!(error instanceof StaleSnapshotError) || ++state.staleSnapshots > MAX_STALE_SNAPSHOTS) {
+      throw error;
+    }
+    opts.onWarning?.("retrying a stale snapshot", {
+      head: plan.head.number, attempt: state.staleSnapshots, reason: error.message,
+    });
+    return null;
+  }
+}
+
 export interface CreateBlockStreamArgs<TEvent> {
   adapter: ChainAdapter<TEvent>;
   startingCursor: IndexerCursor;
@@ -1058,8 +1094,7 @@ export async function* createBlockStream<TEvent>(
   while (true) {
     const now = Date.now();
 
-    const heartbeat = heartbeatIfDue<TEvent>(state, opts, now);
-    if (heartbeat) yield heartbeat;
+    yield* heartbeatIfDue<TEvent>(state, opts, now);
 
     await refreshFinalized(adapter, state, opts, now);
 
@@ -1084,9 +1119,11 @@ export async function* createBlockStream<TEvent>(
       continue;
     }
 
-    const snapshot = await readSnapshot(adapter, plan, {
-      number: state.cursorBlock, hash: state.cursorHash,
-    });
+    const snapshot = await readFreshSnapshot(adapter, state, plan, opts);
+    if (!snapshot) {
+      await sleep(opts.pollIntervalMs);
+      continue;
+    }
     const rollback = await reconcileSnapshot(args, state, snapshot, plan, opts);
     if (rollback) {
       yield rollback;

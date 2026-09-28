@@ -1,6 +1,8 @@
-import { expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
+import { StaleSnapshotError } from "./blockSnapshot";
 import {
   createBlockStream,
+  MAX_STALE_SNAPSHOTS,
   type ChainAdapter,
   type ChainHead,
   type StreamBlock,
@@ -112,3 +114,51 @@ for (const failure of ["throw", "null"] as const) {
     await retry.return(undefined);
   });
 }
+
+describe("a stale snapshot", () => {
+  const run = async (staleReads: number, failure: () => Error = () =>
+    new StaleSnapshotError("end block not found; retry the snapshot")) => {
+    let heads = 0;
+    let reads = 0;
+    const warnings: string[] = [];
+    const adapter: ChainAdapter<string> = {
+      label: "fixture",
+      async fetchBlock(n) { return head(n); },
+      async fetchHead() { heads++; return head(100 + heads); },
+      async fetchFinalized() { return head(90); },
+      async readRange(_from, to) {
+        if (++reads <= staleReads) throw failure();
+        return [block(to, head(to).hash)];
+      },
+      async completeFresh() {},
+    };
+    const stream = createBlockStream({
+      adapter, startingCursor: { orderKey: 99n },
+      options: { ...options, onWarning: message => warnings.push(message) },
+    });
+    try {
+      for await (const message of stream) {
+        if (message._tag === "data") return { message, heads, warnings };
+      }
+      throw new Error("stream ended");
+    } finally {
+      await stream.return(undefined);
+    }
+  };
+
+  it("is re-read from a fresh head instead of exiting", async () => {
+    const { message, heads, warnings } = await run(2);
+    expect(heads).toBe(3);
+    expect(warnings).toEqual(["retrying a stale snapshot", "retrying a stale snapshot"]);
+    if (message._tag !== "data") throw new Error("unreachable");
+    expect(message.data.endCursor?.orderKey).toBe(103n);
+  });
+
+  it("still exits once the streak is too long to be the tip", async () => {
+    await expect(run(MAX_STALE_SNAPSHOTS + 1)).rejects.toBeInstanceOf(StaleSnapshotError);
+  });
+
+  it("does not swallow other range failures", async () => {
+    await expect(run(1, () => new Error("Invalid params"))).rejects.toThrow(/Invalid params/);
+  });
+});

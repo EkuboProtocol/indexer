@@ -8,6 +8,15 @@ export function requireHeader(block: ChainHead | null, number: number): ChainHea
   return block;
 }
 
+/**
+ * The snapshot could not be read consistently, but the next one may be: the
+ * anchor was reorged out, or the endpoint cannot resolve it yet. Nothing has
+ * been emitted, so the stream re-plans from a fresh head instead of exiting.
+ */
+export class StaleSnapshotError extends Error {
+  override readonly name = "StaleSnapshotError";
+}
+
 export function sameHash(a: string, b: string): boolean {
   return BigInt(a) === BigInt(b);
 }
@@ -39,7 +48,7 @@ export async function readSnapshot<T>(
   );
   const end = requireHeader(await adapter.fetchBlock(anchor.number), anchor.number);
   if (!sameHash(anchor.hash, end.hash)) {
-    throw new Error(`Block ${anchor.number} changed hash during the range read; retry the snapshot`);
+    throw new StaleSnapshotError(`Block ${anchor.number} changed hash during the range read; retry the snapshot`);
   }
   return {
     blocks, fresh, anchor,

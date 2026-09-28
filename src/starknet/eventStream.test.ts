@@ -10,6 +10,7 @@ import {
   type StarknetRpc,
   type StarknetStreamFilter,
 } from "./eventStream";
+import { StaleSnapshotError } from "../_shared/blockSnapshot";
 
 /**
  * Block 14555766 of Starknet mainnet, reduced to the shape this reads.
@@ -655,5 +656,40 @@ describe("RPC event consistency", () => {
       const { rpc } = rpcReturning({ starknet_getEvents: [{ events: [event] }] });
       await expect(createStarknetAdapter({ rpc, filters: [coreFilter] }).readRange(BLOCK_NUMBER, BLOCK_NUMBER)).rejects.toThrow();
     }
+  });
+});
+
+describe("readRange at the tip", () => {
+  const blockNotFound = async (endHash?: Hex) => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      jsonrpc: "2.0", id: 1, error: { code: 24, message: "Block not found" },
+    }))) as unknown as typeof fetch;
+    try {
+      const adapter = createStarknetAdapter({
+        rpc: createStarknetRpc("https://x", { retryDelayMs: 1 }),
+        filters: [coreFilter],
+      });
+      return await adapter.readRange(BLOCK_NUMBER - 10, BLOCK_NUMBER, endHash).then(
+        () => { throw new Error("expected a rejection"); },
+        (error: unknown) => error,
+      );
+    } finally {
+      globalThis.fetch = original;
+    }
+  };
+
+  it("treats an end hash the node cannot find as a stale snapshot", async () => {
+    // The anchor was read from the head a moment earlier; the backend serving
+    // getEvents may not have it yet. Exiting here restarted the worker ~1/min.
+    const error = await blockNotFound(BLOCK_HASH);
+    expect(error).toBeInstanceOf(StaleSnapshotError);
+    expect((error as Error).message).toMatch(/retry the snapshot/);
+  });
+
+  it("still fails a numbered range the node cannot find", async () => {
+    const error = await blockNotFound();
+    expect(error).not.toBeInstanceOf(StaleSnapshotError);
+    expect((error as Error).message).toMatch(/Block not found \(code 24\)/);
   });
 });
