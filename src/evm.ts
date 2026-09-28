@@ -157,6 +157,9 @@ export async function createEvmEntrypoint(
             "RECOMPILED_ORDERS_V3_ADDRESS",
           ]),
           ...evmV3Ve33AddressConfig,
+          auctionPositionsAddress: loadOptionalHexAddress(
+            "AUCTION_POSITIONS_V3_ADDRESS",
+          ),
           positionsContracts: positionsV3ProtocolFeeConfigs ?? [],
         })
       : []),

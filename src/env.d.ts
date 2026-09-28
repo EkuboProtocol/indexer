@@ -58,6 +58,7 @@ interface EvmConfig extends CommonConfiguration {
   VE33_V3_ADDRESS?: `0x${string}`;
   VE_TOKEN_V3_ADDRESS?: `0x${string}`;
   VE33_POSITIONS_V3_ADDRESS?: `0x${string}`;
+  AUCTION_POSITIONS_V3_ADDRESS?: `0x${string}`; // Continuous-auction LP NFT; set per chain once deployed, before its first mint, since only its Transfer events are not already indexed
 }
 
 interface StarknetConfig extends CommonConfiguration {

@@ -47,6 +47,11 @@ export interface LogProcessorConfigV3 {
   ve33Address?: `0x${string}`;
   veTokenAddress?: `0x${string}`;
   ve33PositionsAddress?: `0x${string}`;
+  // AuctionPositions is its own locker and its token ids are already uint192,
+  // so the position salt is the token id and no nft_locker_mappings row is
+  // needed: the core PositionUpdated events it produces are indexed for every
+  // locker, and only its Transfer events have to be watched here.
+  auctionPositionsAddress?: `0x${string}`;
   positionsContracts: PositionsContractProtocolFeeConfig[];
 }
 
@@ -61,6 +66,7 @@ type ProcessorDefinitionsV3 = {
   Ve33?: ContractHandlers<typeof VE33_ABI_V3>;
   VeToken?: ContractHandlers<typeof POSITIONS_ABI_V3>;
   Ve33Positions?: ContractHandlers<typeof POSITIONS_ABI_V3>;
+  AuctionPositions?: ContractHandlers<typeof POSITIONS_ABI_V3>;
 } & ContractHandlerDefinitions;
 
 function stakeDescriptor(stakeId: `0x${string}`) {
@@ -87,6 +93,7 @@ export function createLogProcessorsV3({
   ve33Address,
   veTokenAddress,
   ve33PositionsAddress,
+  auctionPositionsAddress,
   positionsContracts,
 }: LogProcessorConfigV3): EvmLogProcessor[] {
   const mevCaptureAddressBigInt = BigInt(mevCaptureAddress);
@@ -549,6 +556,19 @@ export function createLogProcessorsV3({
           },
         }
       : {}),
+    ...(auctionPositionsAddress
+      ? {
+          AuctionPositions: {
+            address: auctionPositionsAddress,
+            abi: POSITIONS_ABI_V3,
+            handlers: {
+              async Transfer(dao, key, parsed) {
+                await dao.insertNonfungibleTokenTransferEvent(parsed, key);
+              },
+            },
+          },
+        }
+      : {}),
   };
 
   const baseProcessors = createProcessorsFromHandlers(processors);
@@ -575,8 +595,9 @@ export function createLogProcessorsV3({
     positionsContracts
       ?.filter(
         (p) =>
-          !ve33PositionsAddress ||
-          BigInt(p.address) !== BigInt(ve33PositionsAddress),
+          ![ve33PositionsAddress, auctionPositionsAddress].some(
+            (address) => address && BigInt(p.address) === BigInt(address),
+          ),
       )
       .flatMap((p) =>
         createContractEventProcessor({

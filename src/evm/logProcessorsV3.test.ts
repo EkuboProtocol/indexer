@@ -1,5 +1,9 @@
 import { describe, expect, it, mock } from "bun:test";
-import { encodeAbiParameters, encodeEventTopics } from "viem";
+import {
+  encodeAbiParameters,
+  encodeEventTopics,
+  toEventSelector,
+} from "viem";
 import { VE33_ABI } from "./abis_v3";
 import { createLogProcessorsV3 } from "./logProcessorsV3";
 
@@ -98,6 +102,41 @@ describe("createLogProcessorsV3", () => {
     expect(
       processors.filter((p) => p.address === ve33PositionsAddress),
     ).toHaveLength(1);
+  });
+
+  it("indexes AuctionPositions transfers once when configured", () => {
+    const auctionPositionsAddress =
+      "0x0000000000000000000000000000000000000023";
+
+    const withoutAddress = createLogProcessorsV3({
+      ...config,
+      twammAddresses: [],
+      ordersAddresses: [],
+    });
+    const processors = createLogProcessorsV3({
+      ...config,
+      twammAddresses: [],
+      ordersAddresses: [],
+      auctionPositionsAddress,
+      positionsContracts: [
+        {
+          address: auctionPositionsAddress,
+          swapProtocolFee: 0n,
+          withdrawalProtocolFeeDivisor: 0n,
+        },
+      ],
+    });
+
+    expect(
+      withoutAddress.filter((p) => p.address === auctionPositionsAddress),
+    ).toHaveLength(0);
+    const auctionPositionsProcessors = processors.filter(
+      (p) => p.address === auctionPositionsAddress,
+    );
+    expect(auctionPositionsProcessors).toHaveLength(1);
+    expect(auctionPositionsProcessors[0]!.filter.topics[0]).toBe(
+      toEventSelector("Transfer(address,address,uint256)"),
+    );
   });
 
   it("indexes both the voted and effective swap fees", async () => {
