@@ -35,7 +35,7 @@
   },
   "dependencies": {
     "@effect/platform-bun": "4.0.0-rc.116",
-    "dotenv": "^17.4.2",
+    "dotenv": "^18.0.4",
     "effect": "4.0.0-rc.116",
     "postgres": "^3.4.9",
     "postgres-shift": "^1.0.2",
