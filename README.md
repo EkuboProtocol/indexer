@@ -279,6 +279,32 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### 2026-09-28: ContinuousAuction user-value dashboards (00132, additive)
+
+00132 adds the per-chain dashboard layer over the 00131 metrics. Read-only
+functions only, so the workers keep running during deploy.
+
+- `continuous_auction_daily_metrics(chain_id, from_unix, to_unix)`: one row
+  per pool per UTC day, with token0/token1 labels from `pool_keys`.
+- `continuous_auction_trailing_24h_metrics(chain_id)`: one row per pool over
+  `[head - 86400, head]`.
+- Both expose the same derived series: net rent to independent LPs
+  (`net_rent_independent`) vs gross rent paid (`gross_rent_paid`) and their
+  ratio, usable access share (`usable_access_share`, a labeled estimate: the
+  access share times one minus the rent-weighted unexecutable share, with
+  monitor-unclassified rent counted as usable and reported separately in
+  `rent_paid_unresolved`), holder fee levels (`fee_time_weighted`, `fee_max`),
+  displacement frequency (`displacements_pending/incumbent/then_closed` plus
+  `swap_fee_charges`), and the discarded rent share (same definition the
+  alerts page on). Days before a pool's first live second return no row.
+
+Suggested panels per chain: gross vs net rent (stacked bars of
+`rent_allocated`/`rent_unallocated` against a `net_rent_independent` line),
+`usable_access_share` and `access_share` (lines), `fee_time_weighted` with
+`fee_max` markers, displacements per day (bars), and `discarded_rent_share`
+with the alert thresholds. The trailing-24h function backs the current-state
+row; `continuous_auction_alerts(chain_id)` backs the alert list.
+
 ### 2026-09-28: ContinuousAuction user-value metrics and alerts (00131, additive)
 
 00131 indexes `RentCollected` and `SwapFeeCharged` and adds read-only views and
