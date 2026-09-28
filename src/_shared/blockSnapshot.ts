@@ -1,20 +1,25 @@
 import type { ChainAdapter, ChainHead, StreamBlock } from "./blockStream";
 import { requireBlockInRange } from "./rpcRecords";
 
-export function requireHeader(block: ChainHead | null, number: number): ChainHead {
-  if (!block || block.number !== number || !Number.isFinite(block.timestamp.getTime())) {
-    throw new Error(`Could not read valid block ${number}; refusing to advance the cursor`);
-  }
-  return block;
-}
-
 /**
  * The snapshot could not be read consistently, but the next one may be: the
- * anchor was reorged out, or the endpoint cannot resolve it yet. Nothing has
- * been emitted, so the stream re-plans from a fresh head instead of exiting.
+ * anchor was reorged out, or the backend answering cannot yet resolve a block
+ * another backend just advertised. Nothing has been emitted, so the stream
+ * re-plans from a fresh head instead of exiting.
  */
 export class StaleSnapshotError extends Error {
   override readonly name = "StaleSnapshotError";
+}
+
+export function requireHeader(
+  block: ChainHead | null,
+  number: number,
+  Failure: new (message: string) => Error = Error,
+): ChainHead {
+  if (!block || block.number !== number || !Number.isFinite(block.timestamp.getTime())) {
+    throw new Failure(`Could not read valid block ${number}; refusing to advance the cursor`);
+  }
+  return block;
 }
 
 export function sameHash(a: string, b: string): boolean {
@@ -35,6 +40,7 @@ export async function readSnapshot<T>(
   const anchor = requireHeader(
     plan.to === plan.head.number ? plan.head : await adapter.fetchBlock(plan.to),
     plan.to,
+    StaleSnapshotError,
   );
   const blocks = await adapter.readRange(plan.from, plan.to, anchor.hash);
   validateRangeBlocks(blocks, plan.from, anchor);
@@ -44,9 +50,11 @@ export async function readSnapshot<T>(
   // Resolve the cursor first and the end last. A reorg between these checks
   // also changes the end hash, so it cannot be committed as a single snapshot.
   const cursorBlock = cursor.hash === null ? null : requireHeader(
-    await adapter.fetchBlock(cursor.number), cursor.number,
+    await adapter.fetchBlock(cursor.number), cursor.number, StaleSnapshotError,
   );
-  const end = requireHeader(await adapter.fetchBlock(anchor.number), anchor.number);
+  const end = requireHeader(
+    await adapter.fetchBlock(anchor.number), anchor.number, StaleSnapshotError,
+  );
   if (!sameHash(anchor.hash, end.hash)) {
     throw new StaleSnapshotError(`Block ${anchor.number} changed hash during the range read; retry the snapshot`);
   }

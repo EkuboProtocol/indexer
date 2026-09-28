@@ -1,6 +1,6 @@
 import { expect, it } from "bun:test";
 import type { ChainAdapter, ChainHead } from "./blockStream";
-import { readSnapshot } from "./blockSnapshot";
+import { readSnapshot, StaleSnapshotError } from "./blockSnapshot";
 import { commonStoredCursor } from "./cursorRecovery";
 import { parseRpcEnvelope } from "./rpcEnvelope";
 
@@ -22,7 +22,10 @@ it("rejects a reorg during an empty range read", async () => {
 it("resolves missing backfill tails before reading or emitting a range", async () => {
   let reads = 0;
   const rpc = adapter({ fetchBlock: async () => null, readRange: async () => { reads++; return []; } });
-  await expect(readSnapshot(rpc, { ...plan, to: 99 }, { number: 90, hash: null })).rejects.toThrow(/valid block 99/);
+  const read = readSnapshot(rpc, { ...plan, to: 99 }, { number: 90, hash: null });
+  await expect(read).rejects.toThrow(/valid block 99/);
+  // A header the node cannot serve yet is retried in-stream, not a restart.
+  await expect(read).rejects.toBeInstanceOf(StaleSnapshotError);
   expect(reads).toBe(0);
 });
 

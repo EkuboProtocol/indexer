@@ -305,12 +305,18 @@ export function createStarknetAdapter({
   }
   const keysPrefilter = selectorPrefilter(filters);
 
+  // A block this backend does not have (yet) is unreadable, which the adapter
+  // contract spells null -- as `eth_getBlockByNumber` does. At the tip the
+  // node answering can trail the one that just advertised the block.
   const fetchHeader = async (blockId: BlockId): Promise<ChainHead | null> =>
     toChainHead(
       await rpc.request<BlockHeaderResponse | null>(
         "starknet_getBlockWithTxHashes",
         [blockId],
-      ),
+      ).catch((error: unknown) => {
+        if (error instanceof StarknetRpcError && error.code === BLOCK_NOT_FOUND) return null;
+        throw error;
+      }),
     );
 
   return {
@@ -399,7 +405,7 @@ export function createStarknetAdapter({
         const blockNumber = Number(block.header.blockNumber);
         const header = await fetchHeader({ block_number: blockNumber });
         if (!header) {
-          throw new Error(
+          throw new StaleSnapshotError(
             `Could not read block ${blockNumber}, whose events are already in hand`,
           );
         }
@@ -407,10 +413,9 @@ export function createStarknetAdapter({
         // The range read and this read are two requests, so the chain can move
         // between them. A timestamp from a different block would be written to
         // `blocks.block_time` with nothing to flag it, so a block that changed
-        // identity is refused instead. The cursor is durable and the runtime
-        // restarts, so the next pass re-reads a consistent block.
+        // identity is refused instead, and the stream re-reads the snapshot.
         if (header.number !== blockNumber || !feltEquals(header.hash, block.header.blockHash)) {
-          throw new Error(
+          throw new StaleSnapshotError(
             `Block ${blockNumber} changed hash between the event read (${block.header.blockHash}) and the header read (${header.hash}); refusing to timestamp its events from a different block`,
           );
         }
