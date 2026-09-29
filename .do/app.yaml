@@ -242,8 +242,18 @@ workers:
         type: SECRET
         value: ${COINGECKO_API_KEY}
       # The Ekubo quoter and Sushi fetchers cover liquid tokens every minute;
-      # CoinGecko is the fallback for the illiquid tail, where this is plenty.
+      # CoinGecko is the fallback for the illiquid tail, where hourly is plenty
+      # (prices stay valid for three intervals). Each cg1 cycle re-requests the
+      # ~8k tokens CoinGecko prices across 12 chains, roughly 90 requests, so
+      # the interval sets the monthly credit spend (EKU-340: 900s exhausted
+      # the account mid-month).
       - key: COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS
+        scope: RUN_TIME
+        value: "3600"
+      # cgn prices every chain's native currency in one request per cycle.
+      # Gnosis, Unichain, Monad, World Chain, MegaETH and Ink have no other
+      # native-currency source, so it stays at 15 minutes (~2.9k credits/month).
+      - key: COINGECKO_NATIVE_PRICE_SYNC_INTERVAL_SECONDS
         scope: RUN_TIME
         value: "900"
       - key: CHAINLINK_TOKEN_PRICE_SYNC_INTERVAL_SECONDS

@@ -32,6 +32,7 @@ test("an empty environment gets the documented defaults", async () => {
     defaultIntervalMs: 60_000,
     // Both optional sources are off unless an interval is set for them.
     coingeckoIntervalMs: 0,
+    coingeckoNativeIntervalMs: 0,
     chainlinkIntervalMs: 0,
     chainlinkConfig: {},
     chainlinkCatalogRefreshIntervalMs: 3_600_000,
@@ -51,6 +52,20 @@ test("interval settings are converted from seconds to milliseconds", async () =>
   expect(config.defaultIntervalMs).toBe(30_000);
   expect(config.coingeckoIntervalMs).toBe(300_000);
   expect(config.chainlinkIntervalMs).toBe(45_000);
+});
+
+test("the native CoinGecko interval follows the token interval unless set", async () => {
+  expect(
+    (await load({ COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS: "3600" }))
+      .coingeckoNativeIntervalMs,
+  ).toBe(3_600_000);
+
+  const split = await load({
+    COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS: "3600",
+    COINGECKO_NATIVE_PRICE_SYNC_INTERVAL_SECONDS: "900",
+  });
+  expect(split.coingeckoIntervalMs).toBe(3_600_000);
+  expect(split.coingeckoNativeIntervalMs).toBe(900_000);
 });
 
 test("a zero catalog refresh interval disables refreshing rather than crashing", async () => {
@@ -102,6 +117,11 @@ test("Chainlink feed configuration is parsed from JSON", async () => {
 
 const rejections: [name: string, env: Record<string, string>, message: string][] =
   [
+    [
+      "a negative native CoinGecko interval",
+      { COINGECKO_NATIVE_PRICE_SYNC_INTERVAL_SECONDS: "-1" },
+      "COINGECKO_NATIVE_PRICE_SYNC_INTERVAL_SECONDS must be a non-negative integer",
+    ],
     [
       "a non-positive sync interval",
       { TOKEN_PRICE_SYNC_INTERVAL_MS: "0" },

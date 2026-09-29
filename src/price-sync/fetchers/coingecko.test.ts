@@ -4,6 +4,7 @@ import { TestClock } from "effect/testing";
 import type { Sql } from "postgres";
 import {
   checkCoinGeckoCredits,
+  COINGECKO_REOPEN_MIN_REMAINING,
   coingeckoNativePriceFetcher,
   coingeckoPriceFetcher,
 } from "./coingecko";
@@ -443,4 +444,73 @@ test("the credit check reads GET /key and reopens a paused gate once credits ret
     "/api/v3/simple/price",
   ]);
   expect(updates.map((update) => update.usdPrice)).toEqual([3_000]);
+});
+
+test("re-probe slots neither repeat nor skip when launches drift across epochs", async () => {
+  const requested = stubCoinGecko(() => ({}));
+  const job = coingeckoPriceFetcher({
+    sql: stubSql(() => TOKENS),
+    chainId: 8453n,
+    intervalMs: 1_000,
+    // Four slots: one token index apiece.
+    unpricedReprobeIntervalMs: 4_000,
+    platform: "base",
+    apiKey,
+  });
+
+  await collect(job.fetch, 0); // cold sweep, epoch 0
+  requested.length = 0;
+  await collect(job.fetch, 1_000); // epoch 1: slot 1
+  await collect(job.fetch, 1_999); // epoch 1 again: nothing due
+  await collect(job.fetch, 3_500); // jumped to epoch 3: slots 2 and 3
+
+  expect(requestedAddresses(requested)).toEqual([
+    [TOKENS[1]],
+    [TOKENS[2], TOKENS[3]],
+  ]);
+});
+
+test("the credit check keeps the gate closed until a margin of credits is back", async () => {
+  let remaining = 500;
+  let exhausted = true;
+  const requested = stubQuota(
+    () => exhausted,
+    (url) =>
+      url.pathname.endsWith("/key")
+        ? {
+            plan: "Analyst",
+            monthly_call_credit: 500_000,
+            current_total_monthly_calls: 500_000 - remaining,
+            current_remaining_monthly_calls: remaining,
+          }
+        : { ethereum: { usd: 3_000 } },
+  );
+  const quotaGate = makeCoinGeckoQuotaGate();
+  const job = coingeckoNativePriceFetcher({
+    intervalMs: 1_000,
+    chainIdsByCoinId: { ethereum: [8453n] },
+    apiKey,
+    quotaGate,
+  });
+  const check = () =>
+    Effect.runPromise(
+      checkCoinGeckoCredits({ apiKey, quotaGate }).pipe(
+        Effect.provide(TestClock.layer()),
+      ),
+    );
+
+  await collect(job.fetch, 0); // trips the gate
+  exhausted = false;
+  await check(); // 500 left: below the margin, stays paused
+  await collect(job.fetch, 1_000);
+  remaining = COINGECKO_REOPEN_MIN_REMAINING;
+  await check();
+  await collect(job.fetch, 2_000);
+
+  expect(requested.map((url) => new URL(url).pathname)).toEqual([
+    "/api/v3/simple/price",
+    "/api/v3/key",
+    "/api/v3/key",
+    "/api/v3/simple/price",
+  ]);
 });
