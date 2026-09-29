@@ -3,10 +3,13 @@
  * recent finalized history and alerts when a block the chain has events for is
  * missing from `blocks`, or stored under another hash (EKU-272).
  *
- *   GAP_MONITOR_CHAINS="mainnet=https://...,arb-mainnet=https://..." \
+ *   GAP_MONITOR_CHAINS="mainnet=https://...,starknet/mainnet=https://..." \
  *   PG_CONNECTION_STRING=<read-only url> \
  *   ALERT_WEBHOOK_URL=<paperclip routine webhook> ALERT_WEBHOOK_HMAC_SECRET=<secret> \
  *     bun scripts/monitorEventGaps.ts [--test-alert]
+ *
+ * A bare network name is EVM; prefix `starknet/` for Starknet, whose RPC must
+ * speak JSON-RPC v0.10. Append `|<blocks>` to a URL to cap its read span.
  *
  * GAP_MONITOR_WINDOW_SECONDS (default 10800) is how much finalized history each
  * run re-checks; run it several times per window so a gap is seen more than
@@ -37,20 +40,31 @@ const chains = (process.env.GAP_MONITOR_CHAINS ?? "")
   .map((entry) => {
     const at = entry.indexOf("=");
     if (at <= 0) throw new Error(`GAP_MONITOR_CHAINS entry must be network=rpcUrl, got ${entry}`);
-    return { network: entry.slice(0, at), rpcUrl: entry.slice(at + 1) };
+    const name = entry.slice(0, at);
+    // "starknet/mainnet" names a Starknet network; a bare name is EVM.
+    const [networkType, network] = name.startsWith("starknet/") ? ["starknet", name.slice(9)] : ["evm", name];
+    // An optional "|maxRange" caps the eth_getLogs span for an endpoint that
+    // refuses wide ones, instead of paying a refusal and a backoff per read.
+    const [rpcUrl, maxRange] = entry.slice(at + 1).split("|");
+    if (maxRange !== undefined && !(Number.isSafeInteger(Number(maxRange)) && Number(maxRange) > 0)) {
+      throw new Error(`GAP_MONITOR_CHAINS maxRange must be a positive integer, got ${maxRange} in ${name}`);
+    }
+    return { network, networkType, rpcUrl: rpcUrl!, maxRange };
   });
 if (chains.length === 0) throw new Error("Set GAP_MONITOR_CHAINS");
 
 const windowSeconds = process.env.GAP_MONITOR_WINDOW_SECONDS ?? "10800";
 const testAlert = process.argv.includes("--test-alert");
 
-async function auditOnce(network: string, rpcUrl: string): Promise<Result> {
+async function auditOnce(network: string, networkType: string, rpcUrl: string, maxRange?: string): Promise<Result> {
   const child = Bun.spawn(["bun", "scripts/auditEventGaps.ts"], {
     cwd: `${import.meta.dir}/..`,
     env: {
       PATH: process.env.PATH!,
       HOME: process.env.HOME!,
       NETWORK: network,
+      AUDIT_NETWORK_TYPE: networkType,
+      ...(maxRange ? { AUDIT_MAX_RANGE: maxRange, AUDIT_RANGE: maxRange } : {}),
       AUDIT_RPC_URL: rpcUrl,
       AUDIT_LAST_SECONDS: windowSeconds,
       PG_CONNECTION_STRING: process.env.PG_CONNECTION_STRING!,
@@ -87,13 +101,14 @@ async function auditOnce(network: string, rpcUrl: string): Promise<Result> {
 }
 
 const results: Result[] = [];
-for (const { network, rpcUrl } of chains) {
-  let result = await auditOnce(network, rpcUrl);
+for (const { network, networkType, rpcUrl, maxRange } of chains) {
+  const label = networkType === "evm" ? network : `${networkType}/${network}`;
+  let result = await auditOnce(network, networkType, rpcUrl, maxRange);
   if (!result.ok && !result.gap) {
     await Bun.sleep(30_000);
-    result = await auditOnce(network, rpcUrl);
+    result = await auditOnce(network, networkType, rpcUrl, maxRange);
   }
-  results.push(result);
+  results.push({ ...result, network: label });
 }
 if (testAlert) {
   results.push({ network: "test", ok: false, gap: false, error: "synthetic test alert" });

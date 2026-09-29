@@ -271,7 +271,8 @@ It exits non-zero on any mismatch.
 `scripts/auditEventGaps.ts` compares every block the chain reports events for,
 under the indexer's own filters, with the `blocks` table (read-only on both
 sides). It defaults to all settled history for the network; pass a range, or set
-`AUDIT_LAST_SECONDS` for recent history only:
+`AUDIT_LAST_SECONDS` for recent history only. `AUDIT_NETWORK_TYPE=starknet`
+audits Starknet (the RPC must speak JSON-RPC v0.10):
 
 ```
 NETWORK=mainnet AUDIT_RPC_URL=https://mainnet.gateway.tenderly.co \
@@ -295,7 +296,9 @@ through the same cascade a reorg uses:
 `scripts/monitorEventGaps.ts` runs the audit over each chain's recent finalized
 history (`GAP_MONITOR_WINDOW_SECONDS`, default 3 h). It POSTs an HMAC-signed alert
 to a Paperclip routine webhook when it finds a gap, or when a chain's check fails
-twice. `--test-alert` proves delivery.
+twice. `GAP_MONITOR_CHAINS` is a comma list of `network=rpcUrl`, with a
+`starknet/` prefix for Starknet and an optional `|maxRange` suffix for an
+endpoint that refuses wide reads. `--test-alert` proves delivery.
 
 ## Database migrations
 

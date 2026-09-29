@@ -38,9 +38,11 @@ export function parseStarknetBlockHeader(
   };
 }
 
-export async function createStarknetEntrypoint(
-  chainId: bigint,
-): Promise<NetworkEntrypoint<StarknetStreamBlock>> {
+/**
+ * The configured contracts' event processors, in filter-id order. Exported so
+ * an audit can build exactly the filters the stream uses.
+ */
+export function createStarknetProcessors() {
   const starknetAddressConfig = loadHexAddresses({
     nftAddress: "NFT_ADDRESS",
     coreAddress: "CORE_ADDRESS",
@@ -62,7 +64,13 @@ export async function createStarknetEntrypoint(
 
   logger.info(`Indexing Starknet contracts`, { starknetAddressConfig });
 
-  const processors = createEventProcessors(starknetAddressConfig);
+  return createEventProcessors(starknetAddressConfig);
+}
+
+export async function createStarknetEntrypoint(
+  chainId: bigint,
+): Promise<NetworkEntrypoint<StarknetStreamBlock>> {
+  const processors = createStarknetProcessors();
   const rpc = createStarknetRpc(
     requireStarknetRpcUrl(process.env.STARKNET_RPC_URL),
   );
