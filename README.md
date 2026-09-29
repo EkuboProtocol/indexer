@@ -121,7 +121,9 @@ The price-sync process runs every configured job as an independent recurring loo
 Two properties keep CoinGecko request volume flat rather than growing with `erc20_tokens`:
 
 - Native currency prices for every chain come from a single `cgn` job. Chains sharing a CoinGecko coin ID cost one request between them, not one apiece.
-- The per-chain `cg1` jobs request only the tokens CoinGecko has actually priced. Everything else is re-probed on a slow rotation (a full pass per day), so a chain with thousands of unlisted tokens does not pay for them every cycle. This state is held in the worker process, so a restart replays one full sweep before settling back down.
+- The per-chain `cg1` jobs request only the tokens CoinGecko has actually priced. Everything else is re-probed on a slow rotation (a full pass per day), so a chain with thousands of unlisted tokens does not pay for them every cycle. The rotation survives restarts: the first cycle seeds the priced set from the retained `cg1` rows in `erc20_tokens_latest_price_by_source` and treats every token already in the table as probed, and the re-probe slot follows the wall clock rather than a per-process counter. Tokens added after startup are still probed on their next cycle. Only a chain with no retained `cg1` rows at all does a full sweep (logged as `cold start`; a seeded chain logs `warm start`).
+
+The CoinGecko credit limit belongs to the account, so every CoinGecko job shares one quota gate. A `429` with `error_code` 10006 (monthly credit limit reached) pauses all of them for six hours and logs a single `COINGECKO_QUOTA_EXHAUSTED ... paused_until=<iso>` line; other 429s fail the cycle as usual. An hourly `GET /key` check logs `COINGECKO_CREDITS plan=… limit=… used=… remaining=… remaining_pct=…` (or `COINGECKO_CREDITS_CHECK_FAILED`) and reopens the gate early, logging `COINGECKO_QUOTA_RESTORED`, once credits are available again. Those lines are what the external quota monitor matches.
 
 ### Price source prioritization
 
