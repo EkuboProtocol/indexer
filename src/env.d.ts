@@ -12,6 +12,7 @@ interface CommonConfiguration {
   TOKEN_PRICE_SYNC_INTERVAL_MS?: string; // Interval for the token price worker (milliseconds)
   COINGECKO_API_KEY?: string;
   COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS?: string; // Zero or unset disables CoinGecko price syncing
+  COINGECKO_NATIVE_PRICE_SYNC_INTERVAL_SECONDS?: string; // Native-currency (cgn) cadence; unset follows the token interval, zero disables
   CHAINLINK_TOKEN_PRICE_CONFIG?: string; // JSON map of chain IDs to RPC URLs, catalog URLs, and optional feed overrides
   CHAINLINK_TOKEN_PRICE_SYNC_INTERVAL_SECONDS?: string; // Zero or unset disables Chainlink price syncing
   CHAINLINK_FEED_CATALOG_REFRESH_INTERVAL_SECONDS?: string; // Defaults to one hour; zero never re-fetches a catalog

@@ -228,6 +228,9 @@ export function coingeckoPriceFetcher({
   const priced = Ref.makeUnsafe(new Set<string>());
   const probed = Ref.makeUnsafe(new Set<string>());
   const seeded = Ref.makeUnsafe(false);
+  // The last interval epoch (`floor(now / intervalMs)`) whose re-probe slot was
+  // served in this process.
+  const lastEpoch = Ref.makeUnsafe<number | undefined>(undefined);
 
   // Spread the re-probes of unpriced tokens evenly across the rotation window,
   // so each cycle carries roughly one slot's worth instead of the whole tail.
@@ -275,11 +278,25 @@ export function coingeckoPriceFetcher({
   const selectAddresses = Effect.fn("coingecko.selectAddresses")(function* (
     addresses: readonly `0x${string}`[],
   ) {
-    // The slot follows the wall clock rather than a per-process counter. A
-    // counter restarts at slot 0 with the process, so frequent deploys kept
-    // re-probing the first slots and never reached the last ones.
+    // Slots follow the wall clock rather than a per-process counter. A counter
+    // restarts at slot 0 with the process, so frequent deploys kept re-probing
+    // the first slots and never reached the last ones.
+    //
+    // Launches are phased from process start, not from the epoch boundary, so
+    // with jitter two launches can land in one epoch, or one launch can jump
+    // an epoch. Serving every epoch since the last one served -- none on a
+    // repeat, two on a jump -- keeps each slot to exactly one pass per
+    // rotation. A quota pause catches up the same way, capped at one rotation.
     const now = yield* Clock.currentTimeMillis;
-    const slot = Math.floor(now / Math.max(intervalMs, 1)) % slotCount;
+    const epoch = Math.floor(now / Math.max(intervalMs, 1));
+    const last = yield* Ref.getAndUpdate(lastEpoch, (previous) =>
+      previous === undefined ? epoch : Math.max(previous, epoch),
+    );
+    const dueSlots = new Set<number>();
+    const first =
+      last === undefined ? epoch : Math.max(last + 1, epoch - slotCount + 1);
+    for (let due = first; due <= epoch; due++) dueSlots.add(due % slotCount);
+
     const pricedNow = yield* Ref.get(priced);
     const probedNow = yield* Ref.get(probed);
 
@@ -290,7 +307,7 @@ export function coingeckoPriceFetcher({
         // Never asked -- a token new to the table, or a cold start.
         !probedNow.has(address) ||
         // Due for its periodic re-probe in case CoinGecko has listed it since.
-        index % slotCount === slot,
+        dueSlots.has(index % slotCount),
     );
   });
 
@@ -403,6 +420,11 @@ function batches(
 // How often the account's remaining credits are logged for the monitor.
 export const COINGECKO_CREDITS_CHECK_INTERVAL_MS = 60 * 60 * 1_000;
 export const CREDITS_MARKER = "COINGECKO_CREDITS";
+// Credits the account must have left before the check reopens a quota pause.
+// Reopening on the last handful would send one cycle out, trip the gate again
+// and repeat every hour; this covers a cold sweep of every chain (142
+// requests) several times over.
+export const COINGECKO_REOPEN_MIN_REMAINING = 1_000;
 
 interface CoinGeckoKeyUsage {
   plan?: string;
@@ -413,8 +435,8 @@ interface CoinGeckoKeyUsage {
 
 /**
  * Logs the account's monthly credit usage from `GET /key`, one greppable line
- * per check, and reopens a quota pause as soon as credits are back rather than
- * waiting out the rest of it.
+ * per check, and reopens a quota pause once credits are back (with a margin,
+ * `COINGECKO_REOPEN_MIN_REMAINING`) rather than waiting out the rest of it.
  *
  * Runs outside the quota gate on purpose: the headroom reading matters most
  * while the gate is closed.
@@ -446,7 +468,10 @@ export const checkCoinGeckoCredits = Effect.fn("coingecko.checkCredits")(
       `${CREDITS_MARKER} plan=${usage.plan ?? "unknown"} limit=${limit ?? "unknown"} used=${used ?? "unknown"} remaining=${remaining ?? "unknown"} remaining_pct=${remainingPct}`,
     );
 
-    if (typeof remaining === "number" && remaining > 0) {
+    if (
+      typeof remaining === "number" &&
+      remaining >= COINGECKO_REOPEN_MIN_REMAINING
+    ) {
       yield* quotaGate.reopen(`credits available: remaining=${remaining}`);
     }
   },

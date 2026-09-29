@@ -1,4 +1,4 @@
-import { Config, Effect } from "effect";
+import { Config, Effect, Option } from "effect";
 import { PriceSyncError } from "./errors";
 import {
   parseChainlinkPriceConfig,
@@ -9,6 +9,9 @@ export interface PriceSyncConfig {
   readonly pgConnectionString: string;
   readonly defaultIntervalMs: number;
   readonly coingeckoIntervalMs: number;
+  // The `cgn` native-currency job. It costs one request per cycle for every
+  // chain, so it can run far more often than the per-chain token jobs.
+  readonly coingeckoNativeIntervalMs: number;
   readonly chainlinkIntervalMs: number;
   readonly chainlinkConfig: ChainlinkPriceConfig;
   readonly chainlinkCatalogRefreshIntervalMs: number;
@@ -49,6 +52,9 @@ const raw = Config.all({
   coingeckoIntervalSeconds: Config.Int(
     "COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS",
   ).pipe(Config.withDefault(0)),
+  coingeckoNativeIntervalSeconds: Config.option(
+    Config.Int("COINGECKO_NATIVE_PRICE_SYNC_INTERVAL_SECONDS"),
+  ),
   chainlinkIntervalSeconds: Config.Int(
     "CHAINLINK_TOKEN_PRICE_SYNC_INTERVAL_SECONDS",
   ).pipe(Config.withDefault(0)),
@@ -89,6 +95,15 @@ export const loadPriceSyncConfig = Effect.fn("loadPriceSyncConfig")(
       "COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS",
       values.coingeckoIntervalSeconds,
     );
+    // Unset follows the token jobs, which is what every deployment did before
+    // the two could differ.
+    const coingeckoNativeSeconds = yield* requireNonNegative(
+      "COINGECKO_NATIVE_PRICE_SYNC_INTERVAL_SECONDS",
+      Option.getOrElse(
+        values.coingeckoNativeIntervalSeconds,
+        () => coingeckoSeconds,
+      ),
+    );
     const chainlinkSeconds = yield* requireNonNegative(
       "CHAINLINK_TOKEN_PRICE_SYNC_INTERVAL_SECONDS",
       values.chainlinkIntervalSeconds,
@@ -116,6 +131,7 @@ export const loadPriceSyncConfig = Effect.fn("loadPriceSyncConfig")(
       pgConnectionString: values.pgConnectionString,
       defaultIntervalMs,
       coingeckoIntervalMs: coingeckoSeconds * 1_000,
+      coingeckoNativeIntervalMs: coingeckoNativeSeconds * 1_000,
       chainlinkIntervalMs: chainlinkSeconds * 1_000,
       chainlinkConfig,
       // Follows the sibling *_SECONDS convention where zero disables: here that

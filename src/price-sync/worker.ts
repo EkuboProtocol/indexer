@@ -171,6 +171,7 @@ export const main = Effect.gen(function* () {
     sql,
     defaultIntervalMs: config.defaultIntervalMs,
     coingeckoIntervalMs: config.coingeckoIntervalMs,
+    coingeckoNativeIntervalMs: config.coingeckoNativeIntervalMs,
     chainlinkIntervalMs: config.chainlinkIntervalMs,
     chainlinkConfig: config.chainlinkConfig,
     chainlinkCatalogRefreshIntervalMs: config.chainlinkCatalogRefreshIntervalMs,
@@ -204,7 +205,8 @@ export const main = Effect.gen(function* () {
   // handlers and the "stop the schedulers" pass all go away.
   // Only worth a request when some CoinGecko job is actually running.
   const creditsLoop =
-    config.coingeckoApiKey !== undefined && config.coingeckoIntervalMs > 0
+    config.coingeckoApiKey !== undefined &&
+    (config.coingeckoIntervalMs > 0 || config.coingeckoNativeIntervalMs > 0)
       ? [coingeckoCreditsLoop(config.coingeckoApiKey, coingeckoQuotaGate)]
       : [];
 

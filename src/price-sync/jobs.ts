@@ -23,6 +23,8 @@ interface CreatePriceSyncJobsOptions {
   sql: Sql<{ bigint: bigint }>;
   defaultIntervalMs: number;
   coingeckoIntervalMs: number;
+  // Defaults to `coingeckoIntervalMs`.
+  coingeckoNativeIntervalMs?: number;
   chainlinkIntervalMs?: number;
   chainlinkConfig?: ChainlinkPriceConfig;
   chainlinkCatalogRefreshIntervalMs?: number;
@@ -42,6 +44,7 @@ export function createPriceSyncJobs({
   sql,
   defaultIntervalMs,
   coingeckoIntervalMs,
+  coingeckoNativeIntervalMs = coingeckoIntervalMs,
   chainlinkIntervalMs = 0,
   chainlinkConfig = {},
   chainlinkCatalogRefreshIntervalMs = 3_600_000,
@@ -97,7 +100,7 @@ export function createPriceSyncJobs({
     // sharing a coin ID cost nothing extra, so add them here rather than giving
     // each chain its own CoinGecko job.
     coingeckoNativePriceFetcher({
-      intervalMs: coingeckoIntervalMs,
+      intervalMs: coingeckoNativeIntervalMs,
       apiKey: coingeckoApiKey,
       quotaGate: coingeckoQuotaGate,
       chainIdsByCoinId: {
