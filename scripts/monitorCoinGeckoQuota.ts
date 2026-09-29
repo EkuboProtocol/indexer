@@ -19,7 +19,9 @@
  *   credits_stale    No `COINGECKO_CREDITS` line for QUOTA_MONITOR_STALE_MINUTES
  *                    (default 150) since the last one seen, or the last two
  *                    readings were `COINGECKO_CREDITS_CHECK_FAILED`. Armed by
- *                    the first reading ever seen.
+ *                    the first reading ever seen. Suppressed while the newest
+ *                    check failed with 10006: CoinGecko refuses `GET /key`
+ *                    too once credits are spent, and quota_exhausted covers it.
  *   check_failed     Reading the logs failed on two consecutive runs.
  *
  * App Platform keeps run logs only since the component's latest deploy, so the
@@ -29,7 +31,8 @@
  *
  * Alerts are POSTed signed with Paperclip's routine webhook scheme, exactly as
  * `monitorEventGaps.ts` does. `--test-alert` adds a synthetic finding to prove
- * delivery end to end.
+ * delivery end to end. QUOTA_MONITOR_LOG_FILE replays a saved log capture
+ * instead of calling doctl.
  */
 import { createHmac } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -79,7 +82,19 @@ function saveState(state: State) {
 // `token-price-sync 2026-09-29T14:44:30.353667580Z [..] ERROR (#56): ...`
 const LINE = /^\S+ (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z) (.*)$/;
 
+function parseLines(stdout: string): { at: string; text: string }[] {
+  return stdout.split("\n").flatMap((line) => {
+    const match = LINE.exec(line);
+    // Normalise to millisecond ISO so string comparison orders correctly.
+    return match ? [{ at: new Date(match[1]).toISOString(), text: match[2] }] : [];
+  });
+}
+
 async function readLogs(): Promise<{ at: string; text: string }[]> {
+  // Replays a saved `doctl apps logs` capture instead, for testing the rules.
+  const replay = process.env.QUOTA_MONITOR_LOG_FILE;
+  if (replay) return parseLines(readFileSync(replay, "utf8"));
+
   const proc = Bun.spawn(
     ["doctl", "apps", "logs", appId, component, "--type", "run", "--tail", String(tailLines)],
     { stdout: "pipe", stderr: "pipe" },
@@ -93,11 +108,7 @@ async function readLogs(): Promise<{ at: string; text: string }[]> {
   clearTimeout(timer);
   if (code !== 0) throw new Error(`doctl exited ${code}: ${stderr.trim().slice(0, 200)}`);
 
-  return stdout.split("\n").flatMap((line) => {
-    const match = LINE.exec(line);
-    // Normalise to millisecond ISO so string comparison orders correctly.
-    return match ? [{ at: new Date(match[1]).toISOString(), text: match[2] }] : [];
-  });
+  return parseLines(stdout);
 }
 
 function parseCredits(text: string) {
@@ -140,24 +151,26 @@ try {
 if (lines) {
   state.consecutiveCheckFailures = 0;
 
-  const exhausted = lines.filter(
-    ({ text }) =>
-      text.includes("COINGECKO_QUOTA_EXHAUSTED") || text.includes('"error_code":10006'),
-  );
-  const newestExhausted = exhausted.at(-1);
-  // Legacy workers log one 10006 failure per job per cycle; alerting on the
-  // newest one at most every six hours keeps that to the same cadence as the
-  // gated worker's single trip line.
+  const isQuotaRefusal = (text: string) => text.includes('"error_code":10006');
+  // The gated worker's trip line: one per pause, so every new one alerts.
+  const newestTrip = lines.filter(({ text }) => text.includes("COINGECKO_QUOTA_EXHAUSTED")).at(-1);
+  // A worker that predates the gate logs one 10006 job failure per job per
+  // cycle; alerting on those at most every six hours keeps the same cadence.
+  // Only job failures count: a credit check refused with 10006 is expected
+  // during a pause and must not hold back or stand in for a trip line.
+  const newestLegacy = lines
+    .filter(({ text }) => /Price sync job \S+ failed:/.test(text) && isQuotaRefusal(text))
+    .at(-1);
   const sixHoursAfterLast = state.lastQuotaAlertAt
     ? new Date(Date.parse(state.lastQuotaAlertAt) + 6 * 3_600_000).toISOString()
-    : undefined;
-  if (
-    newestExhausted &&
-    (!state.lastQuotaAlertAt ||
-      (newestExhausted.text.includes("COINGECKO_QUOTA_EXHAUSTED")
-        ? newestExhausted.at > state.lastQuotaAlertAt
-        : newestExhausted.at >= (sixHoursAfterLast ?? "")))
-  ) {
+    : "";
+  const newestExhausted =
+    newestTrip && (!state.lastQuotaAlertAt || newestTrip.at > state.lastQuotaAlertAt)
+      ? newestTrip
+      : newestLegacy && (!state.lastQuotaAlertAt || newestLegacy.at >= sixHoursAfterLast)
+        ? newestLegacy
+        : undefined;
+  if (newestExhausted) {
     findings.push({
       kind: "quota_exhausted",
       detail: `${newestExhausted.at} ${newestExhausted.text.slice(0, 300)}`,
@@ -189,12 +202,23 @@ if (lines) {
     }
   }
 
+  // CoinGecko also refuses `GET /key` with 10006 once the credits are spent,
+  // so while the quota explains the missing readings they are not "stale":
+  // quota_exhausted already covers it.
+  const newestCredit = creditLines.at(-1);
+  const quotaExplains =
+    newestCredit !== undefined &&
+    newestCredit.text.includes("COINGECKO_CREDITS_CHECK_FAILED") &&
+    isQuotaRefusal(newestCredit.text);
   const lastTwo = creditLines.slice(-2);
   const failingChecks =
-    lastTwo.length === 2 && lastTwo.every(({ text }) => text.includes("COINGECKO_CREDITS_CHECK_FAILED"));
+    !quotaExplains &&
+    lastTwo.length === 2 &&
+    lastTwo.every(({ text }) => text.includes("COINGECKO_CREDITS_CHECK_FAILED"));
   // Armed by the first reading, so a worker that predates the credit check
   // does not read as a stale one.
   const stale =
+    !quotaExplains &&
     state.lastCreditsAt !== undefined &&
     now.getTime() - Date.parse(state.lastCreditsAt) > staleMs;
   const lastStale = state.lastStaleAlertAt ? Date.parse(state.lastStaleAlertAt) : 0;
