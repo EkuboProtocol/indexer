@@ -320,6 +320,32 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### 2026-09-29: MEVCapture pool series (00132, additive)
+
+**`00132_mev_capture_series`. Adds two SQL functions and nothing else: no
+tables, no indexes, no locks on worker-written tables, no manual steps.**
+
+- `mev_capture_block_series(chain_id, from_epoch, to_epoch)`: one row per
+  MEVCapture pool per block with a swap. Includes volume in and out per token,
+  base fee on input, surcharge, `tick_last`, liquidity before and after, and
+  the first-touch swap (transaction hash, index and event index).
+- `mev_capture_daily_metrics(chain_id, from_epoch, to_epoch)`: the same series
+  per pool per UTC day, in the shape of the continuous auction dashboards.
+
+Core's swap event carries the swap before MEVCapture adds its surcharge. The
+surcharge is the `fees_accumulated` donation made at the pool's next touch,
+attributed to the pool's last earlier swapping block. It is NULL (pending)
+until that touch is indexed. The migration header has the full derivation and
+its limits: active liquidity comes from swaps only, because `position_updates`
+has no state-after column.
+
+For windows the database cannot serve, `scripts/extractMevCaptureSeries.ts`
+builds the same series from chain logs. It checks every log chunk against a
+second RPC and reconciles each block's donation against a tick-based
+reconstruction.
+
+Rollback: `DROP FUNCTION mev_capture_daily_metrics(int8, int8, int8);
+DROP FUNCTION mev_capture_block_series(int8, int8, int8);`
 ### 2026-09-29: Integer scale for legacy `pool_config` values (00131)
 
 **`00131_pool_config_integer_scale`. Data-only. No manual steps.**
