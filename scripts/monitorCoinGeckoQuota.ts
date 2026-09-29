@@ -7,27 +7,16 @@
  *   ALERT_WEBHOOK_URL=<paperclip routine webhook> ALERT_WEBHOOK_HMAC_SECRET=<secret> \
  *     bun scripts/monitorCoinGeckoQuota.ts [--test-alert]
  *
- * Alert conditions, each evaluated on every run:
- *
- *   quota_exhausted  A `COINGECKO_QUOTA_EXHAUSTED` line (or, from a worker that
- *                    predates it, a raw `error_code":10006` failure) newer than
- *                    the last one alerted on. The worker re-trips every six
- *                    hours while the limit holds, so this re-alerts at that pace.
- *   credits_low      The latest `COINGECKO_CREDITS` reading has remaining_pct
- *                    below QUOTA_MONITOR_LOW_PCT (default 20). Re-alerts at most
- *                    once a day unless it falls below a quarter of that.
- *   credits_stale    No `COINGECKO_CREDITS` line for QUOTA_MONITOR_STALE_MINUTES
- *                    (default 150) since the last one seen, or the last two
- *                    readings were `COINGECKO_CREDITS_CHECK_FAILED`. Armed by
- *                    the first reading ever seen. Suppressed while the newest
- *                    check failed with 10006: CoinGecko refuses `GET /key`
- *                    too once credits are spent, and quota_exhausted covers it.
- *   check_failed     Reading the logs failed on two consecutive runs.
+ * The alert rules (quota_exhausted, credits_low, credits_stale) are in
+ * `coingeckoQuotaRules.ts`. This script adds `check_failed`: reading the logs
+ * failed on two consecutive runs.
  *
  * App Platform keeps run logs only since the component's latest deploy, so the
  * last-seen timestamps live in QUOTA_MONITOR_STATE (a JSON file) rather than in
  * the logs; run this at least every 30 minutes so a line is never scrolled out
- * of the tail before it is seen.
+ * of the tail before it is seen. Dedupe markers advance only once an alert is
+ * delivered, so a failed POST (or a dry run without a webhook) re-raises the
+ * same finding next run.
  *
  * Alerts are POSTed signed with Paperclip's routine webhook scheme, exactly as
  * `monitorEventGaps.ts` does. `--test-alert` adds a synthetic finding to prove
@@ -37,6 +26,13 @@
 import { createHmac } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import {
+  evaluate,
+  parseLines,
+  type Finding,
+  type LogLine,
+  type QuotaMonitorState,
+} from "./coingeckoQuotaRules";
 
 const appId = process.env.DO_APP_ID ?? "";
 const component = process.env.QUOTA_MONITOR_COMPONENT ?? "token-price-sync";
@@ -50,48 +46,20 @@ const testAlert = process.argv.includes("--test-alert");
 
 if (!appId) throw new Error("DO_APP_ID is required");
 
-interface State {
-  lastQuotaAlertAt?: string; // log timestamp of the last exhausted line alerted on
-  lastCreditsAt?: string; // log timestamp of the newest COINGECKO_CREDITS line
-  lastCreditsLine?: string;
-  lastLowAlertAt?: string; // wall clock of the last credits_low alert
-  lastLowAlertPct?: number;
-  lastStaleAlertAt?: string;
-  consecutiveCheckFailures?: number;
-  firstRunAt?: string;
-}
-
-interface Finding {
-  kind: "quota_exhausted" | "credits_low" | "credits_stale" | "check_failed" | "test";
-  detail: string;
-}
-
-function loadState(): State {
+function loadState(): QuotaMonitorState {
   try {
-    return JSON.parse(readFileSync(statePath, "utf8")) as State;
+    return JSON.parse(readFileSync(statePath, "utf8")) as QuotaMonitorState;
   } catch {
     return {};
   }
 }
 
-function saveState(state: State) {
+function saveState(state: QuotaMonitorState) {
   mkdirSync(dirname(statePath), { recursive: true });
   writeFileSync(statePath, JSON.stringify(state, null, 2));
 }
 
-// `token-price-sync 2026-09-29T14:44:30.353667580Z [..] ERROR (#56): ...`
-const LINE = /^\S+ (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z) (.*)$/;
-
-function parseLines(stdout: string): { at: string; text: string }[] {
-  return stdout.split("\n").flatMap((line) => {
-    const match = LINE.exec(line);
-    // Normalise to millisecond ISO so string comparison orders correctly.
-    return match ? [{ at: new Date(match[1]).toISOString(), text: match[2] }] : [];
-  });
-}
-
-async function readLogs(): Promise<{ at: string; text: string }[]> {
-  // Replays a saved `doctl apps logs` capture instead, for testing the rules.
+async function readLogs(): Promise<LogLine[]> {
   const replay = process.env.QUOTA_MONITOR_LOG_FILE;
   if (replay) return parseLines(readFileSync(replay, "utf8"));
 
@@ -111,25 +79,11 @@ async function readLogs(): Promise<{ at: string; text: string }[]> {
   return parseLines(stdout);
 }
 
-function parseCredits(text: string) {
-  const field = (name: string) => new RegExp(`\\b${name}=(\\S+)`).exec(text)?.[1];
-  const pct = Number(field("remaining_pct"));
-  return {
-    remaining: field("remaining"),
-    limit: field("limit"),
-    used: field("used"),
-    remainingPct: Number.isFinite(pct) ? pct : undefined,
-  };
-}
-
-const state = loadState();
-// Dedupe markers only advance once an alert is actually delivered, so a failed
-// POST (or a dry run without a webhook) re-raises the same finding next run.
-const delivered = { ...state };
+const previous = loadState();
 const now = new Date();
-state.firstRunAt ??= now.toISOString();
+let state: QuotaMonitorState = { ...previous, firstRunAt: previous.firstRunAt ?? now.toISOString() };
 const findings: Finding[] = [];
-let lines: { at: string; text: string }[] | undefined;
+let lines: LogLine[] | undefined;
 
 try {
   lines = await readLogs();
@@ -149,88 +103,9 @@ try {
 }
 
 if (lines) {
-  state.consecutiveCheckFailures = 0;
-
-  const isQuotaRefusal = (text: string) => text.includes('"error_code":10006');
-  // The gated worker's trip line: one per pause, so every new one alerts.
-  const newestTrip = lines.filter(({ text }) => text.includes("COINGECKO_QUOTA_EXHAUSTED")).at(-1);
-  // A worker that predates the gate logs one 10006 job failure per job per
-  // cycle; alerting on those at most every six hours keeps the same cadence.
-  // Only job failures count: a credit check refused with 10006 is expected
-  // during a pause and must not hold back or stand in for a trip line.
-  const newestLegacy = lines
-    .filter(({ text }) => /Price sync job \S+ failed:/.test(text) && isQuotaRefusal(text))
-    .at(-1);
-  const sixHoursAfterLast = state.lastQuotaAlertAt
-    ? new Date(Date.parse(state.lastQuotaAlertAt) + 6 * 3_600_000).toISOString()
-    : "";
-  const newestExhausted =
-    newestTrip && (!state.lastQuotaAlertAt || newestTrip.at > state.lastQuotaAlertAt)
-      ? newestTrip
-      : newestLegacy && (!state.lastQuotaAlertAt || newestLegacy.at >= sixHoursAfterLast)
-        ? newestLegacy
-        : undefined;
-  if (newestExhausted) {
-    findings.push({
-      kind: "quota_exhausted",
-      detail: `${newestExhausted.at} ${newestExhausted.text.slice(0, 300)}`,
-    });
-    state.lastQuotaAlertAt = newestExhausted.at;
-  }
-
-  const creditLines = lines.filter(({ text }) => /\bCOINGECKO_CREDITS(_CHECK_FAILED)?\b/.test(text));
-  const readings = creditLines.filter(({ text }) => /\bCOINGECKO_CREDITS\b(?!_)/.test(text));
-  const latestReading = readings.at(-1);
-  if (latestReading && (!state.lastCreditsAt || latestReading.at > state.lastCreditsAt)) {
-    state.lastCreditsAt = latestReading.at;
-    state.lastCreditsLine = latestReading.text.slice(0, 300);
-  }
-
-  if (latestReading) {
-    const credits = parseCredits(latestReading.text);
-    const pct = credits.remainingPct;
-    const lastLow = state.lastLowAlertAt ? Date.parse(state.lastLowAlertAt) : 0;
-    const dueAgain = now.getTime() - lastLow >= 24 * 3_600_000;
-    const muchLower = pct !== undefined && pct < lowPct / 4 && (state.lastLowAlertPct ?? 100) >= lowPct / 4;
-    if (pct !== undefined && pct < lowPct && (dueAgain || muchLower)) {
-      findings.push({
-        kind: "credits_low",
-        detail: `remaining ${credits.remaining}/${credits.limit} (${pct}%) at ${latestReading.at}, below ${lowPct}%`,
-      });
-      state.lastLowAlertAt = now.toISOString();
-      state.lastLowAlertPct = pct;
-    }
-  }
-
-  // CoinGecko also refuses `GET /key` with 10006 once the credits are spent,
-  // so while the quota explains the missing readings they are not "stale":
-  // quota_exhausted already covers it.
-  const newestCredit = creditLines.at(-1);
-  const quotaExplains =
-    newestCredit !== undefined &&
-    newestCredit.text.includes("COINGECKO_CREDITS_CHECK_FAILED") &&
-    isQuotaRefusal(newestCredit.text);
-  const lastTwo = creditLines.slice(-2);
-  const failingChecks =
-    !quotaExplains &&
-    lastTwo.length === 2 &&
-    lastTwo.every(({ text }) => text.includes("COINGECKO_CREDITS_CHECK_FAILED"));
-  // Armed by the first reading, so a worker that predates the credit check
-  // does not read as a stale one.
-  const stale =
-    !quotaExplains &&
-    state.lastCreditsAt !== undefined &&
-    now.getTime() - Date.parse(state.lastCreditsAt) > staleMs;
-  const lastStale = state.lastStaleAlertAt ? Date.parse(state.lastStaleAlertAt) : 0;
-  if ((stale || failingChecks) && now.getTime() - lastStale >= 6 * 3_600_000) {
-    findings.push({
-      kind: "credits_stale",
-      detail: failingChecks
-        ? `last two credit checks failed: ${lastTwo.at(-1)!.text.slice(0, 200)}`
-        : `no COINGECKO_CREDITS line since ${state.lastCreditsAt}`,
-    });
-    state.lastStaleAlertAt = now.toISOString();
-  }
+  const result = evaluate(lines, state, now, { lowPct, staleMs });
+  state = result.state;
+  findings.push(...result.findings);
 }
 
 if (testAlert) findings.push({ kind: "test", detail: "synthetic test alert" });
@@ -281,9 +156,9 @@ if (findings.length > 0) {
 }
 
 if (findings.length > 0 && !alertDelivered) {
-  state.lastQuotaAlertAt = delivered.lastQuotaAlertAt;
-  state.lastLowAlertAt = delivered.lastLowAlertAt;
-  state.lastLowAlertPct = delivered.lastLowAlertPct;
-  state.lastStaleAlertAt = delivered.lastStaleAlertAt;
+  state.lastQuotaAlertAt = previous.lastQuotaAlertAt;
+  state.lastLowAlertAt = previous.lastLowAlertAt;
+  state.lastLowAlertPct = previous.lastLowAlertPct;
+  state.lastStaleAlertAt = previous.lastStaleAlertAt;
 }
 saveState(state);

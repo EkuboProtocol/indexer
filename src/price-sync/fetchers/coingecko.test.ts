@@ -514,3 +514,31 @@ test("the credit check keeps the gate closed until a margin of credits is back",
     "/api/v3/simple/price",
   ]);
 });
+
+test("a failed cycle leaves its re-probe slot due for the next one", async () => {
+  let failing = false;
+  const requested: string[] = [];
+  globalThis.fetch = (async (input: string | URL) => {
+    requested.push(String(input));
+    return failing
+      ? new Response("upstream down", { status: 500, statusText: "Internal Server Error" })
+      : new Response(JSON.stringify({}), { status: 200 });
+  }) as typeof globalThis.fetch;
+  const job = coingeckoPriceFetcher({
+    sql: stubSql(() => TOKENS),
+    chainId: 8453n,
+    intervalMs: 1_000,
+    unpricedReprobeIntervalMs: 4_000,
+    platform: "base",
+    apiKey,
+  });
+
+  await collect(job.fetch, 0); // cold sweep, epoch 0
+  failing = true;
+  await expect(collect(job.fetch, 1_000)).rejects.toThrow(/500/); // epoch 1 fails
+  failing = false;
+  requested.length = 0;
+  await collect(job.fetch, 2_000); // epoch 2 serves slots 1 and 2
+
+  expect(requestedAddresses(requested)).toEqual([[TOKENS[1], TOKENS[2]]]);
+});
