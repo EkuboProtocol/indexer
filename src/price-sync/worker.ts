@@ -3,6 +3,15 @@ import postgres, { type Sql } from "postgres";
 import { loadPriceSyncConfig } from "./config";
 import { PriceSyncError, tryPriceSync } from "./errors";
 import { makeChainlinkCatalogCache } from "./fetchers/chainlinkCatalog";
+import {
+  checkCoinGeckoCredits,
+  COINGECKO_CREDITS_CHECK_INTERVAL_MS,
+  CREDITS_MARKER,
+} from "./fetchers/coingecko";
+import {
+  makeCoinGeckoQuotaGate,
+  type CoinGeckoQuotaGate,
+} from "./fetchers/coingeckoQuota";
 import { defaultPriceValidityMs, type PriceSyncJob } from "./fetchers/types";
 import { createPriceSyncJobs } from "./jobs";
 import { makeLaunchSpacer } from "./launchSpacer";
@@ -114,6 +123,25 @@ export function expirationLoop(sql: PriceSyncSql) {
   );
 }
 
+// Logs CoinGecko credit headroom for the quota monitor. A failed check logs a
+// line of its own so the monitor can tell "no reading" from "no credits".
+export function coingeckoCreditsLoop(
+  apiKey: string,
+  quotaGate: CoinGeckoQuotaGate,
+) {
+  return checkCoinGeckoCredits({ apiKey, quotaGate }).pipe(
+    Effect.catch((error) =>
+      Effect.logError(`${CREDITS_MARKER}_CHECK_FAILED ${error.message}`),
+    ),
+    Effect.catchDefect((defect) =>
+      Effect.logError(`${CREDITS_MARKER}_CHECK_FAILED ${String(defect)}`),
+    ),
+    Effect.repeat(
+      Schedule.spaced(Duration.millis(COINGECKO_CREDITS_CHECK_INTERVAL_MS)),
+    ),
+  );
+}
+
 export const partitionEnabled = Effect.fn("partitionEnabled")(function* (
   jobs: readonly PriceSyncJob[],
 ) {
@@ -137,6 +165,7 @@ export const main = Effect.gen(function* () {
   const config = yield* loadPriceSyncConfig();
   const sql = yield* acquireSql(config.pgConnectionString);
   const quoterSpacer = yield* makeLaunchSpacer(config.quoterMinTimeMs);
+  const coingeckoQuotaGate = makeCoinGeckoQuotaGate();
 
   const jobs = createPriceSyncJobs({
     sql,
@@ -149,6 +178,7 @@ export const main = Effect.gen(function* () {
     quoterBaseUrl: config.quoterBaseUrl,
     quoterSpacer,
     chainlinkCatalogCache: makeChainlinkCatalogCache(),
+    coingeckoQuotaGate,
   });
 
   yield* Effect.try({
@@ -172,8 +202,18 @@ export const main = Effect.gen(function* () {
   // SIGINT/SIGTERM `runMain` interrupts this effect, which interrupts every
   // loop and then closes the scope -- so the shutdown flag, the signal
   // handlers and the "stop the schedulers" pass all go away.
+  // Only worth a request when some CoinGecko job is actually running.
+  const creditsLoop =
+    config.coingeckoApiKey !== undefined && config.coingeckoIntervalMs > 0
+      ? [coingeckoCreditsLoop(config.coingeckoApiKey, coingeckoQuotaGate)]
+      : [];
+
   yield* Effect.forEach(
-    [...enabled.map((job) => jobLoop(sql, job)), expirationLoop(sql)],
+    [
+      ...enabled.map((job) => jobLoop(sql, job)),
+      expirationLoop(sql),
+      ...creditsLoop,
+    ],
     (loop) => loop,
     { concurrency: "unbounded", discard: true },
   );

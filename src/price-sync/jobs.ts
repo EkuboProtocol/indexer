@@ -9,6 +9,10 @@ import {
   coingeckoNativePriceFetcher,
   coingeckoPriceFetcher,
 } from "./fetchers/coingecko";
+import {
+  makeCoinGeckoQuotaGate,
+  type CoinGeckoQuotaGate,
+} from "./fetchers/coingeckoQuota";
 import { quoterPriceFetcher } from "./fetchers/ekuboQuoter";
 // import { oracleV1PriceFetcher } from "./fetchers/oracleV1";
 import { sushiswapPriceFetcher } from "./fetchers/sushiswap";
@@ -28,6 +32,8 @@ interface CreatePriceSyncJobsOptions {
   quoterSpacer?: LaunchSpacer;
   // Shared across every Chainlink job so one catalog URL is fetched once.
   chainlinkCatalogCache?: ChainlinkCatalogCache;
+  // Shared across every CoinGecko job: the credit limit is the account's.
+  coingeckoQuotaGate?: CoinGeckoQuotaGate;
 }
 
 const passThrough: LaunchSpacer = (effect) => effect;
@@ -43,6 +49,7 @@ export function createPriceSyncJobs({
   quoterBaseUrl = "https://prod-api-quoter.ekubo.org",
   quoterSpacer = passThrough,
   chainlinkCatalogCache = makeChainlinkCatalogCache(),
+  coingeckoQuotaGate = makeCoinGeckoQuotaGate(),
 }: CreatePriceSyncJobsOptions): PriceSyncJob[] {
   // The dependencies every job of a kind shares, bound once so the list below
   // stays a table of what is priced where rather than of how it is wired.
@@ -60,8 +67,17 @@ export function createPriceSyncJobs({
     });
 
   const coingecko = (
-    options: Omit<Parameters<typeof coingeckoPriceFetcher>[0], "sql" | "apiKey">,
-  ) => coingeckoPriceFetcher({ ...options, sql, apiKey: coingeckoApiKey });
+    options: Omit<
+      Parameters<typeof coingeckoPriceFetcher>[0],
+      "sql" | "apiKey" | "quotaGate"
+    >,
+  ) =>
+    coingeckoPriceFetcher({
+      ...options,
+      sql,
+      apiKey: coingeckoApiKey,
+      quotaGate: coingeckoQuotaGate,
+    });
 
   return [
     // One job per chain configured with Chainlink feeds. Absent configuration
@@ -83,6 +99,7 @@ export function createPriceSyncJobs({
     coingeckoNativePriceFetcher({
       intervalMs: coingeckoIntervalMs,
       apiKey: coingeckoApiKey,
+      quotaGate: coingeckoQuotaGate,
       chainIdsByCoinId: {
         ethereum: [
           1n, // eth mainnet
