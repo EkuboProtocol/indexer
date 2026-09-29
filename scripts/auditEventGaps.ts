@@ -10,6 +10,9 @@
  *   NETWORK=mainnet AUDIT_RPC_URL=<url> PG_CONNECTION_STRING=<url> \
  *     bun scripts/auditEventGaps.ts [from] [to]
  *
+ * AUDIT_NETWORK_TYPE=starknet audits Starknet instead (AUDIT_RPC_URL must speak
+ * JSON-RPC v0.10, as the stream requires).
+ *
  * `from` defaults to the block after STARTING_CURSOR_BLOCK_NUMBER and `to` to
  * the stored finalized cursor, so a default run only reads settled history.
  * AUDIT_LAST_SECONDS instead starts `from` that much chain time before `to`,
@@ -34,29 +37,53 @@
  */
 import postgres from "postgres";
 import { createPublicClient, http } from "viem";
+import type { ChainAdapter } from "../src/_shared/blockStream";
 import { loadConfig } from "../src/config";
 import { createEvmProcessors } from "../src/evm";
-import { createEvmAdapter, type LogStreamFilter } from "../src/evm/logStream";
+import { createEvmAdapter } from "../src/evm/logStream";
+import { createStarknetProcessors } from "../src/starknet";
+import { createStarknetAdapter, createStarknetRpc } from "../src/starknet/eventStream";
+import { isNetworkTypeValid } from "../src/types";
 
-loadConfig("evm");
+const networkType = process.env.AUDIT_NETWORK_TYPE ?? "evm";
+if (!isNetworkTypeValid(networkType)) throw new Error(`Bad AUDIT_NETWORK_TYPE ${networkType}`);
+loadConfig(networkType);
 
 const chainId = BigInt(process.env.CHAIN_ID!);
-const rpcUrl = process.env.AUDIT_RPC_URL ?? process.env.EVM_RPC_URL;
-if (!rpcUrl) throw new Error("Set AUDIT_RPC_URL (or EVM_RPC_URL)");
+const rpcUrl = process.env.AUDIT_RPC_URL
+  ?? (networkType === "evm" ? process.env.EVM_RPC_URL : process.env.STARKNET_RPC_URL);
+if (!rpcUrl) throw new Error("Set AUDIT_RPC_URL");
 
-const filters: LogStreamFilter[] = createEvmProcessors().map((processor, ix) => ({
-  id: ix + 1,
-  address: processor.address,
-  topics: processor.filter.topics,
-  strict: processor.filter.strict,
-}));
-
-const rpc = createPublicClient({ transport: http(rpcUrl, { retryCount: 4 }) });
-const rpcChainId = BigInt(await rpc.getChainId());
-if (rpcChainId !== chainId) {
-  throw new Error(`AUDIT_RPC_URL serves chain ${rpcChainId}, expected ${chainId}`);
+/** The stream's own adapter and filters, so "matched" means what it means to the indexer. */
+async function createAuditAdapter(url: string): Promise<ChainAdapter<{ address: string; filterIds: number[] }>> {
+  let servedChainId: bigint;
+  let adapter: ChainAdapter<{ address: string; filterIds: number[] }>;
+  if (networkType === "evm") {
+    const filters = createEvmProcessors().map((processor, ix) => ({
+      id: ix + 1,
+      address: processor.address,
+      topics: processor.filter.topics,
+      strict: processor.filter.strict,
+    }));
+    const rpc = createPublicClient({ transport: http(url, { retryCount: 4 }) });
+    servedChainId = BigInt(await rpc.getChainId());
+    adapter = createEvmAdapter(rpc, filters, Number.MAX_SAFE_INTEGER);
+  } else {
+    const filters = createStarknetProcessors().map((processor, ix) => ({
+      id: ix + 1,
+      fromAddress: processor.filter.fromAddress,
+      keys: processor.filter.keys,
+    }));
+    const rpc = createStarknetRpc(url);
+    servedChainId = BigInt(await rpc.request<string>("starknet_chainId", []));
+    adapter = createStarknetAdapter({ rpc, filters });
+  }
+  if (servedChainId !== chainId) {
+    throw new Error(`AUDIT_RPC_URL serves chain ${servedChainId}, expected ${chainId}`);
+  }
+  return adapter;
 }
-const adapter = createEvmAdapter(rpc, filters, Number.MAX_SAFE_INTEGER);
+const adapter = await createAuditAdapter(rpcUrl);
 
 const sql = postgres(process.env.PG_CONNECTION_STRING!, {
   max: 1,
