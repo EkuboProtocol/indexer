@@ -95,6 +95,7 @@ export async function createStarknetEntrypoint(
         filters,
         startingCursor: streamOptions.startingCursor,
         loadPreviousCursor: streamOptions.loadPreviousCursor,
+        loadStoredBlocks: streamOptions.loadStoredBlocks,
         options: {
           pollIntervalMs: positiveInt("POLL_INTERVAL_MS", 2_000),
           // Starknet is never quiet for long -- it lands an event we index

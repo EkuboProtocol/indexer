@@ -19,6 +19,7 @@ import {
   type BlockStreamOptions,
   type ChainAdapter,
   type ChainHead,
+  type LoadStoredBlocks,
   type StreamBlock as SharedStreamBlock,
   type StreamMessage as SharedStreamMessage,
 } from "../_shared/blockStream";
@@ -391,6 +392,7 @@ export interface CreateLogStreamArgs {
   filters: LogStreamFilter[];
   startingCursor: IndexerCursor;
   loadPreviousCursor?: (before: number) => Promise<IndexerCursor | null>;
+  loadStoredBlocks?: LoadStoredBlocks;
   options?: LogStreamOptions;
 }
 
@@ -444,6 +446,7 @@ export function createLogStream(
     adapter: createEvmAdapter(args.rpc, args.filters, suspectLogCount),
     startingCursor: args.startingCursor,
     loadPreviousCursor: args.loadPreviousCursor,
+    loadStoredBlocks: args.loadStoredBlocks,
     options,
   });
 }

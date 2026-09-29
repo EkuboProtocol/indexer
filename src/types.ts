@@ -1,3 +1,4 @@
+import type { LoadStoredBlocks } from "./_shared/blockStream";
 import type { DAO, IndexerCursor } from "./_shared/dao";
 
 export type NetworkType = "evm" | "starknet";
@@ -12,6 +13,7 @@ export interface StreamOptions {
   finality: "accepted";
   startingCursor: IndexerCursor;
   loadPreviousCursor?: (before: number) => Promise<IndexerCursor | null>;
+  loadStoredBlocks?: LoadStoredBlocks;
   heartbeatInterval: {
     seconds: bigint;
     nanos: number;

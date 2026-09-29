@@ -218,7 +218,12 @@ An unavailable checkpoint stops recovery.
 
 Startup verifies the persisted cursor before seeding the window. If its hash is
 missing, recovery replays from verified stored history. A second check during the
-range catches a reorg between startup verification and seeding. Rollback clears
+range catches a reorg between startup verification and seeding. The seeded window
+is then checked against the `blocks` table: an event-bearing block at or below the
+cursor that is missing from it, or stored under another hash, is rolled back and
+re-indexed. Without that, a block skipped just before a restart -- a provider
+whose log index lagged its head for one read -- was adopted as already emitted and
+lost for good (EKU-272, Ethereum block 25739240). Rollback clears
 orphaned head/gas metadata and any finalized cursor above the rollback height.
 
 Newly reported finality remains pending until the previous window has been
@@ -258,6 +263,37 @@ bun scripts/verifyLogStream.ts https://mainnet.base.org base 600 100 \
 ```
 
 It exits non-zero on any mismatch.
+
+### Auditing and repairing event gaps
+
+`scripts/auditEventGaps.ts` compares every block the chain reports events for,
+under the indexer's own filters, with the `blocks` table (read-only on both
+sides). It defaults to all settled history for the network; pass a range, or set
+`AUDIT_LAST_SECONDS` for recent history only:
+
+```
+NETWORK=mainnet AUDIT_RPC_URL=https://mainnet.gateway.tenderly.co \
+  PG_CONNECTION_STRING=... bun scripts/auditEventGaps.ts [from] [to]
+```
+
+`missing` and `hash` findings are lost or wrong data and exit 1. `count` and
+`extra` also result from filter changes and from rows written before `num_events`
+meant "matched filters", so `count` is only totalled unless
+`AUDIT_REPORT_COUNTS=1`.
+
+`scripts/backfillBlocks.ts <block>...` indexes finalized blocks the stream skipped
+without moving the cursor. It is a dry run (rolled back) unless given `--apply`.
+It uses the runtime's processors and DAO, then recomputes `pool_states` for pools
+with a backfilled swap, because `on_insert_swap` assumes the newest swap. It
+refuses to commit if any current pool state would change. The other triggers on
+these tables are order-independent. To reverse a backfill, delete the block
+through the same cascade a reorg uses:
+`DELETE FROM blocks WHERE chain_id = <chain> AND block_number = <block>`.
+
+`scripts/monitorEventGaps.ts` runs the audit over each chain's recent finalized
+history (`GAP_MONITOR_WINDOW_SECONDS`, default 3 h). It POSTs an HMAC-signed alert
+to a Paperclip routine webhook when it finds a gap, or when a chain's check fails
+twice. `--test-alert` proves delivery.
 
 ## Database migrations
 

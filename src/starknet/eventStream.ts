@@ -46,6 +46,7 @@ import {
   type BlockStreamOptions,
   type ChainAdapter,
   type ChainHead,
+  type LoadStoredBlocks,
   type StreamBlock as SharedStreamBlock,
   type StreamMessage as SharedStreamMessage,
 } from "../_shared/blockStream";
@@ -595,6 +596,7 @@ export interface CreateStarknetEventStreamArgs {
   filters: StarknetStreamFilter[];
   startingCursor: IndexerCursor;
   loadPreviousCursor?: (before: number) => Promise<IndexerCursor | null>;
+  loadStoredBlocks?: LoadStoredBlocks;
   options?: BlockStreamOptions & { chunkSize?: number; maxPages?: number };
 }
 
@@ -616,6 +618,7 @@ export function createStarknetEventStream(
     }),
     startingCursor: args.startingCursor,
     loadPreviousCursor: args.loadPreviousCursor,
+    loadStoredBlocks: args.loadStoredBlocks,
     options,
   });
 }
