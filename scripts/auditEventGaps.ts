@@ -131,6 +131,10 @@ const totals = { blocksOnChain: 0, eventsOnChain: 0, rows: 0, missing: 0, hash: 
 const report = (line: Record<string, unknown>) => console.log(JSON.stringify(line));
 
 let span = Number(process.env.AUDIT_RANGE ?? 2000);
+// Starknet pages its events, and a dense span exhausts the adapter's page
+// budget before it can throw and halve, so it grows to a narrower ceiling.
+const maxSpan = Number(process.env.AUDIT_MAX_RANGE ?? (networkType === "starknet" ? 5_000 : 100_000));
+if (!Number.isSafeInteger(maxSpan) || maxSpan <= 0) throw new Error(`Bad AUDIT_MAX_RANGE ${process.env.AUDIT_MAX_RANGE}`);
 let failures = 0;
 let lastProgress = Date.now();
 const delayMs = Number(process.env.AUDIT_DELAY_MS ?? 0);
@@ -188,7 +192,7 @@ while (lo <= to) {
     lastProgress = Date.now();
     console.error(JSON.stringify({ progress: hi, to, ...totals }));
   }
-  span = Math.min(span * 2, Number(process.env.AUDIT_MAX_RANGE ?? 100_000));
+  span = Math.min(span * 2, maxSpan);
 }
 
 report({ kind: "summary", chainId: String(chainId), from, to, ...totals });

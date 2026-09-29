@@ -9,7 +9,9 @@
  *     bun scripts/monitorEventGaps.ts [--test-alert]
  *
  * A bare network name is EVM; prefix `starknet/` for Starknet, whose RPC must
- * speak JSON-RPC v0.10. Append `|<blocks>` to a URL to cap its read span. GAP_MONITOR_WINDOW_SECONDS (default 10800) is how much finalized history each
+ * speak JSON-RPC v0.10. Append `|<blocks>` to a URL to cap its read span.
+ *
+ * GAP_MONITOR_WINDOW_SECONDS (default 10800) is how much finalized history each
  * run re-checks; run it several times per window so a gap is seen more than
  * once before it scrolls out. Each chain runs in its own process because the
  * indexer's config loader writes the network's settings into the environment.
@@ -44,6 +46,9 @@ const chains = (process.env.GAP_MONITOR_CHAINS ?? "")
     // An optional "|maxRange" caps the eth_getLogs span for an endpoint that
     // refuses wide ones, instead of paying a refusal and a backoff per read.
     const [rpcUrl, maxRange] = entry.slice(at + 1).split("|");
+    if (maxRange !== undefined && !(Number.isSafeInteger(Number(maxRange)) && Number(maxRange) > 0)) {
+      throw new Error(`GAP_MONITOR_CHAINS maxRange must be a positive integer, got ${maxRange} in ${name}`);
+    }
     return { network, networkType, rpcUrl: rpcUrl!, maxRange };
   });
 if (chains.length === 0) throw new Error("Set GAP_MONITOR_CHAINS");
