@@ -142,6 +142,17 @@ export async function runIndexer<TBlock>({
           const initial = BigInt(process.env.STARTING_CURSOR_BLOCK_NUMBER!);
           return initial < BigInt(before) ? { orderKey: initial } : null;
         },
+        // Every event-bearing block after the operator's starting boundary is
+        // one this database claims to hold. The stream checks its first window
+        // against that claim, so a gap left by an earlier run is rolled back
+        // and re-indexed rather than adopted as already emitted.
+        loadStoredBlocks: async (from: number, to: number) => {
+          const floor = Number(process.env.STARTING_CURSOR_BLOCK_NUMBER!) + 1;
+          return {
+            from: floor,
+            hashes: await dao.loadStoredBlockHashes(Math.max(from, floor), to),
+          };
+        },
         heartbeatInterval: {
           seconds: 10n,
           nanos: 0,

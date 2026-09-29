@@ -162,3 +162,157 @@ describe("a stale snapshot", () => {
     await expect(run(1, () => new Error("Invalid params"))).rejects.toThrow(/Invalid params/);
   });
 });
+
+/**
+ * The runtime's effect on the store, reduced to what the gap question needs:
+ * a data message replaces everything from its block up and records the block
+ * only if it carried events; an invalidate deletes everything above its cursor.
+ */
+function createStore(startingCursor: number) {
+  const blocks = new Map<number, string>();
+  let cursor: { orderKey: bigint; uniqueKey?: string } = { orderKey: BigInt(startingCursor) };
+  return {
+    blocks,
+    get cursor() { return cursor; },
+    apply(message: StreamMessage<string>) {
+      if (message._tag === "invalidate") {
+        for (const n of [...blocks.keys()]) if (n > Number(message.invalidate.cursor.orderKey)) blocks.delete(n);
+        cursor = message.invalidate.cursor;
+      } else if (message._tag === "data") {
+        const [streamBlock] = message.data.data;
+        const n = Number(streamBlock!.header.blockNumber);
+        for (const k of [...blocks.keys()]) if (k >= n) blocks.delete(k);
+        if (streamBlock!.logs.length > 0) blocks.set(n, streamBlock!.header.blockHash);
+        cursor = message.data.endCursor;
+      }
+    },
+    loadStoredBlocks: async (from: number, to: number) => ({
+      from: startingCursor + 1,
+      hashes: new Map([...blocks].filter(([n]) => n >= from && n <= to)),
+    }),
+  };
+}
+
+const eventBearing = (n: number) => n % 3 !== 0;
+
+/** A chain whose hashes never change, so every rollback below is a provider fault being repaired. */
+function faultyChain(opts: { tip: number; lagging: () => number; regress: () => number }) {
+  let tip = opts.tip;
+  const adapter: ChainAdapter<string> = {
+    label: "fixture",
+    async fetchHead() { return head(Math.max(1, tip - opts.regress())); },
+    async fetchBlock(n) { return n <= tip ? head(n) : null; },
+    async fetchFinalized() { return null; },
+    async readRange(from, to) {
+      // A log index lagging its head: the newest blocks read as empty.
+      const indexedTo = to - opts.lagging();
+      const blocks: StreamBlock<string>[] = [];
+      for (let n = from; n <= indexedTo; n++) if (eventBearing(n)) blocks.push(block(n, head(n).hash));
+      return blocks;
+    },
+    async completeFresh() {},
+  };
+  return { adapter, advance() { tip++; }, get tip() { return tip; } };
+}
+
+async function runUntil(
+  stream: AsyncGenerator<StreamMessage<string>>,
+  store: ReturnType<typeof createStore>,
+  stop: (message: StreamMessage<string>) => boolean,
+) {
+  for await (const message of stream) {
+    store.apply(message);
+    if (stop(message)) break;
+  }
+  await stream.return(undefined);
+}
+
+const expectedBlocks = (from: number, to: number) => {
+  const expected: number[] = [];
+  for (let n = from; n <= to; n++) if (eventBearing(n)) expected.push(n);
+  return expected;
+};
+
+for (const withStore of [true, false]) {
+  it(`${withStore ? "re-indexes" : "(without the store check) permanently loses"} a block a lagging read skipped just before a restart`, async () => {
+    // EKU-272: a read whose log index lags the head reports the newest
+    // event-bearing block as empty, and the tail message moves the cursor past
+    // it. The next re-read would catch that -- unless the process restarts
+    // first, and the new stream seeds its window from the chain.
+    let lag = 1;
+    const chain = faultyChain({ tip: 101, lagging: () => lag, regress: () => 0 });
+    const store = createStore(96);
+
+    await runUntil(
+      createBlockStream({ adapter: chain.adapter, startingCursor: store.cursor, options }),
+      store,
+      (m) => m._tag === "data" && m.data.endCursor.orderKey === 101n,
+    );
+    expect([...store.blocks.keys()]).toEqual([97, 98, 100]);
+    expect(store.cursor.orderKey).toBe(101n);
+
+    lag = 0;
+    chain.advance();
+    await runUntil(
+      createBlockStream({
+        adapter: chain.adapter,
+        startingCursor: store.cursor,
+        loadStoredBlocks: withStore ? store.loadStoredBlocks : undefined,
+        options,
+      }),
+      store,
+      (m) => m._tag === "data" && m.data.endCursor.orderKey === 102n,
+    );
+
+    const stored = [...store.blocks.keys()].sort((a, b) => a - b);
+    if (withStore) expect(stored).toEqual(expectedBlocks(97, 102));
+    else expect(stored).not.toContain(101);
+  });
+}
+
+it("converges on every event-bearing block through lagging reads, head regressions and restarts", async () => {
+  // Deterministic, so a failure reproduces.
+  let seed = 0x272;
+  const random = () => {
+    seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31;
+    return seed / 2 ** 31;
+  };
+  let faulty = true;
+  const chain = faultyChain({
+    tip: 20,
+    lagging: () => (faulty && random() < 0.3 ? 1 + Math.floor(random() * 3) : 0),
+    regress: () => (faulty && random() < 0.2 ? 1 + Math.floor(random() * 2) : 0),
+  });
+  const store = createStore(10);
+
+  let restarts = 0;
+  while (chain.tip < 200) {
+    const stream = createBlockStream({
+      adapter: chain.adapter,
+      startingCursor: store.cursor,
+      loadStoredBlocks: store.loadStoredBlocks,
+      options,
+    });
+    await runUntil(stream, store, () => {
+      if (random() < 0.5) chain.advance();
+      return random() < 0.1;
+    });
+    restarts++;
+  }
+
+  // One healthy run to the tip, after which nothing may be missing.
+  faulty = false;
+  await runUntil(
+    createBlockStream({
+      adapter: chain.adapter,
+      startingCursor: store.cursor,
+      loadStoredBlocks: store.loadStoredBlocks,
+      options,
+    }),
+    store,
+    (m) => m._tag === "data" && Number(m.data.endCursor.orderKey) === chain.tip,
+  );
+
+  expect(restarts).toBeGreaterThan(10);
+  expect([...store.blocks.keys()].sort((a, b) => a - b)).toEqual(expectedBlocks(11, chain.tip));
+});

@@ -96,9 +96,11 @@ function logIndexedContracts({
     logger.info(`Indexing V3 Ve33 contracts`, { evmV3Ve33AddressConfig });
 }
 
-export async function createEvmEntrypoint(
-  chainId: bigint,
-): Promise<NetworkEntrypoint<EvmBlock>> {
+/**
+ * The configured contracts' log processors, in filter-id order. Exported so an
+ * audit can build exactly the filters the stream uses.
+ */
+export function createEvmProcessors() {
   const evmV2AddressConfig = loadHexAddresses({
     mevCaptureAddress: "MEV_CAPTURE_ADDRESS",
     coreAddress: "CORE_ADDRESS",
@@ -142,7 +144,7 @@ export async function createEvmEntrypoint(
     evmV3Ve33AddressConfig,
   });
 
-  const processors = [
+  return [
     ...(evmV2AddressConfig ? createLogProcessorsV2(evmV2AddressConfig) : []),
     ...(evmV3AddressConfig
       ? createLogProcessorsV3({
@@ -161,6 +163,12 @@ export async function createEvmEntrypoint(
         })
       : []),
   ];
+}
+
+export async function createEvmEntrypoint(
+  chainId: bigint,
+): Promise<NetworkEntrypoint<EvmBlock>> {
+  const processors = createEvmProcessors();
 
   const url = requireEvmRpcUrl(process.env.EVM_RPC_URL);
   const transport = withNullBlockRetry(http(url, { retryCount: 2 }), { url });
@@ -191,6 +199,7 @@ export async function createEvmEntrypoint(
         filters,
         startingCursor: streamOptions.startingCursor,
         loadPreviousCursor: streamOptions.loadPreviousCursor,
+        loadStoredBlocks: streamOptions.loadStoredBlocks,
         options: {
           pollIntervalMs: positiveInt("POLL_INTERVAL_MS", 2_000),
           // Most chains we index have produced fewer than sixty events in

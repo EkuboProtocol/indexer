@@ -801,17 +801,98 @@ function maybeRollback<TEvent>(
  * The first read is adopted as the baseline; every read after it is a diff, and
  * a disagreement at or below the cursor is a reorg to undo.
  */
-function reconcileWindow<TEvent>(
+async function reconcileWindow<TEvent>(
   state: StreamState,
   digests: Map<number, BlockDigest>,
   plan: { from: number; to: number },
   opts: Resolved,
-): StreamMessage<TEvent> | null {
+  loadStoredBlocks?: LoadStoredBlocks,
+): Promise<StreamMessage<TEvent> | null> {
   if (!state.seeded) {
     seedWindow(state, digests, plan.from);
-    return null;
+    return loadStoredBlocks
+      ? verifySeedAgainstStore<TEvent>(state, digests, plan, opts, loadStoredBlocks)
+      : null;
   }
   return maybeRollback<TEvent>(state, digests, plan, opts);
+}
+
+/**
+ * Event-bearing blocks the consumer has durably stored, by hash, and the lowest
+ * block that answer is authoritative for.
+ *
+ * `from` exists because a store only vouches for what it indexed: below the
+ * operator's starting boundary the chain has events the store never took, and
+ * reading that as a gap would rewind a fresh database past its own start.
+ */
+export type LoadStoredBlocks = (
+  from: number,
+  to: number,
+) => Promise<{ from: number; hashes: Map<number, string> }>;
+
+/**
+ * The lowest block at or below the cursor that carries events on chain but is
+ * missing from the store, or stored under another hash.
+ *
+ * One-sided on purpose. A stored block the chain no longer reports is also
+ * what removing an address from the filters looks like, and rolling back on
+ * that would delete history for a configuration change. An orphan the chain
+ * *does* report is caught by the hash comparison.
+ */
+export function firstUnstoredBlock(
+  digests: Map<number, BlockDigest>,
+  stored: Map<number, string>,
+  from: number,
+  to: number,
+): number | undefined {
+  let lowest: number | undefined;
+  for (const [blockNumber, digest] of digests) {
+    if (blockNumber < from || blockNumber > to) continue;
+    const hash = stored.get(blockNumber);
+    if (hash !== undefined && sameHash(hash, digest.hash)) continue;
+    if (lowest === undefined || blockNumber < lowest) lowest = blockNumber;
+  }
+  return lowest;
+}
+
+/**
+ * Checks the seed read against what the consumer actually stored.
+ *
+ * `seedWindow` adopts the chain's view of the window as "already emitted",
+ * which is right for a stream that emitted it and wrong for one that did not.
+ * A block that was never written -- a provider whose log index lagged its head
+ * for one read, a process that died between the miss and the re-read that
+ * would have caught it -- is indistinguishable from an emitted one after a
+ * restart, and the gap becomes permanent. The cursor-hash check cannot see it
+ * either: the cursor is canonical, only a block beneath it is absent.
+ *
+ * Ethereum block 25739240 was lost this way under the stream this replaced,
+ * whose empty head header advanced the stored cursor without advancing its
+ * own. Comparing against the store on every start is what makes any such gap
+ * inside the window self-healing instead of silent.
+ */
+async function verifySeedAgainstStore<TEvent>(
+  state: StreamState,
+  digests: Map<number, BlockDigest>,
+  plan: { from: number; to: number },
+  opts: Resolved,
+  loadStoredBlocks: LoadStoredBlocks,
+): Promise<StreamMessage<TEvent> | null> {
+  const to = Math.min(plan.to, state.cursorBlock);
+  if (to < plan.from) return null;
+  const stored = await loadStoredBlocks(plan.from, to);
+  const missing = firstUnstoredBlock(
+    digests,
+    stored.hashes,
+    Math.max(plan.from, stored.from),
+    to,
+  );
+  if (missing === undefined) return null;
+  opts.onWarning?.("stored history is missing an event-bearing block; rolling back", {
+    block: missing,
+    cursor: state.cursorBlock,
+  });
+  return rollbackTo<TEvent>(state, missing);
 }
 
 /**
@@ -1013,7 +1094,9 @@ async function reconcileSnapshot<T>(
   opts: Resolved,
 ): Promise<StreamMessage<T> | null> {
   const digests = digestBlocks(snapshot.blocks);
-  if (!snapshot.cursorChanged) return reconcileWindow<T>(state, digests, plan, opts);
+  if (!snapshot.cursorChanged) {
+    return reconcileWindow<T>(state, digests, plan, opts, args.loadStoredBlocks);
+  }
 
   // A matching stored block proves the whole ancestry beneath it, even when
   // the actual fork point is deeper than the configured polling window.
@@ -1066,6 +1149,7 @@ export interface CreateBlockStreamArgs<TEvent> {
   adapter: ChainAdapter<TEvent>;
   startingCursor: IndexerCursor;
   loadPreviousCursor?: LoadPreviousCursor;
+  loadStoredBlocks?: LoadStoredBlocks;
   options?: BlockStreamOptions;
 }
 

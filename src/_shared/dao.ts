@@ -567,6 +567,69 @@ export class DAO {
     } : null;
   }
 
+  /**
+   * Recomputes pool state, from full event history, for every pool with a swap
+   * in the block. For backfilling a block below the head: `on_insert_swap`
+   * assumes the inserted swap is the newest, so it overwrites current state.
+   */
+  public async refreshPoolStatesSwappedIn(blockNumber: number): Promise<string[]> {
+    const rows = await this.sql<{ pool_key_id: string }[]>`
+      SELECT DISTINCT pool_key_id FROM swaps
+      WHERE chain_id = ${this.chainId} AND block_number = ${blockNumber};
+    `;
+    for (const { pool_key_id } of rows) {
+      await this.sql`SELECT refresh_pool_state(${pool_key_id}::int8);`;
+    }
+    return rows.map((row) => String(row.pool_key_id));
+  }
+
+  /** Every pool state on this chain, serialised for before/after comparison. */
+  public async poolStatesSnapshot(): Promise<Map<string, string>> {
+    const rows = await this.sql<{ pool_key_id: string; state: string }[]>`
+      SELECT ps.pool_key_id,
+             concat_ws(',', ps.sqrt_ratio, ps.tick, ps.liquidity, ps.last_event_id,
+                       ps.last_position_update_event_id) AS state
+      FROM pool_states ps JOIN pool_keys pk USING (pool_key_id)
+      WHERE pk.chain_id = ${this.chainId};
+    `;
+    return new Map(rows.map((row) => [String(row.pool_key_id), row.state]));
+  }
+
+  /** Rows per table referencing the block, over every table that cascades from `blocks`. */
+  public async rowsReferencingBlock(blockNumber: number): Promise<Record<string, number>> {
+    const tables = await this.sql<{ table_name: string }[]>`
+      SELECT DISTINCT cl.relname AS table_name
+      FROM pg_constraint c
+      JOIN pg_class cl ON cl.oid = c.conrelid
+      JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+      WHERE c.contype = 'f' AND c.confrelid = 'public.blocks'::regclass AND ns.nspname = 'public';
+    `;
+    const counts: Record<string, number> = {};
+    for (const { table_name } of tables) {
+      const [row] = await this.sql<{ n: string }[]>`
+        SELECT count(*) AS n FROM ${this.sql(table_name)}
+        WHERE chain_id = ${this.chainId} AND block_number = ${blockNumber};
+      `;
+      if (Number(row!.n) > 0) counts[table_name] = Number(row!.n);
+    }
+    return counts;
+  }
+
+  /** Stored block hashes in `[from, to]`, keyed by block number. */
+  public async loadStoredBlockHashes(
+    from: number,
+    to: number,
+  ): Promise<Map<number, string>> {
+    const rows = await this.sql<{ block_number: string; block_hash: string }[]>`
+      SELECT block_number, block_hash FROM blocks
+      WHERE chain_id = ${this.chainId} AND block_number BETWEEN ${from} AND ${to};
+    `;
+    return new Map(rows.map((row) => [
+      Number(row.block_number),
+      `0x${BigInt(row.block_hash).toString(16)}`,
+    ]));
+  }
+
   public async loadFinalizedCursor(): Promise<IndexerCursor | null> {
     const [cursor] = await this.sql<
       {
