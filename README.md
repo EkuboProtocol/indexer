@@ -279,6 +279,17 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### 2026-09-29: Integer scale for legacy `pool_config` values (00131)
+
+**`00131_pool_config_integer_scale`. Data-only. No manual steps.**
+
+00060/00065 built `pool_config` with `POWER(2::NUMERIC, n)`, so 234 rows (v2
+core `0xe0e0…d444` on Ethereum and Sepolia) were stored with a fractional scale,
+e.g. `…842.0000000`. The values were already integers. The migration
+`trunc()`s them so every `pool_config` has scale 0. Readers that parsed the
+text as an integer failed on those rows. That caused the HTTP 500 on
+`/poolKeys/1/0xe0e0…d444`.
+
 ### 2026-09-28: Market depth includes the fee band (00130)
 
 **`00130_market_depth_include_fee_band`. Redefines `pool_market_depth_view`.
