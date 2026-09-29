@@ -1,0 +1,2 @@
+token-price-sync 2026-09-29T14:44:30.353667580Z [14:44:30.353] ERROR (#56): Price sync job 480:cg1 failed: cg1: token prices for chain 480: 429 Too Many Requests: {"status":{"timestamp":"2026-09-29T14:44:30.329Z","error_code":10006,"error_message":"You have reached your account's monthly credit limit. The overage option is currently turned off."}}
+token-price-sync 2026-09-29T14:44:31.000000000Z [14:44:31.000] INFO (#57): Price sync job 8453:ss1 completed in 10 ms: 1/1 updates inserted from 1 batches

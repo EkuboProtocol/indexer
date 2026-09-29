@@ -229,8 +229,11 @@ export function coingeckoPriceFetcher({
   const probed = Ref.makeUnsafe(new Set<string>());
   const seeded = Ref.makeUnsafe(false);
   // The last interval epoch (`floor(now / intervalMs)`) whose re-probe slot was
-  // served in this process.
+  // served in this process, and the epoch of its first attempt. A slot counts
+  // as served only once every batch of its cycle was answered, so a failed or
+  // quota-refused cycle leaves it due for the next one.
   const lastEpoch = Ref.makeUnsafe<number | undefined>(undefined);
+  const firstEpoch = Ref.makeUnsafe<number | undefined>(undefined);
 
   // Spread the re-probes of unpriced tokens evenly across the rotation window,
   // so each cycle carries roughly one slot's worth instead of the whole tail.
@@ -286,21 +289,26 @@ export function coingeckoPriceFetcher({
     // with jitter two launches can land in one epoch, or one launch can jump
     // an epoch. Serving every epoch since the last one served -- none on a
     // repeat, two on a jump -- keeps each slot to exactly one pass per
-    // rotation. A quota pause catches up the same way, capped at one rotation.
+    // rotation. A quota pause or a failed cycle catches up the same way,
+    // capped at one rotation.
     const now = yield* Clock.currentTimeMillis;
     const epoch = Math.floor(now / Math.max(intervalMs, 1));
-    const last = yield* Ref.getAndUpdate(lastEpoch, (previous) =>
-      previous === undefined ? epoch : Math.max(previous, epoch),
-    );
+    const last = yield* Ref.get(lastEpoch);
+    const start = yield* Ref.modify(firstEpoch, (previous) => {
+      const value = previous ?? epoch;
+      return [value, value];
+    });
     const dueSlots = new Set<number>();
-    const first =
-      last === undefined ? epoch : Math.max(last + 1, epoch - slotCount + 1);
+    const first = Math.max(
+      last === undefined ? start : last + 1,
+      epoch - slotCount + 1,
+    );
     for (let due = first; due <= epoch; due++) dueSlots.add(due % slotCount);
 
     const pricedNow = yield* Ref.get(priced);
     const probedNow = yield* Ref.get(probed);
 
-    return addresses.filter(
+    const selected = addresses.filter(
       (address, index) =>
         // CoinGecko prices it, so keep it fresh every cycle.
         pricedNow.has(address) ||
@@ -309,6 +317,7 @@ export function coingeckoPriceFetcher({
         // Due for its periodic re-probe in case CoinGecko has listed it since.
         dueSlots.has(index % slotCount),
     );
+    return { selected, epoch };
   });
 
   const recordOutcome = Effect.fn("coingecko.recordOutcome")(function* (
@@ -332,6 +341,7 @@ export function coingeckoPriceFetcher({
   const requestBatch = Effect.fn("coingecko.requestBatch")(function* (
     batch: readonly `0x${string}`[],
     apiKey: string,
+    refused: Ref.Ref<boolean>,
   ) {
     const query = new URLSearchParams({
       contract_addresses: batch.join(","),
@@ -351,7 +361,10 @@ export function coingeckoPriceFetcher({
       }),
       undefined,
     );
-    if (result === undefined) return [];
+    if (result === undefined) {
+      yield* Ref.set(refused, true);
+      return [];
+    }
 
     // CoinGecko lowercases the addresses it echoes back, so compare on the
     // requested form rather than trusting the response keys to match.
@@ -378,11 +391,22 @@ export function coingeckoPriceFetcher({
 
     if (!(yield* Ref.get(seeded))) yield* seed(addresses);
     yield* forgetDroppedTokens(new Set(addresses));
-    const selected = yield* selectAddresses(addresses);
+    const { selected, epoch } = yield* selectAddresses(addresses);
+    const refused = yield* Ref.make(false);
 
     return Stream.fromArray(batches(selected)).pipe(
-      Stream.mapEffect((batch) => requestBatch(batch, apiKey_)),
+      Stream.mapEffect((batch) => requestBatch(batch, apiKey_, refused)),
       Stream.filter((updates) => updates.length > 0),
+      // Only a cycle that ran to the end with every batch answered has served
+      // its slots; `onEnd` does not run when a batch fails the stream.
+      Stream.onEnd(
+        Effect.gen(function* () {
+          if (yield* Ref.get(refused)) return;
+          yield* Ref.update(lastEpoch, (previous) =>
+            previous === undefined ? epoch : Math.max(previous, epoch),
+          );
+        }),
+      ),
     );
   });
 
