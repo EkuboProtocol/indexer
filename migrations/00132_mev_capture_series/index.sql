@@ -93,7 +93,8 @@ WITH pools AS (SELECT pk.pool_key_id, pk.fee, pk.fee_denominator
                   s.liquidity_after,
                   CASE WHEN s.delta0 > 0 THEN DIV(s.delta0 * p.fee + p.fee_denominator - 1, p.fee_denominator) ELSE 0 END AS fee0,
                   CASE WHEN s.delta1 > 0 THEN DIV(s.delta1 * p.fee + p.fee_denominator - 1, p.fee_denominator) ELSE 0 END AS fee1,
-                  ROW_NUMBER() OVER (PARTITION BY s.pool_key_id, s.block_number ORDER BY s.event_id) AS nth
+                  ROW_NUMBER() OVER (PARTITION BY s.pool_key_id, s.block_number ORDER BY s.event_id) AS nth,
+                  COUNT(*) OVER (PARTITION BY s.pool_key_id, s.block_number) AS swaps_in_block
            FROM swaps s
                     JOIN pools p USING (pool_key_id)
            WHERE s.chain_id = p_chain_id
@@ -110,7 +111,19 @@ WITH pools AS (SELECT pk.pool_key_id, pk.fee, pk.fee_denominator
                   SUM(s.fee0)                                          AS base_fee0,
                   SUM(s.fee1)                                          AS base_fee1,
                   MIN(s.event_id)                                      AS first_event_id,
-                  MAX(s.event_id)                                      AS last_event_id
+                  MAX(s.event_id)                                      AS last_event_id,
+                  -- First-touch and last-swap fields are picked here rather
+                  -- than by joining s back to itself: a self-join on the
+                  -- materialized CTE merge-joins on pool_key_id alone, which
+                  -- is quadratic in a pool's swaps.
+                  MAX(s.transaction_hash) FILTER (WHERE s.nth = 1)     AS ft_transaction_hash,
+                  MAX(s.transaction_index) FILTER (WHERE s.nth = 1)    AS ft_transaction_index,
+                  MAX(s.event_index) FILTER (WHERE s.nth = 1)          AS ft_event_index,
+                  MAX(s.locker) FILTER (WHERE s.nth = 1)               AS ft_locker,
+                  MAX(s.delta0) FILTER (WHERE s.nth = 1)               AS ft_delta0,
+                  MAX(s.delta1) FILTER (WHERE s.nth = 1)               AS ft_delta1,
+                  MAX(s.tick_after) FILTER (WHERE s.nth = s.swaps_in_block)      AS lst_tick_after,
+                  MAX(s.liquidity_after) FILTER (WHERE s.nth = s.swaps_in_block) AS lst_liquidity_after
            FROM s
            GROUP BY s.pool_key_id, s.block_number)
 SELECT b.pool_key_id,
@@ -127,18 +140,16 @@ SELECT b.pool_key_id,
        CASE WHEN d.event_id IS NOT NULL THEN d.delta1 WHEN nxt.event_id IS NOT NULL THEN 0 END AS surcharge1,
        d.block_number                                                                      AS surcharge_donation_block,
        COALESCE(prev.tick_after, init.tick)                                                AS tick_last,
-       lst.tick_after                                                                      AS tick_after_last_swap,
+       b.lst_tick_after                                                                    AS tick_after_last_swap,
        prev.liquidity_after                                                                AS liquidity_before_first_swap,
-       lst.liquidity_after                                                                 AS liquidity_after_last_swap,
-       ft.transaction_hash,
-       ft.transaction_index,
-       ft.event_index,
-       ft.locker,
-       ft.delta0,
-       ft.delta1
+       b.lst_liquidity_after                                                               AS liquidity_after_last_swap,
+       b.ft_transaction_hash,
+       b.ft_transaction_index,
+       b.ft_event_index,
+       b.ft_locker,
+       b.ft_delta0,
+       b.ft_delta1
 FROM b
-         JOIN s ft ON ft.pool_key_id = b.pool_key_id AND ft.block_number = b.block_number AND ft.nth = 1
-         JOIN s lst ON lst.pool_key_id = b.pool_key_id AND lst.event_id = b.last_event_id
          LEFT JOIN LATERAL (SELECT sw.tick_after, sw.liquidity_after
                             FROM swaps sw
                             WHERE sw.pool_key_id = b.pool_key_id

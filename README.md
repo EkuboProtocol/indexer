@@ -320,9 +320,9 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
-### 2026-09-29: MEVCapture pool series (00131, additive)
+### 2026-09-29: MEVCapture pool series (00132, additive)
 
-**`00131_mev_capture_series`. Adds two SQL functions and nothing else: no
+**`00132_mev_capture_series`. Adds two SQL functions and nothing else: no
 tables, no indexes, no locks on worker-written tables, no manual steps.**
 
 - `mev_capture_block_series(chain_id, from_epoch, to_epoch)`: one row per
