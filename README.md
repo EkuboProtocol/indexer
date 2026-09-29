@@ -223,7 +223,9 @@ is then checked against the `blocks` table: an event-bearing block at or below t
 cursor that is missing from it, or stored under another hash, is rolled back and
 re-indexed. Without that, a block skipped just before a restart -- a provider
 whose log index lagged its head for one read -- was adopted as already emitted and
-lost for good (EKU-272, Ethereum block 25739240). Rollback clears
+lost for good (EKU-272, Ethereum block 25739240). Adding a filter address and restarting
+therefore rolls back one window on the first read, because the chain now reports
+events the store never took. That is expected and bounded, not a fault. Rollback clears
 orphaned head/gas metadata and any finalized cursor above the rollback height.
 
 Newly reported finality remains pending until the previous window has been
