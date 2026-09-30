@@ -154,15 +154,46 @@ still write a durable cursor and head, without inserting empty `blocks` rows.
 
 ### RPC endpoint consistency contract
 
-Each indexer accepts exactly one HTTP(S) endpoint: `EVM_RPC_URL` for EVM or
-`STARKNET_RPC_URL` for Starknet. Endpoint lists are rejected. The endpoint must
-report the configured chain ID before indexing can start. Failed requests retry
-against the same endpoint. A read that still fails emits nothing: the stream
+Starknet accepts exactly one HTTP(S) endpoint in `STARKNET_RPC_URL`. EVM accepts
+an ordered, comma-separated list in `EVM_RPC_URL`, primary first; one URL is the
+common case and behaves exactly as a list of one. **Each entry must satisfy the
+contract below on its own**: the list is read one endpoint at a time, never
+spread across a read. Failed requests retry against the same endpoint. A read that still fails emits nothing: the stream
 logs `provider read failed; backing off`, waits (doubling from the poll interval
 to `MAX_POLL_INTERVAL_MS`) and re-plans from a fresh head. Only reads failing
 back to back for more than ten minutes exit, restarting from the durable cursor.
 Exiting on the first failure turned a sixteen-minute provider outage into 89-315
-restarts per chain, each re-requesting the refused range (EKU-502).
+restarts per chain, each re-requesting the refused range (EKU-502). Startup
+reads (the chain ID and the stored cursor) are retried the same way, so a total
+outage does not become a restart loop either.
+
+With more than one EVM endpoint, `src/evm/stickyRpc.ts` sends every request to
+the current one, and changes it only at the top of a stream loop turn, before
+the finalized refresh and the plan. Plan, range read, reconciliation, stored-
+history recovery and the finality announcement therefore always share one
+endpoint. viem's `fallback()` is not used for this because it picks per request,
+which could fence one provider's logs with another's head (the A -> B -> A case
+below). To the stream, a switch between turns is a changed view between turns,
+which the cursor check and the window diff already handle.
+
+- It leaves the current endpoint after a failed read, or when that endpoint's
+  head is more than `RPC_STALE_HEAD_SECONDS` (default 120) behind the wall clock
+  -- a provider can freeze `latest` without any error (Unichain, 2026-09-30).
+- It returns to the first endpoint after `RPC_FAILBACK_MINUTES` (default 15).
+- Every switch is probed first, in both directions: the candidate must report
+  the right chain ID, a `latest` block at or above the cursor, a head no older
+  than `RPC_STALE_HEAD_SECONDS`, and, when leaving a stale head, a head ahead of
+  it. A chain halt, where every endpoint is stale, therefore does not flip
+  endpoints, and a failback to a primary still frozen below the cursor does not
+  happen. A candidate that fails its probe waits `RPC_PROBE_INTERVAL_SECONDS`
+  (default 30) before the next one.
+- Each endpoint's chain ID is verified before its first use. A wrong chain ID is
+  fatal wherever it is found; an endpoint that does not answer is only skipped,
+  so a secondary's outage cannot stop a worker whose primary is healthy.
+- `SUSPECT_LOG_COUNT` takes one value, or one per endpoint in the same order,
+  since result caps are per provider.
+- Every switch and rejected probe is logged (`switched RPC endpoint`, `RPC
+  endpoint not healthier; staying`) with the endpoint's origin only.
 
 Endpoint URLs carry the provider key, and viem copies the URL into every HTTP
 error message, so the logger redacts them from every line it writes

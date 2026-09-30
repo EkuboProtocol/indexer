@@ -104,7 +104,12 @@ for (const failure of ["throw", "null"] as const) {
       async readRange() { reads++; return [block(100, "0xbbb")]; },
       async completeFresh() {},
     };
-    const args = { adapter, startingCursor: { orderKey: 100n, uniqueKey: "0xaaa" }, options };
+    // Startup reads are retried like any other until the outage budget runs
+    // out, and nothing is read past them in the meantime.
+    const args = {
+      adapter, startingCursor: { orderKey: 100n, uniqueKey: "0xaaa" },
+      options: { ...options, providerOutageBudgetMs: 5 },
+    };
     const stream = createBlockStream(args);
     await expect(stream.next()).rejects.toThrow();
     expect(reads).toBe(0);
@@ -117,6 +122,30 @@ for (const failure of ["throw", "null"] as const) {
     await retry.return(undefined);
   });
 }
+
+it("retries startup cursor verification through an outage instead of exiting", async () => {
+  let fetches = 0;
+  const warnings: string[] = [];
+  const adapter: ChainAdapter<string> = {
+    label: "fixture",
+    async fetchBlock(n) {
+      if (++fetches <= 3) throw new Error("HTTP request failed. Status: 503");
+      return head(n, n === 100 ? "0xbbb" : `0x${n.toString(16)}`);
+    },
+    async fetchHead() { return head(101); },
+    async fetchFinalized() { return head(90); },
+    async readRange() { return [block(100, "0xbbb")]; },
+    async completeFresh() {},
+  };
+  const stream = createBlockStream({
+    adapter, startingCursor: { orderKey: 100n, uniqueKey: "0xbbb" },
+    options: { ...options, onWarning: message => warnings.push(message) },
+  });
+  const first = await stream.next();
+  await stream.return(undefined);
+  expect(first.value?._tag).toBe("data");
+  expect(warnings).toEqual(Array(3).fill("provider read failed; backing off"));
+});
 
 describe("a stale snapshot", () => {
   const run = async (staleReads: number, failure: () => Error = () =>

@@ -118,6 +118,37 @@ export interface ChainAdapter<TEvent> {
   completeFresh(blocks: StreamBlock<TEvent>[], head: ChainHead): Promise<void>;
 }
 
+/**
+ * What an endpoint selector is told at the top of each loop turn.
+ *
+ * `lastHead` is the head the current endpoint returned on the previous turn,
+ * or null when there is none yet, or when the endpoint has just changed.
+ */
+export interface TickSignal {
+  cursorBlock: number;
+  /** Whether the previous turn's read failed on the current endpoint. */
+  lastReadFailed: boolean;
+  lastHead: ChainHead | null;
+}
+
+/**
+ * Chooses which RPC endpoint the adapter reads from.
+ *
+ * `beforeTick` is the only place the endpoint may change. It runs at the top of
+ * every loop turn, before the finalized refresh and the plan. Everything after
+ * it in the turn -- plan, snapshot, reconciliation, stored-history recovery and
+ * the finality announcement -- then reads from one endpoint. That is what keeps
+ * a head from one provider from ever fencing logs from another (the README's
+ * endpoint consistency contract). A switch between turns looks to the stream
+ * like a reorg between turns, which the cursor check and the window diff
+ * already handle.
+ *
+ * Resolves true when it switched.
+ */
+export interface EndpointSelector {
+  beforeTick(signal: TickSignal): Promise<boolean>;
+}
+
 export interface BlockStreamOptions {
   /** How long to wait after catching up to the head before polling again. */
   pollIntervalMs?: number;
@@ -219,6 +250,10 @@ export interface StreamState {
   failedReads: number;
   /** When the current run of failed reads began, or null while reads succeed. */
   failingSince: number | null;
+  /** Whether the last read failed, which is what an endpoint selector acts on. */
+  lastReadFailed: boolean;
+  /** The last head read from the current endpoint, for its staleness check. */
+  lastHead: ChainHead | null;
 }
 
 /** Packed into 16 bits by `compute_event_id`, so this is a hard ceiling. */
@@ -757,6 +792,7 @@ async function planRead<TEvent>(
 ): Promise<{ from: number; to: number; head: ChainHead } | null> {
   const head = await adapter.fetchHead();
   if (!head) return null;
+  state.lastHead = head;
   // Before `windowFor`, which sizes itself from the rate this updates.
   observeBlockRate(state, head);
   warnIfWindowCapped(state, opts);
@@ -1001,6 +1037,8 @@ export function initStreamState(
       staleSnapshots: 0,
       failedReads: 0,
       failingSince: null,
+      lastReadFailed: false,
+      lastHead: null,
     },
   };
 }
@@ -1193,6 +1231,7 @@ function backOffAfterReadFailure(
   state.failingSince ??= now;
   if (now - state.failingSince > opts.providerOutageBudgetMs) throw error;
   state.failedReads++;
+  state.lastReadFailed = true;
   const delay = Math.max(
     opts.pollIntervalMs,
     Math.min(
@@ -1214,6 +1253,7 @@ function backOffAfterReadFailure(
 function clearReadFailures(state: StreamState): void {
   state.failedReads = 0;
   state.failingSince = null;
+  state.lastReadFailed = false;
 }
 
 const sleep = (ms: number) =>
@@ -1258,8 +1298,62 @@ async function snapshotOrWait<TEvent>(
   }
 }
 
+/**
+ * Lets the selector switch endpoints, and forgets what only the old one said.
+ *
+ * `lastReadFailed` described the old endpoint, so it is cleared too; the
+ * failure streak and its budget carry on, since the outage has not ended just
+ * because the endpoint changed.
+ */
+async function selectEndpoint<TEvent>(
+  args: CreateBlockStreamArgs<TEvent>,
+  state: StreamState,
+): Promise<void> {
+  if (!args.endpoints) return;
+  const switched = await args.endpoints.beforeTick({
+    cursorBlock: state.cursorBlock,
+    lastReadFailed: state.lastReadFailed,
+    lastHead: state.lastHead,
+  });
+  if (switched) {
+    state.lastHead = null;
+    state.lastReadFailed = false;
+  }
+}
+
+/**
+ * `checkStartingCursor`, retried like any other read until the outage budget
+ * runs out. Nothing is emitted until it succeeds.
+ *
+ * Exiting here instead is what turned a total outage into a restart loop even
+ * after the stream itself learnt to back off: `restart.sh` restarts at once,
+ * and every restart re-verifies the cursor against the same failing endpoint.
+ */
+async function verifiedStart<TEvent>(
+  args: CreateBlockStreamArgs<TEvent>,
+  state: StreamState,
+  opts: Resolved,
+): Promise<StreamMessage<TEvent> | null> {
+  for (;;) {
+    await selectEndpoint(args, state);
+    try {
+      const message = await checkStartingCursor(
+        args.adapter, state, args.startingCursor, opts, args.loadPreviousCursor,
+      );
+      clearReadFailures(state);
+      return message;
+    } catch (error) {
+      await sleep(backOffAfterReadFailure(state, opts, error, {
+        read: "starting cursor", cursor: state.cursorBlock,
+      }));
+    }
+  }
+}
+
 export interface CreateBlockStreamArgs<TEvent> {
   adapter: ChainAdapter<TEvent>;
+  /** Picks the endpoint for each loop turn; absent for a single endpoint. */
+  endpoints?: EndpointSelector;
   startingCursor: IndexerCursor;
   loadPreviousCursor?: LoadPreviousCursor;
   loadStoredBlocks?: LoadStoredBlocks;
@@ -1276,16 +1370,11 @@ export async function* createBlockStream<TEvent>(
   const { adapter } = args;
   const { opts, state } = initStreamState(args.startingCursor, args.options);
 
-  const notCanonical = await checkStartingCursor(
-    adapter,
-    state,
-    args.startingCursor,
-    opts,
-    args.loadPreviousCursor,
-  );
+  const notCanonical = await verifiedStart(args, state, opts);
   if (notCanonical) yield notCanonical;
 
   while (true) {
+    await selectEndpoint(args, state);
     const now = Date.now();
 
     yield* heartbeatIfDue<TEvent>(state, opts, now);

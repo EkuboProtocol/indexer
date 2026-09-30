@@ -8,14 +8,15 @@ import {
   type HexAddress,
 } from "./_shared/loadHexAddresses";
 import { withNullBlockRetry } from "./_shared/nullBlockRetry";
-import { assertRpcChainId } from "./_shared/rpcChainId";
-import { requireEvmRpcUrl } from "./_shared/streamEndpoints";
+import { BLOCK_STREAM_DEFAULTS } from "./_shared/blockStream";
+import { requireEvmRpcUrls } from "./_shared/streamEndpoints";
 import {
   createLogStream,
   type LogStreamFilter,
   type StreamBlock as EvmBlock,
 } from "./evm/logStream";
 import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
+import { StickyRpc } from "./evm/stickyRpc";
 import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
 import { parsePositionsProtocolFeeConfigs } from "./evm/positionsProtocolFeeConfig";
 import { runIndexer, type ParsedRuntimeBlock } from "./runtime";
@@ -165,15 +166,75 @@ export function createEvmProcessors() {
   ];
 }
 
+function positiveInt(name: string, fallbackValue: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallbackValue;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer, got ${raw}`);
+  }
+  return parsed;
+}
+
+/**
+ * `SUSPECT_LOG_COUNT` per endpoint: one value for all, or one per `EVM_RPC_URL`
+ * entry in the same order. The default is Alchemy's documented `eth_getLogs`
+ * result cap; a response landing exactly on an endpoint's cap is refused
+ * rather than indexed short.
+ */
+function suspectLogCounts(endpoints: number): number[] {
+  const raw = process.env.SUSPECT_LOG_COUNT ?? "";
+  const values = raw === "" ? ["10000"] : raw.split(",").map((value) => value.trim());
+  if (values.length !== 1 && values.length !== endpoints) {
+    throw new Error(`SUSPECT_LOG_COUNT must have one value or one per EVM_RPC_URL entry (${endpoints}), got ${values.length}`);
+  }
+  return Array.from({ length: endpoints }, (_, i) => {
+    const value = Number(values[values.length === 1 ? 0 : i]);
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new Error(`SUSPECT_LOG_COUNT entries must be positive integers, got ${raw}`);
+    }
+    return value;
+  });
+}
+
+/**
+ * `EVM_RPC_URL` as a `StickyRpc`. A single URL behaves exactly as before: one
+ * endpoint, no switching.
+ */
+function createStickyRpc(chainId: bigint): StickyRpc {
+  const urls = requireEvmRpcUrls(process.env.EVM_RPC_URL);
+  const caps = suspectLogCounts(urls.length);
+  return new StickyRpc(
+    urls.map((url, i) => ({
+      label: new URL(url).origin,
+      rpc: createPublicClient({
+        transport: withNullBlockRetry(http(url, { retryCount: 2 }), { url }),
+      }),
+      suspectLogCount: caps[i]!,
+    })),
+    {
+      chainId,
+      staleHeadMs: positiveInt("RPC_STALE_HEAD_SECONDS", 120) * 1_000,
+      failbackMs: positiveInt("RPC_FAILBACK_MINUTES", 15) * 60_000,
+      probeIntervalMs: positiveInt("RPC_PROBE_INTERVAL_SECONDS", 30) * 1_000,
+      onWarning: (message, detail) => logger.warn({ message, ...detail }),
+    },
+  );
+}
+
 export async function createEvmEntrypoint(
   chainId: bigint,
 ): Promise<NetworkEntrypoint<EvmBlock>> {
   const processors = createEvmProcessors();
 
-  const url = requireEvmRpcUrl(process.env.EVM_RPC_URL);
-  const transport = withNullBlockRetry(http(url, { retryCount: 2 }), { url });
-  const rpc = createPublicClient({ transport });
-  await assertRpcChainId(() => rpc.getChainId().then(BigInt), chainId);
+  const rpc = createStickyRpc(chainId);
+  // Retried rather than thrown: an exit here restarts at once and asks the
+  // same endpoints again. The stream's outage budget bounds it the same way.
+  await rpc.startWithin(
+    BLOCK_STREAM_DEFAULTS.providerOutageBudgetMs,
+    positiveInt("POLL_INTERVAL_MS", 2_000),
+    positiveInt("MAX_POLL_INTERVAL_MS", 30_000),
+  );
 
   const filters: LogStreamFilter[] = processors.map((processor, ix) => ({
     id: ix + 1,
@@ -181,16 +242,6 @@ export async function createEvmEntrypoint(
     topics: processor.filter.topics,
     strict: processor.filter.strict,
   }));
-
-  const positiveInt = (name: string, fallbackValue: number): number => {
-    const raw = process.env[name];
-    if (raw === undefined || raw === "") return fallbackValue;
-    const parsed = Number(raw);
-    if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-      throw new Error(`${name} must be a positive integer, got ${raw}`);
-    }
-    return parsed;
-  };
 
   return {
     createStream(streamOptions: StreamOptions) {
@@ -200,6 +251,7 @@ export async function createEvmEntrypoint(
         startingCursor: streamOptions.startingCursor,
         loadPreviousCursor: streamOptions.loadPreviousCursor,
         loadStoredBlocks: streamOptions.loadStoredBlocks,
+        endpoints: rpc,
         options: {
           pollIntervalMs: positiveInt("POLL_INTERVAL_MS", 2_000),
           // Most chains we index have produced fewer than sixty events in
@@ -223,9 +275,8 @@ export async function createEvmEntrypoint(
           // Compare this much recent history directly; cursor hashes and
           // persisted checkpoints also detect and recover deeper reorgs.
           reorgWindowSeconds: positiveInt("REORG_WINDOW_SECONDS", 120),
-          // Alchemy's documented eth_getLogs result cap. A response landing
-          // exactly here is refused rather than indexed short.
-          suspectLogCount: positiveInt("SUSPECT_LOG_COUNT", 10_000),
+          // The current endpoint's result cap; see `suspectLogCounts`.
+          suspectLogCount: () => rpc.current.suspectLogCount,
           heartbeatIntervalMs: Number(
             streamOptions.heartbeatInterval.seconds * 1000n,
           ),
