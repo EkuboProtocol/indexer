@@ -1,0 +1,91 @@
+name: RPC parity
+
+# Decides, per chain, whether dRPC may sit behind Alchemy in EVM_RPC_URL
+# (EKU-527). Read-only against both providers; see scripts/rpcParity.ts for
+# what is compared and why. A chain that fails stays on Alchemy alone.
+
+on:
+  workflow_dispatch:
+    inputs:
+      chains:
+        description: "NETWORK names, comma-separated, or 'all'"
+        default: ink-mainnet
+      head_reads:
+        description: "Near-head reads per chain"
+        default: "300"
+      windows:
+        description: "Finalized eth_getLogs windows per chain"
+        default: "24"
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        env:
+          CHAINS: ${{ inputs.chains }}
+          # NETWORK -> Alchemy subdomain, dRPC network. Must match .do/app.yaml.
+          ENDPOINTS: >-
+            [
+              {"network": "mainnet", "alchemy": "eth-mainnet", "drpc": "ethereum"},
+              {"network": "base-mainnet", "alchemy": "base-mainnet", "drpc": "base"},
+              {"network": "rhc-mainnet", "alchemy": "robinhood-mainnet", "drpc": "robinhood"},
+              {"network": "arb-mainnet", "alchemy": "arb-mainnet", "drpc": "arbitrum"},
+              {"network": "opt-mainnet", "alchemy": "opt-mainnet", "drpc": "optimism"},
+              {"network": "bsc-mainnet", "alchemy": "bnb-mainnet", "drpc": "bsc"},
+              {"network": "gnosis-mainnet", "alchemy": "gnosis-mainnet", "drpc": "gnosis"},
+              {"network": "unichain-mainnet", "alchemy": "unichain-mainnet", "drpc": "unichain"},
+              {"network": "polygon-mainnet", "alchemy": "polygon-mainnet", "drpc": "polygon"},
+              {"network": "monad", "alchemy": "monad-mainnet", "drpc": "monad-mainnet"},
+              {"network": "worldchain-mainnet", "alchemy": "worldchain-mainnet", "drpc": "worldchain"},
+              {"network": "megaeth", "alchemy": "megaeth-mainnet", "drpc": "megaeth"},
+              {"network": "ink-mainnet", "alchemy": "ink-mainnet", "drpc": "ink"}
+            ]
+        run: |
+          matrix=$(jq -c --arg chains "$CHAINS" '
+            ($chains | gsub(" "; "") | split(",")) as $want
+            | map(select($chains == "all" or (.network as $n | $want | index($n))))' <<<"$ENDPOINTS")
+          if [ "$matrix" = "[]" ]; then
+            echo "::error::no known chain in '$CHAINS'"
+            exit 1
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  parity:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    name: parity (${{ matrix.network }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun ci
+
+      - name: Compare Alchemy with dRPC
+        env:
+          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
+          DRPC_API_KEY: ${{ secrets.DRPC_API_KEY }}
+          NETWORK: ${{ matrix.network }}
+          PARITY_HEAD_READS: ${{ inputs.head_reads }}
+          PARITY_WINDOWS: ${{ inputs.windows }}
+        run: |
+          # An empty dkey is not an error at dRPC: it silently selects the
+          # free tier, which answers differently (EKU-523).
+          for name in ALCHEMY_API_KEY DRPC_API_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is empty"
+              exit 1
+            fi
+          done
+          export PARITY_PRIMARY_URL="https://${{ matrix.alchemy }}.g.alchemy.com/v2/${ALCHEMY_API_KEY}"
+          export PARITY_CANDIDATE_URL="https://lb.drpc.org/ogrpc?network=${{ matrix.drpc }}&dkey=${DRPC_API_KEY}"
+          bun scripts/rpcParity.ts
