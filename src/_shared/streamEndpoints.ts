@@ -17,8 +17,20 @@ function requireRpcUrl(value: string | undefined, name: string): string {
   return url;
 }
 
-export function requireEvmRpcUrl(value: string | undefined): string {
-  return requireRpcUrl(value, "EVM_RPC_URL");
+/**
+ * `EVM_RPC_URL` as an ordered list, primary first. Each entry must itself be
+ * one consistent endpoint: the list is read one endpoint at a time by
+ * `StickyRpc`, never spread across a single read.
+ */
+export function requireEvmRpcUrls(value: string | undefined): string[] {
+  const entries = (value ?? "").split(",").map((entry) => entry.trim());
+  if (entries.length === 1 && entries[0] === "") throw new Error("Missing EVM_RPC_URL");
+  if (entries.some((entry) => entry === "")) {
+    throw new Error("EVM_RPC_URL must not contain an empty entry");
+  }
+  const urls = entries.map((entry) => requireRpcUrl(entry, "EVM_RPC_URL"));
+  if (new Set(urls).size !== urls.length) throw new Error("EVM_RPC_URL lists an endpoint twice");
+  return urls;
 }
 
 export function requireStarknetRpcUrl(value: string | undefined): string {

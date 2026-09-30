@@ -19,6 +19,7 @@ import {
   type BlockStreamOptions,
   type ChainAdapter,
   type ChainHead,
+  type EndpointSelector,
   type LoadStoredBlocks,
   type StreamBlock as SharedStreamBlock,
   type StreamMessage as SharedStreamMessage,
@@ -48,9 +49,11 @@ export interface LogStreamFilter {
 export interface LogStreamOptions extends BlockStreamOptions {
   /**
    * A log count that is suspected of being a provider's cap rather than a real
-   * result. Set it to the provider's documented `eth_getLogs` limit.
+   * result. Set it to the provider's documented `eth_getLogs` limit. A function
+   * is read on every range, for an RPC whose endpoint (and so whose cap) can
+   * change between reads.
    */
-  suspectLogCount?: number;
+  suspectLogCount?: number | (() => number);
 }
 
 const EVM_DEFAULTS = {
@@ -397,13 +400,14 @@ export interface CreateLogStreamArgs {
   startingCursor: IndexerCursor;
   loadPreviousCursor?: (before: number) => Promise<IndexerCursor | null>;
   loadStoredBlocks?: LoadStoredBlocks;
+  endpoints?: EndpointSelector;
   options?: LogStreamOptions;
 }
 
 export function createEvmAdapter(
   rpc: RpcLike,
   filters: LogStreamFilter[],
-  suspectLogCount: number,
+  suspectLogCount: number | (() => number),
 ): ChainAdapter<StreamLog> {
   const addresses = [
     ...new Set(filters.map((f) => f.address.toLowerCase() as Address)),
@@ -422,7 +426,8 @@ export function createEvmAdapter(
         fromBlock: from,
         toBlock: to,
         addresses,
-        suspectLogCount,
+        suspectLogCount:
+          typeof suspectLogCount === "function" ? suspectLogCount() : suspectLogCount,
       });
       for (const log of logs) {
         requireBlockInRange(hexToNumber(log.blockNumber), from, to);
@@ -451,6 +456,7 @@ export function createLogStream(
     startingCursor: args.startingCursor,
     loadPreviousCursor: args.loadPreviousCursor,
     loadStoredBlocks: args.loadStoredBlocks,
+    endpoints: args.endpoints,
     options,
   });
 }
