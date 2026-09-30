@@ -446,11 +446,13 @@ export function createStarknetAdapter({
  * carrying code 429**, so a client that only inspects the status code sees a
  * successful response containing an error and gives up.
  *
- * Getting this wrong is not a dropped request. Throwing propagates out of
- * `fetchHead`, exits the generator, and `restart.sh` restarts the worker a
- * second later -- so the response to being throttled would be to poll the
- * throttling endpoint harder, forever, while every EVM worker quietly backs
- * off. Under the account's spend cap that is exactly when it would fire.
+ * Getting this wrong is not a dropped request. A throw out of `fetchHead` is
+ * backed off by the block stream only at the poll interval, doubling to its
+ * ceiling, rather than with viem's retry schedule -- and on Starknet the
+ * runtime's NO_BLOCKS_TIMEOUT_MS (five minutes) exits the worker well before
+ * the stream's ten-minute outage budget, after which `restart.sh` restarts it
+ * against the same throttling endpoint. Retrying in place, as viem does for
+ * every EVM worker, is what keeps a throttle from becoming a restart.
  */
 const RETRYABLE_RPC_CODES = new Set([-1, -32005, -32603, 429]);
 
@@ -471,8 +473,9 @@ export class StarknetRpcError extends Error {
  *
  * 403 and 413 are the two a `status >= 500 || 408 || 429` test misses. A
  * transient 403 from a provider edge would otherwise throw straight out of
- * `fetchHead`, and `runtime.ts` exits the process on a generator throw -- a
- * worker restart where an EVM worker would have retried in place.
+ * `fetchHead` into the stream's read backoff, where an EVM worker would have
+ * retried in place; if it persisted for five minutes, NO_BLOCKS_TIMEOUT_MS
+ * would exit the Starknet worker.
  */
 const RETRYABLE_HTTP_STATUSES = new Set([403, 408, 413, 429]);
 

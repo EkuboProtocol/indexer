@@ -120,6 +120,15 @@ group("head-lag rules", () => {
     expect(evaluate(healthy, config, state, at(3)).next.checkFailures).toBeUndefined();
   });
 
+  it("bounds the error text a check_failed finding carries", () => {
+    const state: HeadLagState = { checkFailures: 1 };
+    const { findings } = evaluateFailure("x".repeat(10_000), config, state, at(0));
+    expect(findings).toMatchObject([{ kind: "check_failed" }]);
+    const [finding] = findings;
+    if (finding?.kind !== "check_failed") throw new Error("unreachable");
+    expect(finding.error.length).toBe(500);
+  });
+
   it("keeps chain streaks across a failed check", () => {
     const stalled = [row("1", 12), row("130", 900), row("4663", 1)];
     const first = evaluate(stalled, config, {}, at(0));

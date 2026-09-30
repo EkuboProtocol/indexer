@@ -33,18 +33,18 @@ describe("withNullBlockRetry", () => {
     expect(calls).toHaveLength(3);
   });
 
-  it("throws after exhausting retries so a fallback transport is tried", async () => {
+  it("throws after exhausting retries, naming only the endpoint's origin", async () => {
     const { transport, calls } = transportReturning([null]);
 
     const wrapped = withNullBlockRetry(transport, {
       retryCount: 2,
       retryDelayMs: 0,
-      url: "https://a.rpc",
+      url: "https://a.rpc/v2/SECRETKEY0123456789abcdef?dkey=SECRET2",
     })(options);
 
-    await expect(wrapped.request(getBlock)).rejects.toThrow(
-      /returned a null block after 2 retries on https:\/\/a\.rpc/,
-    );
+    const error = await wrapped.request(getBlock).catch((e: unknown) => e as Error);
+    expect(error.message).toMatch(/returned a null block after 2 retries on https:\/\/a\.rpc:/);
+    expect(error.message).not.toContain("SECRET");
     expect(calls).toHaveLength(3);
   });
 
