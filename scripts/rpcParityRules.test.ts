@@ -60,6 +60,14 @@ describe("classifyHeadSample", () => {
   it("fails a head block the candidate could not serve by number", () => {
     expect(classifyHeadSample({ ...sample, servedHash: null }, hash, [log(10, 1)]).outcome).toBe("mismatch");
   });
+
+  it("fails an unserved head even when that head was later reorged out", () => {
+    expect(classifyHeadSample({ ...sample, servedHash: null }, "0xbb", []).outcome).toBe("mismatch");
+  });
+
+  it("counts a head replaced between latest and the by-number read as a reorg", () => {
+    expect(classifyHeadSample({ ...sample, servedHash: "0xcc" }, "0xbb", []).outcome).toBe("reorg");
+  });
 });
 
 describe("evaluateDrift", () => {
@@ -90,7 +98,7 @@ describe("recommendSuspectLogCount", () => {
       { blocks: 2, primary: 700, candidate: 700 },
       { blocks: 4, primary: "error" as const, candidate: "error" as const },
     ];
-    expect(recommendSuspectLogCount(probes, 10_000)).toEqual({ suspectLogCount: 10_000, silentTruncation: false, largestIntact: 700 });
+    expect(recommendSuspectLogCount(probes, 10_000)).toEqual({ suspectLogCount: 10_000, silentTruncation: null, largestIntact: 700 });
   });
 
   it("uses the count at which the candidate returned fewer logs without an error", () => {
@@ -98,7 +106,7 @@ describe("recommendSuspectLogCount", () => {
       { blocks: 16, primary: 6_000, candidate: 6_000 },
       { blocks: 32, primary: 9_500, candidate: 5_000 },
     ];
-    expect(recommendSuspectLogCount(probes, 10_000)).toMatchObject({ suspectLogCount: 5_000, silentTruncation: true });
+    expect(recommendSuspectLogCount(probes, 10_000)).toMatchObject({ suspectLogCount: 5_000, silentTruncation: "shortfall" });
   });
 
   it("recognises a plateau once the primary refuses the span", () => {
@@ -106,7 +114,7 @@ describe("recommendSuspectLogCount", () => {
       { blocks: 32, primary: "error" as const, candidate: 10_000 },
       { blocks: 64, primary: "error" as const, candidate: 10_000 },
     ];
-    expect(recommendSuspectLogCount(probes, 20_000)).toMatchObject({ suspectLogCount: 10_000, silentTruncation: true });
+    expect(recommendSuspectLogCount(probes, 20_000)).toMatchObject({ suspectLogCount: 10_000, silentTruncation: "plateau" });
   });
 });
 
@@ -117,7 +125,13 @@ describe("verdict", () => {
     windows: { compared: 24, eventBearing: 20, failures: [] },
     head: { reads: 300, errors: 8, match: 290, reorg: 2, mismatch: 0, nonEmpty: 12, timedOut: false },
     drift: evaluateDrift([{ blocks: 1, seconds: 1 }], { maxBlocks: 3, maxSeconds: 3 }),
+    cap: { suspectLogCount: 10_000, silentTruncation: null, largestIntact: 9_000 },
   };
+
+  it("fails on silent truncation, even a stable plateau", () => {
+    const cap = { suspectLogCount: 10_000, silentTruncation: "plateau" as const, largestIntact: 9_000 };
+    expect(verdict({ ...passing, cap }).reasons).toEqual(["silent eth_getLogs truncation (plateau) at 10000 logs"]);
+  });
 
   it("passes a clean report", () => {
     expect(verdict(passing)).toEqual({ pass: true, reasons: [] });

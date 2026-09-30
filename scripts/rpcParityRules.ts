@@ -86,10 +86,12 @@ export function classifyHeadSample(
   finalHash: string,
   finalLogs: RawLog[],
 ): { outcome: HeadOutcome; diff?: LogDiff } {
+  // First: a reorg replaces a block, it does not remove it, so a candidate that
+  // had nothing at the height its own `latest` had just named is the routing
+  // failure whatever finality later did (CTO, EKU-528).
+  if (sample.servedHash === null) return { outcome: "mismatch" };
   if (sample.headHash.toLowerCase() !== finalHash.toLowerCase()) return { outcome: "reorg" };
-  if (sample.servedHash === null || sample.servedHash.toLowerCase() !== finalHash.toLowerCase()) {
-    return { outcome: "mismatch" };
-  }
+  if (sample.servedHash.toLowerCase() !== finalHash.toLowerCase()) return { outcome: "mismatch" };
   const diff = diffLogs(finalLogs, sample.logs);
   return isEmptyDiff(diff) ? { outcome: "match" } : { outcome: "mismatch", diff };
 }
@@ -138,27 +140,36 @@ export interface CapProbe {
 
 /**
  * What `SUSPECT_LOG_COUNT` should be for the candidate. A count below the
- * primary's with no error is silent truncation, and that count is the cap the
- * stream must refuse at. Without one, the largest count the candidate returned
- * intact is only a lower bound, so the documented cap stands.
+ * primary's with no error, or a plateau, is silent truncation: that count is
+ * the cap the stream must refuse at, and `verdict` fails the chain on it.
+ * Without one, the largest count the candidate returned intact is only a lower
+ * bound, so the documented cap stands.
  */
-export function recommendSuspectLogCount(probes: CapProbe[], documentedCap: number) {
-  // Fewer logs than the primary, or -- once the primary refuses the span -- the
-  // same count for a doubled span, which transfer volume never produces.
-  const truncated = probes.find(
-    (p, i) =>
-      typeof p.candidate === "number" &&
-      ((typeof p.primary === "number" && p.candidate < p.primary) ||
-        (i > 0 && p.candidate >= 1_000 && probes[i - 1]!.candidate === p.candidate)),
+export interface CapRecommendation {
+  suspectLogCount: number;
+  silentTruncation: "shortfall" | "plateau" | null;
+  largestIntact: number;
+}
+
+export function recommendSuspectLogCount(probes: CapProbe[], documentedCap: number): CapRecommendation {
+  const shortfall = probes.find(
+    (p) => typeof p.primary === "number" && typeof p.candidate === "number" && p.candidate < p.primary,
+  );
+  // Once the primary refuses the span: the same count for a doubled span,
+  // which transfer volume never produces.
+  const plateau = probes.find(
+    (p, i) => typeof p.candidate === "number" && p.candidate >= 1_000 && i > 0 && probes[i - 1]!.candidate === p.candidate,
   );
   const intact = probes
     .filter((p) => typeof p.candidate === "number" && p.candidate === p.primary)
     .map((p) => p.candidate as number);
   const largestIntact = intact.length ? Math.max(...intact) : 0;
-  if (truncated) {
-    return { suspectLogCount: truncated.candidate as number, silentTruncation: true, largestIntact };
-  }
-  return { suspectLogCount: documentedCap, silentTruncation: false, largestIntact };
+  const truncated = shortfall ?? plateau;
+  return {
+    suspectLogCount: truncated ? (truncated.candidate as number) : documentedCap,
+    silentTruncation: truncated ? (shortfall ? "shortfall" : "plateau") : null,
+    largestIntact,
+  };
 }
 
 export interface ParityReport {
@@ -167,6 +178,7 @@ export interface ParityReport {
   windows: { compared: number; eventBearing: number; failures: string[] };
   head: { reads: number; errors: number; match: number; reorg: number; mismatch: number; nonEmpty: number; timedOut: boolean };
   drift: ReturnType<typeof evaluateDrift>;
+  cap: CapRecommendation;
 }
 
 /**
@@ -175,7 +187,7 @@ export interface ParityReport {
  * "Unknown block" for logs up to the head its own `latest` just named.
  */
 export function verdict(report: ParityReport, maxHeadErrorPct = 5): { pass: boolean; reasons: string[] } {
-  const { chainIdOk, finalized, windows, head, drift } = report;
+  const { chainIdOk, finalized, windows, head, drift, cap } = report;
   const checks: [failed: boolean, reason: string][] = [
     [!chainIdOk, "candidate serves a different chain id"],
     [!finalized.ok, `finalized tag: ${finalized.detail}`],
@@ -185,6 +197,10 @@ export function verdict(report: ParityReport, maxHeadErrorPct = 5): { pass: bool
     [head.mismatch > 0, `${head.mismatch} near-head read(s) differ from the final chain`],
     [head.match + head.reorg + head.mismatch === 0, "no near-head reads checked"],
     [head.errors * 100 > head.reads * maxHeadErrorPct, `${head.errors} of ${head.reads} near-head reads errored (limit ${maxHeadErrorPct}%)`],
+    // dRPC documents an error at its cap, so a silent one is a surprise to
+    // investigate. A stable plateau may still be admitted with its measured
+    // SUSPECT_LOG_COUNT, but by review, not by this verdict (CTO, EKU-528).
+    [cap.silentTruncation !== null, `silent eth_getLogs truncation (${cap.silentTruncation}) at ${cap.suspectLogCount} logs`],
     [!drift.ok, `latest drift p95 ${drift.p95Blocks} blocks / ${drift.p95Seconds}s is over the limit`],
   ];
   const reasons = checks.filter(([failed]) => failed).map(([, reason]) => reason);

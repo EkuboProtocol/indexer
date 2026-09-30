@@ -27,7 +27,8 @@
  * 4. `latest` on both, read together, drifts by at most PARITY_MAX_DRIFT_BLOCKS
  *    or PARITY_MAX_DRIFT_SECONDS at p95.
  * 5. The candidate's real `eth_getLogs` range and result caps are measured, and
- *    the result cap becomes its SUSPECT_LOG_COUNT entry.
+ *    the result cap becomes its SUSPECT_LOG_COUNT entry. Silent truncation
+ *    fails the chain: admitting one with a measured cap is a review decision.
  *
  * Prints JSON lines and a final `summary` line with the verdict and the
  * SUSPECT_LOG_COUNT to use; appends a table to $GITHUB_STEP_SUMMARY when set.
@@ -58,6 +59,10 @@ loadConfig("evm");
 const PRIMARY_URL = required("PARITY_PRIMARY_URL");
 const CANDIDATE_URL = required("PARITY_CANDIDATE_URL");
 const secrets = { EVM_RPC_URL: `${PRIMARY_URL},${CANDIDATE_URL}` };
+// The shared logger's crash handler redacts against process.env, so a throw
+// this script does not catch -- a primary outage mid-run -- would otherwise be
+// covered only by the key patterns (CSO, EKU-529).
+process.env.EVM_RPC_URL = secrets.EVM_RPC_URL;
 const CHAIN_ID = BigInt(required("CHAIN_ID"));
 const RANGE = int("GET_LOGS_RANGE_SIZE", 1_000);
 const START = int("STARTING_CURSOR_BLOCK_NUMBER", 0) + 1;
@@ -242,21 +247,31 @@ emit({ kind: "result_cap", ...cap });
 
 const samples: HeadSample[] = [];
 const drift: DriftSample[] = [];
+// Only the candidate's errors count against it; the primary's are reported apart
+// and cost that iteration its drift sample, nothing more (CTO, EKU-528).
 const headErrors = new Map<string, number>();
+const primaryErrors = new Map<string, number>();
+const tally = (errors: Map<string, number>, error: unknown) => {
+  const text = errorText(error);
+  errors.set(text, (errors.get(text) ?? 0) + 1);
+};
 for (let i = 0; i < HEAD_READS; i++) {
   if (i) await sleep(HEAD_INTERVAL_MS);
+  const oursRead = block(primary, "latest").catch((error: unknown) => {
+    tally(primaryErrors, error);
+    return null;
+  });
   try {
-    const [ours, theirs] = await Promise.all([block(primary, "latest"), block(candidate, "latest")]);
-    if (!ours || !theirs) throw new Error("latest returned null");
-    drift.push({ blocks: ours.number - theirs.number, seconds: ours.timestamp - theirs.timestamp });
+    const [ours, theirs] = await Promise.all([oursRead, block(candidate, "latest")]);
+    if (!theirs) throw new Error("latest returned null");
+    if (ours) drift.push({ blocks: ours.number - theirs.number, seconds: ours.timestamp - theirs.timestamp });
     // In the stream's order: the head, the logs up to it, then its blocks.
     const from = Math.max(START, theirs.number - HEAD_SPAN + 1);
     const logs = await getLogs(candidate, from, theirs.number);
     const served = await block(candidate, theirs.number);
     samples.push({ head: theirs.number, headHash: theirs.hash, servedHash: served?.hash ?? null, from, logs });
   } catch (error) {
-    const text = errorText(error);
-    headErrors.set(text, (headErrors.get(text) ?? 0) + 1);
+    tally(headErrors, error);
   }
 }
 const driftReport = evaluateDrift(drift, { maxBlocks: MAX_DRIFT_BLOCKS, maxSeconds: MAX_DRIFT_SECONDS });
@@ -264,6 +279,7 @@ emit({ kind: "drift", ...driftReport });
 
 const errorCount = [...headErrors.values()].reduce((a, b) => a + b, 0);
 for (const [error, count] of headErrors) emit({ kind: "head_read_errors", count, error });
+for (const [error, count] of primaryErrors) emit({ kind: "primary_head_read_errors", count, error });
 const head: ParityReport["head"] = { reads: HEAD_READS, errors: errorCount, match: 0, reorg: 0, mismatch: 0, nonEmpty: 0, timedOut: false };
 const highest = Math.max(0, ...samples.map((s) => s.head));
 const deadline = Date.now() + FINALITY_TIMEOUT_MS;
@@ -297,7 +313,7 @@ emit({ kind: "head_reads", ...head });
 
 // --- verdict --------------------------------------------------------------------
 
-const report: ParityReport = { chainIdOk, finalized, windows: windowReport, head, drift: driftReport };
+const report: ParityReport = { chainIdOk, finalized, windows: windowReport, head, drift: driftReport, cap };
 const result = verdict(report, MAX_HEAD_ERROR_PCT);
 emit({ kind: "summary", network: process.env.NETWORK, pass: result.pass, reasons: result.reasons, suspectLogCount: cap.suspectLogCount, largestRangeOk });
 
@@ -314,7 +330,7 @@ if (process.env.GITHUB_STEP_SUMMARY) {
     `| near-head reads | ${head.match} match, ${head.reorg} reorged, ${head.mismatch} differ, ${head.nonEmpty} with events, ${head.errors}/${head.reads} errored${head.timedOut ? ", finality timed out" : ""} |`,
     `| latest drift (p95 / max) | ${driftReport.p95Blocks} / ${driftReport.maxBlocks} blocks, ${driftReport.p95Seconds} / ${driftReport.maxSeconds} s |`,
     `| largest range served | ${largestRangeOk} blocks${rangeError ? `; failed at ${rangeError}` : ""} |`,
-    `| SUSPECT_LOG_COUNT | ${cap.suspectLogCount} (${cap.silentTruncation ? "silent truncation seen" : `largest intact result ${cap.largestIntact}`}) |`,
+    `| SUSPECT_LOG_COUNT | ${cap.suspectLogCount} (${cap.silentTruncation ? `silent truncation (${cap.silentTruncation})` : `largest intact result ${cap.largestIntact}`}) |`,
     "",
   ].join("\n")));
 }
