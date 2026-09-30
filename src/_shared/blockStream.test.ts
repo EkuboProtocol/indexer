@@ -67,8 +67,11 @@ it("reconciles a reorg before accepting finality and preserves pending finality 
   };
   const messages: StreamMessage<string>[] = [];
   try {
+    // A failed head read is backed off rather than thrown until the outage
+    // budget runs out, so a tiny budget is what ends the fixture.
     for await (const message of createBlockStream({
-      adapter, startingCursor: { orderKey: 99n }, options,
+      adapter, startingCursor: { orderKey: 99n },
+      options: { ...options, providerOutageBudgetMs: 1 },
     })) messages.push(message);
   } catch (error) {
     if (error !== end) throw error;
@@ -158,8 +161,78 @@ describe("a stale snapshot", () => {
     await expect(run(MAX_STALE_SNAPSHOTS + 1)).rejects.toBeInstanceOf(StaleSnapshotError);
   });
 
-  it("does not swallow other range failures", async () => {
-    await expect(run(1, () => new Error("Invalid params"))).rejects.toThrow(/Invalid params/);
+});
+
+// EKU-502: during the Alchemy US-East incident of 2026-09-30 the provider
+// advertised a head and then refused eth_getLogs up to it for sixteen minutes.
+// Each refusal exited the worker, and restart.sh brought it straight back to
+// ask for the same range: 89 to 315 restarts per chain.
+describe("a provider that refuses reads at the head", () => {
+  const refusal = "Invalid parameters were provided to the RPC method";
+  const run = async (opts: {
+    failingReads?: number;
+    failingHeads?: number;
+    budgetMs?: number;
+  }) => {
+    let heads = 0;
+    let reads = 0;
+    const warnings: { message: string; detail: Record<string, unknown> }[] = [];
+    const adapter: ChainAdapter<string> = {
+      label: "fixture",
+      async fetchBlock(n) { return head(n); },
+      async fetchHead() {
+        if (++heads <= (opts.failingHeads ?? 0)) throw new Error("HTTP request failed. Status: 503");
+        return head(100 + heads);
+      },
+      async fetchFinalized() { return head(90); },
+      async readRange(_from, to) {
+        if (++reads <= (opts.failingReads ?? 0)) throw new Error(`eth_getLogs failed. Cause: ${refusal}`);
+        return [block(to, head(to).hash)];
+      },
+      async completeFresh() {},
+    };
+    const stream = createBlockStream({
+      adapter, startingCursor: { orderKey: 99n },
+      options: {
+        ...options,
+        pollIntervalMs: 1,
+        maxPollIntervalMs: 4,
+        providerOutageBudgetMs: opts.budgetMs ?? 60_000,
+        onWarning: (message, detail) => warnings.push({ message, detail }),
+      },
+    });
+    try {
+      for await (const message of stream) {
+        if (message._tag === "data") return { message, heads, reads, warnings };
+      }
+      throw new Error("stream ended");
+    } finally {
+      await stream.return(undefined);
+    }
+  };
+
+  it("backs off and re-reads a refused range instead of exiting", async () => {
+    const { message, reads, warnings } = await run({ failingReads: 5 });
+    expect(reads).toBe(6);
+    expect(warnings.map(w => w.message)).toEqual(Array(5).fill("provider read failed; backing off"));
+    // Doubling from the poll floor, held at the configured ceiling.
+    expect(warnings.map(w => w.detail.retryInMs)).toEqual([1, 2, 4, 4, 4]);
+    expect(warnings[0]!.detail).toMatchObject({ read: "range", to: 101, head: 101, cursor: 99 });
+    expect(String(warnings[0]!.detail.error)).toContain(refusal);
+    if (message._tag !== "data") throw new Error("unreachable");
+    expect(message.data.endCursor?.orderKey).toBe(106n);
+  });
+
+  it("backs off through an unreadable head", async () => {
+    const { message, warnings } = await run({ failingHeads: 3 });
+    expect(warnings.map(w => w.detail.read)).toEqual(["head", "head", "head"]);
+    if (message._tag !== "data") throw new Error("unreachable");
+    expect(message.data.endCursor?.orderKey).toBe(104n);
+  });
+
+  it("still exits with the provider's error once the outage outlasts the budget", async () => {
+    await expect(run({ failingReads: Number.MAX_SAFE_INTEGER, budgetMs: 20 }))
+      .rejects.toThrow(refusal);
   });
 });
 
