@@ -55,10 +55,23 @@ jobs:
           sudo curl -sSL https://github.com/a8m/envsubst/releases/download/v1.4.2/envsubst-Linux-x86_64 -o /usr/local/bin/envsubst
           sudo chmod +x /usr/local/bin/envsubst
 
+      # Fails closed on any secret the spec references that is unset or empty.
+      # An empty DRPC_API_KEY is the dangerous one: dRPC answers `dkey=` with
+      # its free tier rather than an error (EKU-523). The rendered spec holds
+      # every key, so it goes to a file that is never printed and is removed.
       - name: Deploy App
         env:
           ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+          DRPC_API_KEY: ${{ secrets.DRPC_API_KEY }}
           PG_CONNECTION_STRING: ${{ secrets.PRIVATE_PG_CONNECTION_STRING }}
           VPC_ID: ${{ secrets.VPC_ID }}
-        run: envsubst < .do/app.yaml | doctl apps create --spec - --upsert
+        run: |
+          spec="$RUNNER_TEMP/app.yaml"
+          trap 'rm -f "$spec"' EXIT
+          envsubst -no-unset -no-empty -i .do/app.yaml -o "$spec"
+          if lines=$(grep -nE 'dkey=($|[&"'"'"'[:space:],])' "$spec" | cut -d: -f1 | paste -sd, -); [ -n "$lines" ]; then
+            echo "::error::rendered spec has an empty dkey= on line(s) $lines"
+            exit 1
+          fi
+          doctl apps create --spec "$spec" --upsert

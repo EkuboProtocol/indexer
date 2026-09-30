@@ -83,8 +83,33 @@ describe("the indexer logger", () => {
 
       const text = output();
       expect(text).toContain("<redacted>");
+      // The dRPC URL is not configured here, so only the pattern layer stands
+      // between its key and the log.
+      expect(text).toContain("network=ink&dkey=<redacted>");
       expect(text).not.toContain(ALCHEMY_KEY);
       expect(text).not.toContain(DRPC_KEY);
+    } finally {
+      if (saved === undefined) delete process.env.EVM_RPC_URL;
+      else process.env.EVM_RPC_URL = saved;
+    }
+  });
+
+  it("redacts both endpoints of the production Alchemy,dRPC list (EKU-527)", async () => {
+    const saved = process.env.EVM_RPC_URL;
+    process.env.EVM_RPC_URL = `${alchemyUrl},${drpcUrl}`;
+    try {
+      const { logger, output } = capturingLogger();
+      const drpc = await viemError(drpcUrl);
+      expect(drpc.message).toContain(`dkey=${DRPC_KEY}`);
+
+      logger.warn({ message: "provider read failed; backing off", error: drpc.message });
+      logger.error(drpc);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const text = output();
+      expect(text).toContain("http://127.0.0.1:9/<redacted>");
+      expect(text).not.toContain(DRPC_KEY);
+      expect(text).not.toContain("dkey=");
     } finally {
       if (saved === undefined) delete process.env.EVM_RPC_URL;
       else process.env.EVM_RPC_URL = saved;
