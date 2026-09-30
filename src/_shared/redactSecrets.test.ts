@@ -55,6 +55,11 @@ describe("redactSecrets", () => {
     expect(out).toContain("network=ink&dkey=<redacted>");
   });
 
+  it("masks the other common credential parameter names", () => {
+    const out = redactSecrets("https://x.example/rpc?access_token=AAA&secret=BBB&password=CCC&page=2", {});
+    expect(out).toBe("https://x.example/rpc?access_token=<redacted>&secret=<redacted>&password=<redacted>&page=2");
+  });
+
   it("leaves ordinary API paths alone", () => {
     const text = "https://pro-api.coingecko.com/api/v3/simple/token_price/ethereum";
     expect(redactSecrets(text, {})).toBe(text);

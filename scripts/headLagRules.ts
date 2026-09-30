@@ -184,9 +184,11 @@ export function evaluateFailure(
 ): { findings: Finding[]; next: HeadLagState } {
   const failures = (state.checkFailures ?? 0) + 1;
   const next: HeadLagState = { ...state, checkFailures: failures };
+  // Bounded: a driver error can be arbitrarily long, and it goes into the
+  // webhook body and the alert issue verbatim.
   const findings: Finding[] =
     failures >= config.sustainChecks && due(state.checkFailedAlertedAt, now, config.realertMs)
-      ? [{ kind: "check_failed", failures, error }]
+      ? [{ kind: "check_failed", failures, error: error.slice(0, 500) }]
       : [];
   return { findings, next };
 }

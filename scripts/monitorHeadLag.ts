@@ -154,7 +154,12 @@ console.log(JSON.stringify(report));
 
 if (findings.length > 0) {
   process.exitCode = 1;
-  const delivered = await deliver(findings, report);
+  // A POST that throws (DNS, timeout) is an undelivered alert like any other:
+  // exit 2 and still save state below, so streaks survive and it is re-raised.
+  const delivered = await deliver(findings, report).catch((error: unknown) => {
+    console.error(`alert delivery failed: ${error instanceof Error ? error.name : "error"}`);
+    return false;
+  });
   if (!delivered) process.exitCode = 2;
   // A test alert proves delivery; it must not suppress a real re-alert.
   else if (!testAlert) next = markAlerted(next, findings, now);
