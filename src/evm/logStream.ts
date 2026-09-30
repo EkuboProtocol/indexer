@@ -245,6 +245,10 @@ export async function fetchLogsChecked(
     // overage as an HTTP 200 carrying code 429, which viem handles by name).
     // Anything reaching here has already survived that, so it is a real error,
     // and the range is ours to choose: GET_LOGS_RANGE_SIZE is the knob.
+    //
+    // Failing the read is not failing the worker: the block stream backs off
+    // and re-reads (`backOffAfterReadFailure`), and exits only once the
+    // provider has been failing for longer than its outage budget.
     throw new Error(
       `eth_getLogs failed for blocks ${fromBlock}..${toBlock} (${
         toBlock - fromBlock + 1

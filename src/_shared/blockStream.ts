@@ -139,6 +139,11 @@ export interface BlockStreamOptions {
   /** How often to re-read the finalized block. */
   finalizedRefreshIntervalMs?: number;
   heartbeatIntervalMs?: number;
+  /**
+   * How long provider reads may keep failing back to back before the stream
+   * gives up and throws. Until then each failure is a warning and a backoff.
+   */
+  providerOutageBudgetMs?: number;
   onWarning?: (message: string, detail: Record<string, unknown>) => void;
 }
 
@@ -150,6 +155,7 @@ export const BLOCK_STREAM_DEFAULTS = {
   reorgWindowSeconds: 120,
   finalizedRefreshIntervalMs: 30_000,
   heartbeatIntervalMs: 10_000,
+  providerOutageBudgetMs: 10 * 60_000,
 } as const;
 
 export type Resolved = Required<Omit<BlockStreamOptions, "onWarning">> &
@@ -209,6 +215,10 @@ export interface StreamState {
   seeded: boolean;
   /** Consecutive snapshots re-planned because they went stale mid-read. */
   staleSnapshots: number;
+  /** Consecutive provider reads that failed, which is what the backoff doubles on. */
+  failedReads: number;
+  /** When the current run of failed reads began, or null while reads succeed. */
+  failingSince: number | null;
 }
 
 /** Packed into 16 bits by `compute_event_id`, so this is a hard ceiling. */
@@ -989,6 +999,8 @@ export function initStreamState(
       retainedFrom: 0,
       seeded: false,
       staleSnapshots: 0,
+      failedReads: 0,
+      failingSince: null,
     },
   };
 }
@@ -1145,6 +1157,107 @@ async function readFreshSnapshot<TEvent>(
   }
 }
 
+/**
+ * How long to wait before re-reading after a failed provider read, or throws
+ * once reads have been failing for longer than `providerOutageBudgetMs`.
+ *
+ * Exiting on the first failure used to be the policy: viem has already retried
+ * whatever it considers retryable, and `restart.sh` would bring the worker back.
+ * But a restart does not change what the provider answers. In the Alchemy
+ * US-East incident of 2026-09-30 the provider advertised a head and then
+ * refused `eth_getLogs` up to it for sixteen minutes, and the workers restarted
+ * 89 to 315 times each, re-requesting the same refused range every time and
+ * re-verifying the cursor on every start. Nothing had been emitted from any of
+ * those reads, so staying up and asking again later loses nothing that exiting
+ * kept.
+ *
+ * No error is classified, for the reason `fetchLogsChecked` gives: a match on a
+ * provider's wording rots silently. Every failed read is retried the same way,
+ * doubling from the poll floor to `maxPollIntervalMs`, and every one is logged
+ * with its cause, so a span the provider will never accept -- the case that
+ * wants GET_LOGS_RANGE_SIZE lowered -- still says so on each attempt and still
+ * exits once the budget runs out. That bound is also what hands a genuinely
+ * stuck process back to the restart loop.
+ *
+ * A stale snapshot is not handled here: it has its own streak limit, and a
+ * streak that long is not something the provider will fix by waiting.
+ */
+function backOffAfterReadFailure(
+  state: StreamState,
+  opts: Resolved,
+  error: unknown,
+  context: Record<string, unknown>,
+): number {
+  if (error instanceof StaleSnapshotError) throw error;
+  const now = Date.now();
+  state.failingSince ??= now;
+  if (now - state.failingSince > opts.providerOutageBudgetMs) throw error;
+  state.failedReads++;
+  const delay = Math.max(
+    opts.pollIntervalMs,
+    Math.min(
+      opts.maxPollIntervalMs,
+      opts.pollIntervalMs * 2 ** Math.min(state.failedReads - 1, 32),
+    ),
+  );
+  opts.onWarning?.("provider read failed; backing off", {
+    ...context,
+    attempt: state.failedReads,
+    failingForMs: now - state.failingSince,
+    retryInMs: delay,
+    error: (error instanceof Error ? error.message : String(error)).slice(0, 500),
+  });
+  return delay;
+}
+
+/** A tick got an answer it could act on, so the provider is not failing. */
+function clearReadFailures(state: StreamState): void {
+  state.failedReads = 0;
+  state.failingSince = null;
+}
+
+const sleep = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/** `planRead`, or null once the wait before the next poll has been slept. */
+async function planOrWait<TEvent>(
+  adapter: ChainAdapter<TEvent>,
+  state: StreamState,
+  opts: Resolved,
+): Promise<{ from: number; to: number; head: ChainHead } | null> {
+  try {
+    const plan = await planRead(adapter, state, opts);
+    // An unreadable head is not evidence the chain is quiet, so this does not
+    // count towards backoff -- but it must not poll a struggling endpoint
+    // faster than a healthy one either, so it sleeps for the interval already
+    // in force.
+    if (!plan) await sleep(pollIntervalFor(state, opts));
+    return plan;
+  } catch (error) {
+    await sleep(backOffAfterReadFailure(state, opts, error, { read: "head", cursor: state.cursorBlock }));
+    return null;
+  }
+}
+
+/** `readFreshSnapshot`, or null once the wait before re-planning has been slept. */
+async function snapshotOrWait<TEvent>(
+  adapter: ChainAdapter<TEvent>,
+  state: StreamState,
+  plan: { from: number; to: number; head: ChainHead },
+  opts: Resolved,
+): Promise<Awaited<ReturnType<typeof readSnapshot<TEvent>>> | null> {
+  try {
+    const snapshot = await readFreshSnapshot(adapter, state, plan, opts);
+    if (!snapshot) await sleep(opts.pollIntervalMs);
+    return snapshot;
+  } catch (error) {
+    await sleep(backOffAfterReadFailure(state, opts, error, {
+      read: "range", from: plan.from, to: plan.to, head: plan.head.number, cursor: state.cursorBlock,
+    }));
+    return null;
+  }
+}
+
 export interface CreateBlockStreamArgs<TEvent> {
   adapter: ChainAdapter<TEvent>;
   startingCursor: IndexerCursor;
@@ -1163,9 +1276,6 @@ export async function* createBlockStream<TEvent>(
   const { adapter } = args;
   const { opts, state } = initStreamState(args.startingCursor, args.options);
 
-  const sleep = (ms: number) =>
-    new Promise((resolve) => setTimeout(resolve, ms));
-
   const notCanonical = await checkStartingCursor(
     adapter,
     state,
@@ -1182,32 +1292,24 @@ export async function* createBlockStream<TEvent>(
 
     await refreshFinalized(adapter, state, opts, now);
 
-    const plan = await planRead(adapter, state, opts);
-    if (!plan) {
-      // An unreadable head is not evidence the chain is quiet, so this does not
-      // count towards backoff -- but it must not poll a struggling endpoint
-      // faster than a healthy one either, so it sleeps for the interval already
-      // in force.
-      await sleep(pollIntervalFor(state, opts));
-      continue;
-    }
+    const plan = await planOrWait(adapter, state, opts);
+    if (!plan) continue;
 
     if (headUnchanged(state, plan.head)) {
       // The head has not moved, so there is provably nothing new to index: a
       // head hash commits to its whole ancestry. That is a quiet poll in the
       // sense that matters, and counting it is what lets a chain with a block
       // time longer than the poll interval back off at all.
+      clearReadFailures(state);
       yield* announceFinalized<TEvent>(adapter, state, plan.head.number);
       state.quietPolls++;
       await sleep(pollIntervalFor(state, opts));
       continue;
     }
 
-    const snapshot = await readFreshSnapshot(adapter, state, plan, opts);
-    if (!snapshot) {
-      await sleep(opts.pollIntervalMs);
-      continue;
-    }
+    const snapshot = await snapshotOrWait(adapter, state, plan, opts);
+    if (!snapshot) continue;
+    clearReadFailures(state);
     const rollback = await reconcileSnapshot(args, state, snapshot, plan, opts);
     if (rollback) {
       yield rollback;

@@ -157,7 +157,12 @@ still write a durable cursor and head, without inserting empty `blocks` rows.
 Each indexer accepts exactly one HTTP(S) endpoint: `EVM_RPC_URL` for EVM or
 `STARKNET_RPC_URL` for Starknet. Endpoint lists are rejected. The endpoint must
 report the configured chain ID before indexing can start. Failed requests retry
-against the same endpoint; persistent failures restart from the durable cursor.
+against the same endpoint. A read that still fails emits nothing: the stream
+logs `provider read failed; backing off`, waits (doubling from the poll interval
+to `MAX_POLL_INTERVAL_MS`) and re-plans from a fresh head. Only reads failing
+back to back for more than ten minutes exit, restarting from the durable cursor.
+Exiting on the first failure turned a sixteen-minute provider outage into 89-315
+restarts per chain, each re-requesting the refused range (EKU-502).
 
 The provider must return complete range results and a consistent canonical view
 across requests, including across its own caches and load-balanced backends.
@@ -250,6 +255,23 @@ equal to the minimum to disable backoff. Backoff also delays head/gas freshness.
 
 An unchanged head hash can skip the range read because its ancestry is unchanged.
 Range queries still cover every intervening block when the head advances.
+
+### Head freshness monitor
+
+`scripts/monitorHeadLag.ts` reads `indexer_cursor` (read-only) and alerts a
+Paperclip routine webhook when a chain's `head_block_time` is more than its
+threshold behind the database clock on `HEAD_LAG_SUSTAIN_CHECKS` (default 2)
+consecutive runs, or when the check itself fails that many times in a row. Run it
+every minute. A live chain's lag is its block time plus at most
+`MAX_POLL_INTERVAL_MS`, since the head is written on every poll; the default
+threshold is 300 s (`HEAD_LAG_THRESHOLD_SECONDS`), half the interface's
+ten-minute "API Performance Degraded" banner. `HEAD_LAG_CHAINS` is a comma list
+of `chainId=name[:seconds|off]`: listed chains must be present, and unlisted
+rows are still checked at the default. An ongoing lag re-alerts at most once per
+`HEAD_LAG_REALERT_MINUTES` (default 60); streaks live in `HEAD_LAG_STATE`. The
+rules are in `scripts/headLagRules.ts`; `--test-alert` proves delivery. It uses
+block time, not `last_updated`, because a provider that freezes its `latest`
+block produces no error at all (Unichain, 2026-09-30, EKU-500).
 
 ### Verification
 
