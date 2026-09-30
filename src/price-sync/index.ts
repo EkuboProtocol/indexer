@@ -1,3 +1,5 @@
+// Must stay the first import: see the module.
+import "./redactedConsole";
 import { BunRuntime } from "@effect/platform-bun";
 import { Effect } from "effect";
 import { loadConfig } from "../config";
