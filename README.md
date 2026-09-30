@@ -164,6 +164,12 @@ back to back for more than ten minutes exit, restarting from the durable cursor.
 Exiting on the first failure turned a sixteen-minute provider outage into 89-315
 restarts per chain, each re-requesting the refused range (EKU-502).
 
+Endpoint URLs carry the provider key, and viem copies the URL into every HTTP
+error message, so the logger redacts them from every line it writes
+(`src/_shared/redactSecrets.ts`): configured `EVM_RPC_URL` / `STARKNET_RPC_URL`
+values are reduced to their origin, and key-shaped URL parts (`/v2/<key>`,
+`/rpc/v0_10/<key>`, `dkey=`, `apikey=`) are masked wherever they appear.
+
 The provider must return complete range results and a consistent canonical view
 across requests, including across its own caches and load-balanced backends.
 Specifically, if `eth_getLogs(fromBlock, toBlock)` is sandwiched between header
