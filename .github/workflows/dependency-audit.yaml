@@ -1,0 +1,43 @@
+on:
+  schedule:
+    # Mondays 06:17 UTC
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/dependency-audit.yaml
+
+name: Dependency audit
+
+# GitHub's dependency graph reads package.json but not bun.lock, so Dependabot
+# alerts miss transitive advisories. bun audit checks the full lockfile.
+jobs:
+  bun-audit:
+    name: bun audit
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # bun audit only needs package.json and bun.lock, so skip the install.
+      - name: Summarize advisories
+        run: |
+          bun audit --json > audit.json || true
+          jq -r '
+            [to_entries[] | .key as $p | .value[]
+              | {p: $p, s: .severity, t: (.title | gsub("\\|"; "\\|")), u: .url, v: .vulnerable_versions}] as $a
+            | "## bun audit: \($a | length) advisories",
+              "",
+              ($a | group_by(.s) | .[] | "- \(.[0].s): \(length)"),
+              "",
+              "| Package | Severity | Advisory | Vulnerable versions |",
+              "| --- | --- | --- | --- |",
+              ($a | sort_by({critical: 0, high: 1, moderate: 2, low: 3}[.s], .p) | .[]
+                | "| `\(.p)` | \(.s) | [\(.t)](\(.u)) | `\(.v)` |")
+          ' audit.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail on high or critical advisories
+        run: bun audit --audit-level=high
