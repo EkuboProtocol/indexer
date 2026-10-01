@@ -1,7 +1,7 @@
 import { logger } from "./_shared/logger";
 import { DAO, type IndexerCursor } from "./_shared/dao";
 import { msToHumanShort } from "./_shared/msToHumanShort";
-import { loadConfig } from "./config";
+import { loadConfig, requireDeployedRpcUrl } from "./config";
 import type { NetworkEntrypoint, NetworkType } from "./types";
 
 export type RuntimeBlockHeader = {
@@ -29,6 +29,7 @@ export async function runIndexer<TBlock>({
   createEntrypoint,
   parseBlockHeader,
 }: RuntimeEntrypoint<TBlock>) {
+  requireDeployedRpcUrl(networkType);
   loadConfig(networkType);
 
   if (!process.env.NETWORK) {
