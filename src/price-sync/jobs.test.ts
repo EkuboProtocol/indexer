@@ -42,3 +42,24 @@ test("Chainlink jobs are only created for configured chains", () => {
     withChainlink.filter((job) => job.source === "cl1").map(priceSyncJobId),
   ).toEqual(["1:cl1"]);
 });
+
+test("no chain has both the ETH mirror and a Sushi job", () => {
+  // Both write at confidence 1, and the latest-price recompute averages every
+  // fresh row at the top confidence: on a shared chain the fallback would be a
+  // blend labelled AVG instead of either source.
+  const jobs = createPriceSyncJobs({
+    sql: {} as Sql<{ bigint: bigint }>,
+    defaultIntervalMs: 60_000,
+    coingeckoIntervalMs: 300_000,
+  });
+  const chainsOf = (source: string) =>
+    new Set(
+      jobs.filter((job) => job.source === source).flatMap((job) => job.chainIds),
+    );
+
+  const mirrored = chainsOf("em1");
+  const sushi = chainsOf("ss1");
+
+  expect([...mirrored].sort()).toEqual([130n, 480n, 57073n]);
+  expect([...mirrored].filter((chainId) => sushi.has(chainId))).toEqual([]);
+});
