@@ -7,7 +7,7 @@
  *   ALERT_WEBHOOK_URL=<paperclip routine webhook> ALERT_WEBHOOK_HMAC_SECRET=<secret> \
  *     bun scripts/monitorCoinGeckoQuota.ts [--test-alert]
  *
- * The alert rules (quota_exhausted, credits_low, credits_stale) are in
+ * The alert rules (quota_exhausted, credits_pace, credits_low, credits_stale) are in
  * `coingeckoQuotaRules.ts`. This script adds `check_failed`: reading the logs
  * failed on two consecutive runs.
  *
@@ -27,6 +27,7 @@ import { createHmac } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
+  DEFAULT_LOW_PCT,
   evaluate,
   parseLines,
   type Finding,
@@ -37,7 +38,7 @@ import {
 const appId = process.env.DO_APP_ID ?? "";
 const component = process.env.QUOTA_MONITOR_COMPONENT ?? "token-price-sync";
 const tailLines = Number(process.env.QUOTA_MONITOR_TAIL_LINES ?? 20_000);
-const lowPct = Number(process.env.QUOTA_MONITOR_LOW_PCT ?? 20);
+const lowPct = Number(process.env.QUOTA_MONITOR_LOW_PCT ?? DEFAULT_LOW_PCT);
 const staleMs = Number(process.env.QUOTA_MONITOR_STALE_MINUTES ?? 150) * 60_000;
 const statePath =
   process.env.QUOTA_MONITOR_STATE ??
@@ -159,6 +160,7 @@ if (findings.length > 0 && !alertDelivered) {
   state.lastQuotaAlertAt = previous.lastQuotaAlertAt;
   state.lastLowAlertAt = previous.lastLowAlertAt;
   state.lastLowAlertPct = previous.lastLowAlertPct;
+  state.lastPaceAlertAt = previous.lastPaceAlertAt;
   state.lastStaleAlertAt = previous.lastStaleAlertAt;
 }
 saveState(state);
