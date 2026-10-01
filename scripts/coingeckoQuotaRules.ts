@@ -5,10 +5,11 @@
  *   quota_exhausted  A `COINGECKO_QUOTA_EXHAUSTED` trip line or, from a worker
  *                    that predates it, a `Price sync job … failed:` line with
  *                    `"error_code":10006`. Alerts on the first one, then again
- *                    only once REALERT_MS has passed or a recovery has been
- *                    seen since the last alert: the worker re-trips every six
- *                    hours while the limit holds, and a Paperclip issue per
- *                    trip is noise during a known outage.
+ *                    only once REALERT_MS has passed or the trip follows a
+ *                    recovery seen since the last alert: the worker re-trips
+ *                    every six hours while the limit holds, and a Paperclip
+ *                    issue per trip is noise during a known outage. A trip the
+ *                    recovery came after belongs to the outage that just ended.
  *   credits_low      The latest `COINGECKO_CREDITS` reading has remaining_pct
  *                    below `lowPct`. Re-alerts at most once a day unless it
  *                    falls below a quarter of that.
@@ -113,10 +114,12 @@ function quotaFinding(lines: LogLine[], state: QuotaMonitorState): Finding | und
   if (!exhausted) return undefined;
 
   const lastAlert = state.lastQuotaAlertAt;
+  const recovery = state.lastRecoveryAt;
+  const newOutage =
+    lastAlert !== undefined && isAfter(recovery, lastAlert) && !isAfter(recovery, exhausted.at);
   const due =
     lastAlert === undefined ||
-    (exhausted.at > lastAlert &&
-      (exhausted.at >= plus(lastAlert, REALERT_MS) || isAfter(state.lastRecoveryAt, lastAlert)));
+    (exhausted.at > lastAlert && (exhausted.at >= plus(lastAlert, REALERT_MS) || newOutage));
   if (!due) return undefined;
 
   state.lastQuotaAlertAt = exhausted.at;
