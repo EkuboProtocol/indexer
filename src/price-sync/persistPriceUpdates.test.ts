@@ -17,33 +17,28 @@ function update(overrides: Partial<PriceUpdate> = {}): PriceUpdate {
   };
 }
 
-// Enough of the driver for the batch insert: a tagged template that reports a
-// row count, which is also callable as the `sql(values)` helper.
+// Enough of the driver for the insert: a tagged template that reports a row
+// count. The batch goes in as one array per column; they are zipped back into
+// rows here so the tests read a row at a time.
 function stubSql() {
   const inserted: unknown[][] = [];
+  let statements = 0;
 
-  const tagged = (...args: unknown[]) => {
-    // `sql(rows)` -- capture the values the query is being given.
-    if (Array.isArray(args[0]) && !("raw" in (args[0] as object))) {
-      inserted.push(args[0] as unknown[]);
-      return args[0];
-    }
-    // sql`INSERT ...` -- the query itself.
-    return Promise.resolve({ count: inserted.at(-1)?.length ?? 0 });
-  };
-
-  const sql = Object.assign(tagged, {
-    begin: (cb: (tx: unknown) => unknown) => Promise.resolve(cb(sql)),
+  const sql = ((_strings: TemplateStringsArray, ...columns: unknown[][]) => {
+    statements++;
+    const rows = columns[0].map((_, i) => columns.map((column) => column[i]));
+    inserted.push(...rows);
+    return Promise.resolve({ count: rows.length });
   }) as unknown as Sql<{ bigint: bigint }>;
 
-  return { sql, inserted };
+  return { sql, inserted, statements: () => statements };
 }
 
 const run = (updates: readonly PriceUpdate[], validityMs = 60_000) => {
   const { sql, inserted } = stubSql();
   return Effect.runPromise(
     persistPriceUpdates(sql, "tst", updates, validityMs),
-  ).then((count) => ({ count, rows: inserted.flat() as unknown[][] }));
+  ).then((count) => ({ count, rows: inserted }));
 };
 
 const rejects = (updates: readonly PriceUpdate[]) => {
@@ -121,9 +116,25 @@ for (const [name, bad] of invalid) {
 }
 
 test("one bad row rejects its whole batch", async () => {
-  // The insert is one transaction, so a batch either lands or does not; a row
+  // The insert is one statement, so a batch either lands or does not; a row
   // that cannot be built must not leave a partial write behind.
   const error = await rejects([update(), update({ usdPrice: -1 }), update()]);
 
   expect(error).toBeInstanceOf(PriceSyncError);
+});
+
+test("a batch of any size is written in one statement", async () => {
+  // Several statements per batch let the insert trigger lock the latest-price
+  // rows out of order, and concurrent jobs deadlocked on them (EKU-562).
+  const { sql, statements } = stubSql();
+  const updates = Array.from({ length: 5_000 }, (_, i) =>
+    update({ tokenAddress: `0x${(i + 1).toString(16)}` }),
+  );
+
+  const count = await Effect.runPromise(
+    persistPriceUpdates(sql, "tst", updates, 60_000),
+  );
+
+  expect(count).toBe(5_000);
+  expect(statements()).toBe(1);
 });
