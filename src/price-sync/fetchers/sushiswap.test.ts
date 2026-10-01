@@ -26,8 +26,11 @@ function stubSushi(reply: () => unknown, status = 200): string[] {
   return requested;
 }
 
-function collect(chainId: bigint): Promise<PriceUpdate[]> {
-  const job = sushiswapPriceFetcher({ chainId, intervalMs: 60_000 });
+function collect(
+  chainId: bigint,
+  wrappedNative?: `0x${string}`,
+): Promise<PriceUpdate[]> {
+  const job = sushiswapPriceFetcher({ chainId, intervalMs: 60_000, wrappedNative });
   return Effect.runPromise(Stream.runCollect(job.fetch)).then((batches) =>
     batches.flatMap((batch) => [...batch]),
   );
@@ -62,6 +65,51 @@ test("the native currency is rekeyed onto 0x0", async () => {
   expect(byAddress["0x0"]).toBe(3_000);
   expect(byAddress[NATIVE_SENTINEL]).toBeUndefined();
   expect(Object.keys(byAddress)).toHaveLength(2);
+});
+
+// Checksummed, as jobs.ts writes it; Sushi keys the list in lower case.
+const WXDAI = "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d";
+
+function pricesByAddress(updates: PriceUpdate[]): Record<string, number> {
+  return Object.fromEntries(
+    updates.map((update) => [update.tokenAddress, update.usdPrice]),
+  );
+}
+
+test("without a sentinel, the wrapped native token prices 0x0", async () => {
+  // Gnosis, Monad and MegaETH list only the wrapped token.
+  stubSushi(() => ({ [WXDAI.toLowerCase()]: 0.9995, [USDC]: 1 }));
+
+  const byAddress = pricesByAddress(await collect(100n, WXDAI));
+
+  expect(byAddress["0x0"]).toBe(0.9995);
+  // The wrapped token keeps its own price under its own address.
+  expect(byAddress[WXDAI.toLowerCase()]).toBe(0.9995);
+  expect(Object.keys(byAddress)).toHaveLength(3);
+});
+
+test("a sentinel price wins over the wrapped native token", async () => {
+  stubSushi(() => ({ [NATIVE_SENTINEL]: 1.001, [WXDAI.toLowerCase()]: 0.9995 }));
+
+  const byAddress = pricesByAddress(await collect(100n, WXDAI));
+
+  expect(byAddress["0x0"]).toBe(1.001);
+});
+
+test("without a configured wrapper, a missing sentinel leaves 0x0 unpriced", async () => {
+  stubSushi(() => ({ [WXDAI.toLowerCase()]: 0.9995 }));
+
+  const byAddress = pricesByAddress(await collect(100n));
+
+  expect(byAddress["0x0"]).toBeUndefined();
+});
+
+test("a configured wrapper Sushi does not list leaves 0x0 unpriced", async () => {
+  stubSushi(() => ({ [USDC]: 1 }));
+
+  const byAddress = pricesByAddress(await collect(100n, WXDAI));
+
+  expect(byAddress["0x0"]).toBeUndefined();
 });
 
 test("an empty price list yields no batches at all", async () => {

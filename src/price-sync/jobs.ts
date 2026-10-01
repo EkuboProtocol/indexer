@@ -14,6 +14,7 @@ import {
   type CoinGeckoQuotaGate,
 } from "./fetchers/coingeckoQuota";
 import { quoterPriceFetcher } from "./fetchers/ekuboQuoter";
+import { nativeMirrorPriceFetcher } from "./fetchers/nativeMirror";
 // import { oracleV1PriceFetcher } from "./fetchers/oracleV1";
 import { sushiswapPriceFetcher } from "./fetchers/sushiswap";
 import type { PriceSyncJob } from "./fetchers/types";
@@ -122,6 +123,22 @@ export function createPriceSyncJobs({
       },
     }),
 
+    // A second native price for ETH-gas chains that no other source here can
+    // price: Sushi has no price list for them and the quoter no stablecoin
+    // route. Ranked below cgn, so it serves only while CoinGecko is out. Keep
+    // it off any chain with a Sushi job: both sit at confidence 1, and ties at
+    // the top confidence are averaged rather than ranked.
+    nativeMirrorPriceFetcher({
+      sql,
+      fromChainId: 1n,
+      toChainIds: [
+        130n, // unichain
+        480n, // world chain
+        57073n, // ink
+      ],
+      intervalMs: defaultIntervalMs,
+    }),
+
     // eth mainnet
     sushiswapPriceFetcher({
       chainId: 1n,
@@ -174,6 +191,8 @@ export function createPriceSyncJobs({
     sushiswapPriceFetcher({
       chainId: 143n,
       intervalMs: defaultIntervalMs,
+      // WMON, listed at https://docs.monad.xyz/developer-essentials/network-information
+      wrappedNative: "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A",
     }),
     coingecko({
       chainId: 143n,
@@ -261,6 +280,8 @@ export function createPriceSyncJobs({
     sushiswapPriceFetcher({
       chainId: 100n,
       intervalMs: defaultIntervalMs,
+      // WXDAI, listed at https://docs.gnosischain.com/about/tokens/xdai
+      wrappedNative: "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d",
     }),
     coingecko({
       chainId: 100n,
@@ -316,9 +337,12 @@ export function createPriceSyncJobs({
 
     // megaeth -- no USD stablecoin is listed on this chain yet, so there is
     // no proxy token to quote against; CoinGecko and Sushi cover it instead.
+    // Sushi's WETH is its second native price, so the ETH mirror stays off it.
     sushiswapPriceFetcher({
       chainId: 4326n,
       intervalMs: defaultIntervalMs,
+      // WETH, listed at https://docs.megaeth.com/developer-docs/overview-1/contracts
+      wrappedNative: "0x4200000000000000000000000000000000000006",
     }),
     coingecko({
       chainId: 4326n,
