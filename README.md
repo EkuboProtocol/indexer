@@ -95,8 +95,15 @@ The resulting image can execute any of the TypeScript entrypoints. Run the netwo
 ```bash
 docker run --rm \
   -e NETWORK=mainnet \
+  -e STARKNET_RPC_URL=<url> \
   ekubo-indexer bun src/starknet.ts
 ```
+
+The image sets `NODE_ENV=production`, and in production a worker exits at
+startup unless its `EVM_RPC_URL` or `STARKNET_RPC_URL` is set in the process
+environment. The image still contains the committed `.env.evm.*` files, but their
+key-free public URLs are only for local runs. Pass `-e NODE_ENV=development` to
+use them from the image.
 
 ### Running scripts from the Docker image
 
@@ -380,6 +387,19 @@ The DigitalOcean Apps spec in `.do/app.yaml` documents the full production stack
 Use this file as a base to recreate the stack in a new DigitalOcean App Platform project or as a reference for configuring similar infrastructure elsewhere.
 
 ## Breaking changelog (tracking as of 2025-11-17)
+
+### 2026-09-30: Production workers require their RPC URL in the environment
+
+`src/runtime.ts` now fails when `NODE_ENV` is `production` (any case) and the
+worker's `EVM_RPC_URL` or `STARKNET_RPC_URL` is missing or empty in the
+process environment. The check runs before the `.env` files are loaded, so the
+worker exits naming the variable before it takes the database lock or reads
+chain data. Before this, a worker whose `.do/app.yaml` entry lost the key would
+have indexed from the public URL in its `.env.evm.<network>` file. That
+endpoint is rate-limited and can return short results without an error. For
+`mainnet` and `bsc-mainnet` the file default is dRPC's free tier. The committed
+defaults are unchanged and still apply to local runs. Scripts, migrations and
+price sync do not go through this check.
 
 ### 2026-09-29: MEVCapture pool series (00132, additive)
 
