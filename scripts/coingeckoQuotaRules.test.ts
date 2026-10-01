@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
+  DEFAULT_LOW_PCT,
   evaluate,
   parseLines,
+  projectMonthEnd,
   REALERT_MS,
   type LogLine,
   type QuotaMonitorState,
@@ -105,4 +107,67 @@ test("a low credit reading alerts once a day unless it drops much further", () =
   expect(first.findings.map((finding) => finding.kind)).toEqual(["credits_low"]);
   expect(kinds([reading(12)], first.state, at("2026-09-29T16:05:00Z"))).toEqual([]);
   expect(kinds([reading(3)], first.state, at("2026-09-29T16:05:00Z"))).toEqual(["credits_low"]);
+});
+
+// Replays of a whole month, one monitor run five minutes after each reading.
+// Both start from the real first reading after the October reset (02:51:56Z,
+// used=186) and read every three hours, in the worker's line format:
+// `on-pace` reaches 89,000 used by the last reading (the top of the 80-89k
+// October estimate); `over-pace` burns 3,300/day and runs dry on the 31st.
+const onPace = fixture("on-pace");
+const overPace = fixture("over-pace");
+const monitorDefaults = { lowPct: DEFAULT_LOW_PCT, staleMs: options.staleMs };
+
+function replayMonth(readings: readonly LogLine[]) {
+  let state: QuotaMonitorState = {};
+  const alerts: { at: string; kind: string; detail: string }[] = [];
+  for (const reading of readings) {
+    const now = new Date(Date.parse(reading.at) + 5 * 60_000);
+    const result = evaluate([reading], state, now, monitorDefaults);
+    state = result.state;
+    alerts.push(...result.findings.map(({ kind, detail }) => ({ at: reading.at, kind, detail })));
+  }
+  return alerts;
+}
+
+test("a month on pace to end at 89k used raises nothing", () => {
+  expect(onPace.at(-1)!.text).toContain("used=89000");
+  expect(replayMonth(onPace)).toEqual([]);
+});
+
+test("an over-pace month alerts from day three, once a day, then low near the end", () => {
+  const alerts = replayMonth(overPace);
+  const pace = alerts.filter(({ kind }) => kind === "credits_pace");
+
+  // 50.9h in: the first reading past the 48h grace window.
+  expect(pace[0].at).toBe("2026-10-03T02:51:56.746Z");
+  expect(pace[0].detail).toContain("projecting 99257 (99.3%)");
+  expect(pace.map(({ at }) => at.slice(0, 10))).toEqual(
+    [...new Set(overPace.map(({ at }) => at.slice(0, 10)))].filter((day) => day >= "2026-10-03"),
+  );
+  // Below 5%, a day later, then below a quarter of that.
+  expect(alerts.filter(({ kind }) => kind === "credits_low").map(({ at }) => at)).toEqual([
+    "2026-10-29T20:51:56.746Z",
+    "2026-10-30T20:51:56.746Z",
+    "2026-10-30T23:51:56.746Z",
+  ]);
+});
+
+test("pace ignores the month's first 48h, then alerts on the same rate", () => {
+  // 6,000 used 36h in projects 124k, but `used` may still be September's
+  // total or a restart burst this early.
+  const early = line("2026-10-02T12:00:00.000Z", "INFO (#65): COINGECKO_CREDITS plan=Basic limit=100000 used=6000 remaining=94000 remaining_pct=94.0");
+  expect(kinds([early], {}, at("2026-10-02T12:05:00Z"))).toEqual([]);
+
+  const past = line("2026-10-03T00:00:00.000Z", "INFO (#65): COINGECKO_CREDITS plan=Basic limit=100000 used=8000 remaining=92000 remaining_pct=92.0");
+  expect(kinds([past], {}, at("2026-10-03T00:05:00Z"))).toEqual(["credits_pace"]);
+});
+
+test("pace projects from the 1st, 00:00 UTC to the next 1st", () => {
+  // 30-day September: 47,500 used at the half-way point is exactly 95,000.
+  expect(projectMonthEnd(47_500, "2026-09-16T00:00:00.000Z").projected).toBe(95_000);
+  const atLine = (used: number) =>
+    line("2026-09-16T00:00:00.000Z", `INFO (#65): COINGECKO_CREDITS plan=Basic limit=100000 used=${used} remaining=${100_000 - used} remaining_pct=50.0`);
+  expect(kinds([atLine(47_500)], {}, at("2026-09-16T00:05:00Z"))).toEqual([]);
+  expect(kinds([atLine(47_501)], {}, at("2026-09-16T00:05:00Z"))).toEqual(["credits_pace"]);
 });

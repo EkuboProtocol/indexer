@@ -10,9 +10,19 @@
  *                    every six hours while the limit holds, and a Paperclip
  *                    issue per trip is noise during a known outage. A trip the
  *                    recovery came after belongs to the outage that just ended.
+ *   credits_pace     The latest `COINGECKO_CREDITS` reading, extrapolated at
+ *                    the month's average rate so far, uses more than
+ *                    PACE_ALERT_FRACTION of the limit by the next reset on the
+ *                    1st, 00:00 UTC. Quiet for the first PACE_GRACE_MS of the
+ *                    month, while `used` may still be last month's total
+ *                    (CoinGecko replenishes a little after midnight) and a
+ *                    restart's burst would dominate the average. Re-alerts at
+ *                    most once a day.
  *   credits_low      The latest `COINGECKO_CREDITS` reading has remaining_pct
  *                    below `lowPct`. Re-alerts at most once a day unless it
- *                    falls below a quarter of that.
+ *                    falls below a quarter of that. A backstop for what pace
+ *                    cannot see (the first two days, a broken reset), so the
+ *                    monitor's default sits below an on-pace month's end.
  *   credits_stale    No `COINGECKO_CREDITS` line for `staleMs` since the last
  *                    one seen, or the last two checks failed. Armed by the first
  *                    reading ever seen. Suppressed while the newest check failed
@@ -36,13 +46,20 @@ export interface QuotaMonitorState {
   lastCreditsLine?: string;
   lastLowAlertAt?: string; // wall clock of the last credits_low alert
   lastLowAlertPct?: number;
+  lastPaceAlertAt?: string; // wall clock of the last credits_pace alert
   lastStaleAlertAt?: string;
   consecutiveCheckFailures?: number;
   firstRunAt?: string;
 }
 
 export interface Finding {
-  kind: "quota_exhausted" | "credits_low" | "credits_stale" | "check_failed" | "test";
+  kind:
+    | "quota_exhausted"
+    | "credits_pace"
+    | "credits_low"
+    | "credits_stale"
+    | "check_failed"
+    | "test";
   detail: string;
 }
 
@@ -54,6 +71,12 @@ export interface RuleOptions {
 export const REALERT_MS = 24 * 3_600_000;
 const STALE_REALERT_MS = 6 * 3_600_000;
 const LOW_REALERT_MS = 24 * 3_600_000;
+const PACE_REALERT_MS = 24 * 3_600_000;
+export const PACE_GRACE_MS = 48 * 3_600_000;
+export const PACE_ALERT_FRACTION = 0.95;
+// credits_pace gives the early warning. At 5% a month on pace to end at
+// 80-89k used never trips credits_low (EKU-557).
+export const DEFAULT_LOW_PCT = 5;
 
 // `token-price-sync 2026-09-29T14:44:30.353667580Z [..] ERROR (#56): ...`
 const LINE = /^\S+ (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z) (.*)$/;
@@ -69,11 +92,16 @@ export function parseLines(output: string): LogLine[] {
 function parseCredits(text: string) {
   const field = (name: string) => new RegExp(`\\b${name}=(\\S+)`).exec(text)?.[1];
   const pct = Number(field("remaining_pct"));
-  const remaining = Number(field("remaining"));
+  const count = (name: string) => {
+    const value = Number(field(name) ?? NaN);
+    return Number.isFinite(value) ? value : undefined;
+  };
   return {
     remaining: field("remaining"),
-    remainingCount: Number.isFinite(remaining) ? remaining : undefined,
+    remainingCount: count("remaining"),
+    usedCount: count("used"),
     limit: field("limit"),
+    limitCount: count("limit"),
     remainingPct: Number.isFinite(pct) ? pct : undefined,
   };
 }
@@ -124,6 +152,49 @@ function quotaFinding(lines: LogLine[], state: QuotaMonitorState): Finding | und
 
   state.lastQuotaAlertAt = exhausted.at;
   return { kind: "quota_exhausted", detail: `${exhausted.at} ${exhausted.text.slice(0, 300)}` };
+}
+
+/**
+ * Credits used by the next reset if the rest of the month burns at the
+ * average rate since the 1st, 00:00 UTC, as of the reading at `atIso`.
+ */
+export function projectMonthEnd(used: number, atIso: string) {
+  const at = new Date(atIso);
+  const monthStart = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1);
+  const nextReset = Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 1);
+  const elapsedMs = at.getTime() - monthStart;
+  return {
+    elapsedMs,
+    perDay: elapsedMs > 0 ? (used * 86_400_000) / elapsedMs : Infinity,
+    projected: elapsedMs > 0 ? (used * (nextReset - monthStart)) / elapsedMs : Infinity,
+    nextReset: new Date(nextReset).toISOString(),
+  };
+}
+
+function paceFinding(
+  latestReading: LogLine | undefined,
+  state: QuotaMonitorState,
+  now: Date,
+): Finding | undefined {
+  if (!latestReading) return undefined;
+  const { usedCount: used, limitCount: limit } = parseCredits(latestReading.text);
+  if (used === undefined || limit === undefined || limit <= 0) return undefined;
+
+  const { elapsedMs, perDay, projected, nextReset } = projectMonthEnd(used, latestReading.at);
+  if (elapsedMs < PACE_GRACE_MS || projected <= PACE_ALERT_FRACTION * limit) return undefined;
+
+  const lastPace = state.lastPaceAlertAt ? Date.parse(state.lastPaceAlertAt) : 0;
+  if (now.getTime() - lastPace < PACE_REALERT_MS) return undefined;
+
+  state.lastPaceAlertAt = now.toISOString();
+  const pct = (value: number) => `${Math.round((value / limit) * 1000) / 10}%`;
+  return {
+    kind: "credits_pace",
+    detail:
+      `used ${used}/${limit} at ${latestReading.at} is ${Math.round(perDay)}/day, ` +
+      `projecting ${Math.round(projected)} (${pct(projected)}) by the ${nextReset} reset, ` +
+      `above ${pct(PACE_ALERT_FRACTION * limit)}`,
+  };
 }
 
 function lowFinding(
@@ -217,6 +288,7 @@ export function evaluate(
 
   const findings = [
     quota,
+    paceFinding(latestReading, state, now),
     lowFinding(latestReading, state, now, lowPct),
     staleFinding(creditLines, state, now, staleMs),
   ].filter((finding): finding is Finding => finding !== undefined);
