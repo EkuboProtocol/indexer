@@ -62,6 +62,15 @@ test("a trip after credits were seen back alerts at once", () => {
   ]);
 });
 
+test("a re-trip the recovery came after stays quiet", () => {
+  // EKU-554: the last six-hourly re-trip before the monthly reset, read
+  // together with the credit check that reopened the gate an hour later.
+  const retrip = line(later(TRIP_AT, 6 * 3_600_000), "ERROR (#7): COINGECKO_QUOTA_EXHAUSTED …");
+  const restored = line(later(TRIP_AT, 7 * 3_600_000), "INFO (#65): COINGECKO_QUOTA_RESTORED credits available: remaining=100000");
+
+  expect(kinds([...gated, retrip, restored], { lastQuotaAlertAt: TRIP_AT })).toEqual([]);
+});
+
 test("legacy job failures alert, then respect the re-alert window", () => {
   expect(kinds(legacy, {})).toEqual(["quota_exhausted"]);
   expect(kinds(legacy, { lastQuotaAlertAt: "2026-09-29T14:40:00.000Z" })).toEqual([]);
