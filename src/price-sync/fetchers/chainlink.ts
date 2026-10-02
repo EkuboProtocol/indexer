@@ -38,7 +38,7 @@ type ChainlinkTokenRow = {
 // An upper bound on how long any single observation may be considered fresh.
 const MAX_PRICE_VALIDITY_MS = 30 * 24 * 60 * 60 * 1_000;
 
-// How far a discovered feed may sit from every other current price for its
+// How far a discovered feed may sit from every other recent price for its
 // token before it is taken to be pricing a different asset. Catalog discovery
 // matches on symbol alone, and cl1 outranks every source but the quoter, so a
 // collision does not merely add a wrong row: it replaces the right price. The
@@ -56,9 +56,9 @@ function usableReferencePrices(referencePrices: readonly number[]): number[] {
 
 /**
  * Whether a Chainlink answer is plausibly the same asset as the token's other
- * current prices. One agreeing source is enough, since a single bad source
+ * recent prices. One agreeing source is enough, since a single bad source
  * (a quoter routed through a thin pool, say) must not veto a good feed. A
- * token with no other current price has nothing to disagree with.
+ * token with no other recent price has nothing to disagree with.
  */
 export function agreesWithReferencePrices(
   usdPrice: number,
@@ -148,8 +148,21 @@ type ReferencePriceRow = {
   value: number;
 };
 
-// Every other source's current price for the given tokens. Expired rows are
-// left out: a price that no longer serves is no evidence either way.
+// How long after a reference price stops serving it still counts as evidence.
+// A source does not stop pricing a token for good when its row lapses: SushiSwap
+// drops dozens of mainnet tokens from its list for four to six minutes several
+// times an hour, against a validity of three, and the worst lapse seen is
+// seventeen minutes. Judging only against prices valid right now would publish
+// a withheld feed in each such gap, and its row would then serve for the feed's
+// staleness window, hours or days, long after the reference came back. Reading
+// the verdict from the database rather than remembering it also keeps it
+// across a restart, which every merge causes. A reference that lapsed longer
+// ago than this is taken to be gone, and the feed is published unchecked.
+const REFERENCE_LOOKBACK_MS = 60 * 60 * 1_000;
+
+// Every other source's recent price for the given tokens: current, or lapsed
+// within the lookback. Older rows are left out: a price that stopped serving
+// that long ago is no evidence either way.
 function fetchReferencePrices(
   sql: Sql<{ bigint: bigint }>,
   chainId: bigint,
@@ -165,7 +178,7 @@ function fetchReferencePrices(
       WHERE chain_id = ${chainId}
         AND token_address IN ${sql(tokenAddresses.map((a) => BigInt(a).toString()))}
         AND source <> ${SOURCE}
-        AND valid_until > NOW()
+        AND valid_until > ${new Date(Date.now() - REFERENCE_LOOKBACK_MS)}
     `,
   }).pipe(
     Effect.map((rows) => {
@@ -269,7 +282,7 @@ export function chainlinkPriceFetcher({
     ),
   );
 
-  // Drops discovered feeds whose answer disagrees with every other current
+  // Drops discovered feeds whose answer disagrees with every other recent
   // price for their token. Configured feeds are an operator's explicit choice
   // and are kept as they are.
   const withholdCollisions = Effect.fn("chainlink.withholdCollisions")(
@@ -314,7 +327,7 @@ export function chainlinkPriceFetcher({
       if (uncheckedSummary !== lastUncheckedSummary) {
         lastUncheckedSummary = uncheckedSummary;
         yield* Effect.logInfo(
-          `Chainlink on chain ${chainId} cannot check ${unchecked.length} discovered feeds, which have no other current price for their token${
+          `Chainlink on chain ${chainId} cannot check ${unchecked.length} discovered feeds, which have no other recent price for their token${
             uncheckedSummary ? `: ${uncheckedSummary}` : ""
           }`,
         );

@@ -168,14 +168,22 @@ const feedAnswers: Record<string, number> = {
 
 const IN_LIST = Symbol("sql(list)");
 
+type ReferenceRow = {
+  token_address: string;
+  value: number;
+  // Defaults to never lapsing.
+  valid_until?: Date;
+};
+
 /**
  * Enough of `postgres` to answer the two queries the fetcher makes, holding
  * addresses the way the database does. A reference row is returned only when
  * its numeric address is in the list the fetcher asked for, so the test fails
  * if the hex observation keys stop matching the stored form in either
- * direction.
+ * direction. Its validity is compared with the cutoff the fetcher passes, or
+ * with the present if the query compares against `NOW()` instead.
  */
-function stubSql(references: { token_address: string; value: number }[]) {
+function stubSql(references: ReferenceRow[]) {
   return ((first: unknown, ...values: unknown[]) => {
     if (!(Array.isArray(first) && "raw" in first)) return { [IN_LIST]: first };
     const query = first.join("?");
@@ -184,8 +192,17 @@ function stubSql(references: { token_address: string; value: number }[]) {
         (value): value is { [IN_LIST]: string[] } =>
           typeof value === "object" && value !== null && IN_LIST in value,
       )![IN_LIST];
+      const cutoff =
+        values.find((value): value is Date => value instanceof Date) ??
+        new Date();
       return Promise.resolve(
-        references.filter((row) => list.includes(row.token_address)),
+        references
+          .filter(
+            (row) =>
+              list.includes(row.token_address) &&
+              (row.valid_until?.getTime() ?? Infinity) > cutoff.getTime(),
+          )
+          .map(({ token_address, value }) => ({ token_address, value })),
       );
     }
     if (query.includes("FROM erc20_tokens")) {
@@ -210,7 +227,7 @@ const readFeedPrices = async (
     ]),
   );
 
-function collidingJob(references: { token_address: string; value: number }[]) {
+function collidingJob(references: ReferenceRow[]) {
   return chainlinkPriceFetcher({
     sql: stubSql(references),
     chainId: 42161n,
@@ -272,7 +289,7 @@ test("a discovered feed that disagrees with its token's other prices is withheld
 
 test("discovered feeds with no other price are named once, when the set changes", async () => {
   const job = collidingJob(referencePrices);
-  const unchecked = `Chainlink on chain 42161 cannot check 1 discovered feeds, which have no other current price for their token: ${unpriced}`;
+  const unchecked = `Chainlink on chain 42161 cannot check 1 discovered feeds, which have no other recent price for their token: ${unpriced}`;
 
   const first = await poll(job);
   expect(first.logs).toContain(unchecked);
@@ -286,4 +303,45 @@ test("discovered feeds with no other price are named once, when the set changes"
     [],
   );
   expect(second.logs.filter((line) => line.includes("withholds"))).toEqual([]);
+});
+
+const minutesFromNow = (minutes: number) =>
+  new Date(Date.now() + minutes * 60_000);
+
+test("a withheld feed stays withheld while its only reference has lapsed", async () => {
+  const references: ReferenceRow[] = [
+    // AAA's only other price, off by 100x.
+    { token_address: "161", value: 1, valid_until: minutesFromNow(3) },
+  ];
+  const job = collidingJob(references);
+  expect((await poll(job)).updated).not.toContain("0xa1");
+
+  // The source drops the token from its list for a few minutes, as SushiSwap
+  // does several times an hour: its last row stays, past its validity.
+  references[0] = { ...references[0], valid_until: minutesFromNow(-5) };
+  expect((await poll(job)).updated).not.toContain("0xa1");
+  // Nor does a restart in the gap publish it: the verdict is not held in
+  // memory.
+  expect((await poll(collidingJob(references))).updated).not.toContain("0xa1");
+
+  // One agreeing price is enough to publish the feed.
+  references.push({
+    token_address: "161",
+    value: 99,
+    valid_until: minutesFromNow(3),
+  });
+  expect((await poll(job)).updated).toEqual(["0xa1"]);
+});
+
+test("a reference that lapsed more than an hour ago no longer withholds a feed", async () => {
+  const references: ReferenceRow[] = [
+    { token_address: "161", value: 1, valid_until: minutesFromNow(-61) },
+    { token_address: "162", value: 101 },
+  ];
+  const { updated, logs } = await poll(collidingJob(references));
+
+  expect(updated).toContain("0xa1");
+  expect(logs).toContain(
+    `Chainlink on chain 42161 cannot check 2 discovered feeds, which have no other recent price for their token: ${collides}, ${unpriced}`,
+  );
 });
