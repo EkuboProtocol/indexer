@@ -26,6 +26,8 @@ interface ChainlinkPriceFetcherOptions {
   config: ChainlinkChainConfig;
   catalogRefreshIntervalMs: number;
   catalogCache: ChainlinkCatalogCache;
+  /** Test seam: reads the feeds on chain. */
+  readFeedPrices?: typeof fetchChainlinkTokenPrices;
 }
 
 type ChainlinkTokenRow = {
@@ -47,6 +49,11 @@ const MAX_PRICE_VALIDITY_MS = 30 * 24 * 60 * 60 * 1_000;
 // keeps the price it would have had without Chainlink.
 const MAX_REFERENCE_RATIO = 1.25;
 
+// A zero or non-finite reference is no evidence either way.
+function usableReferencePrices(referencePrices: readonly number[]): number[] {
+  return referencePrices.filter((p) => Number.isFinite(p) && p > 0);
+}
+
 /**
  * Whether a Chainlink answer is plausibly the same asset as the token's other
  * current prices. One agreeing source is enough, since a single bad source
@@ -57,7 +64,7 @@ export function agreesWithReferencePrices(
   usdPrice: number,
   referencePrices: readonly number[],
 ): boolean {
-  const usable = referencePrices.filter((p) => Number.isFinite(p) && p > 0);
+  const usable = usableReferencePrices(referencePrices);
   if (usable.length === 0) return true;
   return usable.some(
     (p) => Math.max(usdPrice / p, p / usdPrice) <= MAX_REFERENCE_RATIO,
@@ -104,6 +111,13 @@ function formatSkippedFeeds(skipped: ReadonlyMap<string, number>): string {
 // unlike the numeric form the database stores prices under.
 function toEvmAddress(address: string): `0x${string}` {
   return `0x${BigInt(address).toString(16).padStart(40, "0")}`;
+}
+
+function summarizeAddresses(addresses: readonly string[]): string {
+  return addresses
+    .map((address) => address.toLowerCase())
+    .sort()
+    .join(", ");
 }
 
 function fetchChainlinkTokens(
@@ -172,10 +186,12 @@ export function chainlinkPriceFetcher({
   config,
   catalogRefreshIntervalMs,
   catalogCache,
+  readFeedPrices = fetchChainlinkTokenPrices,
 }: ChainlinkPriceFetcherOptions): PriceSyncJob {
   const shouldReportRound = makeChainlinkRoundTracker();
   let lastFeedSummary: string | undefined;
   let lastWithheldSummary = "";
+  let lastUncheckedSummary = "";
 
   // Validity is anchored at the round's own updatedAt and extends through the
   // feed's staleness window -- mirroring the read-side contract -- floored at
@@ -266,26 +282,40 @@ export function chainlinkPriceFetcher({
       );
       const references = yield* fetchReferencePrices(sql, chainId, checked);
 
+      const referencesFor = (address: string) =>
+        references.get(address.toLowerCase()) ?? [];
       const withheld = checked.filter(
         (address) =>
           !agreesWithReferencePrices(
             observations[address].usdPrice,
-            references.get(address.toLowerCase()) ?? [],
+            referencesFor(address),
           ),
+      );
+      // The guard's blind spot. A symbol collision on a token nothing else
+      // prices is published unchecked, so these are the feeds to look at by
+      // hand: Arbitrum's LIT and RON and Optimism's GMX were all of this kind.
+      const unchecked = checked.filter(
+        (address) => usableReferencePrices(referencesFor(address)).length === 0,
       );
 
       // Logged when the set changes, like the discovery summary: a collision
       // persists from one poll to the next, and saying so every minute would
       // bury the line that matters.
-      const summary = withheld
-        .map((address) => address.toLowerCase())
-        .sort()
-        .join(", ");
-      if (summary !== lastWithheldSummary) {
-        lastWithheldSummary = summary;
+      const withheldSummary = summarizeAddresses(withheld);
+      if (withheldSummary !== lastWithheldSummary) {
+        lastWithheldSummary = withheldSummary;
         yield* Effect.logInfo(
           `Chainlink on chain ${chainId} withholds ${withheld.length} discovered feeds that disagree with every other price for their token${
-            summary ? `: ${summary}` : ""
+            withheldSummary ? `: ${withheldSummary}` : ""
+          }`,
+        );
+      }
+      const uncheckedSummary = summarizeAddresses(unchecked);
+      if (uncheckedSummary !== lastUncheckedSummary) {
+        lastUncheckedSummary = uncheckedSummary;
+        yield* Effect.logInfo(
+          `Chainlink on chain ${chainId} cannot check ${unchecked.length} discovered feeds, which have no other current price for their token${
+            uncheckedSummary ? `: ${uncheckedSummary}` : ""
           }`,
         );
       }
@@ -318,8 +348,7 @@ export function chainlinkPriceFetcher({
       yield* tryPriceSync({
         source: SOURCE,
         operation: `read feed prices for chain ${chainId}`,
-        try: () =>
-          fetchChainlinkTokenPrices(chainId.toString(), { ...config, feeds }),
+        try: () => readFeedPrices(chainId.toString(), { ...config, feeds }),
       }),
       discovered,
     );

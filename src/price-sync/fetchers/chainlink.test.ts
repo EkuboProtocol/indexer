@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Effect, Stream } from "effect";
+import { Effect, Logger, Stream } from "effect";
 import type { Sql } from "postgres";
 import {
   agreesWithReferencePrices,
@@ -7,6 +7,10 @@ import {
   makeChainlinkRoundTracker,
 } from "./chainlink";
 import { makeChainlinkCatalogCache } from "./chainlinkCatalog";
+import type {
+  ChainlinkChainConfig,
+  ChainlinkPriceObservation,
+} from "./chainlinkFeeds";
 
 const tokenAddress = "0x0000000000000000000000000000000000000001";
 const feedAddress = "0x0000000000000000000000000000000000000002";
@@ -120,4 +124,166 @@ test("a token with no other current price keeps its feed", () => {
   expect(agreesWithReferencePrices(8.12, [])).toBe(true);
   // A zero or non-finite reference is no evidence either way.
   expect(agreesWithReferencePrices(8.12, [0, Number.NaN])).toBe(true);
+});
+
+// Four tokens, as `erc20_tokens` stores them: the address is numeric text.
+// Three are priced by catalog discovery and one by configuration.
+const collides = "0x00000000000000000000000000000000000000a1";
+const agrees = "0x00000000000000000000000000000000000000a2";
+const unpriced = "0x00000000000000000000000000000000000000a3";
+const configured = "0x00000000000000000000000000000000000000A4";
+const indexedTokens = [
+  { token_address: "161", token_symbol: "AAA" },
+  { token_address: "162", token_symbol: "BBB" },
+  { token_address: "163", token_symbol: "CCC" },
+  { token_address: "164", token_symbol: "DDD" },
+];
+
+const catalogEntry = (symbol: string, proxy: string) => ({
+  proxyAddress: proxy,
+  heartbeat: 3600,
+  path: `${symbol.toLowerCase()}-usd`,
+  feedCategory: "low",
+  docs: {
+    baseAsset: symbol,
+    quoteAsset: "USD",
+    deliveryChannelCode: "DF",
+    productType: "Price",
+    productTypeCode: "RefPrice",
+  },
+});
+const catalog = [
+  catalogEntry("AAA", "0x00000000000000000000000000000000000000f1"),
+  catalogEntry("BBB", "0x00000000000000000000000000000000000000f2"),
+  catalogEntry("CCC", "0x00000000000000000000000000000000000000f3"),
+];
+
+// What each feed answers, by proxy.
+const feedAnswers: Record<string, number> = {
+  "0x00000000000000000000000000000000000000f1": 100,
+  "0x00000000000000000000000000000000000000f2": 100,
+  "0x00000000000000000000000000000000000000f3": 100,
+  "0x00000000000000000000000000000000000000f4": 100,
+};
+
+const IN_LIST = Symbol("sql(list)");
+
+/**
+ * Enough of `postgres` to answer the two queries the fetcher makes, holding
+ * addresses the way the database does. A reference row is returned only when
+ * its numeric address is in the list the fetcher asked for, so the test fails
+ * if the hex observation keys stop matching the stored form in either
+ * direction.
+ */
+function stubSql(references: { token_address: string; value: number }[]) {
+  return ((first: unknown, ...values: unknown[]) => {
+    if (!(Array.isArray(first) && "raw" in first)) return { [IN_LIST]: first };
+    const query = first.join("?");
+    if (query.includes("erc20_tokens_latest_price_by_source")) {
+      const list = values.find(
+        (value): value is { [IN_LIST]: string[] } =>
+          typeof value === "object" && value !== null && IN_LIST in value,
+      )![IN_LIST];
+      return Promise.resolve(
+        references.filter((row) => list.includes(row.token_address)),
+      );
+    }
+    if (query.includes("FROM erc20_tokens")) {
+      return Promise.resolve(indexedTokens);
+    }
+    throw new Error(`unexpected query: ${query}`);
+  }) as unknown as Sql<{ bigint: bigint }>;
+}
+
+const round = new Date("2026-10-02T00:00:00Z");
+const readFeedPrices = async (
+  _chainId: string,
+  config: ChainlinkChainConfig,
+): Promise<Record<string, ChainlinkPriceObservation>> =>
+  Object.fromEntries(
+    config.feeds.map((feed) => [
+      feed.tokenAddress,
+      {
+        usdPrice: feedAnswers[feed.feedAddress.toLowerCase()],
+        timestamp: round,
+      },
+    ]),
+  );
+
+function collidingJob(references: { token_address: string; value: number }[]) {
+  return chainlinkPriceFetcher({
+    sql: stubSql(references),
+    chainId: 42161n,
+    intervalMs: 60_000,
+    config: {
+      rpcUrls: ["https://rpc.invalid"],
+      catalogUrl: "https://catalog.invalid/feeds.json",
+      feeds: [
+        {
+          tokenAddress: configured,
+          feedAddress: "0x00000000000000000000000000000000000000f4",
+          maxAgeSeconds: 3600,
+        },
+      ],
+    },
+    catalogRefreshIntervalMs: 3_600_000,
+    catalogCache: () => Effect.succeed(catalog),
+    readFeedPrices,
+  });
+}
+
+async function poll(job: ReturnType<typeof chainlinkPriceFetcher>) {
+  const logs: string[] = [];
+  const collector = Logger.make(({ message }) => {
+    logs.push((Array.isArray(message) ? message : [message]).join(" "));
+  });
+  const batches = await Effect.runPromise(
+    Stream.runCollect(job.fetch).pipe(
+      Effect.provide(Logger.layer([collector])),
+    ),
+  );
+  const updated = [...batches]
+    .flat()
+    .map(({ tokenAddress }) => tokenAddress)
+    .sort();
+  return { updated, logs };
+}
+
+const referencePrices = [
+  // Off by 100x: the AAA feed is pricing some other asset.
+  { token_address: "161", value: 1 },
+  // Within a few percent.
+  { token_address: "162", value: 101 },
+  // CCC has no other price at all.
+  // The configured feed disagrees too, and is kept regardless.
+  { token_address: "164", value: 1 },
+];
+
+test("a discovered feed that disagrees with its token's other prices is withheld", async () => {
+  const { updated, logs } = await poll(collidingJob(referencePrices));
+
+  // AAA (0xa1) is withheld; the agreeing, the unchecked and the configured
+  // feed all report.
+  expect(updated).toEqual(["0xa2", "0xa3", "0xa4"]);
+  expect(logs).toContain(
+    `Chainlink on chain 42161 withholds 1 discovered feeds that disagree with every other price for their token: ${collides}`,
+  );
+});
+
+test("discovered feeds with no other price are named once, when the set changes", async () => {
+  const job = collidingJob(referencePrices);
+  const unchecked = `Chainlink on chain 42161 cannot check 1 discovered feeds, which have no other current price for their token: ${unpriced}`;
+
+  const first = await poll(job);
+  expect(first.logs).toContain(unchecked);
+  // Only CCC: an agreeing or a withheld feed was checked, and the configured
+  // feed is not the guard's to check.
+  expect(first.logs.join("\n")).not.toContain(agrees);
+
+  // The same set on the next poll says nothing.
+  const second = await poll(job);
+  expect(second.logs.filter((line) => line.includes("cannot check"))).toEqual(
+    [],
+  );
+  expect(second.logs.filter((line) => line.includes("withholds"))).toEqual([]);
 });
