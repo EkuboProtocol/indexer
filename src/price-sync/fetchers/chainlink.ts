@@ -204,7 +204,7 @@ export function chainlinkPriceFetcher({
   const shouldReportRound = makeChainlinkRoundTracker();
   let lastFeedSummary: string | undefined;
   let lastWithheldSummary = "";
-  let lastUncheckedSummary = "";
+  const everUnchecked = new Set<string>();
 
   // Validity is anchored at the round's own updatedAt and extends through the
   // feed's staleness window -- mirroring the read-side contract -- floored at
@@ -323,12 +323,24 @@ export function chainlinkPriceFetcher({
           }`,
         );
       }
-      const uncheckedSummary = summarizeAddresses(unchecked);
-      if (uncheckedSummary !== lastUncheckedSummary) {
-        lastUncheckedSummary = uncheckedSummary;
+      // Logged only when a feed joins the set that was never in it before,
+      // rather than whenever the set changes. A token can leave and rejoin as
+      // its only other price lapses for longer than the lookback and returns,
+      // and naming the whole set each time would bury a feed that is new
+      // among lines that only report an expiry. The first line still
+      // names the full set, and each later one names it again with the
+      // newcomers called out.
+      const newlyUnchecked = unchecked.filter(
+        (address) => !everUnchecked.has(address.toLowerCase()),
+      );
+      if (newlyUnchecked.length > 0) {
+        const isFirst = everUnchecked.size === 0;
+        for (const address of newlyUnchecked) {
+          everUnchecked.add(address.toLowerCase());
+        }
         yield* Effect.logInfo(
-          `Chainlink on chain ${chainId} cannot check ${unchecked.length} discovered feeds, which have no other recent price for their token${
-            uncheckedSummary ? `: ${uncheckedSummary}` : ""
+          `Chainlink on chain ${chainId} cannot check ${unchecked.length} discovered feeds, which have no other recent price for their token: ${summarizeAddresses(unchecked)}${
+            isFirst ? "" : ` (new: ${summarizeAddresses(newlyUnchecked)})`
           }`,
         );
       }

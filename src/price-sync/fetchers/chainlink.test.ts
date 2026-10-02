@@ -345,3 +345,30 @@ test("a reference that lapsed more than an hour ago no longer withholds a feed",
     `Chainlink on chain 42161 cannot check 2 discovered feeds, which have no other recent price for their token: ${collides}, ${unpriced}`,
   );
 });
+
+test("a feed that leaves the unchecked set and returns is not named again", async () => {
+  const references = [...referencePrices];
+  const job = collidingJob(references);
+  const uncheckedLines = async () =>
+    (await poll(job)).logs.filter((line) => line.includes("cannot check"));
+
+  expect(await uncheckedLines()).toEqual([
+    `Chainlink on chain 42161 cannot check 1 discovered feeds, which have no other recent price for their token: ${unpriced}`,
+  ]);
+
+  // CCC gains another price, then loses it again, as a token does when its
+  // only other source stops pricing it for longer than the lookback.
+  references.push({ token_address: "163", value: 100 });
+  expect(await uncheckedLines()).toEqual([]);
+  references.pop();
+  expect(await uncheckedLines()).toEqual([]);
+
+  // BBB has never been unchecked, so losing its only price is news.
+  references.splice(
+    references.findIndex((row) => row.token_address === "162"),
+    1,
+  );
+  expect(await uncheckedLines()).toEqual([
+    `Chainlink on chain 42161 cannot check 2 discovered feeds, which have no other recent price for their token: ${agrees}, ${unpriced} (new: ${agrees})`,
+  ]);
+});
