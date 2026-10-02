@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   chainlinkFeedMaxAgeSeconds,
   discoverChainlinkFeeds,
+  discoverChainlinkFeedsDetailed,
   fetchChainlinkFeedCatalog,
   fetchChainlinkTokenPricesWithMulticall,
   parseChainlinkPriceConfig,
@@ -446,5 +447,111 @@ describe("verifiedClient", () => {
     const client = await verifiedClient("1", ["https://flaky"], create);
     expect(client).toBeDefined();
     expect(attempt).toBe(2);
+  });
+});
+
+describe("discoverChainlinkFeedsDetailed", () => {
+  const usable = {
+    proxyAddress: feedAddress,
+    heartbeat: 1200,
+    path: "eth-usd",
+    feedCategory: "low",
+    docs: {
+      baseAsset: "ETH",
+      quoteAsset: "USD",
+      deliveryChannelCode: "DF",
+      productType: "Price",
+      productTypeCode: "RefPrice",
+    },
+  };
+  const ethToken = { address: tokenAddress, symbol: "ETH" };
+
+  test("names the rule that rejected an entry", () => {
+    // The rule table used to pair each rule with a name and then discard the
+    // names, so a feed that failed to appear could not be traced to the rule
+    // that rejected it.
+    const { feeds, skipped } = discoverChainlinkFeedsDetailed(
+      [
+        { ...usable, feedCategory: "deprecating" },
+        { ...usable, heartbeat: 1e13 },
+        { ...usable, proxyAddress: "not-an-address" },
+      ],
+      [ethToken],
+    );
+
+    expect(feeds).toEqual([]);
+    const reasons = [...skipped.keys()].join(" | ");
+    expect(reasons).toContain("is not deprecating");
+    expect(reasons).toContain("has a usable heartbeat");
+    expect(reasons).toContain("has a proxy address");
+  });
+
+  test("reports the field a structural rule wanted", () => {
+    // Asserted on the parts this code chooses, not on Effect's exact wording:
+    // the schema formatter is free to reword between releases.
+    const { skipped } = discoverChainlinkFeedsDetailed(
+      [{ ...usable, docs: { ...usable.docs, quoteAsset: "EUR" } }],
+      [ethToken],
+    );
+    const reason = [...skipped.keys()][0];
+    expect(reason).toContain("quoteAsset");
+    expect(reason).toContain("USD");
+  });
+
+  test("counts entries that fail for the same reason", () => {
+    // A production catalog rejects most of what it carries, so the reasons are
+    // only readable as counts.
+    const { skipped } = discoverChainlinkFeedsDetailed(
+      [
+        { ...usable, docs: { ...usable.docs, quoteAsset: "EUR" } },
+        { ...usable, docs: { ...usable.docs, quoteAsset: "GBP" } },
+        { ...usable, feedCategory: "deprecating" },
+      ],
+      [ethToken],
+    );
+
+    const countOf = (needle: string) =>
+      [...skipped].find(([reason]) => reason.includes(needle))?.[1];
+    expect(countOf("quoteAsset")).toBe(2);
+    expect(countOf("is not deprecating")).toBe(1);
+  });
+
+  test("reports the two silent drops that are not rule failures", () => {
+    // A symbol the indexer does not carry uniquely, and two feeds of equal
+    // rank where picking either would be a guess. Both are ordinary outcomes,
+    // and both were previously invisible.
+    const ambiguousSymbol = discoverChainlinkFeedsDetailed(
+      [usable],
+      [
+        ethToken,
+        { address: "0x0000000000000000000000000000000000000003", symbol: "ETH" },
+      ],
+    );
+    expect(ambiguousSymbol.feeds).toEqual([]);
+    expect(
+      ambiguousSymbol.skipped.get("matches exactly one indexed token"),
+    ).toBe(1);
+
+    const tied = discoverChainlinkFeedsDetailed(
+      [
+        usable,
+        {
+          ...usable,
+          proxyAddress: "0x0000000000000000000000000000000000000009",
+        },
+      ],
+      [ethToken],
+    );
+    expect(tied.feeds).toEqual([]);
+    expect(tied.skipped.get("outranks the other feeds for its symbol")).toBe(1);
+  });
+
+  test("reports nothing when every entry becomes a feed", () => {
+    const { feeds, skipped } = discoverChainlinkFeedsDetailed(
+      [usable],
+      [ethToken],
+    );
+    expect(feeds).toEqual([{ tokenAddress, feedAddress, maxAgeSeconds: 2400 }]);
+    expect(skipped.size).toBe(0);
   });
 });
