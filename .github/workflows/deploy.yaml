@@ -17,6 +17,7 @@ jobs:
       contents: read
       packages: write
     env:
+      DOCTL_VERSION: 1.177.0
       IMAGE_REPOSITORY: ghcr.io/ekuboprotocol/indexer
       IMAGE_TAG: ${{ github.sha }}
     steps:
@@ -25,9 +26,23 @@ jobs:
       - run: bun ci
       - run: bun test --timeout 15000
 
+      # Pinned: with `latest` the action asks the GitHub API for the newest
+      # release and silently falls back to v1.98.1 when that call fails, which
+      # rejects the `vpc` field in .do/app.yaml (EKU-630). A failed download of
+      # the pinned version also falls back, so the next step checks it.
       - uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DO_ACCESS_TOKEN }}
+          version: ${{ env.DOCTL_VERSION }}
+
+      - name: Check doctl version
+        run: |
+          installed=$(doctl version | head -n1)
+          echo "$installed"
+          if [ "$installed" != "doctl version ${DOCTL_VERSION}-release" ]; then
+            echo "::error::expected doctl ${DOCTL_VERSION}, got: $installed"
+            exit 1
+          fi
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
