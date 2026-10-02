@@ -72,6 +72,37 @@ describe("parseChainlinkPriceConfig", () => {
   });
 });
 
+describe("parseChainlinkPriceConfig excludeTokens", () => {
+  test("parses excluded tokens", () => {
+    const config = parseChainlinkPriceConfig(
+      JSON.stringify({
+        "10": {
+          rpcUrls: ["https://rpc.example"],
+          catalogUrl: "https://catalog.example/feeds.json",
+          excludeTokens: ["0xcef8a7008310a15b1b1489d88b0e6fe51329b05a"],
+        },
+      }),
+    );
+    expect(config["10"].excludeTokens).toEqual([
+      "0xCEf8A7008310A15b1B1489D88b0E6fe51329b05a",
+    ]);
+  });
+
+  test("rejects an excluded token that is not an address", () => {
+    expect(() =>
+      parseChainlinkPriceConfig(
+        JSON.stringify({
+          "10": {
+            rpcUrls: ["https://rpc.example"],
+            catalogUrl: "https://catalog.example/feeds.json",
+            excludeTokens: ["GMX"],
+          },
+        }),
+      ),
+    ).toThrow("must be a valid EVM address");
+  });
+});
+
 describe("chainlinkFeedMaxAgeSeconds", () => {
   test("doubles a sub-daily heartbeat", () => {
     expect(chainlinkFeedMaxAgeSeconds(1200)).toBe(2400);
@@ -90,9 +121,7 @@ describe("chainlinkFeedMaxAgeSeconds", () => {
   });
 
   test("keeps doubling when that already exceeds the closure floor", () => {
-    expect(chainlinkFeedMaxAgeSeconds(4 * 24 * 60 * 60)).toBe(
-      8 * 24 * 60 * 60,
-    );
+    expect(chainlinkFeedMaxAgeSeconds(4 * 24 * 60 * 60)).toBe(8 * 24 * 60 * 60);
   });
 });
 
@@ -524,7 +553,10 @@ describe("discoverChainlinkFeedsDetailed", () => {
       [usable],
       [
         ethToken,
-        { address: "0x0000000000000000000000000000000000000003", symbol: "ETH" },
+        {
+          address: "0x0000000000000000000000000000000000000003",
+          symbol: "ETH",
+        },
       ],
     );
     expect(ambiguousSymbol.feeds).toEqual([]);
@@ -544,6 +576,83 @@ describe("discoverChainlinkFeedsDetailed", () => {
     );
     expect(tied.feeds).toEqual([]);
     expect(tied.skipped.get("outranks the other feeds for its symbol")).toBe(1);
+  });
+
+  test("skips fiat and commodity feeds whose symbol a token happens to share", () => {
+    // Mainnet's KRW is KROWN and its CAD is Caduceus; both were priced as the
+    // currencies their symbols name.
+    const { feeds, skipped } = discoverChainlinkFeedsDetailed(
+      [
+        {
+          ...usable,
+          docs: { ...usable.docs, baseAsset: "KRW", assetClass: "Fiat" },
+        },
+        {
+          ...usable,
+          docs: { ...usable.docs, baseAsset: "XAU", assetClass: "Commodity" },
+        },
+      ],
+      [
+        { address: tokenAddress, symbol: "KRW" },
+        {
+          address: "0x0000000000000000000000000000000000000003",
+          symbol: "XAU",
+        },
+      ],
+    );
+    expect(feeds).toEqual([]);
+    expect([...skipped.keys()].join(" | ")).toContain(
+      "is not a fiat or commodity price",
+    );
+  });
+
+  test("keeps crypto, equity and USD exchange-rate feeds", () => {
+    const { feeds } = discoverChainlinkFeedsDetailed(
+      [
+        { ...usable, docs: { ...usable.docs, assetClass: "Crypto" } },
+        {
+          ...usable,
+          proxyAddress: "0x0000000000000000000000000000000000000009",
+          docs: {
+            ...usable.docs,
+            baseAsset: "vyUSD",
+            assetClass: "Crypto",
+            clicProductName: "vyUSD/USD-ExRate-DF-Optimism-001",
+            underlyingAsset: "USD",
+          },
+        },
+      ],
+      [
+        ethToken,
+        {
+          address: "0x0000000000000000000000000000000000000003",
+          symbol: "VYUSD",
+        },
+      ],
+    );
+    expect(feeds).toHaveLength(2);
+  });
+
+  test("skips an exchange rate into another asset that is labelled as USD", () => {
+    // Optimism lists weETH's rate against ETH, about 1.1, as a USD RefPrice.
+    const { feeds, skipped } = discoverChainlinkFeedsDetailed(
+      [
+        {
+          ...usable,
+          docs: {
+            ...usable.docs,
+            baseAsset: "weETH",
+            clicProductName: "weETH/USD-ExRate-DF-Optimism-001",
+            underlyingAsset: "ETH",
+          },
+        },
+      ],
+      [{ address: tokenAddress, symbol: "WEETH" }],
+    );
+    expect(feeds).toEqual([]);
+    expect([...skipped.keys()].join(" | ")).toContain(
+      "is not an exchange rate into a non-USD asset",
+    );
   });
 
   test("reports nothing when every entry becomes a feed", () => {

@@ -70,6 +70,12 @@ export interface ChainlinkChainConfig {
   feeds: ChainlinkFeedConfig[];
   catalogUrl?: string;
   multicallAddress?: Address;
+  /**
+   * Tokens catalog discovery must never price. For a symbol collision with no
+   * other price source to catch it, such as Optimism's GMX, which is the
+   * General Motors xStock rather than the GMX protocol token.
+   */
+  excludeTokens?: Address[];
 }
 
 export type ChainlinkPriceConfig = Record<string, ChainlinkChainConfig>;
@@ -144,6 +150,13 @@ function parseRpcUrls(value: unknown, label: string): string[] {
     }
     return rpcUrl;
   });
+}
+
+function parseExcludedTokens(value: unknown, label: string): Address[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  return value.map((address, index) =>
+    parseAddress(address, `${label}[${index}]`),
+  );
 }
 
 export function parseChainlinkPriceConfig(
@@ -237,6 +250,14 @@ export function parseChainlinkPriceConfig(
           ),
           feeds,
           ...(catalogUrl ? { catalogUrl } : {}),
+          ...(chain.excludeTokens === undefined
+            ? {}
+            : {
+                excludeTokens: parseExcludedTokens(
+                  chain.excludeTokens,
+                  `Chainlink excluded tokens for chain ${chainId}`,
+                ),
+              }),
           ...(chain.multicallAddress === undefined
             ? {}
             : {
@@ -315,9 +336,32 @@ const UsableCatalogEntry = Schema.Struct({
     deliveryChannelCode: Schema.Literal("DF"),
     productType: Schema.Literal("Price"),
     productTypeCode: Schema.Literals(["RefPrice", "primaryTokenizedPrice"]),
+    // A fiat or commodity feed names a currency or a metal, not a token, so a
+    // token matching its symbol is a coincidence: mainnet's KRW is KROWN and
+    // its CAD is Caduceus, and both were priced as currencies.
+    assetClass: Schema.optional(
+      rule(
+        "is not a fiat or commodity price",
+        (v) => v !== "Fiat" && v !== "Commodity",
+      ),
+    ),
+    clicProductName: Schema.optional(Schema.Unknown),
+    underlyingAsset: Schema.optional(Schema.Unknown),
     hidden: Schema.optional(rule("is not hidden", (v) => v !== true)),
     shutdownDate: Schema.optional(rule("is not shut down", (v) => !v)),
-  }),
+  }).pipe(
+    // An exchange rate is quoted in its underlying asset whatever the quote
+    // field says. Optimism lists weETH's rate against ETH (about 1.1) as a
+    // RefPrice in USD, which would price weETH at $1.10.
+    Schema.refine(
+      (docs): docs is typeof docs =>
+        !/-ExRate-/.test(String(docs.clicProductName ?? "")) ||
+        docs.underlyingAsset === undefined ||
+        docs.underlyingAsset === null ||
+        docs.underlyingAsset === "USD",
+      { message: "is not an exchange rate into a non-USD asset" },
+    ),
+  ),
 });
 
 type UsableCatalogEntry = typeof UsableCatalogEntry.Type;

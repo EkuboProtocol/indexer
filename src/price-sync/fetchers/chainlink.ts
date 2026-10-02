@@ -7,6 +7,7 @@ import {
   fetchChainlinkTokenPrices,
   type ChainlinkChainConfig,
   type ChainlinkFeedConfig,
+  type ChainlinkPriceObservation,
   type ChainlinkToken,
 } from "./chainlinkFeeds";
 import {
@@ -34,6 +35,34 @@ type ChainlinkTokenRow = {
 
 // An upper bound on how long any single observation may be considered fresh.
 const MAX_PRICE_VALIDITY_MS = 30 * 24 * 60 * 60 * 1_000;
+
+// How far a discovered feed may sit from every other current price for its
+// token before it is taken to be pricing a different asset. Catalog discovery
+// matches on symbol alone, and cl1 outranks every source but the quoter, so a
+// collision does not merely add a wrong row: it replaces the right price. The
+// collisions seen in production are off by 3x to thousands of times (Base's
+// OP is One Path, Base's TRUMP is MAGA), while a real feed sits within a few
+// percent of the market, or ten to twenty for a bridged or thinly traded
+// variant. A withheld feed costs nothing but the Chainlink upgrade: the token
+// keeps the price it would have had without Chainlink.
+const MAX_REFERENCE_RATIO = 1.25;
+
+/**
+ * Whether a Chainlink answer is plausibly the same asset as the token's other
+ * current prices. One agreeing source is enough, since a single bad source
+ * (a quoter routed through a thin pool, say) must not veto a good feed. A
+ * token with no other current price has nothing to disagree with.
+ */
+export function agreesWithReferencePrices(
+  usdPrice: number,
+  referencePrices: readonly number[],
+): boolean {
+  const usable = referencePrices.filter((p) => Number.isFinite(p) && p > 0);
+  if (usable.length === 0) return true;
+  return usable.some(
+    (p) => Math.max(usdPrice / p, p / usdPrice) <= MAX_REFERENCE_RATIO,
+  );
+}
 
 export interface ChainlinkRoundTracker {
   (chainId: bigint, tokenAddress: string, roundUpdatedAt: Date): boolean;
@@ -100,6 +129,42 @@ function fetchChainlinkTokens(
   );
 }
 
+type ReferencePriceRow = {
+  token_address: string;
+  value: number;
+};
+
+// Every other source's current price for the given tokens. Expired rows are
+// left out: a price that no longer serves is no evidence either way.
+function fetchReferencePrices(
+  sql: Sql<{ bigint: bigint }>,
+  chainId: bigint,
+  tokenAddresses: readonly string[],
+): Effect.Effect<Map<string, number[]>, PriceSyncError> {
+  if (tokenAddresses.length === 0) return Effect.succeed(new Map());
+  return tryPriceSync({
+    source: SOURCE,
+    operation: `read reference prices for chain ${chainId}`,
+    try: () => sql<ReferencePriceRow[]>`
+      SELECT token_address::TEXT, value
+      FROM erc20_tokens_latest_price_by_source
+      WHERE chain_id = ${chainId}
+        AND token_address IN ${sql(tokenAddresses.map((a) => BigInt(a).toString()))}
+        AND source <> ${SOURCE}
+        AND valid_until > NOW()
+    `,
+  }).pipe(
+    Effect.map((rows) => {
+      const byToken = new Map<string, number[]>();
+      for (const row of rows) {
+        const key = toEvmAddress(row.token_address);
+        byToken.set(key, [...(byToken.get(key) ?? []), row.value]);
+      }
+      return byToken;
+    }),
+  );
+}
+
 export function chainlinkPriceFetcher({
   sql,
   chainId,
@@ -110,6 +175,7 @@ export function chainlinkPriceFetcher({
 }: ChainlinkPriceFetcherOptions): PriceSyncJob {
   const shouldReportRound = makeChainlinkRoundTracker();
   let lastFeedSummary: string | undefined;
+  let lastWithheldSummary = "";
 
   // Validity is anchored at the round's own updatedAt and extends through the
   // feed's staleness window -- mirroring the read-side contract -- floored at
@@ -150,7 +216,12 @@ export function chainlinkPriceFetcher({
       const catalogUrl = config.catalogUrl;
       if (!catalogUrl) return [];
 
-      const tokens = yield* fetchChainlinkTokens(sql, chainId);
+      const excluded = new Set(
+        (config.excludeTokens ?? []).map((address) => address.toLowerCase()),
+      );
+      const tokens = (yield* fetchChainlinkTokens(sql, chainId)).filter(
+        (token) => !excluded.has(token.address.toLowerCase()),
+      );
       const catalog = yield* catalogCache(catalogUrl, catalogRefreshIntervalMs);
       const { feeds, skipped } = discoverChainlinkFeedsDetailed(
         catalog,
@@ -182,12 +253,59 @@ export function chainlinkPriceFetcher({
     ),
   );
 
+  // Drops discovered feeds whose answer disagrees with every other current
+  // price for their token. Configured feeds are an operator's explicit choice
+  // and are kept as they are.
+  const withholdCollisions = Effect.fn("chainlink.withholdCollisions")(
+    function* (
+      observations: Record<string, ChainlinkPriceObservation>,
+      discovered: ReadonlySet<string>,
+    ) {
+      const checked = Object.keys(observations).filter((address) =>
+        discovered.has(address.toLowerCase()),
+      );
+      const references = yield* fetchReferencePrices(sql, chainId, checked);
+
+      const withheld = checked.filter(
+        (address) =>
+          !agreesWithReferencePrices(
+            observations[address].usdPrice,
+            references.get(address.toLowerCase()) ?? [],
+          ),
+      );
+
+      // Logged when the set changes, like the discovery summary: a collision
+      // persists from one poll to the next, and saying so every minute would
+      // bury the line that matters.
+      const summary = withheld
+        .map((address) => address.toLowerCase())
+        .sort()
+        .join(", ");
+      if (summary !== lastWithheldSummary) {
+        lastWithheldSummary = summary;
+        yield* Effect.logInfo(
+          `Chainlink on chain ${chainId} withholds ${withheld.length} discovered feeds that disagree with every other price for their token${
+            summary ? `: ${summary}` : ""
+          }`,
+        );
+      }
+
+      const kept = { ...observations };
+      for (const address of withheld) delete kept[address];
+      return kept;
+    },
+  );
+
   const plan = Effect.fn("chainlink.plan")(function* () {
     const feedsByToken = configuredFeeds();
+    const discovered = new Set<string>();
 
     for (const feed of yield* discoverFeeds()) {
       const key = feed.tokenAddress.toLowerCase();
-      if (!feedsByToken.has(key)) feedsByToken.set(key, feed);
+      if (!feedsByToken.has(key)) {
+        feedsByToken.set(key, feed);
+        discovered.add(key);
+      }
     }
 
     const feeds = [...feedsByToken.values()];
@@ -196,12 +314,15 @@ export function chainlinkPriceFetcher({
     );
     if (feeds.length === 0) return [];
 
-    const observations = yield* tryPriceSync({
-      source: SOURCE,
-      operation: `read feed prices for chain ${chainId}`,
-      try: () =>
-        fetchChainlinkTokenPrices(chainId.toString(), { ...config, feeds }),
-    });
+    const observations = yield* withholdCollisions(
+      yield* tryPriceSync({
+        source: SOURCE,
+        operation: `read feed prices for chain ${chainId}`,
+        try: () =>
+          fetchChainlinkTokenPrices(chainId.toString(), { ...config, feeds }),
+      }),
+      discovered,
+    );
 
     return Object.entries(observations)
       .filter(([tokenAddress, { timestamp }]) =>

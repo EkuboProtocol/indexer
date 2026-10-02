@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { Effect, Stream } from "effect";
 import type { Sql } from "postgres";
 import {
+  agreesWithReferencePrices,
   chainlinkPriceFetcher,
   makeChainlinkRoundTracker,
 } from "./chainlink";
@@ -91,4 +92,32 @@ test("a chain with no configured feeds and no catalog yields nothing", async () 
 
   const batches = await Effect.runPromise(Stream.runCollect(job.fetch));
   expect(batches).toEqual([]);
+});
+
+test("a feed pricing a different asset than its token is withheld", () => {
+  // Production cases: Base's OP is One Path, Base's TRUMP is MAGA, and
+  // mainnet's FRAX is the dollar while the FRAX feed is the governance token.
+  expect(agreesWithReferencePrices(0.1344, [0.000025, 0.000025])).toBe(false);
+  expect(agreesWithReferencePrices(2.138, [0.0318, 0.0311])).toBe(false);
+  expect(agreesWithReferencePrices(0.3163, [0.9921])).toBe(false);
+});
+
+test("a feed close to the market is kept", () => {
+  expect(agreesWithReferencePrices(85_228, [85_191, 85_020])).toBe(true);
+  // A bridged or thinly traded variant drifts further, and is still the same
+  // asset: Binance's BETH against the market, Wormhole CELO against CoinGecko.
+  expect(agreesWithReferencePrices(2694.6, [2982.5, 2979.2])).toBe(true);
+  expect(agreesWithReferencePrices(0.1025, [0.1244])).toBe(true);
+});
+
+test("one agreeing source is enough to keep a feed", () => {
+  // tBTC on mainnet: the quoter was 10% low through a thin pool while
+  // SushiSwap agreed with Chainlink.
+  expect(agreesWithReferencePrices(85_760, [60_000, 84_944])).toBe(true);
+});
+
+test("a token with no other current price keeps its feed", () => {
+  expect(agreesWithReferencePrices(8.12, [])).toBe(true);
+  // A zero or non-finite reference is no evidence either way.
+  expect(agreesWithReferencePrices(8.12, [0, Number.NaN])).toBe(true);
 });
