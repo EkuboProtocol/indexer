@@ -6,7 +6,7 @@
       "name": "@ekubo/indexer",
       "dependencies": {
         "@effect/platform-bun": "4.0.0-rc.118",
-        "dotenv": "^18.0.4",
+        "dotenv": "^18.0.5",
         "effect": "4.0.0-rc.118",
         "postgres": "^3.4.9",
         "postgres-shift": "^1.0.2",
@@ -140,7 +140,7 @@
 
     "deep-is": ["deep-is@0.1.4", "", {}, "sha512-oIPzksmTg4/MriiaYGO+okXDT7ztn/w3Eptv/+gSIdMdKsJo0u4CfYNFJPy+4SKMuCqGw2wxnA+URMg3t8a/bQ=="],
 
-    "dotenv": ["dotenv@18.0.4", "", { "bin": { "dotenv": "dist/index.cjs" } }, "sha512-jGt9uI5BIxpVO15kvy+iEFqNAwxYClKWnkptLjSNPnFLC003Imd0ofr3aEVsbpHdSBdSsbcApNIlz4nbyGMwdA=="],
+    "dotenv": ["dotenv@18.0.5", "", { "bin": { "dotenv": "dist/index.cjs" } }, "sha512-aBrGvt6KhjxbEnatqMWOMidftwsrCiCvqh1yNIGB9QyF0J+VcWkKDMsvYOEm7ZS82oiV+BT1sTOtIlAmUlTpwQ=="],
 
     "effect": ["effect@4.0.0-rc.118", "", {}, "sha512-hxhpCd+swzrtu9lnyPpEFre2ODQzJ9qxgyL1oHIEY8NKnW4PxTbM1XzplMZXiAsLD62HO+KJc41Nqxr9T791ZQ=="],
 
