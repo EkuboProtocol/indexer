@@ -34,9 +34,9 @@
     "eslint": "10.11.0"
   },
   "dependencies": {
-    "@effect/platform-bun": "4.0.0-rc.118",
+    "@effect/platform-bun": "4.0.1",
     "dotenv": "^18.0.5",
-    "effect": "4.0.0-rc.118",
+    "effect": "4.0.1",
     "postgres": "^3.4.9",
     "postgres-shift": "^1.0.2",
     "viem": "^2.57.2",

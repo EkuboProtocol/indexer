@@ -5,9 +5,9 @@
     "": {
       "name": "@ekubo/indexer",
       "dependencies": {
-        "@effect/platform-bun": "4.0.0-rc.118",
+        "@effect/platform-bun": "4.0.1",
         "dotenv": "^18.0.5",
-        "effect": "4.0.0-rc.118",
+        "effect": "4.0.1",
         "postgres": "^3.4.9",
         "postgres-shift": "^1.0.2",
         "viem": "^2.57.2",
@@ -32,9 +32,9 @@
 
     "@dabh/diagnostics": ["@dabh/diagnostics@2.0.8", "", { "dependencies": { "@so-ric/colorspace": "^1.1.6", "enabled": "2.0.x", "kuler": "^2.0.0" } }, "sha512-R4MSXTVnuMzGD7bzHdW2ZhhdPC/igELENcq5IjEverBvq5hn1SXCWcsi6eSsdWP0/Ur+SItRRjAktmdoX/8R/Q=="],
 
-    "@effect/platform-bun": ["@effect/platform-bun@4.0.0-rc.118", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-rc.118" }, "peerDependencies": { "effect": "^4.0.0-rc.118" } }, "sha512-NT/VHIUEYk7QR86sC5le9OzEoRdy9DgxZ89zDkw9Ovd2oMaSw6+IBm3fj+2voGTEPXZaYPdF0to3oQbMouBeEA=="],
+    "@effect/platform-bun": ["@effect/platform-bun@4.0.1", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.1" }, "peerDependencies": { "effect": "^4.0.1" } }, "sha512-m+QR4bp39ZWujCuEsUhZADIYIOFZcUHHlmrixENZqZRbEYgaPLMUWiPrRJ69CM4BuuHW8oCOxfMGUU7oSw/o5g=="],
 
-    "@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.0-rc.118", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.22.0" }, "peerDependencies": { "effect": "^4.0.0-rc.118" } }, "sha512-pNbmIlxbAUxAthUNsp2xm1NLG9kxoYecsPkoYl9mNF2oxPcKDxAvkOar7tYnLSUpXJeATm4pxYVipdZjQfqO4Q=="],
+    "@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.1", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.22.0" }, "peerDependencies": { "effect": "^4.0.1" } }, "sha512-VanaejudEhKJ4mpmqnEzdncVUhN6sGSO9ZDND54mRxAlZxj+4dYAWjDTYAy9o4tJo9aALeP2U8cVcOFzEdSeLg=="],
 
     "@electric-sql/pglite": ["@electric-sql/pglite@0.5.8", "", {}, "sha512-n9tsbUOhwx2epK1V0ZG9Ar4SHWUju04dhmzZXiSBXwBoleOvIfals33NAaWgagQVAL4Rbvx/Ptsu3P+pA09f6Q=="],
 
@@ -142,7 +142,7 @@
 
     "dotenv": ["dotenv@18.0.5", "", { "bin": { "dotenv": "dist/index.cjs" } }, "sha512-aBrGvt6KhjxbEnatqMWOMidftwsrCiCvqh1yNIGB9QyF0J+VcWkKDMsvYOEm7ZS82oiV+BT1sTOtIlAmUlTpwQ=="],
 
-    "effect": ["effect@4.0.0-rc.118", "", {}, "sha512-hxhpCd+swzrtu9lnyPpEFre2ODQzJ9qxgyL1oHIEY8NKnW4PxTbM1XzplMZXiAsLD62HO+KJc41Nqxr9T791ZQ=="],
+    "effect": ["effect@4.0.1", "", {}, "sha512-b1VlQG9g8fwxE5QnIZuPoOP/0MsqHJSRKxUijjoM80E5q95FXrX5yWtY5XI8G+GJsBQAVSDbLS458z9a++uVvw=="],
 
     "enabled": ["enabled@2.0.0", "", {}, ""],
 
