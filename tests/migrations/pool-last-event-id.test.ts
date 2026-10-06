@@ -242,6 +242,7 @@ test("each state table has both triggers, and the UPDATE one only fires on a rea
     "boosted_fees_pool_states",
     "limit_order_pool_states",
     "pool_states",
+    "scheduled_launch_pool_states",
     "twamm_pool_states",
     "ve33_pool_states",
   ];

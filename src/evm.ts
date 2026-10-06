@@ -124,6 +124,14 @@ export function createEvmProcessors() {
     ve33PositionsAddress: loadOptionalHexAddress("VE33_POSITIONS_V3_ADDRESS"),
   };
 
+  const evmV3LaunchAddressConfig = {
+    scheduledLaunchAddress: loadOptionalHexAddress("SCHEDULED_LAUNCH_ADDRESS"),
+    lockedLaunchLiquidityAddress: loadOptionalHexAddress(
+      "LOCKED_LAUNCH_LIQUIDITY_ADDRESS",
+    ),
+    launchRouterAddress: loadOptionalHexAddress("LAUNCH_ROUTER_ADDRESS"),
+  };
+
   if (!evmV2AddressConfig && !evmV3AddressConfig) {
     throw new Error("No config for either V2 or V3 contracts");
   }
@@ -134,6 +142,8 @@ export function createEvmProcessors() {
     positionsV3ProtocolFeeConfigs,
     evmV3Ve33AddressConfig,
   });
+  if (Object.values(evmV3LaunchAddressConfig).some(Boolean))
+    logger.info(`Indexing V3 launch contracts`, { evmV3LaunchAddressConfig });
 
   return [
     ...(evmV2AddressConfig ? createLogProcessorsV2(evmV2AddressConfig) : []),
@@ -150,6 +160,7 @@ export function createEvmProcessors() {
             "RECOMPILED_ORDERS_V3_ADDRESS",
           ]),
           ...evmV3Ve33AddressConfig,
+          ...evmV3LaunchAddressConfig,
           positionsContracts: positionsV3ProtocolFeeConfigs ?? [],
         })
       : []),
