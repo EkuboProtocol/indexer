@@ -33,6 +33,7 @@ async function leadingStatements(migration: string) {
 for (const migration of [
   "00120_incremental_rewards_by_position",
   "00123_pool_last_event_id",
+  "00134_scheduled_launch_pool_states",
 ]) {
   test(`${migration} parks the indexer workers before taking any other lock`, async () => {
     expect(await leadingStatements(migration)).toEqual([

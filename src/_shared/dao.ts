@@ -314,6 +314,72 @@ export interface Ve33RewardsClaimedInsert extends Ve33PoolEventDescriptor {
   amount: NumericValue;
 }
 
+export interface ScheduledLaunchEventDescriptor {
+  coreAddress: `0x${string}`;
+  // the launch pool's id; LockedLaunchLiquidity and LaunchRouter call it launchId
+  poolId: `0x${string}`;
+}
+
+export interface ScheduledLaunchCreatedInsert
+  extends ScheduledLaunchEventDescriptor {
+  token: AddressValue;
+  owner: AddressValue;
+  quoteToken: AddressValue;
+  name: string;
+  symbol: string;
+  decimals: number;
+  totalSupply: NumericValue;
+  startTime: NumericValue;
+  endTime: NumericValue;
+  targetTick: number;
+  upperTick: number;
+  tickSpacing: number;
+  initialFee: NumericValue;
+  finalFee: NumericValue;
+  migrationTickLower: number;
+  migrationTickUpper: number;
+}
+
+export interface ScheduledLaunchAdvancedInsert
+  extends ScheduledLaunchEventDescriptor {
+  deployed: NumericValue;
+  reserve0: NumericValue;
+  reserve1: NumericValue;
+  complete: boolean;
+}
+
+export interface ScheduledLaunchSwappedInsert
+  extends ScheduledLaunchEventDescriptor {
+  locker: AddressValue;
+  delta0: NumericValue;
+  delta1: NumericValue;
+  feeAmount: NumericValue;
+  feeIsToken1: boolean;
+}
+
+export interface LaunchAmountsInsert extends ScheduledLaunchEventDescriptor {
+  // the recipient for fee claims, the payer for PrincipalReceived
+  account: AddressValue;
+  amount0: NumericValue;
+  amount1: NumericValue;
+}
+
+export interface LaunchLiquidityLockedInsert
+  extends ScheduledLaunchEventDescriptor {
+  terminalPoolId: `0x${string}`;
+  liquidity: NumericValue;
+}
+
+export interface LaunchCreatedByInsert extends ScheduledLaunchEventDescriptor {
+  creator: AddressValue;
+}
+
+// Postgres text cannot hold NUL, and launch names and symbols are arbitrary
+// creator input.
+export function stripNul(value: string): string {
+  return value.replaceAll("\u0000", "");
+}
+
 export interface TokenRegistrationInsert {
   address: AddressValue;
   name: NumericValue;
@@ -1094,6 +1160,212 @@ export class DAO {
           AND pool_id = ${this.numeric(poolId)}
       )
       ON CONFLICT DO NOTHING;
+    `;
+  }
+
+  public async insertScheduledLaunchPoolKey(
+    coreAddress: `0x${string}`,
+    poolId: `0x${string}`,
+  ) {
+    await this.sql`
+      INSERT INTO scheduled_launch_pool_keys (pool_key_id)
+      (
+        SELECT pool_key_id
+        FROM pool_keys
+        WHERE chain_id = ${this.chainId}
+          AND core_address = ${this.numeric(coreAddress)}
+          AND pool_id = ${this.numeric(poolId)}
+      )
+      ON CONFLICT DO NOTHING;
+    `;
+  }
+
+  private launchPoolKeyId(coreAddress: `0x${string}`, poolId: `0x${string}`) {
+    return this.sql`(
+      SELECT pk.pool_key_id
+      FROM pool_keys pk
+      WHERE pk.chain_id = ${this.chainId}
+        AND pk.core_address = ${this.numeric(coreAddress)}
+        AND pk.pool_id = ${this.numeric(poolId)}
+    )`;
+  }
+
+  private eventKeyValues(key: EventKey) {
+    return this.sql`
+      ${this.chainId},
+      ${key.blockNumber},
+      ${key.transactionIndex},
+      ${key.eventIndex},
+      ${this.numeric(key.transactionHash)},
+      ${this.numeric(key.emitter)}
+    `;
+  }
+
+  async insertScheduledLaunchCreatedEvent(
+    key: EventKey,
+    parsed: ScheduledLaunchCreatedInsert,
+  ) {
+    await this.sql`
+      INSERT INTO scheduled_launch_created
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, token, owner, quote_token, name, symbol, decimals, total_supply,
+         start_time, end_time, target_tick, upper_tick, tick_spacing, initial_fee, final_fee,
+         migration_tick_lower, migration_tick_upper)
+      VALUES (
+        ${this.eventKeyValues(key)},
+        ${this.launchPoolKeyId(parsed.coreAddress, parsed.poolId)},
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.token)},
+        ${this.numeric(parsed.owner)},
+        ${this.numeric(parsed.quoteToken)},
+        ${stripNul(parsed.name)},
+        ${stripNul(parsed.symbol)},
+        ${parsed.decimals},
+        ${this.numeric(parsed.totalSupply)},
+        ${this.numeric(parsed.startTime)},
+        ${this.numeric(parsed.endTime)},
+        ${parsed.targetTick},
+        ${parsed.upperTick},
+        ${parsed.tickSpacing},
+        ${this.numeric(parsed.initialFee)},
+        ${this.numeric(parsed.finalFee)},
+        ${parsed.migrationTickLower},
+        ${parsed.migrationTickUpper}
+      );
+    `;
+  }
+
+  async insertScheduledLaunchAdvancedEvent(
+    key: EventKey,
+    parsed: ScheduledLaunchAdvancedInsert,
+  ) {
+    await this.sql`
+      INSERT INTO scheduled_launch_advanced
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, deployed, reserve0, reserve1, complete)
+      VALUES (
+        ${this.eventKeyValues(key)},
+        ${this.launchPoolKeyId(parsed.coreAddress, parsed.poolId)},
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.deployed)},
+        ${this.numeric(parsed.reserve0)},
+        ${this.numeric(parsed.reserve1)},
+        ${parsed.complete}
+      );
+    `;
+  }
+
+  async insertScheduledLaunchSwappedEvent(
+    key: EventKey,
+    parsed: ScheduledLaunchSwappedInsert,
+  ) {
+    await this.sql`
+      INSERT INTO scheduled_launch_swapped
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, locker, delta0, delta1, fee_amount, fee_is_token1)
+      VALUES (
+        ${this.eventKeyValues(key)},
+        ${this.launchPoolKeyId(parsed.coreAddress, parsed.poolId)},
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.locker)},
+        ${this.numeric(parsed.delta0)},
+        ${this.numeric(parsed.delta1)},
+        ${this.numeric(parsed.feeAmount)},
+        ${parsed.feeIsToken1}
+      );
+    `;
+  }
+
+  async insertScheduledLaunchCreatorFeesClaimedEvent(
+    key: EventKey,
+    parsed: LaunchAmountsInsert,
+  ) {
+    await this.sql`
+      INSERT INTO scheduled_launch_creator_fees_claimed
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, recipient, amount0, amount1)
+      VALUES (
+        ${this.eventKeyValues(key)},
+        ${this.launchPoolKeyId(parsed.coreAddress, parsed.poolId)},
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.account)},
+        ${this.numeric(parsed.amount0)},
+        ${this.numeric(parsed.amount1)}
+      );
+    `;
+  }
+
+  async insertLaunchPrincipalReceivedEvent(
+    key: EventKey,
+    parsed: LaunchAmountsInsert,
+  ) {
+    await this.sql`
+      INSERT INTO launch_principal_received
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, launch_id, from_address, amount0, amount1)
+      VALUES (
+        ${this.eventKeyValues(key)},
+        ${this.launchPoolKeyId(parsed.coreAddress, parsed.poolId)},
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.account)},
+        ${this.numeric(parsed.amount0)},
+        ${this.numeric(parsed.amount1)}
+      );
+    `;
+  }
+
+  async insertLaunchLiquidityLockedEvent(
+    key: EventKey,
+    parsed: LaunchLiquidityLockedInsert,
+  ) {
+    await this.sql`
+      INSERT INTO launch_liquidity_locked
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, launch_id, terminal_pool_key_id, terminal_pool_id, liquidity)
+      VALUES (
+        ${this.eventKeyValues(key)},
+        ${this.launchPoolKeyId(parsed.coreAddress, parsed.poolId)},
+        ${this.numeric(parsed.poolId)},
+        ${this.launchPoolKeyId(parsed.coreAddress, parsed.terminalPoolId)},
+        ${this.numeric(parsed.terminalPoolId)},
+        ${this.numeric(parsed.liquidity)}
+      );
+    `;
+  }
+
+  async insertLaunchLockedFeesClaimedEvent(
+    key: EventKey,
+    parsed: LaunchAmountsInsert,
+  ) {
+    await this.sql`
+      INSERT INTO launch_locked_fees_claimed
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, launch_id, recipient, amount0, amount1)
+      VALUES (
+        ${this.eventKeyValues(key)},
+        ${this.launchPoolKeyId(parsed.coreAddress, parsed.poolId)},
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.account)},
+        ${this.numeric(parsed.amount0)},
+        ${this.numeric(parsed.amount1)}
+      );
+    `;
+  }
+
+  async insertLaunchCreatedByEvent(
+    key: EventKey,
+    parsed: LaunchCreatedByInsert,
+  ) {
+    await this.sql`
+      INSERT INTO launch_created_by
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, launch_id, creator)
+      VALUES (
+        ${this.eventKeyValues(key)},
+        ${this.launchPoolKeyId(parsed.coreAddress, parsed.poolId)},
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.creator)}
+      );
     `;
   }
 

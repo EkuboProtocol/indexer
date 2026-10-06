@@ -59,6 +59,9 @@ interface EvmConfig extends CommonConfiguration {
   VE33_V3_ADDRESS?: `0x${string}`;
   VE_TOKEN_V3_ADDRESS?: `0x${string}`;
   VE33_POSITIONS_V3_ADDRESS?: `0x${string}`;
+  SCHEDULED_LAUNCH_ADDRESS?: `0x${string}`;
+  LOCKED_LAUNCH_LIQUIDITY_ADDRESS?: `0x${string}`;
+  LAUNCH_ROUTER_ADDRESS?: `0x${string}`;
 }
 
 interface StarknetConfig extends CommonConfiguration {
