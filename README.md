@@ -390,6 +390,23 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### Unreleased: launchpad events and launch state on `all_pool_states_view` (00134, additive)
+
+Deploy this before any quoter-service or api release that selects the new
+columns. Migration 00134 indexes `ScheduledLaunch`, `LockedLaunchLiquidity` and
+`LaunchRouter` (evm-contracts `40e5bb1`) into eight event tables. It keeps
+`scheduled_launch_pool_states`, which holds each launch's config and its latest
+`LaunchAdvanced`, and appends 14 columns to `all_pool_states_view`: the
+`scheduled_launch_*` columns and `is_scheduled_launch_pool`. The columns are
+appended, so existing readers keep working. The state table is a sixth source
+for `pool_last_event_id`. The migration parks the workers by locking `blocks`
+first, as 00123 does.
+
+No chain indexes the launch contracts until `SCHEDULED_LAUNCH_ADDRESS`,
+`LOCKED_LAUNCH_LIQUIDITY_ADDRESS` and `LAUNCH_ROUTER_ADDRESS` are set in that
+chain's environment. Set them before the deployment block is indexed. Past
+events need a re-index from the deployment block.
+
 ### 2026-09-30: Production workers require their RPC URL in the environment
 
 `src/runtime.ts` now fails when `NODE_ENV` is `production` (any case) and the
