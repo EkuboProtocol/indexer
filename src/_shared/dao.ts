@@ -1171,14 +1171,16 @@ export class DAO {
   private async zeroSeedLaunchPoolKeyId(
     coreAddress: `0x${string}`,
     poolId: `0x${string}`,
+    emitter: `0x${string}`,
   ): Promise<bigint> {
     const [row] = await this.sql<{ pool_key_id: bigint }[]>`
       SELECT zslpk.pool_key_id
       FROM pool_keys pk
                JOIN zero_seed_launch_pool_keys zslpk USING (pool_key_id)
       WHERE pk.chain_id = ${this.chainId}
-        AND pk.core_address = ${this.numeric(coreAddress)}
-        AND pk.pool_id = ${this.numeric(poolId)};
+         AND pk.core_address = ${this.numeric(coreAddress)}
+        AND pk.pool_id = ${this.numeric(poolId)}
+        AND pk.pool_extension = ${this.numeric(emitter)};
     `;
     if (!row)
       throw new Error(
@@ -1208,6 +1210,7 @@ export class DAO {
     const poolKeyId = await this.zeroSeedLaunchPoolKeyId(
       parsed.coreAddress,
       parsed.poolId,
+      key.emitter,
     );
     await this.sql`
       INSERT INTO zero_seed_launch_created
@@ -1248,6 +1251,7 @@ export class DAO {
     const poolKeyId = await this.zeroSeedLaunchPoolKeyId(
       parsed.coreAddress,
       parsed.poolId,
+      key.emitter,
     );
     await this.sql`
       INSERT INTO zero_seed_launch_swapped
@@ -1275,7 +1279,9 @@ export class DAO {
     const poolKeyId = await this.zeroSeedLaunchPoolKeyId(
       parsed.coreAddress,
       parsed.poolId,
+      key.emitter,
     );
+    await this.assertZeroSeedLaunchClaim(poolKeyId, key, parsed);
     await this.sql`
       INSERT INTO zero_seed_launch_fees_claimed
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
@@ -1291,6 +1297,22 @@ export class DAO {
       )
       ON CONFLICT (chain_id, event_id) DO NOTHING;
     `;
+  }
+
+  private async assertZeroSeedLaunchClaim(
+    poolKeyId: bigint,
+    key: EventKey,
+    parsed: ZeroSeedLaunchFeesClaimedInsert,
+  ) {
+    const [row] = await this.sql<{ creator: bigint; token0: bigint; token1: bigint }[]>`
+      SELECT c.creator, pk.token0, pk.token1
+      FROM zero_seed_launch_created c JOIN pool_keys pk USING (pool_key_id)
+      WHERE c.pool_key_id = ${poolKeyId}`;
+    if (!row) throw new Error("Zero-seed launch claim without LaunchCreated");
+    const recipient = BigInt(parsed.recipient);
+    if (BigInt(parsed.creator) !== row.creator ||
+        [0n, BigInt(parsed.coreAddress), BigInt(key.emitter), row.token0, row.token1].includes(recipient))
+      throw new Error("Refusing zero-seed claim creator or sink recipient");
   }
 
   public async insertProtocolFeesWithdrawn(

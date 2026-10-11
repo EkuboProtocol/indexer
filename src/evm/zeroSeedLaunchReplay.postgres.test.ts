@@ -3,14 +3,14 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres, { type Sql } from "postgres";
-import { encodeEventTopics } from "viem";
+import { decodeEventLog, encodeEventTopics } from "viem";
 import { CORE_ABI } from "./abis_v3";
 import { ZERO_SEED_LAUNCH_ABI } from "./abis_zero_seed_launch";
 import shift from "postgres-shift";
 import { DAO, NumericIntegerType } from "../_shared/dao";
 import { parseEvmBlockHeader, processEvmBlock } from "../evm";
 import { createLogProcessorsV3 } from "./logProcessorsV3";
-import type { EvmLogProcessor } from "./logProcessorsShared";
+import { createProcessorsFromHandlers, type EvmLogProcessor } from "./logProcessorsShared";
 import {
   groupLogsByBlock,
   type LogStreamFilter,
@@ -19,7 +19,8 @@ import {
 } from "./logStream";
 import { floatSqrtRatioToFixed } from "./swapEvent";
 import { resolveZeroSeedLaunchAddress } from "./zeroSeedLaunchConfig";
-import { createZeroSeedLaunchProcessors } from "./zeroSeedLaunchProcessors";
+import { createZeroSeedLaunchProcessors, zeroSeedLaunchHandlers } from "./zeroSeedLaunchProcessors";
+import { parseV2PoolKeyConfig } from "./poolKey";
 
 // Replays logs that a local anvil chain actually emitted (see
 // scripts/zeroSeedLaunchFixture.ts) through the indexer's own stream grouping,
@@ -40,7 +41,8 @@ const fixture = JSON.parse(
   chainId: number;
   provenance: { launchRuntimeKeccak: `0x${string}` };
   addresses: Record<string, `0x${string}`>;
-  launches: Record<string, { token: string; quote: string; poolId: `0x${string}` }>;
+  instances: { address: `0x${string}`; quote: `0x${string}`; scope: string }[];
+  launches: Record<string, { token: string; quote: string; extension: `0x${string}`; poolId: `0x${string}` }>;
   forkPoint: number;
   branches: { prefix: Branch; alternate: Branch; canonical: Branch };
 };
@@ -70,11 +72,37 @@ function processorsFor(zeroSeedLaunchAddress?: `0x${string}`): EvmLogProcessor[]
 }
 
 const LAUNCH = resolveZeroSeedLaunchAddress({
+  coreAddress: fixture.addresses.core,
   chainId: CHAIN_ID,
   address: fixture.addresses.launch,
   runtimeCodehash: fixture.provenance.launchRuntimeKeccak,
   production: false,
 });
+
+/** Explicit test-only arithmetic harness. The service factory refuses the
+ * synthetic instance; only this harness bypasses asset screening for math.
+ * Core logs still run once, so principal/fees and event identity are unchanged.
+ */
+function arithmeticReplayProcessors(): EvmLogProcessor[] {
+  const processors = processorsFor(LAUNCH);
+  const extras = fixture.instances.filter((i) => i.address.toLowerCase() !== LAUNCH);
+  const coreInit = processors.find((p) => p.address === fixture.addresses.core && p.filter.topics[0] === POOL_INITIALIZED)!;
+  const handler = coreInit.handler;
+  coreInit.handler = async (dao, key, log) => {
+    await handler(dao, key, log);
+    const event = decodeEventLog({ abi: CORE_ABI, eventName: "PoolInitialized", data: log.data, topics: log.topics as [`0x${string}`], strict: true }).args;
+    const extension = parseV2PoolKeyConfig(event.poolKey.config).extension;
+    if (extras.some((i) => BigInt(i.address) === BigInt(extension)))
+      await dao.insertZeroSeedLaunchPoolKey(key.emitter, event.poolId);
+  };
+  for (const instance of extras) {
+    const extra = instance.scope.startsWith("synthetic")
+      ? createProcessorsFromHandlers({ ArithmeticOnly: { address: instance.address, ...zeroSeedLaunchHandlers(fixture.addresses.core!, instance.quote) } })
+      : createZeroSeedLaunchProcessors({ coreAddress: fixture.addresses.core!, zeroSeedLaunchAddress: instance.address });
+    processors.push(...extra);
+  }
+  return processors;
+}
 
 const filtersOf = (processors: EvmLogProcessor[]): LogStreamFilter[] =>
   processors.map((p, ix) => ({ id: ix + 1, address: p.address, topics: p.filter.topics, strict: p.filter.strict }));
@@ -274,7 +302,7 @@ describe.skipIf(!SERVER)("zero-seed launch replay of local chain logs on Postgre
     };
   }
 
-  const LAUNCH_ON = () => processorsFor(LAUNCH);
+  const LAUNCH_ON = arithmeticReplayProcessors;
 
   // ----- scenarios ---------------------------------------------------------
 
@@ -283,6 +311,44 @@ describe.skipIf(!SERVER)("zero-seed launch replay of local chain logs on Postgre
   test("the pinned fixture launch resolves", () => {
     expect(LAUNCH).toBe(fixture.addresses.launch.toLowerCase() as `0x${string}`);
   });
+
+  test("service entrypoint indexes only its constructor-bound WETH instance, never synthetic quotes", async () => {
+    const db = await freshDb();
+    const processors = processorsFor(LAUNCH);
+    expect(() => processorsFor(fixture.launches.l2!.extension as `0x${string}`)).toThrow(/provenance/);
+    await replay(db, prefix, processors);
+    await replay(db, canonical, processors);
+    const rows = await db.sql<{ quote_token: bigint; emitter: bigint }[]>`
+      SELECT quote_token, emitter FROM zero_seed_launch_created`;
+    expect(rows).toHaveLength(1);
+    expect([rows[0]!.quote_token, rows[0]!.emitter]).toEqual([BigInt(fixture.addresses.quote18!), BigInt(LAUNCH!)]);
+    const [{ flagged }] = await db.sql<{ flagged: number }[]>`
+      SELECT COUNT(*)::int AS flagged FROM all_pool_states_view v JOIN pool_keys pk USING (pool_key_id)
+      WHERE is_zero_seed_launch_pool AND pk.pool_extension <> ${BigInt(LAUNCH!).toString()}::numeric`;
+    expect(flagged).toBe(0);
+    await db.sql.end();
+  }, 120_000);
+
+  test("DAO refuses claim sinks, wrong creator and cross-instance emitter, leaving committed state unchanged", async () => {
+    const db = await freshDb();
+    await replay(db, prefix, LAUNCH_ON());
+    await replay(db, canonical, LAUNCH_ON());
+    const log = canonical.logs.find((l) => l.topics[0] === encodeEventTopics({ abi: ZERO_SEED_LAUNCH_ABI, eventName: "CreatorFeesClaimed" })[0])!;
+    const event = decodeEventLog({ abi: ZERO_SEED_LAUNCH_ABI, eventName: "CreatorFeesClaimed", topics: log.topics as [`0x${string}`], data: log.data, strict: true }).args;
+    const key = { blockNumber: Number(log.blockNumber), transactionIndex: Number(log.transactionIndex), eventIndex: Number(log.logIndex), emitter: log.address, transactionHash: log.transactionHash };
+    const launch = Object.values(fixture.launches).find((l) => l.poolId === event.poolId)!;
+    const before = await dump(db);
+    for (const recipient of [unused(0), fixture.addresses.core!, key.emitter, launch.token, launch.quote]) {
+      await expect(db.dao.begin((tx) => tx.insertZeroSeedLaunchFeesClaimedEvent(key, { coreAddress: fixture.addresses.core!, ...event, recipient: recipient as `0x${string}` }))).rejects.toThrow(/sink recipient/);
+    }
+    await expect(db.dao.begin((tx) => tx.insertZeroSeedLaunchFeesClaimedEvent(key, { coreAddress: fixture.addresses.core!, ...event, creator: unused(99) }))).rejects.toThrow(/creator/);
+    await expect(db.dao.begin((tx) => tx.insertZeroSeedLaunchFeesClaimedEvent({ ...key, emitter: unused(99) }, { coreAddress: fixture.addresses.core!, ...event }))).rejects.toThrow(/not a registered launch pool/);
+    expect(await dump(db)).toEqual(before);
+    // Valid atomic two-asset claim redelivery is still an idempotent retry.
+    await db.dao.begin((tx) => tx.insertZeroSeedLaunchFeesClaimedEvent(key, { coreAddress: fixture.addresses.core!, ...event }));
+    expect(await dump(db)).toEqual(before);
+    await db.sql.end();
+  }, 120_000);
 
   test("canonical replay equals chain state after every block", async () => {
     const db = await freshDb();
@@ -429,7 +495,7 @@ describe.skipIf(!SERVER)("zero-seed launch replay of local chain logs on Postgre
     for (const block of blocks.slice(-4)) await applyBlock(db.dao, processors, block);
     expect(await dump(db)).toEqual(canonicalDump);
     // a duplicate launch log inside the same transaction is ignored
-    const launchOnly = processors.filter((p) => p.address.toLowerCase() === LAUNCH);
+    const launchOnly = processors.filter((p) => fixture.instances.some((i) => i.address.toLowerCase() === p.address.toLowerCase()));
     const launchFilters = filtersOf(launchOnly);
     for (const block of groupLogsByBlock([...prefix.logs, ...canonical.logs], launchFilters)) {
       await db.dao.begin((tx) => processEvmBlock(launchOnly, block, Number(block.header.blockNumber), tx));

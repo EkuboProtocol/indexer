@@ -1,9 +1,9 @@
-// ZeroSeedLaunch ABI, frozen with EkuboProtocol/evm-contracts 39ca1918e4d16b1c9fd4db5ed70761ef7b12c6ae
-// (tree b95e7484). Verbatim from the frozen ZeroSeedLaunch.abi.json, whose
+// ZeroSeedLaunch ABI, frozen with EkuboProtocol/evm-contracts d6aeb58d845aa29454f3ed8df15e84a306a6f26d
+// (tree 28946ed5). Verbatim from the frozen ZeroSeedLaunch.abi.json, whose
 // `jq -cS . | sha256sum` is ZERO_SEED_LAUNCH_ABI_SHA256; a test recomputes it.
 // Any change here is an interface change and needs a new CTO freeze.
 export const ZERO_SEED_LAUNCH_ABI_SHA256 =
-  "28d05c07218cbe7101dee3410f356820dbfcaa31b08e015aee5940a96950f23d";
+  "189ff93c0f6fb64f6e7dd0675872bf6686692f8303e6218b8c2521bfa5ced215";
 
 export const ZERO_SEED_LAUNCH_ABI = [
   {
@@ -11,6 +11,11 @@ export const ZERO_SEED_LAUNCH_ABI = [
       {
         "internalType": "contract ICore",
         "name": "core",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "quote",
         "type": "address"
       }
     ],
@@ -861,6 +866,13 @@ export const ZERO_SEED_LAUNCH_ABI = [
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "quoteToken",
+    "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "anonymous": false,
     "inputs": [
       {
@@ -1166,6 +1178,11 @@ export const ZERO_SEED_LAUNCH_ABI = [
     "type": "error"
   },
   {
+    "inputs": [{ "internalType": "address", "name": "token", "type": "address" }],
+    "name": "LaunchTokenExists",
+    "type": "error"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint128",
@@ -1179,6 +1196,11 @@ export const ZERO_SEED_LAUNCH_ABI = [
       }
     ],
     "name": "LiquidityAboveTickCap",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "MetadataTooLong",
     "type": "error"
   },
   {
