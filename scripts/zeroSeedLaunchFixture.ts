@@ -7,8 +7,10 @@
 // The checkout must be EkuboProtocol/evm-contracts at the pinned head, built
 // with `forge build`. Core is the main (Q0.64) runtime the build produces, set
 // at the canonical address; the router runtime is the checkout's Base fixture.
-// The launch is deployed through the deterministic deployer at a mined salt so
-// its address carries the call-point byte, and registers itself with Core.
+// Each quote has its own constructor-bound instance, deployed through the
+// deterministic deployer at a mined salt carrying the call-point byte.
+// Relocated WETH is supported-path LOCAL evidence; the synthetic 6-decimal
+// instance is arithmetic evidence only, never a service-supported asset pin.
 //
 // Nothing here leaves the machine: anvil runs locally with no fork URL.
 import { spawn, execFileSync } from "node:child_process";
@@ -60,6 +62,13 @@ const ASK_18_18 = -13815500;
 const ASK_18_6 = -41446500;
 const REQUESTED_SUPPLY = 1_000_000_000n * 10n ** 18n;
 const GAS = 6_000_000n;
+const QUOTE_18: Address = "0xffffffffffffffffffffffffffffffffffffffff";
+const QUOTE_18_LOW: Address = "0x0000000000000000000000000000000000010000";
+const PINNED_HEAD = "d6aeb58d845aa29454f3ed8df15e84a306a6f26d";
+const PINNED_TREE = "28946ed5a980df9cd030931e365741fe6b971b50";
+const PINNED_ABI = "189ff93c0f6fb64f6e7dd0675872bf6686692f8303e6218b8c2521bfa5ced215";
+const WETH_RUNTIME = `0x${readFileSync(resolve(evmContracts,
+  "test/fixtures/weth9-0x4200-base-52449112.hex"), "utf8").trim().replace(/^0x/, "")}` as Hex;
 
 type Artifact = { abi: Abi; bytecode: { object: Hex }; deployedBytecode: { object: Hex } };
 const artifact = (path: string): Artifact =>
@@ -97,17 +106,21 @@ const chain = {
   id: CHAIN_ID, name: "anvil", nativeCurrency: { name: "E", symbol: "E", decimals: 18 },
   rpcUrls: { default: { http: [RPC] } },
 } as const;
-const pub = createPublicClient({ chain, transport });
+// Every read must reflect the explicitly mined block, including fast creations
+// whose address order does not need a long salt search.
+const pub = createPublicClient({ chain, transport, cacheTime: 0 });
 const test = createTestClient({ chain, transport, mode: "anvil" });
 const wallet = createWalletClient({ chain, transport });
 
 type Action = { label: string; hash: Hex };
 type Block = { number: number; hash: Hex; parentHash: Hex; timestamp: number; actions: string[] };
-type Launch = { label: string; token: Address; quote: Address; poolKey: { token0: Address; token1: Address; config: Hex }; poolId: Hex };
+type Launch = { label: string; token: Address; quote: Address; extension: Address; poolKey: { token0: Address; token1: Address; config: Hex }; poolId: Hex };
 type Branch = { blocks: Block[]; logs: unknown[]; states: unknown[] };
 
 const launches = new Map<string, Launch>();
 const allLaunches = new Map<string, Launch>();
+const instances = new Map<Address, { address: Address; quote: Address; runtimeKeccak: Hex; scope: string }>();
+const installations = new Map<string, unknown>();
 let current: Branch;
 
 async function waitForAnvil() {
@@ -151,7 +164,7 @@ async function snapshotState(blockNumber: number) {
     tokens.add(launch.quote);
     const word = await pub.getStorageAt({ address: CORE, slot: launch.poolId, blockNumber: BigInt(blockNumber) });
     const fees = (await pub.readContract({
-      address: LAUNCH_ADDRESS, abi: LAUNCH.abi, functionName: "creatorFees",
+      address: launch.extension, abi: LAUNCH.abi, functionName: "creatorFees",
       args: [launch.poolKey], blockNumber: BigInt(blockNumber),
     })) as readonly [bigint, bigint];
     pools.push({ label: launch.label, poolId: launch.poolId, poolStateWord: word, creatorFees: fees.map(String) });
@@ -169,20 +182,19 @@ async function collectLogs(fromBlock: number) {
   const logs = (await pub.request({
     method: "eth_getLogs",
     params: [{ fromBlock: numberToHex(fromBlock), toBlock: "latest" }],
-  })) as unknown[];
+  })) as { blockNumber: Hex }[];
+  if (logs.some((log) => Number(log.blockNumber) < fromBlock)) throw new Error("branch logs precede the fork point");
   current.logs = logs;
 }
 
-let LAUNCH_ADDRESS: Address;
-
-async function deployLaunch(): Promise<Action> {
-  const initCode = concat([LAUNCH.bytecode.object, encodeAbiParameters([{ type: "address" }], [CORE])]);
+async function deployLaunch(quote: Address): Promise<Action> {
+  const initCode = concat([LAUNCH.bytecode.object, encodeAbiParameters([{ type: "address" }, { type: "address" }], [CORE, quote])]);
   const bytecodeHash = keccak256(initCode);
   for (let i = 0n; ; i++) {
     const salt = pad(toHex(i), { size: 32 });
     const address = getContractAddress({ opcode: "CREATE2", from: CREATE2_FACTORY, salt, bytecodeHash });
     if (parseInt(address.slice(2, 4), 16) !== CALL_POINTS_BYTE) continue;
-    LAUNCH_ADDRESS = address;
+    instances.set(quote, { address, quote, runtimeKeccak: "0x", scope: quote === QUOTE_18 || quote === QUOTE_18_LOW ? "relocated plain WETH, local only" : "synthetic 6-decimal arithmetic only; unsupported asset" });
     return { label: `deploy ZeroSeedLaunch salt ${i}`, hash: await send(TRADER, CREATE2_FACTORY, concat([salt, initCode])) };
   }
 }
@@ -203,7 +215,8 @@ type Spec = { label: string; quote: Address; quoteDecimals: number; tokenIs0: bo
 
 /** Binds a single preview's (liquidity, installedSupply) pair; the salt is chosen for the wanted token order. */
 async function prepareLaunch(spec: Spec) {
-  for (let salt = 1n; ; salt++) {
+  const extension = instances.get(spec.quote)!.address;
+  for (let salt = 1n; salt <= 10_000n; salt++) {
     const parameters = {
       quoteToken: spec.quote, name: `Zero Seed ${spec.label}`, symbol: spec.label.toUpperCase(), decimals: 18,
       supply: REQUESTED_SUPPLY, liquidity: 0n,
@@ -213,17 +226,27 @@ async function prepareLaunch(spec: Spec) {
       initialFee: FEE_5, finalFee: FEE_03, salt: pad(toHex(salt), { size: 32 }),
     };
     const preview = (await pub.readContract({
-      address: LAUNCH_ADDRESS, abi: LAUNCH.abi, functionName: "previewInstallation", args: [CREATOR, parameters],
+      address: extension, abi: LAUNCH.abi, functionName: "previewInstallation", args: [CREATOR, parameters],
     })) as { token: Address; poolKey: Launch["poolKey"]; liquidity: bigint; installedSupply: bigint };
     if ((BigInt(preview.token) < BigInt(spec.quote)) !== spec.tokenIs0) continue;
     parameters.liquidity = preview.liquidity;
     parameters.supply = preview.installedSupply;
+    installations.set(spec.label, {
+      requestedSupply: String(REQUESTED_SUPPLY),
+      actualInstalledSupply: String(preview.installedSupply),
+      actualLiquidity: String(preview.liquidity),
+      tradingStart: spec.tradingStart,
+      previewBlock: Number(await pub.getBlockNumber()),
+      extension,
+      quote: spec.quote,
+    });
     const poolId = keccak256(encodeAbiParameters(
       [{ type: "address" }, { type: "address" }, { type: "bytes32" }],
       [preview.poolKey.token0, preview.poolKey.token1, preview.poolKey.config],
     ));
-    return { parameters, launch: { label: spec.label, token: preview.token, quote: spec.quote, poolKey: preview.poolKey, poolId } };
+    return { parameters, launch: { label: spec.label, token: preview.token, quote: spec.quote, extension, poolKey: preview.poolKey, poolId } };
   }
+  throw new Error(`could not find the requested token order for ${spec.label}`);
 }
 
 const create = (spec: Spec) => async (): Promise<Action> => {
@@ -232,13 +255,13 @@ const create = (spec: Spec) => async (): Promise<Action> => {
   allLaunches.set(spec.label, launch);
   return {
     label: `create ${spec.label}`,
-    hash: await send(CREATOR, LAUNCH_ADDRESS, encodeFunctionData({ abi: LAUNCH.abi, functionName: "create", args: [parameters] })),
+    hash: await send(CREATOR, launch.extension, encodeFunctionData({ abi: LAUNCH.abi, functionName: "create", args: [parameters] })),
   };
 };
 
 const claim = (label: string) => async (): Promise<Action> => ({
   label: `claim ${label}`,
-  hash: await send(CREATOR, LAUNCH_ADDRESS, encodeFunctionData({
+  hash: await send(CREATOR, launches.get(label)!.extension, encodeFunctionData({
     abi: LAUNCH.abi, functionName: "claimFees", args: [launches.get(label)!.poolKey, FEE_RECIPIENT],
   })),
 });
@@ -253,7 +276,7 @@ function route(launch: Launch, sell: boolean, amount: bigint, threshold: bigint,
   return concat([
     "0x03", "0x00", specified, calculated, int128(threshold), TRADER,
     pad(toHex(deadline), { size: 4 }), int128(amount), "0x00", "0x01",
-    LAUNCH_ADDRESS, launch.poolKey.token0, launch.poolKey.token1, launch.poolKey.config,
+    launch.extension, launch.poolKey.token0, launch.poolKey.token1, launch.poolKey.config,
     pad("0x", { size: 12 }), allowPartial ? "0x80000000" : "0x00000000",
   ]);
 }
@@ -276,7 +299,7 @@ const START = T0 + 1_000;
 async function prefix(quote18: Address, quote6: Address) {
   const L1: Spec = { label: "l1", quote: quote18, quoteDecimals: 18, tokenIs0: true, duration: 3600, tradingStart: START };
   const L2: Spec = { label: "l2", quote: quote6, quoteDecimals: 6, tokenIs0: false, duration: 600, tradingStart: START };
-  await mine(T0 + 20, [approve(TRADER, quote18, "approve quote18"), approve(TRADER, quote6, "approve quote6")]);
+  await mine(T0 + 20, [approve(TRADER, quote18, "approve quote18"), approve(TRADER, QUOTE_18_LOW, "approve quote18 low"), approve(TRADER, quote6, "approve quote6")]);
   await mine(T0 + 30, [create(L1)]);
   await mine(T0 + 40, [create(L2), approveLaunchToken("l1")]);
   await mine(T0 + 50, [approveLaunchToken("l2")]);
@@ -305,7 +328,15 @@ async function canonical(quote6: Address) {
   await mine(tenYears, [swap("l1", true, 10n ** 23n, tenYears), claim("l1"), claim("l1")]);
 }
 
+function validateFixtureBuild() {
+  if (git("rev-parse", "HEAD") !== PINNED_HEAD || git("rev-parse", "HEAD^{tree}") !== PINNED_TREE ||
+      git("status", "--porcelain", "--untracked-files=no", "--ignore-submodules=all") !== "") throw new Error("fixture requires the clean freeze-v2 source");
+  if (sha256(`${canonicalJson(LAUNCH.abi)}\n`) !== PINNED_ABI) throw new Error("build ABI differs from freeze v2");
+  if (keccak256(WETH_RUNTIME) !== "0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c") throw new Error("WETH fixture runtime mismatch");
+}
+
 async function main() {
+  validateFixtureBuild();
   await waitForAnvil();
   await test.setCode({ address: CORE, bytecode: CORE_BUILD.deployedBytecode.object });
   await test.setCode({ address: ROUTER, bytecode: ROUTER_RUNTIME });
@@ -314,12 +345,25 @@ async function main() {
 
   const branches: Record<string, Branch> = {};
   current = branches.prefix = { blocks: [], logs: [], states: [] };
-  let quote18!: Address, quote6!: Address;
-  await mine(T0 + 10, [deployLaunch, async () => {
-    const q = await deployQuote(18); quote18 = q.address; return q.action;
+  const quote18 = QUOTE_18;
+  let quote6!: Address;
+  for (const address of [quote18, QUOTE_18_LOW]) await test.setCode({ address, bytecode: WETH_RUNTIME });
+  await test.setBalance({ address: TRADER, value: 10n ** 32n });
+  await mine(T0 + 5, [async () => {
+    return { label: "deposit plain WETH", hash: await wallet.sendTransaction({ account: TRADER, to: quote18, data: "0xd0e30db0", value: 10n ** 30n, gas: GAS, chain }) };
+  }, async () => {
+    return { label: "deposit low plain WETH", hash: await wallet.sendTransaction({ account: TRADER, to: QUOTE_18_LOW, data: "0xd0e30db0", value: 10n ** 30n, gas: GAS, chain }) };
   }, async () => {
     const q = await deployQuote(6); quote6 = q.address; return q.action;
   }]);
+  await mine(T0 + 10, [() => deployLaunch(quote18), () => deployLaunch(QUOTE_18_LOW), () => deployLaunch(quote6)]);
+  for (const instance of instances.values()) {
+    instance.runtimeKeccak = keccak256((await pub.getCode({ address: instance.address }))!);
+    const actualQuote = await pub.readContract({ address: instance.address, abi: LAUNCH.abi, functionName: "quoteToken" });
+    if (BigInt(actualQuote as Address) !== BigInt(instance.quote)) throw new Error("constructor quote mismatch");
+  }
+  if (instances.get(quote18)!.runtimeKeccak !== "0x8d8839b97583f275a84aaf26cd6a5fa3ba21a7be04731a65f6140fc5040477c4") throw new Error("executed WETH instance runtime differs from freeze v2");
+  if (instances.get(QUOTE_18_LOW)!.runtimeKeccak !== "0x8751bab213ba226c4e45f6441b9df2db1f9c8ee9e9335320e180f3b348646014") throw new Error("executed low WETH instance runtime differs from freeze v2");
   await prefix(quote18, quote6);
   await collectLogs(1);
   const forkPoint = Number(await pub.getBlockNumber());
@@ -327,7 +371,7 @@ async function main() {
 
   const launchesBeforeFork = new Map(launches);
   current = branches.alternate = { blocks: [], logs: [], states: [] };
-  await forkA(quote18);
+  await forkA(QUOTE_18_LOW);
   await collectLogs(forkPoint + 1);
 
   await test.revert({ id: snapshot });
@@ -337,7 +381,8 @@ async function main() {
   await canonical(quote6);
   await collectLogs(forkPoint + 1);
 
-  const launchCodehash = keccak256((await pub.getCode({ address: LAUNCH_ADDRESS }))!);
+  const LAUNCH_ADDRESS = instances.get(quote18)!.address;
+  const launchCodehash = instances.get(quote18)!.runtimeKeccak;
   // as `jq -cS . abi.json | sha256sum`, trailing newline included
   const abiSha256 = sha256(`${canonicalJson(LAUNCH.abi)}\n`);
   const fixture = {
@@ -346,16 +391,23 @@ async function main() {
     provenance: {
       evmContractsHead: git("rev-parse", "HEAD"),
       evmContractsTree: git("rev-parse", "HEAD^{tree}"),
-      evmContractsDirty: git("status", "--porcelain", "--untracked-files=no") !== "",
+      evmContractsDirty: git("status", "--porcelain", "--untracked-files=no", "--ignore-submodules=all") !== "",
       anvil: execFileSync("anvil", ["--version"], { encoding: "utf8" }).split("\n")[0],
       coreRuntimeKeccak: coreCodehash,
       routerRuntimeKeccak: routerCodehash,
       launchRuntimeKeccak: launchCodehash,
       launchAbiSha256: abiSha256,
+      wethRuntimeKeccak: keccak256(WETH_RUNTIME),
+      buildSubmodules: "excluded from git dirty check; canonical ABI and constructor-executed runtime pins checked independently",
     },
     chainId: CHAIN_ID,
+    instances: [...instances.values()].map((instance) => ({
+      ...instance,
+      constructorArguments: encodeAbiParameters([{ type: "address" }, { type: "address" }], [CORE, instance.quote]),
+    })),
     addresses: { core: CORE, router: ROUTER, launch: LAUNCH_ADDRESS, quote18, quote6, creator: CREATOR, trader: TRADER, feeRecipient: FEE_RECIPIENT },
     launches: Object.fromEntries([...allLaunches.values()].map((l) => [l.label, l])),
+    installations: Object.fromEntries(installations),
     forkPoint,
     branches,
   };
