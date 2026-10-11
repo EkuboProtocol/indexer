@@ -19,6 +19,10 @@ import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
 import { StickyRpc } from "./evm/stickyRpc";
 import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
 import { parsePositionsProtocolFeeConfigs } from "./evm/positionsProtocolFeeConfig";
+import { resolveZeroSeedLaunchAddress } from "./evm/zeroSeedLaunchConfig";
+import type { EvmLogProcessor } from "./evm/logProcessorsShared";
+import type { DAO } from "./_shared/dao";
+import { isProduction } from "./config";
 import { runIndexer, type ParsedRuntimeBlock } from "./runtime";
 import type { NetworkEntrypoint, StreamOptions } from "./types";
 
@@ -134,6 +138,16 @@ export function createEvmProcessors() {
     ve33PositionsAddress: loadOptionalHexAddress("VE33_POSITIONS_V3_ADDRESS"),
   };
 
+  const zeroSeedLaunchAddress = resolveZeroSeedLaunchAddress({
+    chainId: process.env.CHAIN_ID ? BigInt(process.env.CHAIN_ID) : undefined,
+    address: loadOptionalHexAddress("ZERO_SEED_LAUNCH_ADDRESS"),
+    runtimeCodehash: process.env.ZERO_SEED_LAUNCH_RUNTIME_CODEHASH as
+      | `0x${string}`
+      | undefined,
+    production: isProduction(),
+    warn: (message) => logger.warn(message),
+  });
+
   if (!evmV2AddressConfig && !evmV3AddressConfig) {
     throw new Error("No config for either V2 or V3 contracts");
   }
@@ -144,6 +158,8 @@ export function createEvmProcessors() {
     positionsV3ProtocolFeeConfigs,
     evmV3Ve33AddressConfig,
   });
+  if (zeroSeedLaunchAddress)
+    logger.info(`Indexing ZeroSeedLaunch`, { zeroSeedLaunchAddress });
 
   return [
     ...(evmV2AddressConfig ? createLogProcessorsV2(evmV2AddressConfig) : []),
@@ -160,6 +176,7 @@ export function createEvmProcessors() {
             "RECOMPILED_ORDERS_V3_ADDRESS",
           ]),
           ...evmV3Ve33AddressConfig,
+          zeroSeedLaunchAddress,
           positionsContracts: positionsV3ProtocolFeeConfigs ?? [],
         })
       : []),
@@ -287,38 +304,51 @@ export async function createEvmEntrypoint(
     getPlannedEvents(block: EvmBlock) {
       return block.logs.reduce((total, log) => total + log.filterIds.length, 0);
     },
-    async processBlock({ block, blockNumber, dao }) {
-      let eventsProcessed = 0;
-
-      for (const log of block.logs) {
-        const eventKey: EventKey = {
-          blockNumber,
-          transactionIndex: log.transactionIndex,
-          // The block-wide log index, which is what `event_id` has always been
-          // packed from on EVM. This used to read
-          // `logIndexInTransaction ?? logIndex ?? i`, but the first was a field
-          // of the apibara block type that no stream ever populated and the
-          // last could not be reached, so both fell through to this every time.
-          eventIndex: log.logIndex,
-          emitter: log.address,
-          transactionHash: log.transactionHash,
-        };
-
-        await Promise.all(
-          log.filterIds.map(async (matchingFilterId: number) => {
-            eventsProcessed++;
-
-            await processors[matchingFilterId - 1]!.handler(dao, eventKey, {
-              topics: log.topics,
-              data: log.data,
-            });
-          }),
-        );
-      }
-
-      return eventsProcessed;
+    processBlock({ block, blockNumber, dao }) {
+      return processEvmBlock(processors, block, blockNumber, dao);
     },
   };
+}
+
+/**
+ * Runs a block's logs through the processors their filters matched, in log
+ * order. Exported so tests replay recorded chain logs through the same code.
+ */
+export async function processEvmBlock(
+  processors: EvmLogProcessor[],
+  block: EvmBlock,
+  blockNumber: number,
+  dao: DAO,
+): Promise<number> {
+  let eventsProcessed = 0;
+
+  for (const log of block.logs) {
+    const eventKey: EventKey = {
+      blockNumber,
+      transactionIndex: log.transactionIndex,
+      // The block-wide log index, which is what `event_id` has always been
+      // packed from on EVM. This used to read
+      // `logIndexInTransaction ?? logIndex ?? i`, but the first was a field
+      // of the apibara block type that no stream ever populated and the
+      // last could not be reached, so both fell through to this every time.
+      eventIndex: log.logIndex,
+      emitter: log.address,
+      transactionHash: log.transactionHash,
+    };
+
+    await Promise.all(
+      log.filterIds.map(async (matchingFilterId: number) => {
+        eventsProcessed++;
+
+        await processors[matchingFilterId - 1]!.handler(dao, eventKey, {
+          topics: log.topics,
+          data: log.data,
+        });
+      }),
+    );
+  }
+
+  return eventsProcessed;
 }
 
 if (import.meta.main) {

@@ -314,6 +314,56 @@ export interface Ve33RewardsClaimedInsert extends Ve33PoolEventDescriptor {
   amount: NumericValue;
 }
 
+export interface ZeroSeedLaunchEventDescriptor {
+  coreAddress: `0x${string}`;
+  poolId: `0x${string}`;
+}
+
+export interface ZeroSeedLaunchCreatedInsert
+  extends ZeroSeedLaunchEventDescriptor {
+  token: AddressValue;
+  creator: AddressValue;
+  quoteToken: AddressValue;
+  positionId: `0x${string}`;
+  liquidity: NumericValue;
+  supply: NumericValue;
+  name: string;
+  symbol: string;
+  decimals: number;
+  askTick: number;
+  upperTick: number;
+  tickSpacing: number;
+  tradingStart: NumericValue;
+  feeDuration: number;
+  initialFee: NumericValue;
+  finalFee: NumericValue;
+  salt: `0x${string}`;
+}
+
+export interface ZeroSeedLaunchSwappedInsert
+  extends ZeroSeedLaunchEventDescriptor {
+  locker: AddressValue;
+  delta0: NumericValue;
+  delta1: NumericValue;
+  feeRate: NumericValue;
+  feeAmount: NumericValue;
+  feeIsToken1: boolean;
+}
+
+export interface ZeroSeedLaunchFeesClaimedInsert
+  extends ZeroSeedLaunchEventDescriptor {
+  creator: AddressValue;
+  recipient: AddressValue;
+  amount0: NumericValue;
+  amount1: NumericValue;
+}
+
+// Postgres text cannot hold NUL, and launch names and symbols are arbitrary
+// creator input.
+export function stripNul(value: string): string {
+  return value.replaceAll("\u0000", "");
+}
+
 export interface TokenRegistrationInsert {
   address: AddressValue;
   name: NumericValue;
@@ -421,7 +471,7 @@ export interface LiquidityUpdatedInsert {
   protocolFees1: NumericValue;
 }
 
-const NumericIntegerType: postgres.PostgresType<bigint> = {
+export const NumericIntegerType: postgres.PostgresType<bigint> = {
   from: [1700],
   to: 1700,
   parse(v: string) {
@@ -1094,6 +1144,153 @@ export class DAO {
           AND pool_id = ${this.numeric(poolId)}
       )
       ON CONFLICT DO NOTHING;
+    `;
+  }
+
+  public async insertZeroSeedLaunchPoolKey(
+    coreAddress: `0x${string}`,
+    poolId: `0x${string}`,
+  ) {
+    await this.sql`
+      INSERT INTO zero_seed_launch_pool_keys (pool_key_id)
+      (
+        SELECT pool_key_id
+        FROM pool_keys
+        WHERE chain_id = ${this.chainId}
+          AND core_address = ${this.numeric(coreAddress)}
+          AND pool_id = ${this.numeric(poolId)}
+      )
+      ON CONFLICT DO NOTHING;
+    `;
+  }
+
+  /**
+   * The pool key of a launch event. A launch event for a pool that Core did
+   * not initialize with the configured extension is a decoder or config bug:
+   * refuse it rather than store an unattributed row.
+   */
+  private async zeroSeedLaunchPoolKeyId(
+    coreAddress: `0x${string}`,
+    poolId: `0x${string}`,
+  ): Promise<bigint> {
+    const [row] = await this.sql<{ pool_key_id: bigint }[]>`
+      SELECT zslpk.pool_key_id
+      FROM pool_keys pk
+               JOIN zero_seed_launch_pool_keys zslpk USING (pool_key_id)
+      WHERE pk.chain_id = ${this.chainId}
+        AND pk.core_address = ${this.numeric(coreAddress)}
+        AND pk.pool_id = ${this.numeric(poolId)};
+    `;
+    if (!row)
+      throw new Error(
+        `Zero-seed launch event for pool ${poolId}, which is not a registered launch pool`,
+      );
+    return row.pool_key_id;
+  }
+
+  private eventKeyValues(key: EventKey) {
+    return this.sql`
+      ${this.chainId},
+      ${key.blockNumber},
+      ${key.transactionIndex},
+      ${key.eventIndex},
+      ${this.numeric(key.transactionHash)},
+      ${this.numeric(key.emitter)}
+    `;
+  }
+
+  // Launch writers insert with ON CONFLICT DO NOTHING so that a redelivered
+  // log fires no ledger trigger. Swaps and claims without their LaunchCreated
+  // are refused by the ledger trigger.
+  async insertZeroSeedLaunchCreatedEvent(
+    key: EventKey,
+    parsed: ZeroSeedLaunchCreatedInsert,
+  ) {
+    const poolKeyId = await this.zeroSeedLaunchPoolKeyId(
+      parsed.coreAddress,
+      parsed.poolId,
+    );
+    await this.sql`
+      INSERT INTO zero_seed_launch_created
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, token, creator, quote_token, position_id, liquidity, supply,
+         name, symbol, decimals, ask_tick, upper_tick, tick_spacing, trading_start,
+         fee_duration, initial_fee, final_fee, salt)
+      VALUES (
+        ${this.eventKeyValues(key)},
+        ${poolKeyId},
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.token)},
+        ${this.numeric(parsed.creator)},
+        ${this.numeric(parsed.quoteToken)},
+        ${this.numeric(parsed.positionId)},
+        ${this.numeric(parsed.liquidity)},
+        ${this.numeric(parsed.supply)},
+        ${stripNul(parsed.name)},
+        ${stripNul(parsed.symbol)},
+        ${parsed.decimals},
+        ${parsed.askTick},
+        ${parsed.upperTick},
+        ${parsed.tickSpacing},
+        ${this.numeric(parsed.tradingStart)},
+        ${parsed.feeDuration},
+        ${this.numeric(parsed.initialFee)},
+        ${this.numeric(parsed.finalFee)},
+        ${this.numeric(parsed.salt)}
+      )
+      ON CONFLICT (chain_id, event_id) DO NOTHING;
+    `;
+  }
+
+  async insertZeroSeedLaunchSwappedEvent(
+    key: EventKey,
+    parsed: ZeroSeedLaunchSwappedInsert,
+  ) {
+    const poolKeyId = await this.zeroSeedLaunchPoolKeyId(
+      parsed.coreAddress,
+      parsed.poolId,
+    );
+    await this.sql`
+      INSERT INTO zero_seed_launch_swapped
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, locker, delta0, delta1, fee_rate, fee_amount, fee_is_token1)
+      VALUES (
+        ${this.eventKeyValues(key)},
+        ${poolKeyId},
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.locker)},
+        ${this.numeric(parsed.delta0)},
+        ${this.numeric(parsed.delta1)},
+        ${this.numeric(parsed.feeRate)},
+        ${this.numeric(parsed.feeAmount)},
+        ${parsed.feeIsToken1}
+      )
+      ON CONFLICT (chain_id, event_id) DO NOTHING;
+    `;
+  }
+
+  async insertZeroSeedLaunchFeesClaimedEvent(
+    key: EventKey,
+    parsed: ZeroSeedLaunchFeesClaimedInsert,
+  ) {
+    const poolKeyId = await this.zeroSeedLaunchPoolKeyId(
+      parsed.coreAddress,
+      parsed.poolId,
+    );
+    await this.sql`
+      INSERT INTO zero_seed_launch_fees_claimed
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, creator, recipient, amount0, amount1)
+      VALUES (
+        ${this.eventKeyValues(key)},
+        ${poolKeyId},
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.creator)},
+        ${this.numeric(parsed.recipient)},
+        ${this.numeric(parsed.amount0)},
+        ${this.numeric(parsed.amount1)}
+      )
+      ON CONFLICT (chain_id, event_id) DO NOTHING;
     `;
   }
 

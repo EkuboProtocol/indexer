@@ -196,7 +196,7 @@ test("applying 00123 over existing pools seeds every one of them", async () => {
   expect(await stored(client, other)).toBe("5");
 });
 
-test("each state table has both triggers, and the UPDATE one only fires on a real move", async () => {
+test("each mutable state table has both triggers, and the UPDATE one only fires on a real move", async () => {
   const client = await createClient();
   const { rows } = await client.query<{ tgrelid: string; tgname: string; def: string }>(
     `SELECT tgrelid::regclass::text AS tgrelid, tgname, pg_get_triggerdef(oid) AS def
@@ -205,7 +205,14 @@ test("each state table has both triggers, and the UPDATE one only fires on a rea
   );
   const tables = ["boosted_fees_pool_states", "limit_order_pool_states", "pool_states",
     "twamm_pool_states", "ve33_pool_states"];
-  expect(rows.map((r) => r.tgrelid)).toEqual(tables.flatMap((t) => [t, t]));
+  // A launch's contribution is its creation event id, which never changes
+  // while the row exists, so zero_seed_launch_states has no UPDATE trigger.
+  const launch = rows.filter((r) => r.tgrelid === "zero_seed_launch_states");
+  expect(launch.map((r) => r.def)).toEqual([
+    expect.stringMatching(/AFTER INSERT OR DELETE ON public\.zero_seed_launch_states FOR EACH ROW/),
+  ]);
+  expect(rows.filter((r) => r.tgrelid !== "zero_seed_launch_states").map((r) => r.tgrelid))
+    .toEqual(tables.flatMap((t) => [t, t]));
   for (const t of tables) {
     const [rowEvents, upd] = rows.filter((r) => r.tgrelid === t);
     expect(rowEvents!.def).toMatch(/AFTER INSERT OR DELETE ON/);
