@@ -32,11 +32,7 @@ import {
   VE33_ABI as VE33_ABI_V3,
   BOOSTED_FEES_ABI as BOOSTED_FEES_ABI_V3,
 } from "./abis_v3";
-import {
-  LAUNCH_ROUTER_ABI,
-  LOCKED_LAUNCH_LIQUIDITY_ABI,
-  SCHEDULED_LAUNCH_ABI,
-} from "./abis_launch";
+import { createZeroSeedLaunchProcessors } from "./zeroSeedLaunchProcessors";
 
 export interface LogProcessorConfigV3 {
   mevCaptureAddress: `0x${string}`;
@@ -52,9 +48,8 @@ export interface LogProcessorConfigV3 {
   ve33Address?: `0x${string}`;
   veTokenAddress?: `0x${string}`;
   ve33PositionsAddress?: `0x${string}`;
-  scheduledLaunchAddress?: `0x${string}`;
-  lockedLaunchLiquidityAddress?: `0x${string}`;
-  launchRouterAddress?: `0x${string}`;
+  /** Resolved through zeroSeedLaunchConfig.ts; unset leaves launches off. */
+  zeroSeedLaunchAddress?: `0x${string}`;
   positionsContracts: PositionsContractProtocolFeeConfig[];
 }
 
@@ -95,9 +90,7 @@ export function createLogProcessorsV3({
   ve33Address,
   veTokenAddress,
   ve33PositionsAddress,
-  scheduledLaunchAddress,
-  lockedLaunchLiquidityAddress,
-  launchRouterAddress,
+  zeroSeedLaunchAddress,
   positionsContracts,
 }: LogProcessorConfigV3): EvmLogProcessor[] {
   const mevCaptureAddressBigInt = BigInt(mevCaptureAddress);
@@ -290,10 +283,10 @@ export function createLogProcessorsV3({
           if (extension === mevCaptureAddressBigInt) {
             await dao.insertMEVCapturePoolKey(key.emitter, parsed.poolId);
           } else if (
-            scheduledLaunchAddress &&
-            extension === BigInt(scheduledLaunchAddress)
+            zeroSeedLaunchAddress &&
+            extension === BigInt(zeroSeedLaunchAddress)
           ) {
-            await dao.insertScheduledLaunchPoolKey(key.emitter, parsed.poolId);
+            await dao.insertZeroSeedLaunchPoolKey(key.emitter, parsed.poolId);
           }
         },
         async PositionUpdated(dao, key, parsed) {
@@ -611,168 +604,6 @@ export function createLogProcessorsV3({
     twammProcessors,
     ordersProcessors,
     positionsProcessors,
-    createLaunchProcessors({
-      coreAddress,
-      scheduledLaunchAddress,
-      lockedLaunchLiquidityAddress,
-      launchRouterAddress,
-    }),
+    createZeroSeedLaunchProcessors({ coreAddress, zeroSeedLaunchAddress }),
   );
-}
-
-type LaunchProcessorDefinitions = {
-  ScheduledLaunch?: ContractHandlers<typeof SCHEDULED_LAUNCH_ABI>;
-  LockedLaunchLiquidity?: ContractHandlers<typeof LOCKED_LAUNCH_LIQUIDITY_ABI>;
-  LaunchRouter?: ContractHandlers<typeof LAUNCH_ROUTER_ABI>;
-} & ContractHandlerDefinitions;
-
-function scheduledLaunchHandlers(
-  address: `0x${string}`,
-  coreAddress: `0x${string}`,
-): ContractHandlers<typeof SCHEDULED_LAUNCH_ABI> {
-  return {
-    address,
-    abi: SCHEDULED_LAUNCH_ABI,
-    handlers: {
-      async LaunchCreated(dao, key, { poolId, token, owner, config }) {
-        await dao.insertScheduledLaunchCreatedEvent(key, {
-          coreAddress,
-          poolId,
-          token,
-          owner,
-          quoteToken: config.quoteToken,
-          name: config.name,
-          symbol: config.symbol,
-          decimals: config.decimals,
-          totalSupply: config.totalSupply,
-          startTime: config.startTime,
-          endTime: config.endTime,
-          targetTick: config.targetTick,
-          upperTick: config.upperTick,
-          tickSpacing: config.tickSpacing,
-          initialFee: config.initialFee,
-          finalFee: config.finalFee,
-          migrationTickLower: config.migrationTickLower,
-          migrationTickUpper: config.migrationTickUpper,
-        });
-      },
-      async LaunchAdvanced(dao, key, parsed) {
-        await dao.insertScheduledLaunchAdvancedEvent(key, {
-          coreAddress,
-          ...parsed,
-        });
-      },
-      async LaunchSwapped(dao, key, parsed) {
-        await dao.insertScheduledLaunchSwappedEvent(key, {
-          coreAddress,
-          ...parsed,
-        });
-      },
-      async CreatorFeesClaimed(dao, key, parsed) {
-        await dao.insertScheduledLaunchCreatorFeesClaimedEvent(key, {
-          coreAddress,
-          poolId: parsed.poolId,
-          account: parsed.recipient,
-          amount0: parsed.amount0,
-          amount1: parsed.amount1,
-        });
-      },
-    },
-  };
-}
-
-function lockedLaunchLiquidityHandlers(
-  address: `0x${string}`,
-  coreAddress: `0x${string}`,
-): ContractHandlers<typeof LOCKED_LAUNCH_LIQUIDITY_ABI> {
-  return {
-    address,
-    abi: LOCKED_LAUNCH_LIQUIDITY_ABI,
-    handlers: {
-      async PrincipalReceived(dao, key, parsed) {
-        await dao.insertLaunchPrincipalReceivedEvent(key, {
-          coreAddress,
-          poolId: parsed.launchId,
-          account: parsed.from,
-          amount0: parsed.amount0,
-          amount1: parsed.amount1,
-        });
-      },
-      async LiquidityLocked(dao, key, parsed) {
-        await dao.insertLaunchLiquidityLockedEvent(key, {
-          coreAddress,
-          poolId: parsed.launchId,
-          terminalPoolId: parsed.terminalPoolId,
-          liquidity: parsed.liquidity,
-        });
-      },
-      async FeesClaimed(dao, key, parsed) {
-        await dao.insertLaunchLockedFeesClaimedEvent(key, {
-          coreAddress,
-          poolId: parsed.launchId,
-          account: parsed.recipient,
-          amount0: parsed.amount0,
-          amount1: parsed.amount1,
-        });
-      },
-    },
-  };
-}
-
-function launchRouterHandlers(
-  address: `0x${string}`,
-  coreAddress: `0x${string}`,
-): ContractHandlers<typeof LAUNCH_ROUTER_ABI> {
-  return {
-    address,
-    abi: LAUNCH_ROUTER_ABI,
-    handlers: {
-      async LaunchCreatedBy(dao, key, parsed) {
-        await dao.insertLaunchCreatedByEvent(key, {
-          coreAddress,
-          poolId: parsed.launchId,
-          creator: parsed.creator,
-        });
-      },
-    },
-  };
-}
-
-/** The launchpad contracts; each is indexed only when its address is set. */
-export function createLaunchProcessors({
-  coreAddress,
-  scheduledLaunchAddress,
-  lockedLaunchLiquidityAddress,
-  launchRouterAddress,
-}: Pick<
-  LogProcessorConfigV3,
-  | "coreAddress"
-  | "scheduledLaunchAddress"
-  | "lockedLaunchLiquidityAddress"
-  | "launchRouterAddress"
->): EvmLogProcessor[] {
-  const definitions: LaunchProcessorDefinitions = {
-    ...(scheduledLaunchAddress
-      ? {
-          ScheduledLaunch: scheduledLaunchHandlers(
-            scheduledLaunchAddress,
-            coreAddress,
-          ),
-        }
-      : {}),
-    ...(lockedLaunchLiquidityAddress
-      ? {
-          LockedLaunchLiquidity: lockedLaunchLiquidityHandlers(
-            lockedLaunchLiquidityAddress,
-            coreAddress,
-          ),
-        }
-      : {}),
-    ...(launchRouterAddress
-      ? {
-          LaunchRouter: launchRouterHandlers(launchRouterAddress, coreAddress),
-        }
-      : {}),
-  };
-  return createProcessorsFromHandlers(definitions);
 }

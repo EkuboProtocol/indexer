@@ -390,22 +390,34 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
-### Unreleased: launchpad events and launch state on `all_pool_states_view` (00134, additive)
+### Unreleased: zero-seed launches (00134, additive)
 
-Deploy this before any quoter-service or api release that selects the new
-columns. Migration 00134 indexes `ScheduledLaunch`, `LockedLaunchLiquidity` and
-`LaunchRouter` (evm-contracts `40e5bb1`) into eight event tables. It keeps
-`scheduled_launch_pool_states`, which holds each launch's config and its latest
-`LaunchAdvanced`, and appends 14 columns to `all_pool_states_view`: the
-`scheduled_launch_*` columns and `is_scheduled_launch_pool`. The columns are
-appended, so existing readers keep working. The state table is a sixth source
-for `pool_last_event_id`. The migration parks the workers by locking `blocks`
-first, as 00123 does.
+Migration 00134 indexes `ZeroSeedLaunch` (evm-contracts `39ca191`, ABI sha256
+`28d05c07…f23d`) into `zero_seed_launch_pool_keys`, `_created`, `_swapped`,
+`_fees_claimed` and `zero_seed_launch_states` (one row per launch: the creator
+fee ledger, kept apart from the Core pool reserves). It appends nine
+`zero_seed_launch_*`/`is_zero_seed_launch_pool` columns to
+`all_pool_states_view`, and the launch's creation event becomes a source for
+`pool_last_event_id`. It parks the workers by locking `blocks` first, as 00123
+does. Deploy it before any quoter-service or api release that selects the new
+columns.
 
-No chain indexes the launch contracts until `SCHEDULED_LAUNCH_ADDRESS`,
-`LOCKED_LAUNCH_LIQUIDITY_ADDRESS` and `LAUNCH_ROUTER_ADDRESS` are set in that
-chain's environment. Set them before the deployment block is indexed. Past
-events need a re-index from the deployment block.
+Launch indexing is off unless `ZERO_SEED_LAUNCH_ADDRESS` and
+`ZERO_SEED_LAUNCH_RUNTIME_CODEHASH` both match an entry in
+`src/evm/zeroSeedLaunchConfig.ts`. No live deployment is pinned; the only entry
+is the local anvil fixture, which production refuses. A set address that
+disagrees with the chain's pin stops the worker.
+
+Rollback before any launch exists: in one transaction that locks `blocks`
+first, recreate `all_pool_states_view` and `recompute_pool_last_event_id` from
+00123 and drop the `zero_seed_launch_*` tables and functions. Once launches
+exist on chain, rolling back only stops indexing them; their pools and locked
+principal are unaffected.
+
+`tests/fixtures/zero-seed-launch/local-chain.json` is regenerated with
+`bun scripts/zeroSeedLaunchFixture.ts <evm-contracts checkout>` (local anvil,
+no fork); `src/evm/zeroSeedLaunchReplay.postgres.test.ts` replays it against
+`TEST_PG_CONNECTION_STRING`.
 
 ### 2026-09-30: Production workers require their RPC URL in the environment
 

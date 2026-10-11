@@ -20,6 +20,6 @@ test("all migrations apply successfully", async () => {
   );
 
   // 00129 adds two extension tables and the latest-event view; 00134 adds
-  // ten scheduled-launch tables and two views.
-  expect(result).toBe(100);
+  // five zero-seed launch tables.
+  expect(result).toBe(93);
 });
