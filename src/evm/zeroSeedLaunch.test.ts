@@ -27,11 +27,11 @@ const fixture = JSON.parse(
 const LAUNCH = fixture.addresses.launch as `0x${string}`;
 const CODEHASH = fixture.provenance.launchRuntimeKeccak as `0x${string}`;
 
-// The CTO interface freeze (EKU-822 v1) pins.
+// The CTO interface freeze (EKU-822 v2) pins.
 const FROZEN = {
-  abiSha256: "28d05c07218cbe7101dee3410f356820dbfcaa31b08e015aee5940a96950f23d",
-  evmContractsHead: "39ca1918e4d16b1c9fd4db5ed70761ef7b12c6ae",
-  evmContractsTree: "b95e748486d5bbf23635fcea73bd4825b3a36455",
+  abiSha256: "189ff93c0f6fb64f6e7dd0675872bf6686692f8303e6218b8c2521bfa5ced215",
+  evmContractsHead: "d6aeb58d845aa29454f3ed8df15e84a306a6f26d",
+  evmContractsTree: "28946ed5a980df9cd030931e365741fe6b971b50",
   coreRuntimeKeccak: "0xc5f90c9d0dbc5037f8f9e248f4bb292e7c1824f584eb6550cb4cad525b38c71a",
   routerRuntimeKeccak: "0x32ba8475c95ee5d9f7807f4ad9dce849929c992df9c68e9030e986d1854e726f",
   topics: {
@@ -94,16 +94,34 @@ describe("frozen interface", () => {
     expect([p.evmContractsHead, p.evmContractsTree, p.evmContractsDirty]).toEqual([FROZEN.evmContractsHead, FROZEN.evmContractsTree, false]);
     expect([p.coreRuntimeKeccak, p.routerRuntimeKeccak, p.launchAbiSha256]).toEqual([FROZEN.coreRuntimeKeccak, FROZEN.routerRuntimeKeccak, FROZEN.abiSha256]);
     expect(createdLogs.length).toBe(4);
+    expect(fixture.forkPoint).toBe(Math.max(...fixture.branches.prefix.blocks.map((b: { number: number }) => b.number)));
+    for (const branch of [fixture.branches.alternate, fixture.branches.canonical])
+      expect(branch.logs.every((l: RawLog) => Number(l.blockNumber) > fixture.forkPoint)).toBe(true);
+    for (const log of createdLogs) {
+      const event = decodeCreated(log);
+      const launch = Object.values(fixture.launches).find((l) => (l as { poolId: string }).poolId === event.poolId) as { label: string; extension: string };
+      const installation = fixture.installations[launch.label];
+      expect([String(event.parameters.supply), String(event.liquidity), Number(event.parameters.tradingStart), log.address.toLowerCase()])
+        .toEqual([installation.actualInstalledSupply, installation.actualLiquidity, installation.tradingStart, installation.extension.toLowerCase()]);
+      expect(BigInt(installation.requestedSupply) >= event.parameters.supply).toBe(true);
+    }
   });
 });
 
 describe("launch support configuration", () => {
-  const base = { chainId: 31337n, address: LAUNCH, runtimeCodehash: CODEHASH, production: false };
+  const base = { chainId: 31337n, address: LAUNCH, runtimeCodehash: CODEHASH, coreAddress: fixture.addresses.core, production: false };
   const otherChainPin: ZeroSeedLaunchPin = { ...ZERO_SEED_LAUNCH_PINS[0]!, chainId: 8453n, local: false };
 
-  it("the only pin is the local fixture deployment", () => {
-    expect(ZERO_SEED_LAUNCH_PINS).toHaveLength(1);
+  it("only relocated plain-WETH fixture instances are pinned; live and arithmetic pins are absent", () => {
+    expect(ZERO_SEED_LAUNCH_PINS).toHaveLength(2);
     expect(ZERO_SEED_LAUNCH_PINS[0]).toMatchObject({ chainId: 31337n, address: LAUNCH.toLowerCase(), runtimeCodehash: CODEHASH, local: true });
+    for (const pin of ZERO_SEED_LAUNCH_PINS) {
+      const instance = fixture.instances.find((i: { address: string }) => i.address.toLowerCase() === pin.address)!;
+      expect([instance.quote.toLowerCase(), instance.runtimeKeccak]).toEqual([pin.quoteToken, pin.runtimeCodehash]);
+      expect(pin.quoteRuntimeCodehash).toBe(fixture.provenance.wethRuntimeKeccak);
+      expect(pin.local).toBe(true);
+    }
+    expect(() => createZeroSeedLaunchProcessors({ coreAddress: fixture.addresses.core, zeroSeedLaunchAddress: fixture.launches.l2.extension })).toThrow(/provenance/);
   });
 
   it("is on only for a pinned address and codehash", () => {
@@ -123,10 +141,14 @@ describe("launch support configuration", () => {
   it("refuses to start on a mismatch, an undeployed codehash, a local pin in production or another ABI", () => {
     expect(() => resolveZeroSeedLaunchAddress({ ...base, address: "0x5eed00000000000000000000000000000000ab01" })).toThrow(/not the pinned launch/);
     expect(() => resolveZeroSeedLaunchAddress({ ...base, runtimeCodehash: FROZEN.coreRuntimeKeccak as `0x${string}` })).toThrow(/does not match the pin/);
-    expect(() => resolveZeroSeedLaunchAddress({ ...base, runtimeCodehash: "0x16d2d4ce55576f418d94b9dcef3e9d4950a0d3f1573af639f1387e1d6b74c319" })).toThrow(/not a deployed runtime/);
+    expect(() => resolveZeroSeedLaunchAddress({ ...base, runtimeCodehash: "0xa85c864302696dce32b5e2452508219bb08323c142b40fb7c487540db3f75d89" })).toThrow(/not a deployed runtime/);
     expect(() => resolveZeroSeedLaunchAddress({ ...base, runtimeCodehash: toHex(0n, { size: 32 }) })).toThrow(/not a deployed runtime/);
     expect(() => resolveZeroSeedLaunchAddress({ ...base, production: true })).toThrow(/local fixture/);
     expect(() => resolveZeroSeedLaunchAddress({ ...base, chainId: 8453n, pins: [{ ...otherChainPin, abiSha256: "00" }] })).toThrow(/ABI/);
+    expect(() => resolveZeroSeedLaunchAddress({ ...base, coreAddress: undefined })).toThrow(/Core/);
+    expect(() => resolveZeroSeedLaunchAddress({ ...base, coreAddress: "0x0000000000000000000000000000000000000001" })).toThrow(/Core/);
+    expect(() => resolveZeroSeedLaunchAddress({ ...base, pins: [{ ...ZERO_SEED_LAUNCH_PINS[0]!, quoteRuntimeCodehash: toHex(0n, { size: 32 }) }] })).toThrow(/quote/);
+    expect(() => resolveZeroSeedLaunchAddress({ ...base, pins: [{ ...ZERO_SEED_LAUNCH_PINS[0]!, quoteToken: fixture.addresses.quote6 }] })).toThrow(/provenance/);
   });
 });
 
@@ -162,7 +184,11 @@ describe("processors", () => {
 
 describe("LaunchCreated decoder guards", () => {
   it("accept every chain-emitted LaunchCreated", () => {
-    for (const log of createdLogs) expect(launchCreatedProblems(keyOf(log), decodeCreated(log))).toEqual([]);
+    for (const log of createdLogs) {
+      const event = decodeCreated(log);
+      // Pure arithmetic decoder exercise; not service asset clearance.
+      expect(launchCreatedProblems(keyOf(log), event, event.parameters.quoteToken)).toEqual([]);
+    }
   });
 
   it("refuse logs whose fields disagree, and the handler stores nothing", async () => {
@@ -178,11 +204,23 @@ describe("LaunchCreated decoder guards", () => {
     ];
     for (const [name, mutated, problem] of mutants) {
       const key = name === "emitter" ? { ...keyOf(log), emitter: config.coreAddress } : keyOf(log);
-      expect(launchCreatedProblems(key, mutated)).toContain(problem);
+      expect(launchCreatedProblems(key, mutated, event.parameters.quoteToken)).toContain(problem);
     }
     const [created] = createZeroSeedLaunchProcessors({ coreAddress: config.coreAddress, zeroSeedLaunchAddress: LAUNCH })
       .filter((p) => p.filter.topics[0] === LAUNCH_CREATED);
     const dao = { insertZeroSeedLaunchCreatedEvent: async () => { throw new Error("must not store"); } } as unknown as DAO;
     await expect(created!.handler(dao, { ...keyOf(log), emitter: config.coreAddress }, log)).rejects.toThrow(/Refusing LaunchCreated/);
+  });
+
+  it("refuses missing/wrong constructor quote and 32-byte multibyte metadata", () => {
+    const log = createdLogs[0]!;
+    const event = decodeCreated(log);
+    expect(launchCreatedProblems(keyOf(log), event)).toContain("quoteToken is not the constructor-pinned quote");
+    expect(launchCreatedProblems(keyOf(log), event, fixture.addresses.quote6)).toContain("quoteToken is not the constructor-pinned quote");
+    for (const field of ["name", "symbol"] as const) {
+      const withMetadata = (value: string) => ({ ...event, parameters: { ...event.parameters, [field]: value } });
+      expect(launchCreatedProblems(keyOf(log), withMetadata("é".repeat(15) + "a"), event.parameters.quoteToken)).toEqual([]);
+      expect(launchCreatedProblems(keyOf(log), withMetadata("é".repeat(16)), event.parameters.quoteToken)).toContain("metadata exceeds 31 UTF-8 bytes");
+    }
   });
 });

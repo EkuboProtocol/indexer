@@ -139,6 +139,7 @@ export function createEvmProcessors() {
   };
 
   const zeroSeedLaunchAddress = resolveZeroSeedLaunchAddress({
+    coreAddress: evmV3AddressConfig?.coreAddress,
     chainId: process.env.CHAIN_ID ? BigInt(process.env.CHAIN_ID) : undefined,
     address: loadOptionalHexAddress("ZERO_SEED_LAUNCH_ADDRESS"),
     runtimeCodehash: process.env.ZERO_SEED_LAUNCH_RUNTIME_CODEHASH as

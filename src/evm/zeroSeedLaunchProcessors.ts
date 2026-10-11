@@ -3,9 +3,11 @@ import { ZERO_SEED_LAUNCH_ABI } from "./abis_zero_seed_launch";
 import {
   createProcessorsFromHandlers,
   type ContractEvent,
+  type ContractHandlers,
   type EvmLogProcessor,
 } from "./logProcessorsShared";
 import { parsePositionId, parseV2PoolKeyConfig, toPoolId } from "./poolKey";
+import { zeroSeedLaunchPinForAddress } from "./zeroSeedLaunchConfig";
 
 type LaunchCreated = ContractEvent<
   typeof ZERO_SEED_LAUNCH_ABI,
@@ -22,6 +24,7 @@ const same = (a: string, b: string) => BigInt(a) === BigInt(b);
 export function launchCreatedProblems(
   key: Pick<EventKey, "emitter">,
   event: LaunchCreated,
+  quoteToken?: `0x${string}`,
 ): string[] {
   const { poolKey, parameters, positionId } = event;
   const config = parseV2PoolKeyConfig(poolKey.config);
@@ -35,6 +38,8 @@ export function launchCreatedProblems(
     : [-parameters.upperTick, -parameters.askTick];
 
   return [
+    [!!quoteToken && same(parameters.quoteToken, quoteToken), "quoteToken is not the constructor-pinned quote"],
+    [new TextEncoder().encode(parameters.name).length <= 31 && new TextEncoder().encode(parameters.symbol).length <= 31, "metadata exceeds 31 UTF-8 bytes"],
     [parameters.liquidity === event.liquidity, "parameters.liquidity != liquidity"],
     [same(config.extension, key.emitter), "pool extension is not the emitter"],
     [toPoolId(poolKey) === event.poolId.toLowerCase(), "poolId != id of poolKey"],
@@ -56,54 +61,69 @@ export function createZeroSeedLaunchProcessors({
   zeroSeedLaunchAddress?: `0x${string}`;
 }): EvmLogProcessor[] {
   if (!zeroSeedLaunchAddress) return [];
+  const pin = zeroSeedLaunchPinForAddress(zeroSeedLaunchAddress);
+  if (!pin || !same(pin.core, coreAddress))
+    throw new Error("ZeroSeedLaunch event processor lacks reviewed instance/Core/quote provenance");
 
   return createProcessorsFromHandlers({
     ZeroSeedLaunch: {
       address: zeroSeedLaunchAddress,
-      abi: ZERO_SEED_LAUNCH_ABI,
-      handlers: {
-        async LaunchCreated(dao, key, event) {
-          const problems = launchCreatedProblems(key, event);
-          if (problems.length > 0)
-            throw new Error(
-              `Refusing LaunchCreated for pool ${event.poolId}: ${problems.join("; ")}`,
-            );
-          const { parameters } = event;
-          await dao.insertZeroSeedLaunchCreatedEvent(key, {
-            coreAddress,
-            poolId: event.poolId,
-            token: event.token,
-            creator: event.creator,
-            quoteToken: parameters.quoteToken,
-            positionId: event.positionId,
-            liquidity: event.liquidity,
-            supply: parameters.supply,
-            name: parameters.name,
-            symbol: parameters.symbol,
-            decimals: parameters.decimals,
-            askTick: parameters.askTick,
-            upperTick: parameters.upperTick,
-            tickSpacing: parameters.tickSpacing,
-            tradingStart: parameters.tradingStart,
-            feeDuration: parameters.feeDuration,
-            initialFee: parameters.initialFee,
-            finalFee: parameters.finalFee,
-            salt: parameters.salt,
-          });
-        },
-        async LaunchSwapped(dao, key, event) {
-          await dao.insertZeroSeedLaunchSwappedEvent(key, {
-            coreAddress,
-            ...event,
-          });
-        },
-        async CreatorFeesClaimed(dao, key, event) {
-          await dao.insertZeroSeedLaunchFeesClaimedEvent(key, {
-            coreAddress,
-            ...event,
-          });
-        },
-      },
+      ...zeroSeedLaunchHandlers(coreAddress, pin.quoteToken),
     },
   });
+}
+
+/** Pure event decoding, also used by isolated arithmetic replay tests.
+ * Service entrypoints MUST use createZeroSeedLaunchProcessors above.
+ */
+export function zeroSeedLaunchHandlers(
+  coreAddress: `0x${string}`,
+  quoteToken: `0x${string}`,
+): Omit<ContractHandlers<typeof ZERO_SEED_LAUNCH_ABI>, "address"> {
+  return {
+    abi: ZERO_SEED_LAUNCH_ABI,
+    handlers: {
+      async LaunchCreated(dao, key, event) {
+        const problems = launchCreatedProblems(key, event, quoteToken);
+        if (problems.length > 0)
+          throw new Error(
+            `Refusing LaunchCreated for pool ${event.poolId}: ${problems.join("; ")}`,
+          );
+        const { parameters } = event;
+        await dao.insertZeroSeedLaunchCreatedEvent(key, {
+          coreAddress,
+          poolId: event.poolId,
+          token: event.token,
+          creator: event.creator,
+          quoteToken: parameters.quoteToken,
+          positionId: event.positionId,
+          liquidity: event.liquidity,
+          supply: parameters.supply,
+          name: parameters.name,
+          symbol: parameters.symbol,
+          decimals: parameters.decimals,
+          askTick: parameters.askTick,
+          upperTick: parameters.upperTick,
+          tickSpacing: parameters.tickSpacing,
+          tradingStart: parameters.tradingStart,
+          feeDuration: parameters.feeDuration,
+          initialFee: parameters.initialFee,
+          finalFee: parameters.finalFee,
+          salt: parameters.salt,
+        });
+      },
+      async LaunchSwapped(dao, key, event) {
+        await dao.insertZeroSeedLaunchSwappedEvent(key, {
+          coreAddress,
+          ...event,
+        });
+      },
+      async CreatorFeesClaimed(dao, key, event) {
+        await dao.insertZeroSeedLaunchFeesClaimedEvent(key, {
+          coreAddress,
+          ...event,
+        });
+      },
+    },
+  };
 }
