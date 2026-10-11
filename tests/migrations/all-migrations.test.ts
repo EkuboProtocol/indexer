@@ -21,6 +21,6 @@ test("all migrations apply successfully", async () => {
 
   // 00129 adds two extension tables and the latest-event view; 00134 adds
   // the hourly token price history; 00137 adds the TWAMM hourly volume ledger;
-  // the scheduled-launch migration adds ten tables and two views.
-  expect(result).toBe(102);
+  // the zero-seed launch migration adds five tables.
+  expect(result).toBe(95);
 });
