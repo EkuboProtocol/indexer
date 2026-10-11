@@ -390,6 +390,93 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### 2026-10-11: MEVCapture v2.1 anchor/config history and gate events (00134, additive)
+
+**`00134_mev_capture_v21`. New tables, a view and two SQL functions. No
+existing table, view, trigger or the v1 MEVCapture path changes. Nothing is
+written until a worker sets `MEV_CAPTURE_V21_V3_ADDRESS`.**
+
+Contract: evm-contracts `da368348` (`src/extensions/MEVCaptureV21.sol`),
+under EKU-1578 / EKU-1023, origin EKU-946.
+
+- `mev_capture_v21_configs`: all eight `getConfig()` fields, one row per
+  extension. Read once, at the block of the first v2.1 activity seen. It is
+  never inferred from constructor defaults.
+- `mev_capture_v21_pools`: pools initialized on the configured v2.1 extension.
+  The version is chosen by extension address only. A worker refuses to start if
+  the v2.1 address is also configured as v1.
+- `mev_capture_v21_anchor_states`: all seven `getAnchor(poolId)` fields at the
+  end of every block in which Core logged a swap, position update or
+  initialization for the pool, or the extension logged `AnchorGateFailed`.
+- `mev_capture_v21_gate_failures`: `AnchorGateFailed(bytes32 indexed poolId,
+  uint8 lObs, uint8 eRef)` with chain, block, transaction, log index, emitter
+  and pool. An event from another address, with another topic layout, with
+  non-canonical data or for a pool that is not a v2.1 pool of the emitter
+  fails the block. It is not dropped.
+- `mev_capture_v21_pool_states` (view): the quoter contract. One row per v2.1
+  pool with config and latest indexed anchor. A pool missing either is absent,
+  so consumers fail closed.
+- `mev_capture_v21_pool_health(chain_id, as_of)`: monitor input, not a
+  monitor. It returns anchor age, `stale_anchor` (> 2*tau), the decayed gate
+  reference `e_ref_now`, `gate_margin_now` against the latest swap's liquidity,
+  gate failures within the last 2*tau, and the last failure.
+
+**Reads and errors.** Core's logs do not carry the extension's state, so the
+worker uses `eth_call` pinned to the block hash (EIP-1898,
+`requireCanonical`). The call runs in the same transaction that writes the
+block's events. A failed or malformed read fails the block and the runtime
+retries it, so there are no gaps. Every row cascades from `blocks`, so a reorg
+removes orphaned reads and events and the canonical block reads again. Expect
+one `getAnchor` per touched v2.1 pool per block, plus one `getConfig` per
+extension.
+
+**Known limit.** Two paths change anchor state with no log at all: a no-op
+forwarded swap (zero amount, or limit equal to price) whose gate passes, and a
+zero-delta position update that takes the per-timestamp liquidity snapshot.
+The next logged touch catches up, but the intermediate state is not recorded.
+Exact quotes must `eth_call getAnchor` at the quote block. The tables are
+history and analytics input.
+
+**Order.** Run the migration first (additive, no locks on worker-written
+tables). Then set `MEV_CAPTURE_V21_V3_ADDRESS` on the V3 workers that should
+index a deployed v2.1 extension. The address must be a real deployment, not a
+placeholder. Index from at or before the extension's first pool
+initialization: pools initialized earlier are not backfilled.
+
+**Rollback.** Unset `MEV_CAPTURE_V21_V3_ADDRESS` and restart. Then
+`DROP FUNCTION mev_capture_v21_pool_health(int8, timestamptz); DROP FUNCTION
+mev_capture_v21_bit_length(numeric); DROP VIEW mev_capture_v21_pool_states;
+DROP TABLE mev_capture_v21_gate_failures, mev_capture_v21_anchor_states,
+mev_capture_v21_pools, mev_capture_v21_configs;` and, to allow a later
+re-apply, `DELETE FROM migrations WHERE migration_id = 134;` (postgres-shift).
+Only valid while 00134 is the latest migration.
+
+**Indexes and representative queries.**
+
+```sql
+-- quoter / API: current state of every v2.1 pool on a chain
+-- (latest anchor: PK (pool_key_id, block_number) backward scan, LIMIT 1)
+SELECT * FROM mev_capture_v21_pool_states WHERE chain_id = $1;
+
+-- anchor history of one pool (PK range scan)
+SELECT * FROM mev_capture_v21_anchor_states
+WHERE pool_key_id = $1 AND block_number BETWEEN $2 AND $3 ORDER BY block_number;
+
+-- gate failures of one pool, newest first ((pool_key_id, event_id DESC))
+SELECT * FROM mev_capture_v21_gate_failures
+WHERE pool_key_id = $1 ORDER BY event_id DESC LIMIT 100;
+
+-- monitor input: stale anchors and pools at or past the gate edge
+SELECT * FROM mev_capture_v21_pool_health($1, now())
+WHERE stale_anchor OR gate_margin_now <= 0 OR gate_failures_2tau > 0;
+```
+
+The per-block touched-pool lookup uses the existing `(chain_id, block_number)`
+indexes on `swaps`, `position_updates`, `pool_initializations` and the new
+gate-failure table. The latest-liquidity lookup uses
+`swaps (pool_key_id, event_id DESC)`. Each new table has a
+`(chain_id, block_number)` index for the reorg cascade.
+
 ### 2026-09-30: Production workers require their RPC URL in the environment
 
 `src/runtime.ts` now fails when `NODE_ENV` is `production` (any case) and the

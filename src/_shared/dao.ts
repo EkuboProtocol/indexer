@@ -1097,6 +1097,165 @@ export class DAO {
     `;
   }
 
+  // MEVCapture v2.1 (00134). The pool row is keyed on the pool initialization
+  // block so a reorg that removes the initialization removes it too.
+  public async insertMEVCaptureV21Pool(
+    extension: `0x${string}`,
+    poolId: `0x${string}`,
+    key: EventKey,
+  ) {
+    const result = await this.sql`
+      INSERT INTO mev_capture_v21_pools (pool_key_id, chain_id, extension, block_number)
+      SELECT pool_key_id, ${this.chainId}, ${this.numeric(extension)}, ${key.blockNumber}
+      FROM pool_keys
+      WHERE chain_id = ${this.chainId}
+        AND core_address = ${this.numeric(key.emitter)}
+        AND pool_id = ${this.numeric(poolId)}
+        AND pool_extension = ${this.numeric(extension)};
+    `;
+    if (result.count !== 1) {
+      throw new Error(
+        `v2.1 pool ${poolId} at block ${key.blockNumber} has no pool key on extension ${extension}`,
+      );
+    }
+  }
+
+  // Fails rather than dropping the event when the pool is not a v2.1 pool of
+  // the emitting extension.
+  public async insertMEVCaptureV21GateFailed(
+    event: {
+      coreAddress: `0x${string}`;
+      poolId: `0x${string}`;
+      lObs: number;
+      eRef: number;
+    },
+    key: EventKey,
+  ) {
+    const result = await this.sql`
+      INSERT INTO mev_capture_v21_gate_failures
+        (chain_id, block_number, transaction_index, event_index, transaction_hash,
+         emitter, pool_key_id, pool_id, l_obs, e_ref)
+      SELECT ${this.chainId}, ${key.blockNumber}, ${key.transactionIndex},
+             ${key.eventIndex}, ${this.numeric(key.transactionHash)},
+             ${this.numeric(key.emitter)}, p.pool_key_id,
+             ${this.numeric(event.poolId)}, ${event.lObs}, ${event.eRef}
+      FROM pool_keys pk
+      JOIN mev_capture_v21_pools p ON p.pool_key_id = pk.pool_key_id
+      WHERE pk.chain_id = ${this.chainId}
+        AND pk.core_address = ${this.numeric(event.coreAddress)}
+        AND pk.pool_id = ${this.numeric(event.poolId)}
+        AND p.extension = ${this.numeric(key.emitter)};
+    `;
+    if (result.count !== 1) {
+      throw new Error(
+        `AnchorGateFailed for pool ${event.poolId} at block ${key.blockNumber} does not match a v2.1 pool of ${key.emitter}`,
+      );
+    }
+  }
+
+  public async getMEVCaptureV21PoolsTouchedInBlock(
+    extension: `0x${string}`,
+    coreAddress: `0x${string}`,
+    blockNumber: number,
+  ): Promise<{ poolKeyId: bigint; poolId: `0x${string}` }[]> {
+    const rows = await this.sql<{ pool_key_id: bigint; pool_id: bigint }[]>`
+      SELECT p.pool_key_id, pk.pool_id
+      FROM mev_capture_v21_pools p
+      JOIN pool_keys pk ON pk.pool_key_id = p.pool_key_id
+      WHERE p.chain_id = ${this.chainId}
+        AND p.extension = ${this.numeric(extension)}
+        AND pk.core_address = ${this.numeric(coreAddress)}
+        AND p.pool_key_id IN (
+          SELECT pool_key_id FROM swaps
+          WHERE chain_id = ${this.chainId} AND block_number = ${blockNumber}
+          UNION
+          SELECT pool_key_id FROM position_updates
+          WHERE chain_id = ${this.chainId} AND block_number = ${blockNumber}
+          UNION
+          SELECT pool_key_id FROM pool_initializations
+          WHERE chain_id = ${this.chainId} AND block_number = ${blockNumber}
+          UNION
+          SELECT pool_key_id FROM mev_capture_v21_gate_failures
+          WHERE chain_id = ${this.chainId} AND block_number = ${blockNumber}
+        )
+      ORDER BY p.pool_key_id;
+    `;
+    return rows.map((row) => ({
+      poolKeyId: BigInt(row.pool_key_id),
+      poolId: `0x${BigInt(row.pool_id).toString(16).padStart(64, "0")}`,
+    }));
+  }
+
+  public async hasMEVCaptureV21Config(extension: `0x${string}`): Promise<boolean> {
+    const rows = await this.sql`
+      SELECT 1 FROM mev_capture_v21_configs
+      WHERE chain_id = ${this.chainId} AND extension = ${this.numeric(extension)};
+    `;
+    return rows.length > 0;
+  }
+
+  public async insertMEVCaptureV21Config({
+    extension,
+    blockNumber,
+    blockHash,
+    config,
+  }: {
+    extension: `0x${string}`;
+    blockNumber: number;
+    blockHash: `0x${string}`;
+    config: {
+      halfLife: number;
+      slopeK: number;
+      segmentExp: number;
+      jLin: number;
+      maxFee: number;
+      clampTicks: number;
+      mGate: number;
+      maxSegments: number;
+    };
+  }) {
+    await this.sql`
+      INSERT INTO mev_capture_v21_configs
+        (chain_id, extension, block_number, block_hash, half_life, slope_k,
+         segment_exp, j_lin, max_fee, clamp_ticks, m_gate, max_segments)
+      VALUES (${this.chainId}, ${this.numeric(extension)}, ${blockNumber},
+              ${this.numeric(blockHash)}, ${config.halfLife}, ${config.slopeK},
+              ${config.segmentExp}, ${config.jLin}, ${config.maxFee},
+              ${config.clampTicks}, ${config.mGate}, ${config.maxSegments});
+    `;
+  }
+
+  public async insertMEVCaptureV21AnchorState({
+    poolKeyId,
+    blockNumber,
+    blockHash,
+    anchor,
+  }: {
+    poolKeyId: bigint;
+    blockNumber: number;
+    blockHash: `0x${string}`;
+    anchor: {
+      lastUpdateTime: number;
+      lRefTime: number;
+      lastPosTime: number;
+      lRefBits: number;
+      snapBits: number;
+      lRefRaiseTime: number;
+      anchorX16: bigint;
+    };
+  }) {
+    await this.sql`
+      INSERT INTO mev_capture_v21_anchor_states
+        (pool_key_id, block_number, chain_id, block_hash, last_update_time,
+         l_ref_time, last_pos_time, l_ref_bits, snap_bits, l_ref_raise_time,
+         anchor_x16)
+      VALUES (${poolKeyId}, ${blockNumber}, ${this.chainId},
+              ${this.numeric(blockHash)}, ${anchor.lastUpdateTime},
+              ${anchor.lRefTime}, ${anchor.lastPosTime}, ${anchor.lRefBits},
+              ${anchor.snapBits}, ${anchor.lRefRaiseTime}, ${anchor.anchorX16});
+    `;
+  }
+
   public async insertProtocolFeesWithdrawn(
     event: ProtocolFeesWithdrawnInsert,
     key: EventKey,
