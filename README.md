@@ -390,16 +390,18 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
-### 2026-10-11: MEVCapture v2.1 anchor/config history and gate events (00134, additive)
+### 2026-10-11: MEVCapture v2.1 anchor/config history, gate events and per-swap surcharges (00134, additive)
 
 **`00134_mev_capture_v21`. New tables, a view and two SQL functions. No
 existing table, view, trigger or the v1 MEVCapture path changes. Nothing is
 written until a worker sets `MEV_CAPTURE_V21_V3_ADDRESS`.**
 
-Contract: evm-contracts `da368348` (`src/extensions/MEVCaptureV21.sol`),
-under EKU-1578 / EKU-1023, origin EKU-946.
+Contract: the `main` variant on the current (V3) Core, evm-contracts branch
+`eku-1582/mevcapture-v21-main` (`src/extensions/MEVCaptureV21.sol`, EKU-1582),
+under EKU-1605, origin EKU-946 rev 10 §(b-main).
 
-- `mev_capture_v21_configs`: all eight `getConfig()` fields, one row per
+- `mev_capture_v21_configs`: all eight `getConfig()` fields (`max_fee` is
+  Q0.64 `numeric`; `segment_width_multiplier = 2^segment_exp`), one row per
   extension. Read once, at the block of the first v2.1 activity seen. It is
   never inferred from constructor defaults.
 - `mev_capture_v21_pools`: pools initialized on the configured v2.1 extension.
@@ -413,6 +415,18 @@ under EKU-1578 / EKU-1023, origin EKU-946.
   and pool. An event from another address, with another topic layout, with
   non-canonical data or for a pool that is not a v2.1 pool of the emitter
   fails the block. It is not dropped.
+- `mev_capture_v21_swap_surcharges`: one row per forwarded v2.1 swap, written
+  at the end of the block. The extension charges the surcharge through
+  `Core.accumulateAsFees` right after each charged Core call, so each
+  `FeesAccumulated` of a v2.1 pool is attributed to the forwarded swap of the
+  `Swapped` log (locker = extension) preceding it in the same transaction. A
+  forwarded swap is a maximal run of consecutive `Swapped` logs in a
+  transaction with the same pool and the extension as locker. The row has the
+  number of Core calls and of charged calls, the summed Core deltas, the
+  surcharge per token and `delta0`/`delta1`, which equal the forward's
+  returned balance update. A `FeesAccumulated` that cannot be attributed fails
+  the block. Two forwarded swaps of the same pool with no other pool's swap
+  between them in one transaction form one row.
 - `mev_capture_v21_pool_states` (view): the quoter contract. One row per v2.1
   pool with config and latest indexed anchor. A pool missing either is absent,
   so consumers fail closed.
@@ -446,7 +460,7 @@ initialization: pools initialized earlier are not backfilled.
 **Rollback.** Unset `MEV_CAPTURE_V21_V3_ADDRESS` and restart. Then
 `DROP FUNCTION mev_capture_v21_pool_health(int8, timestamptz); DROP FUNCTION
 mev_capture_v21_bit_length(numeric); DROP VIEW mev_capture_v21_pool_states;
-DROP TABLE mev_capture_v21_gate_failures, mev_capture_v21_anchor_states,
+DROP TABLE mev_capture_v21_swap_surcharges, mev_capture_v21_gate_failures, mev_capture_v21_anchor_states,
 mev_capture_v21_pools, mev_capture_v21_configs;` and, to allow a later
 re-apply, `DELETE FROM migrations WHERE migration_id = 134;` (postgres-shift).
 Only valid while 00134 is the latest migration.
@@ -465,6 +479,11 @@ WHERE pool_key_id = $1 AND block_number BETWEEN $2 AND $3 ORDER BY block_number;
 -- gate failures of one pool, newest first ((pool_key_id, event_id DESC))
 SELECT * FROM mev_capture_v21_gate_failures
 WHERE pool_key_id = $1 ORDER BY event_id DESC LIMIT 100;
+
+-- surcharge per forwarded swap of one pool, newest first
+-- ((pool_key_id, first_event_id DESC))
+SELECT * FROM mev_capture_v21_swap_surcharges
+WHERE pool_key_id = $1 ORDER BY first_event_id DESC LIMIT 100;
 
 -- monitor input: stale anchors and pools at or past the gate edge
 SELECT * FROM mev_capture_v21_pool_health($1, now())

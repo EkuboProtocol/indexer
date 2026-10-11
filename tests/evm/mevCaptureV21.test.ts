@@ -3,6 +3,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import { encodeAbiParameters, encodeFunctionResult, type Hex } from "viem";
 import gateData from "../data/mevcapture-v21/gateScenarios.json";
 import anchorData from "../data/mevcapture-v21/anchorUpdates.json";
+import vectorData from "../data/mevcapture-v21-main/v21-main-quoter-vectors.json";
 import { createClient, ensureIndexerCursor } from "../helpers/db";
 import { createPgliteDao } from "../helpers/pgliteDao";
 import type { DAO } from "../../src/_shared/dao";
@@ -40,13 +41,19 @@ function toAnchor(s: Strings<MevCaptureV21Anchor>): MevCaptureV21Anchor {
   };
 }
 
-function toConfig(s: Strings<MevCaptureV21Config>): MevCaptureV21Config {
-  return Object.fromEntries(
-    Object.entries(s).map(([k, v]) => [k, Number(v)]),
-  ) as unknown as MevCaptureV21Config;
-}
-
-const CONFIG = toConfig(gateData.config);
+// The gate fixtures come from the `next` build, whose anchor/gate code is
+// identical; their tuple is mapped onto the main getConfig (Q0.16 maxFee to
+// Q0.64, no maxSegments).
+const CONFIG: MevCaptureV21Config = {
+  halfLife: Number(gateData.config.halfLife),
+  slopeK: Number(gateData.config.slopeK),
+  segmentExp: Number(gateData.config.segmentExp),
+  segmentWidthMultiplier: 2 ** Number(gateData.config.segmentExp),
+  jLin: Number(gateData.config.jLin),
+  maxFee: BigInt(gateData.config.maxFee) << 48n,
+  clampTicks: Number(gateData.config.clampTicks),
+  mGate: Number(gateData.config.mGate),
+};
 const hex32 = (n: number | bigint) =>
   `0x${BigInt(n).toString(16).padStart(64, "0")}` as Hex;
 const blockHash = (n: number) => hex32(0xb10c00000000n + BigInt(n));
@@ -170,6 +177,45 @@ async function insertSwap(n: number, i: number, poolKeyId: string, liquidityAfte
   );
 }
 
+async function insertCoreSwap(
+  n: number,
+  tx: number,
+  i: number,
+  poolKeyId: string,
+  locker: Hex,
+  delta0: string,
+  delta1: string,
+) {
+  await client.query(
+    `INSERT INTO swaps (${eventCols}, pool_key_id, locker, delta0, delta1,
+       sqrt_ratio_after, tick_after, liquidity_after, block_time)
+     SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10, 79228162514264337593543950336, 0, 1, block_time
+     FROM blocks WHERE chain_id = $1 AND block_number = $2`,
+    [CHAIN_ID, n, tx, i, (n * 1000 + tx).toString(), BigInt(CORE).toString(), poolKeyId,
+     BigInt(locker).toString(), delta0, delta1],
+  );
+}
+
+async function insertFeesAccumulated(n: number, tx: number, i: number, poolKeyId: string, fee0: string, fee1: string) {
+  await client.query(
+    `INSERT INTO fees_accumulated (${eventCols}, pool_key_id, delta0, delta1)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [CHAIN_ID, n, tx, i, (n * 1000 + tx).toString(), BigInt(CORE).toString(), poolKeyId, fee0, fee1],
+  );
+}
+
+async function surchargeRows(n: number) {
+  const { rows } = await client.query<any>(
+    `SELECT transaction_index, pool_key_id::text, first_event_id::text, last_event_id::text,
+            core_calls, charged_calls, core_delta0::text, core_delta1::text,
+            surcharge0::text, surcharge1::text, delta0::text, delta1::text
+     FROM mev_capture_v21_swap_surcharges WHERE chain_id = $1 AND block_number = $2
+     ORDER BY mev_capture_v21_swap_surcharges.first_event_id`,
+    [CHAIN_ID, n],
+  );
+  return rows;
+}
+
 async function insertPositionTouch(n: number, i: number, poolKeyId: string) {
   // Zero delta: only marks the pool as touched in this block.
   await client.query(
@@ -246,7 +292,10 @@ describe("decoding", () => {
     const encode = (c: MevCaptureV21Config) =>
       encodeFunctionResult({ abi: MEV_CAPTURE_V21_ABI, functionName: "getConfig", result: c });
     expect(decodeMevCaptureV21Config(encode(CONFIG))).toEqual(CONFIG);
-    expect(() => decodeMevCaptureV21Config(encode({ ...CONFIG, maxSegments: CONFIG.jLin + 23 }))).toThrow();
+    expect(() => decodeMevCaptureV21Config(encode({ ...CONFIG, segmentWidthMultiplier: 2 }))).toThrow();
+    expect(() => decodeMevCaptureV21Config(encode({ ...CONFIG, maxFee: (1n << 63n) + 1n }))).toThrow();
+    expect(() => decodeMevCaptureV21Config(encode({ ...CONFIG, maxFee: 0n }))).toThrow();
+    expect(decodeMevCaptureV21Config(encode({ ...CONFIG, maxFee: 1n << 63n })).maxFee).toBe(1n << 63n);
     expect(() => decodeMevCaptureV21Config(encode({ ...CONFIG, halfLife: 0 }))).toThrow();
     expect(() => decodeMevCaptureV21Config(encode({ ...CONFIG, mGate: 17 }))).toThrow();
     // a dirty high byte in a uint8 word is not truncated into a plausible value
@@ -347,10 +396,11 @@ describe("replay of merged-contract gate scenarios", () => {
     // getConfig is read once per extension, never per pool or block
     expect(rpc.calls.filter((c) => c.data === GET_CONFIG_CALLDATA)).toHaveLength(1);
     const { rows } = await client.query<any>(
-      `SELECT half_life, slope_k, segment_exp, j_lin, max_fee, clamp_ticks, m_gate, max_segments
+      `SELECT half_life, slope_k, segment_exp, segment_width_multiplier, j_lin,
+              max_fee::text, clamp_ticks, m_gate
        FROM mev_capture_v21_configs`,
     );
-    expect(rows.map((r) => Object.values(r).map(Number))).toEqual([Object.values(CONFIG)]);
+    expect(rows.map((r) => Object.values(r).map(String))).toEqual([Object.values(CONFIG).map(String)]);
   }, 120_000);
 
   test("SQL bit length matches the contract's lObs", async () => {
@@ -487,5 +537,122 @@ describe("guards", () => {
     const stale = (await health(t0 + 10 + 2 * tau + 1)).get(poolKeyId);
     expect(stale.stale_anchor).toBe(true);
     expect(Number(stale.last_gate_failure_block)).toBe(n);
+  });
+});
+
+type Vector = (typeof vectorData.vectors)[number];
+
+// Writes a vector's Core logs as Core emits them inside one forward: Swapped
+// per call (locker = extension), FeesAccumulated right after each charged call
+// with a nonzero fee.
+async function writeVector(n: number, tx: number, firstIndex: number, poolKeyId: string, v: Vector) {
+  let i = firstIndex;
+  for (const c of v.calls) {
+    await insertCoreSwap(n, tx, i++, poolKeyId, EXT, c.delta0, c.delta1);
+    if (c.fee0 !== "0" || c.fee1 !== "0") {
+      await insertFeesAccumulated(n, tx, i++, poolKeyId, c.fee0, c.fee1);
+    }
+  }
+  return i;
+}
+
+describe("per-swap surcharge attribution (main-variant contract vectors)", () => {
+  test("all 21 vectors: one row per forward with the contract's totals", async () => {
+    expect(vectorData.branch).toBe("eku-1582/mevcapture-v21-main");
+    expect(vectorData.vectors).toHaveLength(21);
+    let calls = 0;
+    for (const v of vectorData.vectors) {
+      const n = ++blockCursor;
+      const { poolId, poolKeyId } = await createPool(n, 1_700_000_000);
+      await dao.insertMEVCaptureV21Pool(EXT, poolId, key(n));
+      const end = await writeVector(n, 1, 0, poolKeyId, v);
+      expect(await dao.insertMEVCaptureV21SwapSurcharges(EXT, CORE, n)).toBe(1);
+      const sum = (f: (c: Vector["calls"][number]) => string) =>
+        v.calls.reduce((t, c) => t + BigInt(f(c)), 0n).toString();
+      const charged = v.calls.filter((c) => c.fee0 !== "0" || c.fee1 !== "0");
+      const [row] = await surchargeRows(n);
+      expect(row).toEqual({
+        transaction_index: 1,
+        pool_key_id: poolKeyId.toString(),
+        first_event_id: row.first_event_id,
+        last_event_id: row.last_event_id,
+        core_calls: v.calls.length,
+        charged_calls: charged.length,
+        core_delta0: sum((c) => c.delta0),
+        core_delta1: sum((c) => c.delta1),
+        surcharge0: sum((c) => c.fee0),
+        surcharge1: sum((c) => c.fee1),
+        // the forward's returned balance update
+        delta0: v.total.delta0,
+        delta1: v.total.delta1,
+      });
+      // the last Swapped of the forward; a trailing FeesAccumulated is after it
+      const lastSwapIndex = end - 1 - (charged.includes(v.calls.at(-1)!) ? 1 : 0);
+      expect(BigInt(row.last_event_id) - BigInt(row.first_event_id)).toBe(BigInt(lastSwapIndex));
+      // the surcharge is on the calculated token only
+      expect(v.params.isToken1 ? row.surcharge1 : row.surcharge0).toBe("0");
+      calls += v.calls.length;
+    }
+    expect(calls).toBe(266);
+  }, 60_000);
+
+  test("forwards split by other pools' swaps; the same pool twice in a transaction is two rows", async () => {
+    const vs = vectorData.vectors;
+    const a = vs.find((v) => v.name === "inc_exact_in_cut_bridge_rate")!;
+    const b = vs.find((v) => v.name === "dec_exact_out_partial")!;
+    const n = ++blockCursor;
+    const { poolId, poolKeyId } = await createPool(n, 1_700_000_000);
+    await dao.insertMEVCaptureV21Pool(EXT, poolId, key(n));
+    const other = await client.query<{ pool_key_id: string }>(
+      `INSERT INTO pool_keys (chain_id, core_address, pool_id, token0, token1, fee,
+         fee_denominator, tick_spacing, pool_extension)
+       VALUES ($1, $2, $3, 2, 3, 100, 18446744073709551616, 1, 0) RETURNING pool_key_id`,
+      [CHAIN_ID, BigInt(CORE).toString(), BigInt(hex32(0xbeef + n)).toString()],
+    );
+    const otherKey = other.rows[0]!.pool_key_id;
+    let i = await writeVector(n, 0, 0, poolKeyId, a);
+    // a hop through a pool without the extension, then the v2.1 pool again
+    await insertCoreSwap(n, 0, i++, otherKey, OTHER, "5", "-4");
+    i = await writeVector(n, 0, i, poolKeyId, b);
+    // a separate transaction in the same block
+    await writeVector(n, 3, 0, poolKeyId, a);
+    expect(await dao.insertMEVCaptureV21SwapSurcharges(EXT, CORE, n)).toBe(3);
+    const rows = await surchargeRows(n);
+    expect(rows.map((r) => [r.transaction_index, r.core_calls, r.delta0, r.delta1])).toEqual([
+      [0, a.calls.length, a.total.delta0, a.total.delta1],
+      [0, b.calls.length, b.total.delta0, b.total.delta1],
+      [3, a.calls.length, a.total.delta0, a.total.delta1],
+    ]);
+  });
+
+  test("a FeesAccumulated that does not follow the extension's Swapped fails the block", async () => {
+    const n = ++blockCursor;
+    const { poolId, poolKeyId } = await createPool(n, 1_700_000_000);
+    await dao.insertMEVCaptureV21Pool(EXT, poolId, key(n));
+    await insertFeesAccumulated(n, 0, 0, poolKeyId, "1", "0");
+    await expect(dao.insertMEVCaptureV21SwapSurcharges(EXT, CORE, n)).rejects.toThrow(/does not follow/);
+    const m = ++blockCursor;
+    await insertBlock(m, 1_700_000_100);
+    // the pool's previous Swapped is in another transaction
+    await insertCoreSwap(m, 0, 0, poolKeyId, EXT, "1", "-1");
+    await insertFeesAccumulated(m, 1, 0, poolKeyId, "1", "0");
+    await expect(dao.insertMEVCaptureV21SwapSurcharges(EXT, CORE, m)).rejects.toThrow(/does not follow/);
+  });
+
+  test("recorded with the block state", async () => {
+    const v = vectorData.vectors.find((x) => x.name === "bridge_25pct_exact_in")!;
+    const n = ++blockCursor;
+    const { poolId, poolKeyId } = await createPool(n, 1_700_000_000);
+    await dao.insertMEVCaptureV21Pool(EXT, poolId, key(n));
+    await writeVector(n, 1, 0, poolKeyId, v);
+    const rpc = new FakeRpc();
+    rpc.setAnchor(blockHash(n), poolId, toAnchor(gateData.gateScenarios[0]!.initial));
+    expect(await record(rpc, n)).toBe(1);
+    const [row] = await surchargeRows(n);
+    const fee0 = v.calls.reduce((t, c) => t + BigInt(c.fee0), 0n).toString();
+    expect([row.surcharge0, row.delta0, row.delta1]).toEqual([fee0, v.total.delta0, v.total.delta1]);
+    // a reorg removes it with the block
+    await dao.deleteOldBlockNumbers(n);
+    expect(await surchargeRows(n)).toHaveLength(0);
   });
 });

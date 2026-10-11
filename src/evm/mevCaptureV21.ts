@@ -1,10 +1,15 @@
-// MEVCapture v2.1 (evm-contracts da368348, src/extensions/MEVCaptureV21.sol).
+// MEVCapture v2.1 on the current (V3) Core, the `main` variant (evm-contracts
+// branch eku-1582/mevcapture-v21-main, src/extensions/MEVCaptureV21.sol; spec
+// EKU-946 rev 10 §(b-main)).
 //
 // Core's logs do not carry the extension's per-pool state, so it is read
 // explicitly: getConfig() once per extension, getAnchor(poolId) at the end of
 // every block that touched a v2.1 pool. Both are eth_call pinned to the block
 // hash, so the state belongs to exactly the block whose Core events are being
 // written. Gate failures come from the extension's own AnchorGateFailed log.
+// The surcharge is charged through Core.accumulateAsFees right after each
+// charged Core call, so it is attributed per forwarded swap from Core's own
+// Swapped and FeesAccumulated logs (recordMevCaptureV21SwapSurcharges).
 //
 // Every decode is strict: a word that does not re-encode to the bytes it came
 // from (a dirty high bit in a uint8, a wrong length, an extra topic) throws
@@ -23,7 +28,7 @@ import type { EventKey } from "../_shared/eventKey";
 import type { RpcLike } from "./logStream";
 import type { EvmLogProcessor } from "./logProcessorsShared";
 
-// Copied from the merged ABI handed off under EKU-1023 (sha256 bb464a91...).
+// IMEVCaptureV21 of the main variant (EKU-1582).
 export const MEV_CAPTURE_V21_ABI = [
   {
     type: "function",
@@ -53,11 +58,11 @@ export const MEV_CAPTURE_V21_ABI = [
           { name: "halfLife", type: "uint32", internalType: "uint32" },
           { name: "slopeK", type: "uint8", internalType: "uint8" },
           { name: "segmentExp", type: "uint8", internalType: "uint8" },
+          { name: "segmentWidthMultiplier", type: "uint32", internalType: "uint32" },
           { name: "jLin", type: "uint8", internalType: "uint8" },
-          { name: "maxFee", type: "uint16", internalType: "uint16" },
+          { name: "maxFee", type: "uint64", internalType: "uint64" },
           { name: "clampTicks", type: "uint32", internalType: "uint32" },
           { name: "mGate", type: "uint8", internalType: "uint8" },
-          { name: "maxSegments", type: "uint8", internalType: "uint8" },
         ],
       },
     ],
@@ -80,17 +85,17 @@ export const ANCHOR_GATE_FAILED_TOPIC = toEventSelector(
 );
 
 const MAX_TICK = 88722835;
-const DOUBLING_SEGMENTS = 24;
 
 export interface MevCaptureV21Config {
   halfLife: number;
   slopeK: number;
   segmentExp: number;
+  segmentWidthMultiplier: number;
   jLin: number;
-  maxFee: number;
+  /** 0.64 fixed point, like the pool fee. */
+  maxFee: bigint;
   clampTicks: number;
   mGate: number;
-  maxSegments: number;
 }
 
 export interface MevCaptureV21Anchor {
@@ -124,27 +129,35 @@ function requireCanonical(
 }
 
 /**
- * The constructor's own checks, plus `maxSegments == jLin + 24`. A contract
- * that answers getConfig with anything else is not this v2.1 build.
+ * The constructor's own checks, plus `segmentWidthMultiplier == 2^segmentExp`.
+ * A contract that answers getConfig with anything else is not this v2.1 build.
  */
-const CONFIG_BOUNDS: Record<keyof MevCaptureV21Config, [number, number]> = {
+const CONFIG_BOUNDS: Record<
+  Exclude<keyof MevCaptureV21Config, "maxFee" | "segmentWidthMultiplier">,
+  [number, number]
+> = {
   halfLife: [1, 1 << 20],
   slopeK: [1, 16],
   segmentExp: [0, 8],
   jLin: [1, 64],
-  maxFee: [1, 1 << 15],
   clampTicks: [1, 2 * MAX_TICK],
   mGate: [0, 16],
-  maxSegments: [1 + DOUBLING_SEGMENTS, 64 + DOUBLING_SEGMENTS],
 };
 
 export function validateMevCaptureV21Config(config: MevCaptureV21Config): void {
   const inBounds = Object.entries(CONFIG_BOUNDS).every(([field, [min, max]]) => {
-    const value = config[field as keyof MevCaptureV21Config];
+    const value = config[field as keyof typeof CONFIG_BOUNDS];
     return value >= min && value <= max;
   });
-  if (!inBounds || config.maxSegments !== config.jLin + DOUBLING_SEGMENTS) {
-    throw new Error(`getConfig returned a configuration MEVCaptureV21 cannot have: ${JSON.stringify(config)}`);
+  if (
+    !inBounds ||
+    config.maxFee < 1n ||
+    config.maxFee > 1n << 63n ||
+    config.segmentWidthMultiplier !== 2 ** config.segmentExp
+  ) {
+    throw new Error(
+      `getConfig returned a configuration MEVCaptureV21 cannot have: ${JSON.stringify(config, (_, v) => (typeof v === "bigint" ? v.toString() : v))}`,
+    );
   }
 }
 
@@ -289,6 +302,8 @@ export async function recordMevCaptureV21BlockState({
 }): Promise<number> {
   const pools = await dao.getMEVCaptureV21PoolsTouchedInBlock(extension, coreAddress, blockNumber);
   if (pools.length === 0) return 0;
+
+  await dao.insertMEVCaptureV21SwapSurcharges(extension, coreAddress, blockNumber);
 
   if (!(await dao.hasMEVCaptureV21Config(extension))) {
     const config = decodeMevCaptureV21Config(

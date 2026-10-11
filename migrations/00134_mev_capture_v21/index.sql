@@ -1,9 +1,11 @@
--- MEVCapture v2.1 (EKU-1578, under EKU-1023 / EKU-946). Additive only: v1
+-- MEVCapture v2.1 on the current (V3) Core, the main variant (EKU-1605, from
+-- EKU-1578 / EKU-1023; spec EKU-946 rev 10 §(b-main)). Additive only: v1
 -- (mev_capture_pool_keys), all_pool_states_view, pool_last_event_id and every
 -- per-swap trigger are untouched. Nothing here is written unless a worker sets
 -- MEV_CAPTURE_V21_V3_ADDRESS.
 --
--- Source of truth: evm-contracts da368348 (PR 381), src/extensions/MEVCaptureV21.sol.
+-- Source of truth: evm-contracts branch eku-1582/mevcapture-v21-main
+-- (EKU-1582, PR 382), src/extensions/MEVCaptureV21.sol.
 -- Core's logs do not carry the extension's per-pool state, so the worker reads
 -- it explicitly: getConfig() once per extension and getAnchor(poolId) at the
 -- end of every block in which Core logged a swap, position update or
@@ -26,11 +28,13 @@ CREATE TABLE mev_capture_v21_configs (
     half_life int8 NOT NULL CHECK (half_life BETWEEN 1 AND 1048576),
     slope_k int2 NOT NULL CHECK (slope_k BETWEEN 1 AND 16),
     segment_exp int2 NOT NULL CHECK (segment_exp BETWEEN 0 AND 8),
+    segment_width_multiplier int4 NOT NULL
+        CHECK (segment_width_multiplier = 1 << segment_exp),
     j_lin int2 NOT NULL CHECK (j_lin BETWEEN 1 AND 64),
-    max_fee int4 NOT NULL CHECK (max_fee BETWEEN 1 AND 32768),
+    -- 0.64 fixed point like the pool fee; up to 2^63, which int8 cannot hold
+    max_fee numeric NOT NULL CHECK (max_fee BETWEEN 1 AND 9223372036854775808),
     clamp_ticks int8 NOT NULL CHECK (clamp_ticks BETWEEN 1 AND 177445670),
     m_gate int2 NOT NULL CHECK (m_gate BETWEEN 0 AND 16),
-    max_segments int2 NOT NULL CHECK (max_segments = j_lin + 24),
     PRIMARY KEY (chain_id, extension),
     FOREIGN KEY (chain_id, block_number)
         REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
@@ -103,6 +107,47 @@ CREATE TRIGGER no_updates_mev_capture_v21_gate_failures
     BEFORE UPDATE ON mev_capture_v21_gate_failures
     FOR EACH ROW EXECUTE FUNCTION block_updates();
 
+-- One row per forwarded v2.1 swap. The extension makes one Core call per
+-- toward/charged/bridge step, each logging Swapped with the extension as
+-- locker, and charges the surcharge of a charged call through
+-- Core.accumulateAsFees right after it (FeesAccumulated of the pool; only the
+-- extension can call it for its pools). A forwarded swap is a maximal run of
+-- consecutive Swapped logs in a transaction that share the pool and the
+-- extension locker; each FeesAccumulated of the pool is attributed to the run
+-- of the Swapped log preceding it in the same transaction. Written at the end
+-- of the block, in the block's transaction; an unattributable FeesAccumulated
+-- fails the block. Two forwarded swaps of the same pool with no Swapped of
+-- another pool between them (same transaction) form one row.
+-- delta0/delta1 equal the forward's returned balance update: Core deltas plus
+-- the surcharge on the calculated token (positive = paid to the pool).
+CREATE TABLE mev_capture_v21_swap_surcharges (
+    chain_id int8 NOT NULL,
+    block_number int8 NOT NULL,
+    transaction_index int4 NOT NULL,
+    transaction_hash numeric NOT NULL,
+    pool_key_id int8 NOT NULL REFERENCES pool_keys (pool_key_id),
+    first_event_id int8 NOT NULL,
+    last_event_id int8 NOT NULL CHECK (last_event_id >= first_event_id),
+    core_calls int4 NOT NULL CHECK (core_calls >= 1),
+    charged_calls int4 NOT NULL CHECK (charged_calls >= 0),
+    core_delta0 numeric NOT NULL,
+    core_delta1 numeric NOT NULL,
+    surcharge0 numeric NOT NULL CHECK (surcharge0 >= 0),
+    surcharge1 numeric NOT NULL CHECK (surcharge1 >= 0),
+    delta0 numeric GENERATED ALWAYS AS (core_delta0 + surcharge0) STORED,
+    delta1 numeric GENERATED ALWAYS AS (core_delta1 + surcharge1) STORED,
+    PRIMARY KEY (chain_id, first_event_id),
+    FOREIGN KEY (chain_id, block_number)
+        REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
+);
+
+CREATE INDEX ON mev_capture_v21_swap_surcharges (chain_id, block_number);
+CREATE INDEX ON mev_capture_v21_swap_surcharges (pool_key_id, first_event_id DESC);
+
+CREATE TRIGGER no_updates_mev_capture_v21_swap_surcharges
+    BEFORE UPDATE ON mev_capture_v21_swap_surcharges
+    FOR EACH ROW EXECUTE FUNCTION block_updates();
+
 -- Quoter contract: one row per v2.1 pool with its config and latest anchor.
 -- A pool without a config or anchor row is absent, so a consumer fails closed.
 CREATE VIEW mev_capture_v21_pool_states AS
@@ -112,8 +157,8 @@ SELECT p.chain_id,
        p.pool_key_id,
        p.extension,
        'v2.1'::text AS mev_capture_version,
-       c.half_life, c.slope_k, c.segment_exp, c.j_lin, c.max_fee,
-       c.clamp_ticks, c.m_gate, c.max_segments,
+       c.half_life, c.slope_k, c.segment_exp, c.segment_width_multiplier,
+       c.j_lin, c.max_fee, c.clamp_ticks, c.m_gate,
        a.block_number AS anchor_block_number,
        a.block_hash AS anchor_block_hash,
        a.last_update_time, a.l_ref_time, a.last_pos_time, a.l_ref_bits,

@@ -20,6 +20,6 @@ test("all migrations apply successfully", async () => {
   );
 
   // 00129 adds two extension tables and the latest-event view; 00134 adds
-  // four MEVCapture v2.1 tables and the pool-states view.
-  expect(result).toBe(93);
+  // five MEVCapture v2.1 tables and the pool-states view.
+  expect(result).toBe(94);
 });

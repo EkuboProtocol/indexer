@@ -1207,22 +1207,121 @@ export class DAO {
       halfLife: number;
       slopeK: number;
       segmentExp: number;
+      segmentWidthMultiplier: number;
       jLin: number;
-      maxFee: number;
+      maxFee: bigint;
       clampTicks: number;
       mGate: number;
-      maxSegments: number;
     };
   }) {
     await this.sql`
       INSERT INTO mev_capture_v21_configs
         (chain_id, extension, block_number, block_hash, half_life, slope_k,
-         segment_exp, j_lin, max_fee, clamp_ticks, m_gate, max_segments)
+         segment_exp, segment_width_multiplier, j_lin, max_fee, clamp_ticks, m_gate)
       VALUES (${this.chainId}, ${this.numeric(extension)}, ${blockNumber},
               ${this.numeric(blockHash)}, ${config.halfLife}, ${config.slopeK},
-              ${config.segmentExp}, ${config.jLin}, ${config.maxFee},
-              ${config.clampTicks}, ${config.mGate}, ${config.maxSegments});
+              ${config.segmentExp}, ${config.segmentWidthMultiplier}, ${config.jLin},
+              ${this.numeric(config.maxFee)}, ${config.clampTicks}, ${config.mGate});
     `;
+  }
+
+  // Groups the block's Swapped logs of v2.1 pools into forwarded swaps and
+  // attributes every FeesAccumulated of those pools to the forwarded swap of
+  // the Swapped log preceding it in the same transaction (see 00134). Throws
+  // when a FeesAccumulated of a v2.1 pool has no such Swapped by the extension.
+  public async insertMEVCaptureV21SwapSurcharges(
+    extension: `0x${string}`,
+    coreAddress: `0x${string}`,
+    blockNumber: number,
+  ): Promise<number> {
+    const unattributed = await this.sql<{ event_id: bigint }[]>`
+      SELECT fa.event_id
+      FROM fees_accumulated fa
+      JOIN mev_capture_v21_pools p ON p.pool_key_id = fa.pool_key_id
+      JOIN pool_keys pk ON pk.pool_key_id = fa.pool_key_id
+      LEFT JOIN LATERAL (
+        SELECT s.locker
+        FROM swaps s
+        WHERE s.pool_key_id = fa.pool_key_id
+          AND s.chain_id = fa.chain_id
+          AND s.block_number = fa.block_number
+          AND s.transaction_index = fa.transaction_index
+          AND s.event_id < fa.event_id
+        ORDER BY s.event_id DESC
+        LIMIT 1
+      ) prev ON true
+      WHERE fa.chain_id = ${this.chainId}
+        AND fa.block_number = ${blockNumber}
+        AND p.extension = ${this.numeric(extension)}
+        AND pk.core_address = ${this.numeric(coreAddress)}
+        AND (prev.locker IS NULL OR prev.locker <> p.extension);
+    `;
+    if (unattributed.length > 0) {
+      throw new Error(
+        `FeesAccumulated of a v2.1 pool at block ${blockNumber} does not follow a Swapped of ${extension} in its transaction (event ids ${unattributed.map((r) => r.event_id).join(",")})`,
+      );
+    }
+    const result = await this.sql`
+      WITH v21 AS (
+        SELECT p.pool_key_id, p.extension
+        FROM mev_capture_v21_pools p
+        JOIN pool_keys pk ON pk.pool_key_id = p.pool_key_id
+        WHERE p.chain_id = ${this.chainId}
+          AND p.extension = ${this.numeric(extension)}
+          AND pk.core_address = ${this.numeric(coreAddress)}
+      ), txs AS (
+        SELECT DISTINCT s.transaction_index
+        FROM swaps s
+        JOIN v21 ON v21.pool_key_id = s.pool_key_id
+        WHERE s.chain_id = ${this.chainId} AND s.block_number = ${blockNumber}
+      ), ordered AS (
+        SELECT s.transaction_index, s.transaction_hash, s.event_id, s.pool_key_id,
+               s.locker, s.delta0, s.delta1,
+               (lag(s.pool_key_id) OVER w IS DISTINCT FROM s.pool_key_id
+                 OR lag(s.locker) OVER w IS DISTINCT FROM s.locker)::int4 AS starts
+        FROM swaps s
+        JOIN txs ON txs.transaction_index = s.transaction_index
+        WHERE s.chain_id = ${this.chainId} AND s.block_number = ${blockNumber}
+        WINDOW w AS (PARTITION BY s.transaction_index ORDER BY s.event_id)
+      ), runs AS (
+        SELECT o.*,
+               sum(o.starts) OVER (PARTITION BY o.transaction_index ORDER BY o.event_id) AS run
+        FROM ordered o
+      ), calls AS (
+        SELECT r.*
+        FROM runs r
+        JOIN v21 ON v21.pool_key_id = r.pool_key_id AND r.locker = v21.extension
+      ), fees AS (
+        SELECT prev.transaction_index, prev.run,
+               count(*)::int4 AS charged, sum(fa.delta0) AS fee0, sum(fa.delta1) AS fee1
+        FROM fees_accumulated fa
+        JOIN v21 ON v21.pool_key_id = fa.pool_key_id
+        CROSS JOIN LATERAL (
+          SELECT c.transaction_index, c.run
+          FROM calls c
+          WHERE c.pool_key_id = fa.pool_key_id
+            AND c.transaction_index = fa.transaction_index
+            AND c.event_id < fa.event_id
+          ORDER BY c.event_id DESC
+          LIMIT 1
+        ) prev
+        WHERE fa.chain_id = ${this.chainId} AND fa.block_number = ${blockNumber}
+        GROUP BY prev.transaction_index, prev.run
+      )
+      INSERT INTO mev_capture_v21_swap_surcharges
+        (chain_id, block_number, transaction_index, transaction_hash, pool_key_id,
+         first_event_id, last_event_id, core_calls, charged_calls,
+         core_delta0, core_delta1, surcharge0, surcharge1)
+      SELECT ${this.chainId}, ${blockNumber}, c.transaction_index,
+             min(c.transaction_hash), min(c.pool_key_id),
+             min(c.event_id), max(c.event_id), count(*)::int4,
+             coalesce(min(f.charged), 0), sum(c.delta0), sum(c.delta1),
+             coalesce(min(f.fee0), 0), coalesce(min(f.fee1), 0)
+      FROM calls c
+      LEFT JOIN fees f ON f.transaction_index = c.transaction_index AND f.run = c.run
+      GROUP BY c.transaction_index, c.run;
+    `;
+    return result.count;
   }
 
   public async insertMEVCaptureV21AnchorState({
