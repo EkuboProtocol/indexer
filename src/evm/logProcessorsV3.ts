@@ -32,6 +32,7 @@ import {
   VE33_ABI as VE33_ABI_V3,
   BOOSTED_FEES_ABI as BOOSTED_FEES_ABI_V3,
 } from "./abis_v3";
+import { createZeroSeedLaunchProcessors } from "./zeroSeedLaunchProcessors";
 
 export interface LogProcessorConfigV3 {
   mevCaptureAddress: `0x${string}`;
@@ -47,6 +48,8 @@ export interface LogProcessorConfigV3 {
   ve33Address?: `0x${string}`;
   veTokenAddress?: `0x${string}`;
   ve33PositionsAddress?: `0x${string}`;
+  /** Resolved through zeroSeedLaunchConfig.ts; unset leaves launches off. */
+  zeroSeedLaunchAddress?: `0x${string}`;
   positionsContracts: PositionsContractProtocolFeeConfig[];
 }
 
@@ -87,6 +90,7 @@ export function createLogProcessorsV3({
   ve33Address,
   veTokenAddress,
   ve33PositionsAddress,
+  zeroSeedLaunchAddress,
   positionsContracts,
 }: LogProcessorConfigV3): EvmLogProcessor[] {
   const mevCaptureAddressBigInt = BigInt(mevCaptureAddress);
@@ -275,8 +279,14 @@ export function createLogProcessorsV3({
           };
           await dao.insertPoolInitializedEvent(poolInitialized, key);
 
-          if (BigInt(parsedConfig.extension) === mevCaptureAddressBigInt) {
+          const extension = BigInt(parsedConfig.extension);
+          if (extension === mevCaptureAddressBigInt) {
             await dao.insertMEVCapturePoolKey(key.emitter, parsed.poolId);
+          } else if (
+            zeroSeedLaunchAddress &&
+            extension === BigInt(zeroSeedLaunchAddress)
+          ) {
+            await dao.insertZeroSeedLaunchPoolKey(key.emitter, parsed.poolId);
           }
         },
         async PositionUpdated(dao, key, parsed) {
@@ -594,5 +604,6 @@ export function createLogProcessorsV3({
     twammProcessors,
     ordersProcessors,
     positionsProcessors,
+    createZeroSeedLaunchProcessors({ coreAddress, zeroSeedLaunchAddress }),
   );
 }

@@ -59,6 +59,9 @@ interface EvmConfig extends CommonConfiguration {
   VE33_V3_ADDRESS?: `0x${string}`;
   VE_TOKEN_V3_ADDRESS?: `0x${string}`;
   VE33_POSITIONS_V3_ADDRESS?: `0x${string}`;
+  // Both must match a pin in src/evm/zeroSeedLaunchConfig.ts; see there.
+  ZERO_SEED_LAUNCH_ADDRESS?: `0x${string}`;
+  ZERO_SEED_LAUNCH_RUNTIME_CODEHASH?: `0x${string}`;
 }
 
 interface StarknetConfig extends CommonConfiguration {

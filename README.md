@@ -390,6 +390,53 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### Unreleased: zero-seed launches (00134, additive)
+
+Migration 00134 indexes `ZeroSeedLaunch` (freeze v2, evm-contracts `d6aeb58`, ABI
+sha256 `189ff93c…ed215`) into `zero_seed_launch_pool_keys`, `_created`, `_swapped`,
+`_fees_claimed` and `zero_seed_launch_states` (one row per launch: the creator
+fee ledger, kept apart from the Core pool reserves). It appends nine
+`zero_seed_launch_*`/`is_zero_seed_launch_pool` columns to
+`all_pool_states_view`, and the launch's creation event becomes a source for
+`pool_last_event_id`. It parks the workers by locking `blocks` first, as 00123
+does. The schema must precede any later authorized quoter-service or API
+deployment selecting the new columns. This draft authorizes no deployment or
+live database write; its SQL remains byte-identical to the frozen schema.
+
+Launch indexing is off unless `ZERO_SEED_LAUNCH_ADDRESS` and
+`ZERO_SEED_LAUNCH_RUNTIME_CODEHASH` both match an entry in
+`src/evm/zeroSeedLaunchConfig.ts`. No live deployment is pinned; the manifest
+contains only two constructor-executed, relocated plain-WETH local instances,
+both refused in production. Each binds chain, extension, Core, constructor
+quote, executed runtime and ABI. A set address or Core that disagrees with
+the pin stops the worker. Missing runtime/chain pins leave support off.
+Creation decoding also checks quote identity and 31 UTF-8 byte metadata;
+DAO claims refuse `{zero, Core, extension, token0, token1}` recipients and
+wrong creators. Cross-instance events cannot write another pool's ledger.
+
+Rollback before any launch exists: in one transaction that locks `blocks`
+first, recreate `all_pool_states_view` and `recompute_pool_last_event_id` from
+00123 and drop the `zero_seed_launch_*` tables and functions. Once launches
+exist on chain, rolling back only stops indexing them; their pools and locked
+principal are unaffected. Stop supported creation/handoff by leaving launch
+support off. Do not roll back to the old arbitrary-quote extension or revive
+obsolete ABI/policy. Apps cannot refund, withdraw, rebalance or migrate the
+immutable principal.
+
+`tests/fixtures/zero-seed-launch/local-chain.json` is regenerated with
+`bun scripts/zeroSeedLaunchFixture.ts <evm-contracts checkout>` (local anvil,
+no fork); `src/evm/zeroSeedLaunchReplay.postgres.test.ts` replays it against
+`TEST_PG_CONNECTION_STRING`.
+The generator requires the exact clean frozen source and checks both executed
+WETH runtime hashes. Synthetic 6-decimal quote coverage runs only through an
+explicit arithmetic test harness; the service factory refuses that instance.
+Replay compares indexed Core event-accounted reserves (including rounding
+dust) and the separate creator-fee ledger with chain custody. Upper-bound
+unspent token residue and Core unowned per-asset dust are different metrics;
+neither becomes claimable fees or principal, and there is no shared <=90 bound.
+Contract-event replay does not enforce producer build-time/start/expiry rules:
+those require fresh-time producer/owner validation and whole-stack review.
+
 ### 2026-09-30: Production workers require their RPC URL in the environment
 
 `src/runtime.ts` now fails when `NODE_ENV` is `production` (any case) and the
