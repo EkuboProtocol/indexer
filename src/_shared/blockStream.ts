@@ -1156,7 +1156,9 @@ async function reconcileSnapshot<T>(
   });
   if (common) return rollbackTo<T>(state, common[0] + 1);
 
-  const cursor = await commonStoredCursor(args.adapter, state.cursorBlock + 1, args.loadPreviousCursor);
+  const cursor = await commonStoredCursor(
+    args.adapter, state.cursorBlock + 1, args.loadPreviousCursor, state.finalized,
+  );
   rollbackTo<T>(state, Number(cursor.orderKey) + 1);
   state.cursorHash = typeof cursor.uniqueKey === "string" ? cursor.uniqueKey : null;
   return { _tag: "invalidate", invalidate: { cursor } };

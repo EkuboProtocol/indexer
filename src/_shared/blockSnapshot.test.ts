@@ -68,6 +68,32 @@ it("rejects malformed successful HTTP responses and mismatched JSON-RPC IDs", ()
 });
 
 
+it("lands on the finalized block when nothing is stored above the verified block", async () => {
+  const requested: number[] = [];
+  const rpc = adapter({ fetchBlock: async n => { requested.push(n); return header(n); } });
+  const stored = async (before: number) => (20 < before ? { orderKey: 20n, uniqueKey: "0x14" } : null);
+  expect(await commonStoredCursor(rpc, 1000, stored, header(960))).toEqual({ orderKey: 960n, uniqueKey: "0x3c0" });
+  expect(requested).toEqual([20, 960]);
+});
+
+it("keeps the stored rollback point when the finalized block is unusable", async () => {
+  const stored = async (before: number) => (20 < before ? { orderKey: 20n, uniqueKey: "0x14" } : null);
+  const verified = { orderKey: 20n, uniqueKey: "0x14" };
+  // Re-read hash disagrees: a stale finalized view must not pick the fork.
+  expect(await commonStoredCursor(adapter(), 1000, stored, header(960, "0xbad"))).toEqual(verified);
+  // At or above the cursor, or at or below the stored block, there is nothing to gain.
+  expect(await commonStoredCursor(adapter(), 1000, stored, header(1000))).toEqual(verified);
+  expect(await commonStoredCursor(adapter(), 1000, stored, header(20))).toEqual(verified);
+});
+
+it("does not skip orphaned stored rows by landing on the finalized block", async () => {
+  const stored = [900, 20].map(n => ({ orderKey: BigInt(n), uniqueKey: `0x${n.toString(16)}` }));
+  const rpc = adapter({ fetchBlock: async n => header(n, n > 20 ? "0xaaa" : "0x14") });
+  // Block 900 is orphaned, so rows above 20 must be deleted even though 960 is final.
+  expect(await commonStoredCursor(rpc, 1000, async before => stored.find(c => c.orderKey < BigInt(before)) ?? null, header(960, "0xaaa")))
+    .toEqual(stored[1]!);
+});
+
 it("preserves an explicit initial indexing boundary when no stored events exist", async () => {
   expect(await commonStoredCursor(adapter(), 1000, async () => ({ orderKey: 500n })))
     .toEqual({ orderKey: 500n, uniqueKey: "0x1f4" });
