@@ -1,7 +1,8 @@
 import { describe, expect, it, mock } from "bun:test";
 import { encodeAbiParameters, encodeEventTopics } from "viem";
-import { VE33_ABI } from "./abis_v3";
+import { CORE_ABI, VE33_ABI } from "./abis_v3";
 import { createLogProcessorsV3 } from "./logProcessorsV3";
+import { ANCHOR_GATE_FAILED_TOPIC } from "./mevCaptureV21";
 
 const config = {
   mevCaptureAddress: "0x0000000000000000000000000000000000000001",
@@ -98,6 +99,89 @@ describe("createLogProcessorsV3", () => {
     expect(
       processors.filter((p) => p.address === ve33PositionsAddress),
     ).toHaveLength(1);
+  });
+
+  describe("MEVCapture v2.1", () => {
+    const mevCaptureV21Address = "0x0000000000000000000000000000000000021000";
+
+    async function initialize(extension: `0x${string}`, v21?: `0x${string}`) {
+      const processors = createLogProcessorsV3({
+        ...config,
+        twammAddresses: [],
+        ordersAddresses: [],
+        mevCaptureV21Address: v21,
+      });
+      const topics = encodeEventTopics({ abi: CORE_ABI, eventName: "PoolInitialized" });
+      const processor = processors.find(
+        (p) => p.address === config.coreAddress && p.filter.topics[0] === topics[0],
+      )!;
+      const dao = {
+        insertPoolInitializedEvent: mock(async () => {}),
+        insertMEVCapturePoolKey: mock(async () => {}),
+        insertMEVCaptureV21Pool: mock(async () => {}),
+      };
+      const poolConfig = `0x${((BigInt(extension) << 96n) | (100n << 32n) | 0x80000001n)
+        .toString(16)
+        .padStart(64, "0")}` as const;
+      await processor.handler(
+        dao as never,
+        {
+          blockNumber: 1,
+          transactionIndex: 0,
+          eventIndex: 0,
+          emitter: config.coreAddress,
+          transactionHash: `0x${"50".padStart(64, "0")}`,
+        },
+        {
+          topics,
+          data: encodeAbiParameters(
+            CORE_ABI.find((x) => x.type === "event" && x.name === "PoolInitialized")!
+              .inputs as never,
+            [
+              `0x${"77".padStart(64, "0")}`,
+              {
+                token0: "0x0000000000000000000000000000000000000100",
+                token1: "0x0000000000000000000000000000000000000200",
+                config: poolConfig,
+              },
+              0,
+              1n << 95n,
+            ] as never,
+          ),
+        },
+      );
+      return { processors, dao };
+    }
+
+    it("adds only the gate processor, on the v2.1 address, when configured", () => {
+      const base = createLogProcessorsV3({ ...config, twammAddresses: [], ordersAddresses: [] });
+      const withV21 = createLogProcessorsV3({
+        ...config,
+        twammAddresses: [],
+        ordersAddresses: [],
+        mevCaptureV21Address,
+      });
+      expect(withV21.slice(0, base.length).map((p) => [p.address, p.filter])).toEqual(
+        base.map((p) => [p.address, p.filter]),
+      );
+      expect(withV21.slice(base.length).map((p) => [p.address, p.filter.topics])).toEqual([
+        [mevCaptureV21Address, [ANCHOR_GATE_FAILED_TOPIC]],
+      ]);
+    });
+
+    it("selects the version by extension address, never by the v1 flag", async () => {
+      const v21 = await initialize(mevCaptureV21Address, mevCaptureV21Address);
+      expect(v21.dao.insertMEVCaptureV21Pool).toHaveBeenCalledTimes(1);
+      expect(v21.dao.insertMEVCapturePoolKey).not.toHaveBeenCalled();
+
+      const v1 = await initialize(config.mevCaptureAddress, mevCaptureV21Address);
+      expect(v1.dao.insertMEVCapturePoolKey).toHaveBeenCalledTimes(1);
+      expect(v1.dao.insertMEVCaptureV21Pool).not.toHaveBeenCalled();
+
+      const unset = await initialize(mevCaptureV21Address);
+      expect(unset.dao.insertMEVCaptureV21Pool).not.toHaveBeenCalled();
+      expect(unset.dao.insertMEVCapturePoolKey).not.toHaveBeenCalled();
+    });
   });
 
   it("indexes both the voted and effective swap fees", async () => {

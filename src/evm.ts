@@ -19,7 +19,13 @@ import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
 import { StickyRpc } from "./evm/stickyRpc";
 import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
 import { parsePositionsProtocolFeeConfigs } from "./evm/positionsProtocolFeeConfig";
+import {
+  loadMevCaptureV21Address,
+  recordMevCaptureV21BlockState,
+} from "./evm/mevCaptureV21";
 import { runIndexer, type ParsedRuntimeBlock } from "./runtime";
+import type { DAO } from "./_shared/dao";
+import type { EvmLogProcessor } from "./evm/logProcessorsShared";
 import type { NetworkEntrypoint, StreamOptions } from "./types";
 
 function requireAtLeastOneAddress(
@@ -101,7 +107,11 @@ function logIndexedContracts({
  * The configured contracts' log processors, in filter-id order. Exported so an
  * audit can build exactly the filters the stream uses.
  */
-export function createEvmProcessors() {
+export function createEvmProcessors(): EvmLogProcessor[] {
+  return createEvmIndexing().processors;
+}
+
+function createEvmIndexing() {
   const evmV2AddressConfig = loadHexAddresses({
     mevCaptureAddress: "MEV_CAPTURE_ADDRESS",
     coreAddress: "CORE_ADDRESS",
@@ -138,6 +148,11 @@ export function createEvmProcessors() {
     throw new Error("No config for either V2 or V3 contracts");
   }
 
+  const mevCaptureV21 = mevCaptureV21Config(
+    evmV2AddressConfig?.mevCaptureAddress,
+    evmV3AddressConfig,
+  );
+
   logIndexedContracts({
     evmV2AddressConfig,
     evmV3AddressConfig,
@@ -145,11 +160,12 @@ export function createEvmProcessors() {
     evmV3Ve33AddressConfig,
   });
 
-  return [
+  const processors = [
     ...(evmV2AddressConfig ? createLogProcessorsV2(evmV2AddressConfig) : []),
     ...(evmV3AddressConfig
       ? createLogProcessorsV3({
           ...evmV3AddressConfig,
+          mevCaptureV21Address: mevCaptureV21?.extension,
           twammAddresses: requireAtLeastOneAddress("V3 TWAMM address", [
             "TWAMM_V3_ADDRESS",
             "LEGACY_TWAMM_V3_ADDRESS",
@@ -164,6 +180,27 @@ export function createEvmProcessors() {
         })
       : []),
   ];
+  return { processors, mevCaptureV21 };
+}
+
+/**
+ * MEVCapture v2.1 is optional and V3-only. Unset leaves indexing exactly as it
+ * was; set, it needs the V3 core and must not be a v1 MEVCapture address.
+ */
+export function mevCaptureV21Config(
+  v2MevCaptureAddress: HexAddress | undefined,
+  evmV3AddressConfig: { coreAddress: HexAddress; mevCaptureAddress: HexAddress } | null | undefined,
+): { extension: HexAddress; coreAddress: HexAddress } | null {
+  const extension = loadMevCaptureV21Address(
+    loadOptionalHexAddress("MEV_CAPTURE_V21_V3_ADDRESS"),
+    [v2MevCaptureAddress, evmV3AddressConfig?.mevCaptureAddress],
+  );
+  if (!extension) return null;
+  if (!evmV3AddressConfig) {
+    throw new Error("MEV_CAPTURE_V21_V3_ADDRESS needs the V3 contracts to be configured");
+  }
+  logger.info("Indexing MEVCapture v2.1", { extension });
+  return { extension, coreAddress: evmV3AddressConfig.coreAddress };
 }
 
 function positiveInt(name: string, fallbackValue: number): number {
@@ -225,7 +262,7 @@ function createStickyRpc(chainId: bigint): StickyRpc {
 export async function createEvmEntrypoint(
   chainId: bigint,
 ): Promise<NetworkEntrypoint<EvmBlock>> {
-  const processors = createEvmProcessors();
+  const { processors, mevCaptureV21 } = createEvmIndexing();
 
   const rpc = createStickyRpc(chainId);
   // Retried rather than thrown: an exit here restarts at once and asks the
@@ -288,37 +325,66 @@ export async function createEvmEntrypoint(
       return block.logs.reduce((total, log) => total + log.filterIds.length, 0);
     },
     async processBlock({ block, blockNumber, dao }) {
-      let eventsProcessed = 0;
-
-      for (const log of block.logs) {
-        const eventKey: EventKey = {
+      const eventsProcessed = await processLogs(processors, block, blockNumber, dao);
+      // After the block's Core and gate events are written, in the same
+      // transaction. A gate failure on a no-op swap has no Core log.
+      if (
+        mevCaptureV21 &&
+        hasLogFrom(block, [mevCaptureV21.coreAddress, mevCaptureV21.extension])
+      ) {
+        await recordMevCaptureV21BlockState({
+          rpc,
+          dao,
+          ...mevCaptureV21,
           blockNumber,
-          transactionIndex: log.transactionIndex,
-          // The block-wide log index, which is what `event_id` has always been
-          // packed from on EVM. This used to read
-          // `logIndexInTransaction ?? logIndex ?? i`, but the first was a field
-          // of the apibara block type that no stream ever populated and the
-          // last could not be reached, so both fell through to this every time.
-          eventIndex: log.logIndex,
-          emitter: log.address,
-          transactionHash: log.transactionHash,
-        };
-
-        await Promise.all(
-          log.filterIds.map(async (matchingFilterId: number) => {
-            eventsProcessed++;
-
-            await processors[matchingFilterId - 1]!.handler(dao, eventKey, {
-              topics: log.topics,
-              data: log.data,
-            });
-          }),
-        );
+          blockHash: block.header.blockHash,
+        });
       }
-
       return eventsProcessed;
     },
   };
+}
+
+function hasLogFrom(block: EvmBlock, addresses: HexAddress[]): boolean {
+  const wanted = new Set(addresses.map((address) => BigInt(address)));
+  return block.logs.some((log) => wanted.has(BigInt(log.address)));
+}
+
+async function processLogs(
+  processors: EvmLogProcessor[],
+  block: EvmBlock,
+  blockNumber: number,
+  dao: DAO,
+): Promise<number> {
+  let eventsProcessed = 0;
+
+  for (const log of block.logs) {
+    const eventKey: EventKey = {
+      blockNumber,
+      transactionIndex: log.transactionIndex,
+      // The block-wide log index, which is what `event_id` has always been
+      // packed from on EVM. This used to read
+      // `logIndexInTransaction ?? logIndex ?? i`, but the first was a field
+      // of the apibara block type that no stream ever populated and the
+      // last could not be reached, so both fell through to this every time.
+      eventIndex: log.logIndex,
+      emitter: log.address,
+      transactionHash: log.transactionHash,
+    };
+
+    await Promise.all(
+      log.filterIds.map(async (matchingFilterId: number) => {
+        eventsProcessed++;
+
+        await processors[matchingFilterId - 1]!.handler(dao, eventKey, {
+          topics: log.topics,
+          data: log.data,
+        });
+      }),
+    );
+  }
+
+  return eventsProcessed;
 }
 
 if (import.meta.main) {

@@ -32,9 +32,12 @@ import {
   VE33_ABI as VE33_ABI_V3,
   BOOSTED_FEES_ABI as BOOSTED_FEES_ABI_V3,
 } from "./abis_v3";
+import { mevCaptureV21Processors } from "./mevCaptureV21";
 
 export interface LogProcessorConfigV3 {
   mevCaptureAddress: `0x${string}`;
+  /** MEVCapture v2.1; selected by this address only, never by the v1 flag. */
+  mevCaptureV21Address?: `0x${string}`;
   boostedFeesConcentratedAddress: `0x${string}`;
   boostedFeesStableswapAddress: `0x${string}`;
   coreAddress: `0x${string}`;
@@ -75,6 +78,7 @@ function stakeDescriptor(stakeId: `0x${string}`) {
 
 export function createLogProcessorsV3({
   mevCaptureAddress,
+  mevCaptureV21Address,
   boostedFeesConcentratedAddress,
   boostedFeesStableswapAddress,
   coreAddress,
@@ -277,6 +281,16 @@ export function createLogProcessorsV3({
 
           if (BigInt(parsedConfig.extension) === mevCaptureAddressBigInt) {
             await dao.insertMEVCapturePoolKey(key.emitter, parsed.poolId);
+          }
+          if (
+            mevCaptureV21Address &&
+            BigInt(parsedConfig.extension) === BigInt(mevCaptureV21Address)
+          ) {
+            await dao.insertMEVCaptureV21Pool(
+              mevCaptureV21Address,
+              parsed.poolId,
+              key,
+            );
           }
         },
         async PositionUpdated(dao, key, parsed) {
@@ -594,5 +608,6 @@ export function createLogProcessorsV3({
     twammProcessors,
     ordersProcessors,
     positionsProcessors,
+    mevCaptureV21Processors(mevCaptureV21Address, coreAddress),
   );
 }
