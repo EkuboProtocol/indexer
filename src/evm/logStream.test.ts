@@ -441,6 +441,49 @@ describe("createLogStream", () => {
     expect(Number(invalidate!.invalidate.cursor.orderKey)).toBe(100);
   });
 
+  it("rolls a quiet chain back to the finalized block, not its last stored event", async () => {
+    // Gnosis on 2026-10-12 (EKU-1622): the head block the cursor named was
+    // replaced, nothing recent was emitted to find common ground in, and the
+    // newest stored block was 33 days old. Rewinding there replayed 582k empty
+    // blocks and tripped the head-lag alert.
+    let headReads = 0;
+    const reorged = () => headReads > 6;
+    const calls: string[] = [];
+    const header = (number: number, hash: string) => ({
+      number: numberToHex(BigInt(number)), hash, timestamp: numberToHex(1_700_000_000n),
+    });
+    const rpc: RpcLike = {
+      request: (async (args: { method: string; params: unknown[] }) => {
+        calls.push(args.method);
+        if (args.method === "eth_getLogs") return [];
+        const tag = args.params[0] as string;
+        if (tag === "finalized") return header(990, "0x990");
+        if (tag === "latest") {
+          headReads++;
+          return reorged() ? header(1006, "0x1006b") : header(1005, "0x1005");
+        }
+        const n = Number(tag);
+        return header(n, reorged() && n > 1000 ? `0x${n}b` : `0x${n}`);
+      }) as RpcLike["request"],
+    };
+
+    const messages = await take(
+      createLogStream({
+        rpc,
+        filters: [filter()],
+        startingCursor: { orderKey: 1000n, uniqueKey: "0x1000" },
+        loadPreviousCursor: async (before) => (before > 20 ? { orderKey: 20n, uniqueKey: "0x20" } : null),
+        options: { pollIntervalMs: 1, finalizedRefreshIntervalMs: 1, maxLogRangeBlocks: 64 },
+      }),
+      50,
+      (m) => m.some((x) => x._tag === "invalidate"),
+    );
+
+    const invalidate = messages.find((m) => m._tag === "invalidate");
+    expect(invalidate).toBeDefined();
+    expect(invalidate!.invalidate.cursor).toEqual({ orderKey: 990n, uniqueKey: "0x990" });
+  });
+
   it("ignores a finalized block that moves backwards", async () => {
     const warnings: string[] = [];
     let finalizedCall = 0;
