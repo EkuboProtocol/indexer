@@ -32,6 +32,13 @@ interface CoinGeckoPriceFetcherOptions extends PriceSyncJobOptions {
   unpricedReprobeIntervalMs?: number;
   // Shared across every CoinGecko job; see `makeCoinGeckoQuotaGate`.
   quotaGate?: CoinGeckoQuotaGate;
+  // Only ask about tokens at or above this visibility priority. For a chain
+  // whose full table would cost more credits than the account has spare, this
+  // keeps CoinGecko on the tokens the interface surfaces first.
+  minVisibilityPriority?: number;
+  // How many hex digits CoinGecko writes the platform's addresses with: 40 for
+  // EVM chains, 64 for Starknet felts.
+  addressHexDigits?: 40 | 64;
 }
 
 interface CoinGeckoNativePriceFetcherOptions {
@@ -43,8 +50,8 @@ interface CoinGeckoNativePriceFetcherOptions {
   quotaGate?: CoinGeckoQuotaGate;
 }
 
-function toEvmAddress(address: string): `0x${string}` {
-  return `0x${BigInt(address).toString(16).padStart(40, "0")}`;
+function toPaddedAddress(address: string, hexDigits: number): `0x${string}` {
+  return `0x${BigInt(address).toString(16).padStart(hexDigits, "0")}`;
 }
 
 function requireApiKey(
@@ -86,6 +93,8 @@ function requestPrices({
 function fetchTokenAddresses(
   sql: Sql<{ bigint: bigint }>,
   chainId: bigint,
+  minVisibilityPriority: number | null,
+  hexDigits: number,
 ): Effect.Effect<`0x${string}`[], PriceSyncError> {
   return tryPriceSync({
     source: TOKEN_SOURCE,
@@ -95,11 +104,17 @@ function fetchTokenAddresses(
       FROM erc20_tokens
       WHERE chain_id = ${chainId}
         AND token_address > 0
+        AND (
+          ${minVisibilityPriority}::INT2 IS NULL
+          OR visibility_priority >= ${minVisibilityPriority}::INT2
+        )
       ORDER BY token_address
     `,
   }).pipe(
     Effect.map((tokens) =>
-      tokens.map(({ token_address }) => toEvmAddress(token_address)),
+      tokens.map(({ token_address }) =>
+        toPaddedAddress(token_address, hexDigits),
+      ),
     ),
   );
 }
@@ -109,6 +124,7 @@ function fetchTokenAddresses(
 function fetchPricedTokenAddresses(
   sql: Sql<{ bigint: bigint }>,
   chainId: bigint,
+  hexDigits: number,
 ): Effect.Effect<`0x${string}`[], PriceSyncError> {
   return tryPriceSync({
     source: TOKEN_SOURCE,
@@ -121,7 +137,9 @@ function fetchPricedTokenAddresses(
     `,
   }).pipe(
     Effect.map((tokens) =>
-      tokens.map(({ token_address }) => toEvmAddress(token_address)),
+      tokens.map(({ token_address }) =>
+        toPaddedAddress(token_address, hexDigits),
+      ),
     ),
   );
 }
@@ -218,6 +236,8 @@ export function coingeckoPriceFetcher({
   apiKey,
   unpricedReprobeIntervalMs = UNPRICED_REPROBE_INTERVAL_MS,
   quotaGate = makeCoinGeckoQuotaGate(),
+  minVisibilityPriority,
+  addressHexDigits = 40,
 }: CoinGeckoPriceFetcherOptions): PriceSyncJob {
   // Retained across cycles for the life of the process, and seeded from the
   // database on the first cycle so a restart does not start from nothing.
@@ -245,7 +265,11 @@ export function coingeckoPriceFetcher({
   const seed = Effect.fn("coingecko.seed")(function* (
     addresses: readonly `0x${string}`[],
   ) {
-    const retained = yield* fetchPricedTokenAddresses(sql, chainId);
+    const retained = yield* fetchPricedTokenAddresses(
+      sql,
+      chainId,
+      addressHexDigits,
+    );
     yield* Ref.set(seeded, true);
 
     if (retained.length === 0) {
@@ -324,8 +348,7 @@ export function coingeckoPriceFetcher({
     batch: readonly string[],
     pricedInBatch: ReadonlySet<string>,
   ) {
-    const isPriced = (address: string) =>
-      pricedInBatch.has(address.toLowerCase());
+    const isPriced = (address: string) => pricedInBatch.has(address);
 
     yield* Ref.update(probed, (set) => new Set([...set, ...batch]));
     yield* Ref.update(priced, (set) => {
@@ -366,14 +389,14 @@ export function coingeckoPriceFetcher({
       return [];
     }
 
-    // CoinGecko lowercases the addresses it echoes back, so compare on the
-    // requested form rather than trusting the response keys to match.
+    // CoinGecko echoes addresses back in its own case and padding, so compare
+    // on the requested form rather than trusting the response keys to match.
     const prices: [tokenAddress: string, usdPrice: number][] = [];
     const pricedInBatch = new Set<string>();
     for (const [address, { usd }] of Object.entries(result)) {
       if (usablePrice(usd)) {
         prices.push([address, usd]);
-        pricedInBatch.add(address.toLowerCase());
+        pricedInBatch.add(toPaddedAddress(address, addressHexDigits));
       }
     }
 
@@ -387,7 +410,12 @@ export function coingeckoPriceFetcher({
     // Paused on the account's monthly quota: skip the table read as well.
     if (!(yield* quotaGate.isOpen)) return Stream.empty;
 
-    const addresses = yield* fetchTokenAddresses(sql, chainId);
+    const addresses = yield* fetchTokenAddresses(
+      sql,
+      chainId,
+      minVisibilityPriority ?? null,
+      addressHexDigits,
+    );
 
     if (!(yield* Ref.get(seeded))) yield* seed(addresses);
     yield* forgetDroppedTokens(new Set(addresses));
