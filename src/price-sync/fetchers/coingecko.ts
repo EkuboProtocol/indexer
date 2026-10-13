@@ -36,6 +36,9 @@ interface CoinGeckoPriceFetcherOptions extends PriceSyncJobOptions {
   // whose full table would cost more credits than the account has spare, this
   // keeps CoinGecko on the tokens the interface surfaces first.
   minVisibilityPriority?: number;
+  // Also ask about selectable tokens below that priority when they have Ekubo
+  // liquidity. Few tokens qualify, and they are the ones people trade here.
+  includeTokensWithEkuboLiquidity?: boolean;
   // How many hex digits CoinGecko writes the platform's addresses with: 40 for
   // EVM chains, 64 for Starknet felts.
   addressHexDigits?: 40 | 64;
@@ -94,21 +97,37 @@ function fetchTokenAddresses(
   sql: Sql<{ bigint: bigint }>,
   chainId: bigint,
   minVisibilityPriority: number | null,
+  includeTokensWithEkuboLiquidity: boolean,
   hexDigits: number,
 ): Effect.Effect<`0x${string}`[], PriceSyncError> {
   return tryPriceSync({
     source: TOKEN_SOURCE,
     operation: `read indexed tokens for chain ${chainId}`,
     try: () => sql<TokenAddressRow[]>`
-      SELECT token_address::TEXT
-      FROM erc20_tokens
-      WHERE chain_id = ${chainId}
-        AND token_address > 0
+      SELECT t.token_address::TEXT
+      FROM erc20_tokens t
+      WHERE t.chain_id = ${chainId}
+        AND t.token_address > 0
         AND (
           ${minVisibilityPriority}::INT2 IS NULL
-          OR visibility_priority >= ${minVisibilityPriority}::INT2
+          OR t.visibility_priority >= ${minVisibilityPriority}::INT2
+          OR (
+            ${includeTokensWithEkuboLiquidity}::BOOLEAN
+            AND t.visibility_priority >= 0
+            AND EXISTS (
+              SELECT 1
+              FROM pool_keys pk
+              JOIN pool_tvl pt USING (pool_key_id)
+              WHERE pk.chain_id = t.chain_id
+                AND (
+                  pk.token0 = t.token_address
+                  OR pk.token1 = t.token_address
+                )
+                AND (pt.balance0 > 0 OR pt.balance1 > 0)
+            )
+          )
         )
-      ORDER BY token_address
+      ORDER BY t.token_address
     `,
   }).pipe(
     Effect.map((tokens) =>
@@ -237,6 +256,7 @@ export function coingeckoPriceFetcher({
   unpricedReprobeIntervalMs = UNPRICED_REPROBE_INTERVAL_MS,
   quotaGate = makeCoinGeckoQuotaGate(),
   minVisibilityPriority,
+  includeTokensWithEkuboLiquidity = false,
   addressHexDigits = 40,
 }: CoinGeckoPriceFetcherOptions): PriceSyncJob {
   // Retained across cycles for the life of the process, and seeded from the
@@ -414,6 +434,7 @@ export function coingeckoPriceFetcher({
       sql,
       chainId,
       minVisibilityPriority ?? null,
+      includeTokensWithEkuboLiquidity,
       addressHexDigits,
     );
 

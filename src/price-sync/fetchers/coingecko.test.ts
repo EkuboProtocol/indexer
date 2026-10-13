@@ -323,10 +323,11 @@ test("the token fetcher passes a minimum visibility priority to its table read",
   });
   await collect(unrestricted.fetch);
 
-  // [chainId, minimum, minimum]: the minimum is both null-checked and compared.
+  // [chainId, minimum, minimum, include tokens with Ekubo liquidity]: the
+  // minimum is both null-checked and compared.
   expect(tokenReads).toEqual([
-    [1n, 1, 1],
-    [8453n, null, null],
+    [1n, 1, 1, false],
+    [8453n, null, null, false],
   ]);
 });
 

@@ -153,12 +153,14 @@ export function createPriceSyncJobs({
     }),
     // Ethereum's table is the largest by far, and pricing all of it every
     // cycle would cost more CoinGecko credits than the plan has spare. The
-    // tokens the interface surfaces first are a few requests a cycle.
+    // tokens the interface surfaces first are a few requests a cycle, and the
+    // few dozen others with Ekubo liquidity add at most one more.
     coingecko({
       chainId: 1n,
       intervalMs: coingeckoIntervalMs,
       platform: "ethereum",
       minVisibilityPriority: 1,
+      includeTokensWithEkuboLiquidity: true,
     }),
     /*
     oracleV1PriceFetcher({
