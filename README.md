@@ -390,9 +390,9 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
-### 2026-10-13: Bridge link provenance columns (00135, additive)
+### 2026-10-13: Bridge link provenance columns (00136, additive)
 
-**`00135_erc20_bridge_link_provenance`. Adds nullable `relationship`,
+**`00136_erc20_bridge_link_provenance`. Adds nullable `relationship`,
 `bridge_name`, `source_name`, `source_url` and `inferred_reverse` columns to
 `erc20_tokens_bridge_relationships`. Metadata-only column additions plus a
 check constraint validated over a table of a few thousand rows; no manual

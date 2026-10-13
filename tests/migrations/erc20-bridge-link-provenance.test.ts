@@ -18,7 +18,7 @@ test("adds nullable link provenance columns without changing existing links", as
     );
 
     await runMigrations(client, {
-      files: ["00135_erc20_bridge_link_provenance"],
+      files: ["00136_erc20_bridge_link_provenance"],
     });
 
     const { rows: columns } = await client.query<{
