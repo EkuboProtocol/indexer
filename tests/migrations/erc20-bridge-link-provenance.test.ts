@@ -14,7 +14,7 @@ test("adds nullable link provenance columns without changing existing links", as
       `INSERT INTO erc20_tokens_bridge_relationships (
          source_chain_id, source_token_address, source_bridge_address,
          dest_chain_id, dest_token_address
-       ) VALUES (1, 16, NULL, 8453, 32)`
+       ) VALUES (1, 16, NULL, 8453, 32)`,
     );
 
     await runMigrations(client, {
@@ -34,11 +34,15 @@ test("adds nullable link provenance columns without changing existing links", as
            'relationship', 'bridge_name', 'source_name', 'source_url',
            'inferred_reverse'
          )
-       ORDER BY column_name`
+       ORDER BY column_name`,
     );
     expect(columns).toEqual([
       { column_name: "bridge_name", data_type: "text", is_nullable: "YES" },
-      { column_name: "inferred_reverse", data_type: "boolean", is_nullable: "YES" },
+      {
+        column_name: "inferred_reverse",
+        data_type: "boolean",
+        is_nullable: "YES",
+      },
       { column_name: "relationship", data_type: "text", is_nullable: "YES" },
       { column_name: "source_name", data_type: "text", is_nullable: "YES" },
       { column_name: "source_url", data_type: "text", is_nullable: "YES" },
@@ -51,7 +55,7 @@ test("adds nullable link provenance columns without changing existing links", as
       relationship: string | null;
     }>(
       `SELECT dest_token_address::text, relationship
-       FROM erc20_tokens_bridge_relationships`
+       FROM erc20_tokens_bridge_relationships`,
     );
     expect(link).toEqual({ dest_token_address: "32", relationship: null });
 
@@ -60,12 +64,12 @@ test("adds nullable link provenance columns without changing existing links", as
        SET relationship = 'native_issuer', bridge_name = 'Circle',
            source_name = 'Circle USDC contract addresses',
            source_url = 'https://developers.circle.com/stablecoins/usdc-contract-addresses',
-           inferred_reverse = FALSE`
+           inferred_reverse = FALSE`,
     );
     await expect(
       client.query(
-        `UPDATE erc20_tokens_bridge_relationships SET relationship = 'wrapped'`
-      )
+        `UPDATE erc20_tokens_bridge_relationships SET relationship = 'wrapped'`,
+      ),
     ).rejects.toThrow(/erc20_tokens_bridge_relationships_relationship_kind/);
   } finally {
     await client.close();
