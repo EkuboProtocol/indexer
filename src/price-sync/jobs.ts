@@ -1,4 +1,5 @@
 import type { Sql } from "postgres";
+import { bridgeMirrorPriceFetcher } from "./fetchers/bridgeMirror";
 import { chainlinkPriceFetcher } from "./fetchers/chainlink";
 import {
   makeChainlinkCatalogCache,
@@ -135,6 +136,31 @@ export function createPriceSyncJobs({
         130n, // unichain
         480n, // world chain
         57073n, // ink
+      ],
+      intervalMs: defaultIntervalMs,
+    }),
+
+    // Fills tokens no source above prices directly with the price of the token
+    // they are bridged to or from: most of Unichain's and Arbitrum's listed
+    // tokens are canonical bridges of Ethereum tokens with no market of their
+    // own that CoinGecko or Sushi track. Ranked below every direct source.
+    bridgeMirrorPriceFetcher({
+      sql,
+      chainIds: [
+        1n, // eth mainnet
+        10n, // optimism
+        56n, // bsc
+        100n, // gnosis
+        130n, // unichain
+        137n, // polygon
+        143n, // monad
+        480n, // world chain
+        4326n, // megaeth
+        4663n, // robinhood
+        8453n, // base
+        42161n, // arbitrum one
+        57073n, // ink
+        23448594291968334n, // starknet mainnet
       ],
       intervalMs: defaultIntervalMs,
     }),
