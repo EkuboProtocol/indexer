@@ -390,6 +390,26 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### 2026-10-13: Bridge link provenance columns (00136, additive)
+
+**`00136_erc20_bridge_link_provenance`. Adds nullable `relationship`,
+`bridge_name`, `source_name`, `source_url` and `inferred_reverse` columns to
+`erc20_tokens_bridge_relationships`. Metadata-only column additions plus a
+check constraint validated over a table of a few thousand rows; no manual
+steps.**
+
+`relationship` is one of `canonical_bridge`, `native_issuer`,
+`interoperability` or `unknown`. The columns stay NULL until the
+`default-tokens` sync writes them from `tokens.json`; existing readers are
+unaffected. Deploy before the `default-tokens` sync that writes them and the
+api release that reads them.
+
+Rollback: once no sync writes and no api release reads them,
+`ALTER TABLE erc20_tokens_bridge_relationships DROP COLUMN relationship,
+DROP COLUMN bridge_name, DROP COLUMN source_name, DROP COLUMN source_url,
+DROP COLUMN inferred_reverse;`. The values are regenerated from `tokens.json`
+by the next sync, so dropping them loses nothing that cannot be rewritten.
+
 ### 2026-10-13: Hourly token price history for 30 days (00134, additive)
 
 **`00134_hourly_token_price_history`. Adds `erc20_tokens_usd_prices_hourly`
