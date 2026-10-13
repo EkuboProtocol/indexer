@@ -390,6 +390,23 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### 2026-10-13: Hourly token price history for 30 days (00134, additive)
+
+**`00134_hourly_token_price_history`. Adds `erc20_tokens_usd_prices_hourly`
+and `prune_erc20_tokens_usd_prices()`, and points the hourly
+`prune_erc20_tokens_usd_prices` cron job at the function. No locks on
+worker-written tables, no manual steps.**
+
+`erc20_tokens_usd_prices` still keeps a day of raw observations. The prune now
+folds what it deletes into the latest observation per token and UTC hour, in
+the same statement, and keeps those hourly rows for 31 days (about 11M rows).
+History accrues from the deploy, starting with the day still in the raw table.
+Deploy before the api release that reads the hourly table.
+
+Rollback: reschedule the job with its 00117 `DELETE` command, then
+`DROP FUNCTION prune_erc20_tokens_usd_prices(timestamptz);
+DROP TABLE erc20_tokens_usd_prices_hourly;` once no api release reads it.
+
 ### 2026-09-30: Production workers require their RPC URL in the environment
 
 `src/runtime.ts` now fails when `NODE_ENV` is `production` (any case) and the
