@@ -293,6 +293,77 @@ test("a chain with no retained cg1 prices still sweeps on a cold start", async (
   expect(requestedAddresses(requested)).toEqual([TOKENS]);
 });
 
+test("the token fetcher passes a minimum visibility priority to its table read", async () => {
+  stubCoinGecko(() => ({}));
+  const tokenReads: unknown[][] = [];
+  const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const text = strings.join("");
+    if (!text.includes("erc20_tokens_latest_price_by_source")) {
+      tokenReads.push(values);
+    }
+    return Promise.resolve(toRows(TOKENS));
+  }) as unknown as Sql<{ bigint: bigint }>;
+
+  const restricted = coingeckoPriceFetcher({
+    sql,
+    chainId: 1n,
+    intervalMs: 1_000,
+    platform: "ethereum",
+    apiKey,
+    minVisibilityPriority: 1,
+  });
+  await collect(restricted.fetch);
+
+  const unrestricted = coingeckoPriceFetcher({
+    sql,
+    chainId: 8453n,
+    intervalMs: 1_000,
+    platform: "base",
+    apiKey,
+  });
+  await collect(unrestricted.fetch);
+
+  // [chainId, minimum, minimum]: the minimum is both null-checked and compared.
+  expect(tokenReads).toEqual([
+    [1n, 1, 1],
+    [8453n, null, null],
+  ]);
+});
+
+test("the token fetcher pads Starknet addresses to 64 hex digits", async () => {
+  const short = "0x36834a40984312f7f7de8d31e3f6305b325389eaeea5b1c0664b2fb936461a4";
+  const padded =
+    "0x036834a40984312f7f7de8d31e3f6305b325389eaeea5b1c0664b2fb936461a4";
+  const other =
+    "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7";
+  // Echo the priced address back unpadded and upper-cased: it must still be
+  // recognised as the requested token, or it would fall out of the fast lane.
+  const requested = stubCoinGecko(() => ({
+    [`0x${short.slice(2).toUpperCase()}`]: { usd: 60_000 },
+  }));
+  const job = coingeckoPriceFetcher({
+    sql: stubSql(() => [other, short]),
+    chainId: 23448594291968334n,
+    intervalMs: 1_000,
+    unpricedReprobeIntervalMs: 1_000_000,
+    platform: "starknet",
+    apiKey,
+    addressHexDigits: 64,
+  });
+
+  const updates = await collect(job.fetch, 0);
+  expect(requestedAddresses(requested)).toEqual([[other, padded]]);
+  expect(updates.map((update) => [update.tokenAddress, update.usdPrice])).toEqual(
+    [[short, 60_000]],
+  );
+
+  // t=1s serves slot 1, the priced token's own index, so the unpriced token
+  // at index 0 is not due and only the priced token is asked about.
+  requested.length = 0;
+  await collect(job.fetch, 1_000);
+  expect(requestedAddresses(requested)).toEqual([[padded]]);
+});
+
 const QUOTA_BODY = JSON.stringify({
   status: {
     error_code: 10006,

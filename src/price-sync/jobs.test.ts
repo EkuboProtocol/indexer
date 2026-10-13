@@ -63,3 +63,17 @@ test("no chain has both the ETH mirror and a Sushi job", () => {
   expect([...mirrored].sort()).toEqual([130n, 480n, 57073n]);
   expect([...mirrored].filter((chainId) => sushi.has(chainId))).toEqual([]);
 });
+
+test("CoinGecko prices Ethereum's prominent tokens and Starknet", () => {
+  const jobs = createPriceSyncJobs({
+    sql: {} as Sql<{ bigint: bigint }>,
+    defaultIntervalMs: 60_000,
+    coingeckoIntervalMs: 300_000,
+  });
+  const coingeckoChains = jobs
+    .filter((job) => job.source === "cg1")
+    .flatMap((job) => job.chainIds);
+
+  expect(coingeckoChains).toContain(1n);
+  expect(coingeckoChains).toContain(23448594291968334n);
+});
