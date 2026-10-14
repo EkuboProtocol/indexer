@@ -287,6 +287,38 @@ floor first and hide a reorg that happened just before finalization. Current RPC
 finality is not used to bound recovery of previously stored, possibly orphaned
 events. EVM uses `finalized`; Starknet uses `l1_accepted`.
 
+#### Rollback limits
+
+Every rollback deletes the stored blocks above its target, and the cascade deletes
+their events. Window rollbacks are bounded by the re-read window, but stored-history
+recovery is not: an RPC endpoint answering for the wrong chain, or with corrupt
+hashes, fails every stored block and lands on the initial boundary, deleting the
+chain's whole history. Before deleting anything, the worker refuses:
+
+- a recovery walk that reaches a stored block at or below the persisted finalized
+  cursor (`indexer_cursor.finalized_order_key`) whose hash no longer matches. That
+  cursor is written only after the history beneath it was reconciled, so the
+  endpoint is wrong or finality itself failed. The walk stops at that block rather
+  than reading every stored block first. This is the persisted cursor, not the
+  endpoint's current finalized block: rows orphaned while the worker was down can
+  sit below the latter and are still removed. Window rollbacks are not bounded by
+  finality, because re-indexing a block the store missed, or events a newly added
+  filter address now matches, legitimately deletes canonical finalized rows; on
+  chains that finalize within a few blocks the first window after a restart reaches
+  below the persisted finalized block.
+- any rollback deeper than `MAX_REORG_DEPTH` blocks below the persisted cursor, when
+  that is set. It is unset by default; if set, it must be at least the re-read window
+  (at most half `GET_LOGS_RANGE_SIZE`) or a filter change can never be re-indexed.
+
+A refusal logs `evt: "rollback_refused"` with the reason, block numbers, finalized
+block and limit, then exits without deleting anything. `scripts/restart.sh` restarts
+the worker, which re-derives the same rollback and refuses again until the endpoint
+answers correctly, so the chain stops advancing and the head freshness monitor
+alerts. Fix the endpoint first. Only if the chain really did reorg past the
+persisted cursor should an operator, under a separately authorized database change,
+clear `finalized_order_key` for that chain (or raise `MAX_REORG_DEPTH`) and let the
+next start roll back.
+
 `REORG_WINDOW_SECONDS` (default 120) determines the inexpensive comparison window
 from the observed block rate. It is capped at half `GET_LOGS_RANGE_SIZE` to ensure
 forward progress. A smaller window can make recovery replay more history; cursor
@@ -389,6 +421,21 @@ The DigitalOcean Apps spec in `.do/app.yaml` documents the full production stack
 Use this file as a base to recreate the stack in a new DigitalOcean App Platform project or as a reference for configuring similar infrastructure elsewhere.
 
 ## Breaking changelog (tracking as of 2025-11-17)
+
+### 2026-10-14: Stored-history recovery stops at persisted finality
+
+**All networks. No schema change and no manual step to deploy. Cursor recovery that
+finds a stored block at or below `indexer_cursor.finalized_order_key` no longer
+canonical now refuses, and the worker exits instead of deleting. New optional
+`MAX_REORG_DEPTH` (unset by default) refuses rollbacks deeper than that many blocks
+below the persisted cursor.**
+
+Previously recovery kept walking and deleted everything above the first block that
+verified, back to the initial boundary when none did. Window rollbacks behave as
+before. A refused worker stops advancing until the RPC endpoint is fixed; see
+"Rollback limits" for the manual path when a real reorg passed persisted finality.
+Readers see a stale chain head rather than lost history. Rollback: redeploy the
+previous image; there is no data to revert.
 
 ### 2026-10-13: Bridge link provenance columns (00136, additive)
 

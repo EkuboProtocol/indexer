@@ -9,6 +9,7 @@ interface CommonConfiguration {
   PG_CONNECTION_STRING: string;
 
   NO_BLOCKS_TIMEOUT_MS: string; // Time in milliseconds before exiting if no blocks are received
+  MAX_REORG_DEPTH?: string; // Deepest rollback, in blocks below the persisted cursor, the worker will delete; unset means no limit beyond persisted finality
   TOKEN_PRICE_SYNC_INTERVAL_MS?: string; // Interval for the token price worker (milliseconds)
   COINGECKO_API_KEY?: string;
   COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS?: string; // Zero or unset disables CoinGecko price syncing
