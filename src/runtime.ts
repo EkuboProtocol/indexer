@@ -1,6 +1,11 @@
 import { logger } from "./_shared/logger";
 import { DAO, type IndexerCursor } from "./_shared/dao";
 import { msToHumanShort } from "./_shared/msToHumanShort";
+import {
+  assertRecoveryWalkAllowed,
+  assertRollbackDepthAllowed,
+  parseMaxReorgDepth,
+} from "./_shared/rollbackGuard";
 import { loadConfig, requireDeployedRpcUrl } from "./config";
 import type { NetworkEntrypoint, NetworkType } from "./types";
 
@@ -43,6 +48,7 @@ export async function runIndexer<TBlock>({
   }
 
   const dao = DAO.create(process.env.PG_CONNECTION_STRING!, chainId);
+  const maxReorgDepth = parseMaxReorgDepth(process.env.MAX_REORG_DEPTH);
 
   // Timer for exiting if no blocks are received within the configured time
   const NO_BLOCKS_TIMEOUT_MS = parseInt(
@@ -136,6 +142,9 @@ export async function runIndexer<TBlock>({
         finality: "accepted",
         startingCursor: currentCursor!,
         loadPreviousCursor: async (before: number) => {
+          await assertRecoveryWalkAllowed(dao, {
+            chainId, from: currentCursor, before, maxReorgDepth,
+          });
           const stored = await dao.loadPreviousBlockCursor(before);
           if (stored) return stored;
           // An empty database still has the operator's explicit indexing
@@ -218,6 +227,12 @@ export async function runIndexer<TBlock>({
                 let writtenCursor: IndexerCursor | null = null;
                 const expectedCursor = currentCursor;
 
+                assertRollbackDepthAllowed({
+                  chainId,
+                  from: expectedCursor,
+                  to: Number(invalidatedCursor.orderKey),
+                  maxReorgDepth,
+                });
                 await dao.begin(async (dao) => {
                   await dao.deleteOldBlockNumbers(
                     Number(invalidatedCursor.orderKey) + 1,
@@ -271,6 +286,13 @@ export async function runIndexer<TBlock>({
 
                 let eventsProcessed = 0;
 
+                // Passes unless the block is at or below the cursor.
+                assertRollbackDepthAllowed({
+                  chainId,
+                  from: expectedCursor,
+                  to: blockNumber - 1,
+                  maxReorgDepth,
+                });
                 await dao.begin(async (dao) => {
                   await dao.deleteOldBlockNumbers(blockNumber);
 
