@@ -60,7 +60,17 @@ async function voe(
                                                  transaction_hash, emitter, pool_key_id,
                                                  token0_sale_rate, token1_sale_rate)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [CHAIN_ID, blockNumber, tx, logIndex, String(blockNumber * 100 + tx), TWAMM, pool, rate0.toString(), rate1.toString()],
+    [
+      CHAIN_ID,
+      blockNumber,
+      tx,
+      logIndex,
+      String(blockNumber * 100 + tx),
+      TWAMM,
+      pool,
+      rate0.toString(),
+      rate1.toString(),
+    ],
   );
 }
 
@@ -115,7 +125,17 @@ async function swap(
                         emitter, pool_key_id, locker, delta0, delta1, sqrt_ratio_after, tick_after,
                         liquidity_after)
      VALUES ($1, $2, $3, $4, $5, 2000, $6, $7, $8, $9, 1, 0, 1000)`,
-    [CHAIN_ID, blockNumber, tx, logIndex, String(blockNumber * 100 + tx), pool, locker, delta0.toString(), delta1.toString()],
+    [
+      CHAIN_ID,
+      blockNumber,
+      tx,
+      logIndex,
+      String(blockNumber * 100 + tx),
+      pool,
+      locker,
+      delta0.toString(),
+      delta1.toString(),
+    ],
   );
 }
 
@@ -137,7 +157,18 @@ async function block2(client: Client, pool: number) {
   // 3 token1/s from 01:00 to 02:30.
   await block(client, 2, 30 * MINUTE);
   await voe(client, pool, 2, 0, 0, 0n, 0n);
-  await orderUpdate(client, pool, 2, 0, 1, 1, 30 * MINUTE, 3 * HOUR, 10n * X32, 0n);
+  await orderUpdate(
+    client,
+    pool,
+    2,
+    0,
+    1,
+    1,
+    30 * MINUTE,
+    3 * HOUR,
+    10n * X32,
+    0n,
+  );
   await orderUpdate(client, pool, 2, 1, 0, 2, HOUR, 2.5 * HOUR, 0n, 3n * X32);
 }
 
@@ -148,7 +179,18 @@ async function block3(client: Client, pool: number) {
   await swap(client, pool, 3, 0, 0, TWAMM, 40_000n, -30_000n);
   await voe(client, pool, 3, 0, 1, 10n * X32, 3n * X32);
   await swap(client, pool, 3, 0, 2, ROUTER, -50n, 70n);
-  await orderUpdate(client, pool, 3, 1, 0, 1, 30 * MINUTE, 3 * HOUR, -4n * X32, 0n);
+  await orderUpdate(
+    client,
+    pool,
+    3,
+    1,
+    0,
+    1,
+    30 * MINUTE,
+    3 * HOUR,
+    -4n * X32,
+    0n,
+  );
 }
 
 async function block4(client: Client, pool: number) {
@@ -247,7 +289,10 @@ test("VOEs add what the orders sold per hour, net of the TWAMM's own core swaps"
   await block3(client, pool);
   expect(await hourly(client)).toEqual(AFTER_BLOCK_3);
   // Everything sold by the orders plus the user's 70 token1, counted once.
-  expect(await totals(client)).toEqual({ [TOKEN0]: "63000", [TOKEN1]: "13570" });
+  expect(await totals(client)).toEqual({
+    [TOKEN0]: "63000",
+    [TOKEN1]: "13570",
+  });
 
   await block4(client, pool);
   expect(await hourly(client)).toEqual(AFTER_BLOCK_4);
@@ -301,9 +346,7 @@ test("pools without TWAMM orders are unchanged", async () => {
   await block(client, 1, 0);
   await swap(client, pool, 1, 0, 0, ROUTER, 1_000n, -900n);
   await swap(client, pool, 1, 0, 1, TWAMM, 500n, -400n);
-  expect(await hourly(client)).toEqual([
-    [hour(0), TOKEN0, "1500", "15"],
-  ]);
+  expect(await hourly(client)).toEqual([[hour(0), TOKEN0, "1500", "15"]]);
   expect(await ledgerCount(client)).toBe(0);
   await client.close();
 });
@@ -316,7 +359,10 @@ test("backfill applies history indexed before the migration, idempotently", asyn
   expect(await totals(client)).toEqual({ [TOKEN0]: "40000", [TOKEN1]: "2070" });
 
   const sql = await fs.readFile(
-    path.resolve(process.cwd(), "migrations/00137_twamm_hourly_volume/index.sql"),
+    path.resolve(
+      process.cwd(),
+      "migrations/00137_twamm_hourly_volume/index.sql",
+    ),
     "utf8",
   );
   await client.exec(sql);
@@ -329,7 +375,7 @@ test("backfill applies history indexed before the migration, idempotently", asyn
       `SELECT examined, last_event_id::text FROM backfill_twamm_hourly_volume($1, $2, $3)`,
       [CHAIN_ID, after, limit],
     );
-    return row!;
+    return row;
   };
 
   let cursor = MIN_EVENT_ID;
