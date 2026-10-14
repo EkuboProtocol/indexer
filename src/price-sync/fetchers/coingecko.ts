@@ -211,6 +211,7 @@ export function coingeckoNativePriceFetcher({
     chainIds,
     source: NATIVE_SOURCE,
     intervalMs,
+    resumeFromLastRun: true,
     fetch:
       coinIds.length === 0
         ? Stream.empty
@@ -470,6 +471,7 @@ export function coingeckoPriceFetcher({
     chainIds: [chainId],
     source: TOKEN_SOURCE,
     intervalMs,
+    resumeFromLastRun: true,
     fetch: Stream.unwrap(plan()),
   };
 }

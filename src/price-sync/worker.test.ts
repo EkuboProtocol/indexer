@@ -3,7 +3,12 @@ import { Duration, Effect, Fiber, References, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { PriceSyncError } from "./errors";
 import type { PriceSyncJob, PriceUpdate } from "./fetchers/types";
-import { expirationLoop, jobLoop, partitionEnabled } from "./worker";
+import {
+  expirationLoop,
+  firstLaunchDelayMs,
+  jobLoop,
+  partitionEnabled,
+} from "./worker";
 import type { PriceSyncSql } from "./worker";
 
 const INTERVAL_MS = 2_000;
@@ -235,4 +240,101 @@ test("partitionEnabled drops jobs whose interval is zero", async () => {
   );
 
   expect(kept.map((job) => job.source)).toEqual(["tst"]);
+});
+
+// A job that resumes from its last stored price, against a driver answering
+// the newest-price lookup with `lookup`. TestClock starts at 0, so a stored
+// timestamp of -500 means "500 ms ago".
+function launchTimes(
+  lookup: () => Promise<unknown>,
+  forMs: number,
+  resumeFromLastRun = true,
+) {
+  const launches: number[] = [];
+  const queries: string[] = [];
+  const sql = ((strings: TemplateStringsArray) => {
+    queries.push(strings.join("?"));
+    return lookup();
+  }) as unknown as PriceSyncSql;
+  const job: PriceSyncJob = {
+    chainIds: [1n, 10n],
+    source: "tst",
+    intervalMs: INTERVAL_MS,
+    resumeFromLastRun,
+    fetch: Stream.unwrap(
+      Effect.gen(function* () {
+        launches.push(yield* Effect.clockWith((clock) => clock.currentTimeMillis));
+        return Stream.fromArray([[] as readonly PriceUpdate[]]);
+      }),
+    ),
+  };
+
+  return Effect.runPromise(
+    Effect.provide(
+      silenced(
+        Effect.gen(function* () {
+          const fiber = yield* Effect.forkChild(jobLoop(sql, job));
+          yield* TestClock.adjust(Duration.millis(forMs));
+          yield* Fiber.interrupt(fiber);
+          return { launches, queries };
+        }),
+      ),
+      TestClock.layer(),
+    ),
+  );
+}
+
+const storedAt = (ms: number) => () =>
+  Promise.resolve([{ last: new Date(ms) }]);
+
+test("a restart waits out the rest of the interval since the last stored price", async () => {
+  const { launches, queries } = await launchTimes(storedAt(-500), 3 * INTERVAL_MS);
+
+  expect(launches).toEqual([1_500, 3_500, 5_500]);
+  expect(queries).toHaveLength(1);
+});
+
+test("a stale stored price launches at once", async () => {
+  const { launches } = await launchTimes(storedAt(-10 * INTERVAL_MS), 2 * INTERVAL_MS);
+
+  expect(launches).toEqual([0, 2_000, 4_000]);
+});
+
+test("no stored price launches at once", async () => {
+  const { launches } = await launchTimes(
+    () => Promise.resolve([{ last: null }]),
+    2 * INTERVAL_MS,
+  );
+
+  expect(launches).toEqual([0, 2_000, 4_000]);
+});
+
+test("a failed lookup launches at once and keeps the job running", async () => {
+  const { launches } = await launchTimes(
+    () => Promise.reject(new Error("connection refused")),
+    2 * INTERVAL_MS,
+  );
+
+  expect(launches).toEqual([0, 2_000, 4_000]);
+});
+
+test("a job that does not opt in launches at once without a lookup", async () => {
+  const { launches, queries } = await launchTimes(
+    storedAt(-500),
+    2 * INTERVAL_MS,
+    false,
+  );
+
+  expect(launches).toEqual([0, 2_000, 4_000]);
+  expect(queries).toHaveLength(0);
+});
+
+test("firstLaunchDelayMs never waits longer than one interval", () => {
+  expect(firstLaunchDelayMs(undefined, 1_000, 60_000)).toBe(0);
+  expect(firstLaunchDelayMs(Number.NaN, 1_000, 60_000)).toBe(0);
+  expect(firstLaunchDelayMs(0, 1_000, 60_000)).toBe(59_000);
+  expect(firstLaunchDelayMs(0, 60_000, 60_000)).toBe(0);
+  expect(firstLaunchDelayMs(0, 120_000, 60_000)).toBe(0);
+  // A clock-skewed timestamp from the future.
+  expect(firstLaunchDelayMs(1_000_000, 0, 60_000)).toBe(60_000);
 });

@@ -33,6 +33,10 @@ export interface PriceSyncJob {
   readonly source: string;
   readonly intervalMs: number;
   readonly fetch: PriceFetcher;
+  // On startup, wait out the rest of the interval since this source's newest
+  // stored price instead of launching at once. For metered sources, where
+  // every restart would otherwise buy an extra cycle.
+  readonly resumeFromLastRun?: boolean;
 }
 
 // Default validity stamped on observations that carry no horizon of their own:
