@@ -20,6 +20,6 @@ test("all migrations apply successfully", async () => {
   );
 
   // 00129 adds two extension tables and the latest-event view; 00134 adds
-  // the hourly token price history.
-  expect(result).toBe(89);
+  // the hourly token price history; 00137 adds the TWAMM hourly volume ledger.
+  expect(result).toBe(90);
 });
