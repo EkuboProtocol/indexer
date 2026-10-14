@@ -1,6 +1,6 @@
 import { expect, it } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
-import { DAO } from "./dao";
+import { DAO, type IndexerCursor } from "./dao";
 
 it("rewinding clears orphaned finality and gas while recovery reads stay chain-scoped", async () => {
   const db = new PGlite();
@@ -31,7 +31,7 @@ it("rewinding clears orphaned finality and gas while recovery reads stay chain-s
       { typed: (value: unknown) => value },
     );
     const dao = Reflect.construct(DAO, [sql, 1n]) as DAO;
-    const high = { orderKey: 100n, uniqueKey: "0x64" };
+    const high: IndexerCursor = { orderKey: 100n, uniqueKey: "0x64" };
     await dao.writeCursor(
       high,
       { orderKey: 0n },

@@ -14,7 +14,7 @@ const SERVER = process.env.TEST_PG_CONNECTION_STRING;
 
 const CHAIN_ID = 1n;
 const TOKEN_COUNT = 3_000;
-const tokenAddress = (i: number) => `0x${i.toString(16)}`;
+const tokenAddress = (i: number): `0x${string}` => `0x${i.toString(16)}`;
 
 describe.skipIf(!SERVER)("persistPriceUpdates against Postgres", () => {
   const database = `persist_price_updates_${process.pid}_${Date.now()}`;

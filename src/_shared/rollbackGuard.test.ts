@@ -12,10 +12,10 @@ import {
 } from "./rollbackGuard";
 
 const chainId = 1n;
-const hex = (n: number) => `0x${n.toString(16)}`;
+const hex = (n: number): `0x${string}` => `0x${n.toString(16)}`;
 const header = (number: number, hash = hex(number)): ChainHead => ({
   number,
-  hash: hash as `0x${string}`,
+  hash,
   timestamp: new Date(1000),
   baseFeePerGas: null,
 });

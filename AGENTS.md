@@ -34,16 +34,17 @@ Any deployment that requires manual intervention or alters the database schema m
 
 ## Checks
 
-- Run `bun run format:check` (`bun run format` fixes it), `bun run lint` and
-  `bun run test` before considering a change done. CI runs them on every push,
-  with the unit tests split across four parallel jobs.
+- Run `bun run format:check` (`bun run format` fixes it), `bun run lint`,
+  `bun run typecheck` and `bun run test` before considering a change done. CI
+  runs them on every push, with the unit tests split across four parallel jobs.
+  Bun strips types without checking them, so the typecheck is the only thing
+  that catches a type error.
 - Formatting is oxfmt (`.oxfmtrc.json`). `migrations/` is not formatted: applied
   migrations must stay byte-identical.
 - `tsconfig.json` is a solution file: `tsconfig.app.json` covers `src/`,
   `scripts/` and `tests/`, and `tsconfig.lint.json` covers `scripts/lint.ts`. The
-  type-aware lint rules use these projects, so a new directory of TypeScript
-  needs to be in one. `bun run typecheck` (TypeScript 7, `tsc -b`) is not yet
-  clean and not yet in CI.
+  typecheck (TypeScript 7, `tsc -b`) and the type-aware lint rules use these
+  projects, so a new directory of TypeScript needs to be in one.
 
 ## Complexity and lint policy
 

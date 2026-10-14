@@ -34,7 +34,7 @@ describe("withNullBlockRetry", () => {
 
     const wrapped = withNullBlockRetry(transport, { retryDelayMs: 0 })(options);
 
-    expect(await wrapped.request(getBlock)).toEqual({ number: "0x1" });
+    expect<unknown>(await wrapped.request(getBlock)).toEqual({ number: "0x1" });
     expect(calls).toHaveLength(3);
   });
 
@@ -47,9 +47,9 @@ describe("withNullBlockRetry", () => {
       url: "https://a.rpc/v2/SECRETKEY0123456789abcdef?dkey=SECRET2",
     })(options);
 
-    const error = await wrapped
+    const error = (await wrapped
       .request(getBlock)
-      .catch((e: unknown) => e as Error);
+      .catch((e: unknown) => e)) as Error;
     expect(error.message).toMatch(
       /returned a null block after 2 retries on https:\/\/a\.rpc:/,
     );

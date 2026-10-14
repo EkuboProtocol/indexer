@@ -32,8 +32,8 @@ type Event = {
   event_index: number;
   transaction_hash: string;
   from_address: string;
-  keys: string[];
-  data: string[];
+  keys: `0x${string}`[];
+  data: `0x${string}`[];
 };
 type Block = { block_hash: string; timestamp: number; block_number: number };
 

@@ -98,13 +98,13 @@ const adapter = await createAuditAdapter(rpcUrl);
 
 const sql = postgres(process.env.PG_CONNECTION_STRING!, {
   max: 1,
-  connection: { default_transaction_read_only: "on" },
+  connection: { default_transaction_read_only: true },
 });
 
 const [cursor] = await sql<
   { finalized_order_key: string | null; order_key: string }[]
 >`
-  SELECT finalized_order_key, order_key FROM indexer_cursor WHERE chain_id = ${chainId}`;
+  SELECT finalized_order_key, order_key FROM indexer_cursor WHERE chain_id = ${String(chainId)}`;
 const [fromArg, toArg] = process.argv.slice(2);
 const to = Number(toArg ?? cursor?.finalized_order_key ?? cursor?.order_key);
 const start = Number(process.env.STARTING_CURSOR_BLOCK_NUMBER!) + 1;
@@ -145,7 +145,7 @@ async function storedBlocks(lo: number, hi: number): Promise<Map<number, Row>> {
     { block_number: string; block_hash: string; num_events: number }[]
   >`
     SELECT block_number, block_hash, num_events FROM blocks
-    WHERE chain_id = ${chainId} AND block_number BETWEEN ${lo} AND ${hi}`;
+    WHERE chain_id = ${String(chainId)} AND block_number BETWEEN ${lo} AND ${hi}`;
   return new Map(
     rows.map((r) => [
       Number(r.block_number),

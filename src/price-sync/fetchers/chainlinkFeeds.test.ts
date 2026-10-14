@@ -10,6 +10,7 @@ import {
   resetVerifiedChainlinkClients,
   verifiedClient,
   type ChainlinkFeedConfig,
+  type ChainlinkToken,
 } from "./chainlinkFeeds";
 
 const tokenAddress = "0x0000000000000000000000000000000000000001";
@@ -493,7 +494,7 @@ describe("discoverChainlinkFeedsDetailed", () => {
       productTypeCode: "RefPrice",
     },
   };
-  const ethToken = { address: tokenAddress, symbol: "ETH" };
+  const ethToken: ChainlinkToken = { address: tokenAddress, symbol: "ETH" };
 
   test("names the rule that rejected an entry", () => {
     // The rule table used to pair each rule with a name and then discard the

@@ -124,7 +124,7 @@ for (const failure of ["throw", "null"] as const) {
     // out, and nothing is read past them in the meantime.
     const args = {
       adapter,
-      startingCursor: { orderKey: 100n, uniqueKey: "0xaaa" },
+      startingCursor: { orderKey: 100n, uniqueKey: "0xaaa" as const },
       options: { ...options, providerOutageBudgetMs: 5 },
     };
     const stream = createBlockStream(args);
@@ -330,7 +330,7 @@ describe("a provider that refuses reads at the head", () => {
  */
 function createStore(startingCursor: number) {
   const blocks = new Map<number, string>();
-  let cursor: { orderKey: bigint; uniqueKey?: string } = {
+  let cursor: { orderKey: bigint; uniqueKey?: `0x${string}` } = {
     orderKey: BigInt(startingCursor),
   };
   return {

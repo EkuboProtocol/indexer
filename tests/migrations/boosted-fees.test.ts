@@ -183,7 +183,7 @@ test("boosted fee deltas track stored and actual rates", async () => {
   const { rows: viewRows } = await client.query<{
     boosted_fees_donate_rate0: string | null;
     boosted_fees_donate_rate1: string | null;
-    boosted_fees_donations: string | null;
+    boosted_fees_donations: string | { s0: string; s1: string }[] | null;
   }>(
     `SELECT boosted_fees_donate_rate0,
             boosted_fees_donate_rate1,
