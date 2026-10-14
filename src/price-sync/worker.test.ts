@@ -263,7 +263,9 @@ function launchTimes(
     resumeFromLastRun,
     fetch: Stream.unwrap(
       Effect.gen(function* () {
-        launches.push(yield* Effect.clockWith((clock) => clock.currentTimeMillis));
+        launches.push(
+          yield* Effect.clockWith((clock) => clock.currentTimeMillis),
+        );
         return Stream.fromArray([[] as readonly PriceUpdate[]]);
       }),
     ),
@@ -288,14 +290,20 @@ const storedAt = (ms: number) => () =>
   Promise.resolve([{ last: new Date(ms) }]);
 
 test("a restart waits out the rest of the interval since the last stored price", async () => {
-  const { launches, queries } = await launchTimes(storedAt(-500), 3 * INTERVAL_MS);
+  const { launches, queries } = await launchTimes(
+    storedAt(-500),
+    3 * INTERVAL_MS,
+  );
 
   expect(launches).toEqual([1_500, 3_500, 5_500]);
   expect(queries).toHaveLength(1);
 });
 
 test("a stale stored price launches at once", async () => {
-  const { launches } = await launchTimes(storedAt(-10 * INTERVAL_MS), 2 * INTERVAL_MS);
+  const { launches } = await launchTimes(
+    storedAt(-10 * INTERVAL_MS),
+    2 * INTERVAL_MS,
+  );
 
   expect(launches).toEqual([0, 2_000, 4_000]);
 });

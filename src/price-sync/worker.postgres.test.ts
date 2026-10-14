@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect, Stream } from "effect";
@@ -27,11 +34,14 @@ describe.skipIf(!SERVER)("lastStoredPriceAt against Postgres", () => {
       max: 2,
       onnotice: () => {},
       types: { bigint: postgres.BigInt },
-    }) as unknown as PriceSyncSql;
+    });
 
     await shift({
-      sql: sql as unknown as Sql,
-      path: resolve(dirname(fileURLToPath(import.meta.url)), "../../migrations"),
+      sql,
+      path: resolve(
+        dirname(fileURLToPath(import.meta.url)),
+        "../../migrations",
+      ),
     });
 
     for (const chainId of [1n, 10n, 8453n]) {
@@ -67,7 +77,14 @@ describe.skipIf(!SERVER)("lastStoredPriceAt against Postgres", () => {
       persistPriceUpdates(
         sql,
         source,
-        [{ chainId, tokenAddress: "0x1", timestamp: new Date(at), usdPrice: 1 }],
+        [
+          {
+            chainId,
+            tokenAddress: "0x1",
+            timestamp: new Date(at),
+            usdPrice: 1,
+          },
+        ],
         60_000,
       ),
     );
@@ -89,7 +106,9 @@ describe.skipIf(!SERVER)("lastStoredPriceAt against Postgres", () => {
   test("returns undefined when the source has no stored price", async () => {
     await store("cgn", 1n, "2026-10-14T13:00:00.000Z");
 
-    const last = await Effect.runPromise(lastStoredPriceAt(sql, job("cg1", [1n])));
+    const last = await Effect.runPromise(
+      lastStoredPriceAt(sql, job("cg1", [1n])),
+    );
 
     expect(last).toBeUndefined();
   });
