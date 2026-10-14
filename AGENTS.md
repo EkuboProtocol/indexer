@@ -35,7 +35,8 @@ Any deployment that requires manual intervention or alters the database schema m
 ## Checks
 
 - Run `bun run format:check` (`bun run format` fixes it), `bun run lint` and
-  `bun run test` before considering a change done. CI runs them on every push.
+  `bun run test` before considering a change done. CI runs them on every push,
+  with the unit tests split across four parallel jobs.
 - Formatting is oxfmt (`.oxfmtrc.json`). `migrations/` is not formatted: applied
   migrations must stay byte-identical.
 - `tsconfig.json` is a solution file: `tsconfig.app.json` covers `src/`,
