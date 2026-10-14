@@ -32,10 +32,26 @@ Commits follow short, action-oriented summaries (see `git log`, e.g. `increase n
 
 Any deployment that requires manual intervention or alters the database schema must be recorded in the README’s breaking changelog section. Include the date, affected networks, necessary operator actions, and downstream compatibility notes so future contributors know how to prepare for rollouts.
 
-## Complexity Policy
-- Run `bun run lint` before considering a change done. CI runs it on every push,
-  before the tests.
-- The only rule is ESLint's `complexity`, capped at 10 per function.
+## Checks
+- Run `bun run format:check` (`bun run format` fixes it), `bun run lint` and
+  `bun run test` before considering a change done. CI runs them on every push.
+- Formatting is oxfmt (`.oxfmtrc.json`). `migrations/` is not formatted: applied
+  migrations must stay byte-identical.
+- `tsconfig.json` is a solution file: `tsconfig.app.json` covers `src/`,
+  `scripts/` and `tests/`, and `tsconfig.lint.json` covers `scripts/lint.ts`. The
+  type-aware lint rules use these projects, so a new directory of TypeScript
+  needs to be in one. `bun run typecheck` (TypeScript 7, `tsc -b`) is not yet
+  clean and not yet in CI.
+
+## Complexity and lint policy
+- Lint is oxlint (`.oxlintrc.json`), run through `scripts/lint.ts`. It enforces
+  `complexity`, capped at 10 per function, and the type-aware rules from
+  typescript-eslint's recommended-type-checked set, which oxlint runs through
+  `oxlint-tsgolint`. Warnings fail too.
+- Violations of the type-aware rules that existed when they were introduced are
+  recorded in `lint-suppressions.json` as file → rule → count. A new violation
+  fails, and so does a recorded count higher than the file needs: after fixing
+  one, run `bun run lint:prune` and commit the file. Never raise a count.
 - One exemption exists: the stream loop in `src/runtime.ts`. Three of its switch arms
   reassign `currentCursor` and the retry loop reads it again after a failure, so
   splitting the arms out means threading that reassignment back through every return

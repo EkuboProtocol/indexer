@@ -1,0 +1,293 @@
+{
+  "scripts/auditEventGaps.ts": {
+    "typescript(await-thenable)": {
+      "count": 2
+    }
+  },
+  "scripts/backfillStarknetExtensionCallPoints.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 3
+    }
+  },
+  "scripts/extractMevCaptureSeries.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 19
+    }
+  },
+  "scripts/headLagRules.test.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "scripts/headLagRules.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 2
+    }
+  },
+  "scripts/monitorEventGaps.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "scripts/rpcParityRules.test.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "scripts/rpcParityRules.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 2
+    }
+  },
+  "scripts/verifyLogStream.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 2
+    }
+  },
+  "src/_shared/blockSnapshot.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 6
+    },
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 2
+    }
+  },
+  "src/_shared/blockStream.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 3
+    },
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 6
+    }
+  },
+  "src/_shared/dao.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 2
+    }
+  },
+  "src/_shared/nullBlockRetry.test.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 4
+    }
+  },
+  "src/_shared/redactSecrets.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 1
+    }
+  },
+  "src/_shared/rollbackGuard.test.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "src/_shared/rpcEnvelope.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "src/evm.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 2
+    }
+  },
+  "src/evm/logProcessorsShared.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 3
+    }
+  },
+  "src/evm/logStream.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 9
+    },
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 33
+    },
+    "typescript(only-throw-error)": {
+      "count": 1
+    }
+  },
+  "src/evm/logStream.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "src/evm/mevCaptureSeries.test.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 5
+    }
+  },
+  "src/evm/oracleEvent.test.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "src/evm/oracleEvent.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "src/evm/stickyRpc.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 3
+    },
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "src/evm/stickyRpc.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 6
+    }
+  },
+  "src/evm/swapEvent.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 2
+    }
+  },
+  "src/price-sync/config.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 1
+    }
+  },
+  "src/price-sync/fetchers/bridgeMirror.postgres.test.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "src/price-sync/fetchers/chainlinkFeeds.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 7
+    }
+  },
+  "src/price-sync/fetchers/chainlinkFeeds.ts": {
+    "typescript(no-base-to-string)": {
+      "count": 1
+    },
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "src/price-sync/fetchers/coingecko.postgres.test.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "src/price-sync/fetchers/coingecko.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 3
+    }
+  },
+  "src/price-sync/fetchers/coingecko.ts": {
+    "typescript(restrict-template-expressions)": {
+      "count": 2
+    }
+  },
+  "src/price-sync/persistPriceUpdates.postgres.test.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "src/price-sync/runPriceSyncJob.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 1
+    }
+  },
+  "src/runtime.ts": {
+    "typescript(no-misused-promises)": {
+      "count": 1
+    }
+  },
+  "src/starknet.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "src/starknet/eventStream.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 4
+    },
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 19
+    }
+  },
+  "src/starknet/parse.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "tests/migrations/erc20-bridge-link-provenance.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 1
+    }
+  },
+  "tests/migrations/erc20-tokens-circulating-supply.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 2
+    }
+  },
+  "tests/migrations/erc20-tokens-latest-price.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 1
+    }
+  },
+  "tests/migrations/incremental-rewards-by-position.test.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "tests/migrations/index-block-cascade-children.test.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 1
+    }
+  },
+  "tests/migrations/indexer-cursor-head-block.test.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 17
+    }
+  },
+  "tests/migrations/limit-order-pool-states.test.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 4
+    }
+  },
+  "tests/migrations/oracle-pool-states.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 1
+    }
+  },
+  "tests/migrations/oracle-twap-function.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 1
+    }
+  },
+  "tests/migrations/per-pool-per-tick-liquidity.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 1
+    }
+  },
+  "tests/migrations/pool-config-v2.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 5
+    }
+  },
+  "tests/migrations/pool-last-event-id.test.ts": {
+    "typescript(no-unnecessary-type-assertion)": {
+      "count": 4
+    }
+  },
+  "tests/migrations/twamm.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 3
+    }
+  },
+  "tests/migrations/ve33-events.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 2
+    }
+  },
+  "tests/migrations/ve33-hourly-pool-fees.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 1
+    }
+  }
+}
