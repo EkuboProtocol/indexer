@@ -60,10 +60,7 @@ function stubSql(
 
 // Runs one cycle with the clock at `atMs`, which fixes the rotation slot and
 // whether a quota pause has elapsed.
-async function collect(
-  fetch: PriceFetcher,
-  atMs = 0,
-): Promise<PriceUpdate[]> {
+async function collect(fetch: PriceFetcher, atMs = 0): Promise<PriceUpdate[]> {
   const batches = await Effect.runPromise(
     Effect.gen(function* () {
       yield* TestClock.adjust(Duration.millis(atMs));
@@ -332,7 +329,8 @@ test("the token fetcher passes a minimum visibility priority to its table read",
 });
 
 test("the token fetcher pads Starknet addresses to 64 hex digits", async () => {
-  const short = "0x36834a40984312f7f7de8d31e3f6305b325389eaeea5b1c0664b2fb936461a4";
+  const short =
+    "0x36834a40984312f7f7de8d31e3f6305b325389eaeea5b1c0664b2fb936461a4";
   const padded =
     "0x036834a40984312f7f7de8d31e3f6305b325389eaeea5b1c0664b2fb936461a4";
   const other =
@@ -354,9 +352,9 @@ test("the token fetcher pads Starknet addresses to 64 hex digits", async () => {
 
   const updates = await collect(job.fetch, 0);
   expect(requestedAddresses(requested)).toEqual([[other, padded]]);
-  expect(updates.map((update) => [update.tokenAddress, update.usdPrice])).toEqual(
-    [[short, 60_000]],
-  );
+  expect(
+    updates.map((update) => [update.tokenAddress, update.usdPrice]),
+  ).toEqual([[short, 60_000]]);
 
   // t=1s serves slot 1, the priced token's own index, so the unpriced token
   // at index 0 is not due and only the priced token is asked about.
@@ -441,7 +439,10 @@ test("a monthly quota refusal pauses every CoinGecko job sharing the gate", asyn
 
 test("reopening the gate ends a quota pause early", async () => {
   let exhausted = true;
-  const requested = stubQuota(() => exhausted, () => ({}));
+  const requested = stubQuota(
+    () => exhausted,
+    () => ({}),
+  );
   const quotaGate = makeCoinGeckoQuotaGate();
   const job = coingeckoNativePriceFetcher({
     intervalMs: 1_000,
@@ -593,7 +594,10 @@ test("a failed cycle leaves its re-probe slot due for the next one", async () =>
   globalThis.fetch = (async (input: string | URL) => {
     requested.push(String(input));
     return failing
-      ? new Response("upstream down", { status: 500, statusText: "Internal Server Error" })
+      ? new Response("upstream down", {
+          status: 500,
+          statusText: "Internal Server Error",
+        })
       : new Response(JSON.stringify({}), { status: 200 });
   }) as typeof globalThis.fetch;
   const job = coingeckoPriceFetcher({

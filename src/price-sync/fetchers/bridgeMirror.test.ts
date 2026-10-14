@@ -21,14 +21,33 @@ function collect(rows: unknown[]) {
 test("mirrored prices are batched per chain and keep the copied validity", async () => {
   const validUntil = inOneMinute();
   const batches = await collect([
-    { chain_id: 130n, token_address: "171", value: 120, valid_until: validUntil },
-    { chain_id: 42161n, token_address: "255", value: 3, valid_until: validUntil },
-    { chain_id: 130n, token_address: "4095", value: 0.5, valid_until: validUntil },
+    {
+      chain_id: 130n,
+      token_address: "171",
+      value: 120,
+      valid_until: validUntil,
+    },
+    {
+      chain_id: 42161n,
+      token_address: "255",
+      value: 3,
+      valid_until: validUntil,
+    },
+    {
+      chain_id: 130n,
+      token_address: "4095",
+      value: 0.5,
+      valid_until: validUntil,
+    },
   ]);
 
   expect(
     batches.map((batch) =>
-      batch.map((update) => [update.chainId, update.tokenAddress, update.usdPrice]),
+      batch.map((update) => [
+        update.chainId,
+        update.tokenAddress,
+        update.usdPrice,
+      ]),
     ),
   ).toEqual([
     [
@@ -44,9 +63,24 @@ test("mirrored prices are batched per chain and keep the copied validity", async
 
 test("rows expired by the worker's clock or without a usable price are dropped", async () => {
   const batches = await collect([
-    { chain_id: 130n, token_address: "1", value: 1, valid_until: new Date(Date.now() - 1) },
-    { chain_id: 130n, token_address: "2", value: 0, valid_until: inOneMinute() },
-    { chain_id: 130n, token_address: "3", value: Number.NaN, valid_until: inOneMinute() },
+    {
+      chain_id: 130n,
+      token_address: "1",
+      value: 1,
+      valid_until: new Date(Date.now() - 1),
+    },
+    {
+      chain_id: 130n,
+      token_address: "2",
+      value: 0,
+      valid_until: inOneMinute(),
+    },
+    {
+      chain_id: 130n,
+      token_address: "3",
+      value: Number.NaN,
+      valid_until: inOneMinute(),
+    },
   ]);
 
   expect(batches).toEqual([]);

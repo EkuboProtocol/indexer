@@ -122,7 +122,9 @@ test("an overrunning cycle catches up instead of falling further behind", async 
     intervalMs: INTERVAL_MS,
     fetch: Stream.unwrap(
       Effect.gen(function* () {
-        launches.push(yield* Effect.clockWith((clock) => clock.currentTimeMillis));
+        launches.push(
+          yield* Effect.clockWith((clock) => clock.currentTimeMillis),
+        );
         // Three times the interval.
         yield* Effect.sleep(Duration.millis(3 * INTERVAL_MS));
         return Stream.fromArray([[] as readonly PriceUpdate[]]);
@@ -208,7 +210,11 @@ test("one failing job does not take the others down with it", async () => {
           const running = fiber.pollUnsafe() === undefined;
           yield* Fiber.interrupt(fiber);
 
-          return { failing: failing.attempts, healthy: healthy.attempts, running };
+          return {
+            failing: failing.attempts,
+            healthy: healthy.attempts,
+            running,
+          };
         }),
       ),
       TestClock.layer(),

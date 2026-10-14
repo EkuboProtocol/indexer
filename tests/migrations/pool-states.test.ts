@@ -29,7 +29,7 @@ async function seedPool(client: PGlite, chainId: number) {
   await client.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
      VALUES ($1, $2, $3, $4, 0)`,
-    [chainId, blockNumber, blockHash, blockTime]
+    [chainId, blockNumber, blockHash, blockTime],
   );
 
   const {
@@ -47,7 +47,7 @@ async function seedPool(client: PGlite, chainId: number) {
         pool_extension
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING pool_key_id`,
-    [chainId, "2000", "3000", "4000", "4001", "100", "1000000", 60, "5000"]
+    [chainId, "2000", "3000", "4000", "4001", "100", "1000000", 60, "5000"],
   );
 
   return { chainId, blockNumber, poolKeyId: Number(poolKeyId) };
@@ -71,7 +71,7 @@ async function getPoolState(client: PGlite, poolKeyId: number) {
         last_position_update_event_id
      FROM pool_states
      WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
 
   expect(rows.length).toBe(1);
@@ -109,7 +109,7 @@ test("position updates adjust pool state and deletion reverts to last swap", asy
         sqrt_ratio
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING event_id`,
-    [chainId, blockNumber, 0, 0, "6000", "7000", poolKeyId, 20, "1500"]
+    [chainId, blockNumber, 0, 0, "6000", "7000", poolKeyId, 20, "1500"],
   );
 
   let state = await getPoolState(client, poolKeyId);
@@ -162,7 +162,7 @@ test("position updates adjust pool state and deletion reverts to last swap", asy
       swapValues.sqrt_ratio_after,
       swapValues.tick_after,
       swapValues.liquidity_after,
-    ]
+    ],
   );
 
   state = await getPoolState(client, poolKeyId);
@@ -210,7 +210,7 @@ test("position updates adjust pool state and deletion reverts to last swap", asy
       positionDelta,
       "0",
       "0",
-    ]
+    ],
   );
 
   state = await getPoolState(client, poolKeyId);
@@ -224,7 +224,7 @@ test("position updates adjust pool state and deletion reverts to last swap", asy
 
   await client.query(
     `DELETE FROM position_updates WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, positionEventId]
+    [chainId, positionEventId],
   );
 
   state = await getPoolState(client, poolKeyId);
@@ -255,7 +255,7 @@ test("deleting a swap restores the previous pool state snapshot", async () => {
         sqrt_ratio
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING event_id`,
-    [chainId, blockNumber, 0, 0, "6100", "7100", poolKeyId, 30, "1800"]
+    [chainId, blockNumber, 0, 0, "6100", "7100", poolKeyId, 30, "1800"],
   );
 
   const swapOne = {
@@ -297,7 +297,7 @@ test("deleting a swap restores the previous pool state snapshot", async () => {
       swapOne.sqrt_ratio_after,
       swapOne.tick_after,
       swapOne.liquidity_after,
-    ]
+    ],
   );
 
   let state = await getPoolState(client, poolKeyId);
@@ -348,7 +348,7 @@ test("deleting a swap restores the previous pool state snapshot", async () => {
       swapTwo.sqrt_ratio_after,
       swapTwo.tick_after,
       swapTwo.liquidity_after,
-    ]
+    ],
   );
 
   state = await getPoolState(client, poolKeyId);
@@ -362,7 +362,7 @@ test("deleting a swap restores the previous pool state snapshot", async () => {
 
   await client.query(
     `DELETE FROM swaps WHERE chain_id = $1 AND event_id = $2`,
-    [chainId, swapTwoEventId]
+    [chainId, swapTwoEventId],
   );
 
   state = await getPoolState(client, poolKeyId);
@@ -393,7 +393,7 @@ test("deleting blocks cascades swap and position data to refresh pool state", as
       reorgBlock,
       `${reorgBlock}${chainId}`,
       new Date("2024-01-02T00:00:00Z"),
-    ]
+    ],
   );
 
   const {
@@ -411,7 +411,7 @@ test("deleting blocks cascades swap and position data to refresh pool state", as
         sqrt_ratio
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING event_id`,
-    [chainId, baseBlock, 0, 0, "7100", "8100", poolKeyId, 18, "1600"]
+    [chainId, baseBlock, 0, 0, "7100", "8100", poolKeyId, 18, "1600"],
   );
 
   const {
@@ -447,7 +447,7 @@ test("deleting blocks cascades swap and position data to refresh pool state", as
       "2000",
       24,
       "900",
-    ]
+    ],
   );
 
   const {
@@ -483,7 +483,7 @@ test("deleting blocks cascades swap and position data to refresh pool state", as
       "2400",
       30,
       "1200",
-    ]
+    ],
   );
 
   const {
@@ -521,7 +521,7 @@ test("deleting blocks cascades swap and position data to refresh pool state", as
       "300",
       "0",
       "0",
-    ]
+    ],
   );
 
   let state = await getPoolState(client, poolKeyId);
@@ -532,12 +532,12 @@ test("deleting blocks cascades swap and position data to refresh pool state", as
   });
   expect(valueToBigInt(state.last_event_id)).toBe(positionEventId);
   expect(valueToBigInt(state.last_position_update_event_id)).toBe(
-    positionEventId
+    positionEventId,
   );
 
   await client.query(
     `DELETE FROM blocks WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, reorgBlock]
+    [chainId, reorgBlock],
   );
 
   state = await getPoolState(client, poolKeyId);
@@ -551,20 +551,20 @@ test("deleting blocks cascades swap and position data to refresh pool state", as
 
   const { rows: remainingSwaps } = await client.query(
     `SELECT 1 FROM swaps WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, reorgBlock]
+    [chainId, reorgBlock],
   );
   expect(remainingSwaps.length).toBe(0);
 
   const { rows: remainingPositionUpdates } = await client.query(
     `SELECT 1 FROM position_updates WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, reorgBlock]
+    [chainId, reorgBlock],
   );
   expect(remainingPositionUpdates.length).toBe(0);
 
   expect(valueToBigInt(initEventId)).toBeLessThan(
-    valueToBigInt(baseSwapEventId)
+    valueToBigInt(baseSwapEventId),
   );
   expect(valueToBigInt(baseSwapEventId)).toBeLessThan(
-    valueToBigInt(reorgSwapEventId)
+    valueToBigInt(reorgSwapEventId),
   );
 });

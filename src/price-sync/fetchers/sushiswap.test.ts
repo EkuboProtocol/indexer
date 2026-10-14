@@ -18,10 +18,13 @@ function stubSushi(reply: () => unknown, status = 200): string[] {
   globalThis.fetch = (async (input: string | URL) => {
     requested.push(String(input));
     const body = reply();
-    return new Response(typeof body === "string" ? body : JSON.stringify(body), {
-      status,
-      headers: { "content-type": "application/json" },
-    });
+    return new Response(
+      typeof body === "string" ? body : JSON.stringify(body),
+      {
+        status,
+        headers: { "content-type": "application/json" },
+      },
+    );
   }) as typeof globalThis.fetch;
   return requested;
 }
@@ -30,7 +33,11 @@ function collect(
   chainId: bigint,
   wrappedNative?: `0x${string}`,
 ): Promise<PriceUpdate[]> {
-  const job = sushiswapPriceFetcher({ chainId, intervalMs: 60_000, wrappedNative });
+  const job = sushiswapPriceFetcher({
+    chainId,
+    intervalMs: 60_000,
+    wrappedNative,
+  });
   return Effect.runPromise(Stream.runCollect(job.fetch)).then((batches) =>
     batches.flatMap((batch) => [...batch]),
   );
@@ -89,7 +96,10 @@ test("without a sentinel, the wrapped native token prices 0x0", async () => {
 });
 
 test("a sentinel price wins over the wrapped native token", async () => {
-  stubSushi(() => ({ [NATIVE_SENTINEL]: 1.001, [WXDAI.toLowerCase()]: 0.9995 }));
+  stubSushi(() => ({
+    [NATIVE_SENTINEL]: 1.001,
+    [WXDAI.toLowerCase()]: 0.9995,
+  }));
 
   const byAddress = pricesByAddress(await collect(100n, WXDAI));
 

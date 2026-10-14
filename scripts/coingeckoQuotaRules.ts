@@ -85,12 +85,15 @@ const LINE = /^\S+ (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z) (.*)$/;
 export function parseLines(output: string): LogLine[] {
   return output.split("\n").flatMap((line) => {
     const match = LINE.exec(line);
-    return match ? [{ at: new Date(match[1]).toISOString(), text: match[2] }] : [];
+    return match
+      ? [{ at: new Date(match[1]).toISOString(), text: match[2] }]
+      : [];
   });
 }
 
 function parseCredits(text: string) {
-  const field = (name: string) => new RegExp(`\\b${name}=(\\S+)`).exec(text)?.[1];
+  const field = (name: string) =>
+    new RegExp(`\\b${name}=(\\S+)`).exec(text)?.[1];
   const pct = Number(field("remaining_pct"));
   const count = (name: string) => {
     const value = Number(field(name) ?? NaN);
@@ -110,7 +113,8 @@ const isQuotaRefusal = (text: string) => text.includes('"error_code":10006');
 const isTrip = (text: string) => text.includes("COINGECKO_QUOTA_EXHAUSTED");
 const isLegacyRefusal = (text: string) =>
   /Price sync job \S+ failed:/.test(text) && isQuotaRefusal(text);
-const isCreditLine = (text: string) => /\bCOINGECKO_CREDITS(_CHECK_FAILED)?\b/.test(text);
+const isCreditLine = (text: string) =>
+  /\bCOINGECKO_CREDITS(_CHECK_FAILED)?\b/.test(text);
 const isReading = (text: string) => /\bCOINGECKO_CREDITS\b(?!_)/.test(text);
 
 function isRecovery(text: string): boolean {
@@ -123,9 +127,11 @@ function isRecovery(text: string): boolean {
 const newest = (lines: LogLine[], match: (text: string) => boolean) =>
   lines.filter(({ text }) => match(text)).at(-1);
 
-const plus = (iso: string, ms: number) => new Date(Date.parse(iso) + ms).toISOString();
+const plus = (iso: string, ms: number) =>
+  new Date(Date.parse(iso) + ms).toISOString();
 
-const isAfter = (at: string | undefined, than: string) => at !== undefined && at > than;
+const isAfter = (at: string | undefined, than: string) =>
+  at !== undefined && at > than;
 
 // Newest sign the credits were back: a restored gate or a positive reading.
 function trackRecovery(lines: LogLine[], state: QuotaMonitorState) {
@@ -135,7 +141,10 @@ function trackRecovery(lines: LogLine[], state: QuotaMonitorState) {
   }
 }
 
-function quotaFinding(lines: LogLine[], state: QuotaMonitorState): Finding | undefined {
+function quotaFinding(
+  lines: LogLine[],
+  state: QuotaMonitorState,
+): Finding | undefined {
   // Trip lines take precedence: a credit check refused with 10006 is expected
   // during a pause and must neither stand in for nor hold back a trip line.
   const exhausted = newest(lines, isTrip) ?? newest(lines, isLegacyRefusal);
@@ -144,14 +153,20 @@ function quotaFinding(lines: LogLine[], state: QuotaMonitorState): Finding | und
   const lastAlert = state.lastQuotaAlertAt;
   const recovery = state.lastRecoveryAt;
   const newOutage =
-    lastAlert !== undefined && isAfter(recovery, lastAlert) && !isAfter(recovery, exhausted.at);
+    lastAlert !== undefined &&
+    isAfter(recovery, lastAlert) &&
+    !isAfter(recovery, exhausted.at);
   const due =
     lastAlert === undefined ||
-    (exhausted.at > lastAlert && (exhausted.at >= plus(lastAlert, REALERT_MS) || newOutage));
+    (exhausted.at > lastAlert &&
+      (exhausted.at >= plus(lastAlert, REALERT_MS) || newOutage));
   if (!due) return undefined;
 
   state.lastQuotaAlertAt = exhausted.at;
-  return { kind: "quota_exhausted", detail: `${exhausted.at} ${exhausted.text.slice(0, 300)}` };
+  return {
+    kind: "quota_exhausted",
+    detail: `${exhausted.at} ${exhausted.text.slice(0, 300)}`,
+  };
 }
 
 /**
@@ -166,7 +181,8 @@ export function projectMonthEnd(used: number, atIso: string) {
   return {
     elapsedMs,
     perDay: elapsedMs > 0 ? (used * 86_400_000) / elapsedMs : Infinity,
-    projected: elapsedMs > 0 ? (used * (nextReset - monthStart)) / elapsedMs : Infinity,
+    projected:
+      elapsedMs > 0 ? (used * (nextReset - monthStart)) / elapsedMs : Infinity,
     nextReset: new Date(nextReset).toISOString(),
   };
 }
@@ -177,13 +193,21 @@ function paceFinding(
   now: Date,
 ): Finding | undefined {
   if (!latestReading) return undefined;
-  const { usedCount: used, limitCount: limit } = parseCredits(latestReading.text);
+  const { usedCount: used, limitCount: limit } = parseCredits(
+    latestReading.text,
+  );
   if (used === undefined || limit === undefined || limit <= 0) return undefined;
 
-  const { elapsedMs, perDay, projected, nextReset } = projectMonthEnd(used, latestReading.at);
-  if (elapsedMs < PACE_GRACE_MS || projected <= PACE_ALERT_FRACTION * limit) return undefined;
+  const { elapsedMs, perDay, projected, nextReset } = projectMonthEnd(
+    used,
+    latestReading.at,
+  );
+  if (elapsedMs < PACE_GRACE_MS || projected <= PACE_ALERT_FRACTION * limit)
+    return undefined;
 
-  const lastPace = state.lastPaceAlertAt ? Date.parse(state.lastPaceAlertAt) : 0;
+  const lastPace = state.lastPaceAlertAt
+    ? Date.parse(state.lastPaceAlertAt)
+    : 0;
   if (now.getTime() - lastPace < PACE_REALERT_MS) return undefined;
 
   state.lastPaceAlertAt = now.toISOString();
@@ -210,7 +234,8 @@ function lowFinding(
 
   const lastLow = state.lastLowAlertAt ? Date.parse(state.lastLowAlertAt) : 0;
   const dueAgain = now.getTime() - lastLow >= LOW_REALERT_MS;
-  const muchLower = pct < lowPct / 4 && (state.lastLowAlertPct ?? 100) >= lowPct / 4;
+  const muchLower =
+    pct < lowPct / 4 && (state.lastLowAlertPct ?? 100) >= lowPct / 4;
   if (!dueAgain && !muchLower) return undefined;
 
   state.lastLowAlertAt = now.toISOString();
@@ -243,14 +268,21 @@ function staleFinding(
   const lastTwo = creditLines.slice(-2);
   const failingChecks =
     lastTwo.length === 2 &&
-    lastTwo.every(({ text }) => text.includes("COINGECKO_CREDITS_CHECK_FAILED"));
+    lastTwo.every(({ text }) =>
+      text.includes("COINGECKO_CREDITS_CHECK_FAILED"),
+    );
   // Armed by the first reading, so a worker that predates the credit check
   // does not read as a stale one.
   const stale =
     state.lastCreditsAt !== undefined &&
     now.getTime() - Date.parse(state.lastCreditsAt) > staleMs;
-  const lastStale = state.lastStaleAlertAt ? Date.parse(state.lastStaleAlertAt) : 0;
-  if (!(stale || failingChecks) || now.getTime() - lastStale < STALE_REALERT_MS) {
+  const lastStale = state.lastStaleAlertAt
+    ? Date.parse(state.lastStaleAlertAt)
+    : 0;
+  if (
+    !(stale || failingChecks) ||
+    now.getTime() - lastStale < STALE_REALERT_MS
+  ) {
     return undefined;
   }
 

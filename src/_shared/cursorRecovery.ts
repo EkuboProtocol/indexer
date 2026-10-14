@@ -2,7 +2,9 @@ import type { IndexerCursor } from "./dao";
 import type { ChainAdapter, ChainHead } from "./blockStream";
 
 /** Persisted blocks descending by height; a hashless final entry is the configured start boundary. */
-export type LoadPreviousCursor = (before: number) => Promise<IndexerCursor | null>;
+export type LoadPreviousCursor = (
+  before: number,
+) => Promise<IndexerCursor | null>;
 
 export async function commonStoredCursor<T>(
   adapter: ChainAdapter<T>,
@@ -14,7 +16,10 @@ export async function commonStoredCursor<T>(
   let first = true;
   while (candidate) {
     const verified = await verifyCandidate(adapter, candidate, before);
-    if (verified) return first ? await finalizedAbove(adapter, verified, before, finalized) : verified;
+    if (verified)
+      return first
+        ? await finalizedAbove(adapter, verified, before, finalized)
+        : verified;
     first = false;
     before = Number(candidate.orderKey);
     candidate = await loadPrevious(before);
@@ -38,7 +43,8 @@ async function verifyCandidate<T>(
   if (!block || block.number !== number) {
     throw new Error(`Could not verify recovery block ${number}`);
   }
-  if (candidate.uniqueKey === undefined) return { orderKey: candidate.orderKey, uniqueKey: block.hash };
+  if (candidate.uniqueKey === undefined)
+    return { orderKey: candidate.orderKey, uniqueKey: block.hash };
   return BigInt(candidate.uniqueKey) === BigInt(block.hash) ? candidate : null;
 }
 
@@ -57,11 +63,19 @@ async function finalizedAbove<T>(
   before: number,
   finalized: ChainHead | null,
 ): Promise<IndexerCursor> {
-  if (!finalized || finalized.number <= Number(verified.orderKey) || finalized.number >= before) {
+  if (
+    !finalized ||
+    finalized.number <= Number(verified.orderKey) ||
+    finalized.number >= before
+  ) {
     return verified;
   }
   const block = await adapter.fetchBlock(finalized.number);
-  if (!block || block.number !== finalized.number || BigInt(block.hash) !== BigInt(finalized.hash)) {
+  if (
+    !block ||
+    block.number !== finalized.number ||
+    BigInt(block.hash) !== BigInt(finalized.hash)
+  ) {
     return verified;
   }
   return { orderKey: BigInt(finalized.number), uniqueKey: finalized.hash };

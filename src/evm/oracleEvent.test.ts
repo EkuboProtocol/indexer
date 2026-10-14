@@ -21,7 +21,8 @@ describe(parseOracleEvent, () => {
   it("decodes packed oracle snapshots", () => {
     const token = "0x1234567890abcdef1234567890abcdef12345678" as const;
     const timestamp = 1234567890n;
-    const secondsPerLiquidityCumulative = 0x1111222233334444555566667777888899990000n;
+    const secondsPerLiquidityCumulative =
+      0x1111222233334444555566667777888899990000n;
     const tickCumulative = -123456789n;
 
     const snapshot = createSnapshot({
@@ -30,10 +31,9 @@ describe(parseOracleEvent, () => {
       tickCumulative,
     });
 
-    const data =
-      (`0x${token.slice(2).toLowerCase()}${snapshot
-        .toString(16)
-        .padStart(64, "0")}` as `0x${string}`);
+    const data = `0x${token.slice(2).toLowerCase()}${snapshot
+      .toString(16)
+      .padStart(64, "0")}` as `0x${string}`;
 
     expect(parseOracleEvent(data)).toEqual({
       token: checksumAddress(token),
@@ -44,8 +44,10 @@ describe(parseOracleEvent, () => {
   });
 
   it("throws on malformed payload length", () => {
-    expect(() => parseOracleEvent("0x1234" as `0x${string}`)).toThrowErrorMatchingInlineSnapshot(
-      `"Unexpected oracle event length: expected 104 hex chars, received 4"`
+    expect(() =>
+      parseOracleEvent("0x1234" as `0x${string}`),
+    ).toThrowErrorMatchingInlineSnapshot(
+      `"Unexpected oracle event length: expected 104 hex chars, received 4"`,
     );
   });
 });

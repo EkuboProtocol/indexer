@@ -3,7 +3,9 @@ function requireRpcUrl(value: string | undefined, name: string): string {
   const url = value?.trim();
   if (!url) throw new Error(`Missing ${name}`);
   if (url.includes(",") || /\s/.test(url)) {
-    throw new Error(`${name} must contain a single HTTP(S) RPC URL, not an endpoint list`);
+    throw new Error(
+      `${name} must contain a single HTTP(S) RPC URL, not an endpoint list`,
+    );
   }
   let parsed: URL;
   try {
@@ -24,12 +26,14 @@ function requireRpcUrl(value: string | undefined, name: string): string {
  */
 export function requireEvmRpcUrls(value: string | undefined): string[] {
   const entries = (value ?? "").split(",").map((entry) => entry.trim());
-  if (entries.length === 1 && entries[0] === "") throw new Error("Missing EVM_RPC_URL");
+  if (entries.length === 1 && entries[0] === "")
+    throw new Error("Missing EVM_RPC_URL");
   if (entries.some((entry) => entry === "")) {
     throw new Error("EVM_RPC_URL must not contain an empty entry");
   }
   const urls = entries.map((entry) => requireRpcUrl(entry, "EVM_RPC_URL"));
-  if (new Set(urls).size !== urls.length) throw new Error("EVM_RPC_URL lists an endpoint twice");
+  if (new Set(urls).size !== urls.length)
+    throw new Error("EVM_RPC_URL lists an endpoint twice");
   return urls;
 }
 

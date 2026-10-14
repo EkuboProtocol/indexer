@@ -34,7 +34,7 @@ test("every ON DELETE CASCADE child of blocks can find its rows by index", async
                        WHERE idx.child = f.child
                          AND idx.lead2 @> f.cols
                          AND f.cols @> idx.lead2)
-     ORDER BY 1`
+     ORDER BY 1`,
   );
 
   expect(rows.map((row) => row.child)).toEqual([]);
@@ -48,7 +48,7 @@ test("blocks still has the 43 cascading children this covers", async () => {
      FROM pg_constraint
      WHERE confrelid = 'blocks'::regclass
        AND contype = 'f'
-       AND confdeltype = 'c'`
+       AND confdeltype = 'c'`,
   );
 
   // A guard on the shape of the problem rather than the number itself: if a

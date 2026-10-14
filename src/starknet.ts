@@ -77,7 +77,9 @@ export async function createStarknetEntrypoint(
 
   const reportedChainId = await rpc.request<string>("starknet_chainId", []);
   if (BigInt(reportedChainId) !== chainId) {
-    throw new Error(`Starknet RPC chain ID ${reportedChainId} conflicts with ${chainId}`);
+    throw new Error(
+      `Starknet RPC chain ID ${reportedChainId} conflicts with ${chainId}`,
+    );
   }
 
   const filters: StarknetStreamFilter[] = processors.map((processor, ix) => ({
@@ -113,7 +115,10 @@ export async function createStarknetEntrypoint(
           // interval of latency, and NO_BLOCKS_TIMEOUT_MS is five minutes, far
           // above it.
           maxPollIntervalMs: positiveInt("MAX_POLL_INTERVAL_MS", 30_000),
-          quietPollsBeforeBackoff: positiveInt("QUIET_POLLS_BEFORE_BACKOFF", 30),
+          quietPollsBeforeBackoff: positiveInt(
+            "QUIET_POLLS_BEFORE_BACKOFF",
+            30,
+          ),
           // ~0.59 blocks a second on mainnet, so the default 120 s window is
           // ~71 blocks and the span has to be at least twice that.
           maxLogRangeBlocks: positiveInt("GET_LOGS_RANGE_SIZE", 500),

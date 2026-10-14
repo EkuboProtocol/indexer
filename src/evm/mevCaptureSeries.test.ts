@@ -21,15 +21,35 @@ function at(blockNumber: number) {
     blockNumber,
     transactionIndex: 0,
     logIndex: logIndex++,
-    transactionHash: `0x${blockNumber.toString(16).padStart(64, "0")}` as `0x${string}`,
+    transactionHash:
+      `0x${blockNumber.toString(16).padStart(64, "0")}` as `0x${string}`,
   };
 }
 
-function swap(blockNumber: number, delta0: bigint, delta1: bigint, tickAfter: number, liquidityAfter = 1000n): MevCapturePoolEvent {
-  return { ...at(blockNumber), kind: "swap", locker: "0x00", delta0, delta1, tickAfter, liquidityAfter, sqrtRatioAfter: 0n };
+function swap(
+  blockNumber: number,
+  delta0: bigint,
+  delta1: bigint,
+  tickAfter: number,
+  liquidityAfter = 1000n,
+): MevCapturePoolEvent {
+  return {
+    ...at(blockNumber),
+    kind: "swap",
+    locker: "0x00",
+    delta0,
+    delta1,
+    tickAfter,
+    liquidityAfter,
+    sqrtRatioAfter: 0n,
+  };
 }
 
-function donation(blockNumber: number, amount0: bigint, amount1: bigint): MevCapturePoolEvent {
+function donation(
+  blockNumber: number,
+  amount0: bigint,
+  amount1: bigint,
+): MevCapturePoolEvent {
   return { ...at(blockNumber), kind: "fees_accumulated", amount0, amount1 };
 }
 
@@ -44,7 +64,9 @@ describe("mevCaptureAdditionalFee", () => {
   });
 
   test("caps at uint64", () => {
-    expect(mevCaptureAdditionalFee(88_000_000, -88_000_000, 1, FEE)).toBe(ONE - 1n);
+    expect(mevCaptureAdditionalFee(88_000_000, -88_000_000, 1, FEE)).toBe(
+      ONE - 1n,
+    );
   });
 });
 
@@ -61,7 +83,9 @@ describe("fee attribution", () => {
 
   test("exact-out surcharge grosses up the net input", () => {
     // input 10_100 incl. a 1% pool fee of 101 -> net 9_999; 1% on top -> 101
-    expect(surchargeExactOut(10_100n, -9_000n, ONE / 100n, ONE / 100n)).toEqual([101n, 0n]);
+    expect(surchargeExactOut(10_100n, -9_000n, ONE / 100n, ONE / 100n)).toEqual(
+      [101n, 0n],
+    );
   });
 });
 
@@ -70,7 +94,9 @@ describe("MevCapturePoolTracker", () => {
     const t = new MevCapturePoolTracker(POOL, { tick: 0, liquidity: 1000n });
     t.apply(swap(10, 1_000_000n, -1_000_000n, 100));
     t.apply(swap(10, 1_000_000n, -1_000_000n, 300));
-    expect(t.swaps.map((s) => [s.tickLast, s.tickBefore, s.isFirstTouch])).toEqual([
+    expect(
+      t.swaps.map((s) => [s.tickLast, s.tickBefore, s.isFirstTouch]),
+    ).toEqual([
       [0, 0, true],
       [0, 100, false],
     ]);
@@ -88,14 +114,24 @@ describe("MevCapturePoolTracker", () => {
     t.apply(swap(14, -10n, 10n, 150));
     expect(t.carryInDonations.map((d) => d.blockNumber)).toEqual([9]);
     const b = t.blocks.get(10)!;
-    expect([b.surcharge0, b.surcharge1, b.donationBlockNumber]).toEqual([0n, 400n, 14]);
+    expect([b.surcharge0, b.surcharge1, b.donationBlockNumber]).toEqual([
+      0n,
+      400n,
+      14,
+    ]);
     expect(t.blocks.get(14)!.surcharge1).toBeNull();
   });
 
   test("records liquidity changes from swaps and position updates", () => {
     const t = new MevCapturePoolTracker(POOL, { tick: 0, liquidity: 1000n });
     t.apply(swap(10, 1n, -1n, 0, 1000n));
-    t.apply({ ...at(11), kind: "position", liquidityDelta: 500n, tickAfter: 0, liquidityAfter: 1500n });
+    t.apply({
+      ...at(11),
+      kind: "position",
+      liquidityDelta: 500n,
+      tickAfter: 0,
+      liquidityAfter: 1500n,
+    });
     t.apply(swap(12, 1n, -1n, 200, 700n));
     expect(t.liquidityPoints).toEqual([
       { blockNumber: 11, liquidity: 1500n },
@@ -113,7 +149,9 @@ describe("time-weighted liquidity", () => {
 
   test("weights each value by how long it was in force", () => {
     // 100 for 10s, 300 for 40s, 0 for 50s
-    expect(timeWeightedLiquidity(100n, points, 100, 200)).toBe((100n * 10n + 300n * 40n) / 100n);
+    expect(timeWeightedLiquidity(100n, points, 100, 200)).toBe(
+      (100n * 10n + 300n * 40n) / 100n,
+    );
     expect(timeWeightedLiquidity(100n, points, 120, 140)).toBe(300n);
   });
 

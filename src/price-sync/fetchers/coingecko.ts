@@ -2,7 +2,10 @@ import { Clock, Effect, Ref, Stream } from "effect";
 import type { Sql } from "postgres";
 import { PriceSyncError, tryPriceSync } from "../errors";
 import { fetchJson } from "../http";
-import { makeCoinGeckoQuotaGate, type CoinGeckoQuotaGate } from "./coingeckoQuota";
+import {
+  makeCoinGeckoQuotaGate,
+  type CoinGeckoQuotaGate,
+} from "./coingeckoQuota";
 import type { PriceSyncJob, PriceSyncJobOptions, PriceUpdate } from "./types";
 import { toPriceUpdates } from "./utils";
 
@@ -224,7 +227,11 @@ export function coingeckoNativePriceFetcher({
                     }),
                     {},
                   ),
-                ).pipe(Stream.flatMap((result) => Stream.fromArray(toBatches(result)))),
+                ).pipe(
+                  Stream.flatMap((result) =>
+                    Stream.fromArray(toBatches(result)),
+                  ),
+                ),
               ),
             ),
           ),
@@ -485,7 +492,9 @@ function batches(
     offset < addresses.length;
     offset += COINGECKO_MAX_CONTRACT_ADDRESSES
   ) {
-    result.push(addresses.slice(offset, offset + COINGECKO_MAX_CONTRACT_ADDRESSES));
+    result.push(
+      addresses.slice(offset, offset + COINGECKO_MAX_CONTRACT_ADDRESSES),
+    );
   }
   return result;
 }

@@ -28,7 +28,11 @@
  * so a secondary's outage can never stop a worker whose primary is healthy.
  */
 import { hexToNumber, type Hex } from "viem";
-import type { ChainHead, EndpointSelector, TickSignal } from "../_shared/blockStream";
+import type {
+  ChainHead,
+  EndpointSelector,
+  TickSignal,
+} from "../_shared/blockStream";
 import type { RpcLike } from "./logStream";
 
 export interface StickyEndpoint {
@@ -63,7 +67,8 @@ export class StickyRpc implements RpcLike, EndpointSelector {
     private readonly endpoints: StickyEndpoint[],
     private readonly opts: StickyRpcOptions,
   ) {
-    if (endpoints.length === 0) throw new Error("StickyRpc needs at least one endpoint");
+    if (endpoints.length === 0)
+      throw new Error("StickyRpc needs at least one endpoint");
     this.now = opts.now ?? Date.now;
     this.switchedAt = this.now();
     this.verified = endpoints.map(() => false);
@@ -92,10 +97,16 @@ export class StickyRpc implements RpcLike, EndpointSelector {
       } catch (error) {
         if (error instanceof WrongChainIdError) throw error;
         lastError = error;
-        this.opts.onWarning?.("RPC endpoint did not answer at startup; trying the next", {
-          endpoint: this.endpoints[i]!.label,
-          error: error instanceof Error ? error.message.slice(0, 300) : String(error),
-        });
+        this.opts.onWarning?.(
+          "RPC endpoint did not answer at startup; trying the next",
+          {
+            endpoint: this.endpoints[i]!.label,
+            error:
+              error instanceof Error
+                ? error.message.slice(0, 300)
+                : String(error),
+          },
+        );
       }
     }
     throw lastError;
@@ -109,17 +120,29 @@ export class StickyRpc implements RpcLike, EndpointSelector {
    * restart loop even after the stream learnt to back off: `restart.sh`
    * restarts at once, and every restart asks the same endpoints again.
    */
-  async startWithin(budgetMs: number, minDelayMs: number, maxDelayMs: number): Promise<void> {
+  async startWithin(
+    budgetMs: number,
+    minDelayMs: number,
+    maxDelayMs: number,
+  ): Promise<void> {
     const since = this.now();
     for (let attempt = 0; ; attempt++) {
       try {
         return await this.start();
       } catch (error) {
-        if (error instanceof WrongChainIdError || this.now() - since > budgetMs) throw error;
-        const delay = Math.min(maxDelayMs, minDelayMs * 2 ** Math.min(attempt, 32));
-        this.opts.onWarning?.("no RPC endpoint answered at startup; backing off", {
-          attempt: attempt + 1, retryInMs: delay,
-        });
+        if (error instanceof WrongChainIdError || this.now() - since > budgetMs)
+          throw error;
+        const delay = Math.min(
+          maxDelayMs,
+          minDelayMs * 2 ** Math.min(attempt, 32),
+        );
+        this.opts.onWarning?.(
+          "no RPC endpoint answered at startup; backing off",
+          {
+            attempt: attempt + 1,
+            retryInMs: delay,
+          },
+        );
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
@@ -135,21 +158,24 @@ export class StickyRpc implements RpcLike, EndpointSelector {
     // failed read only needs one that answers from at or above the cursor.
     const mustPass = reason === "stale head" ? signal.lastHead!.number : null;
     for (let i = 0; i < this.endpoints.length; i++) {
-      if (i !== this.index && (await this.probe(i, signal, mustPass))) return this.select(i, reason);
+      if (i !== this.index && (await this.probe(i, signal, mustPass)))
+        return this.select(i, reason);
     }
     return false;
   }
 
   /** Off the primary for `failbackMs`, and the primary passes its probe. */
   private async failbackDue(signal: TickSignal): Promise<boolean> {
-    if (this.index === 0 || this.now() - this.switchedAt < this.opts.failbackMs) return false;
+    if (this.index === 0 || this.now() - this.switchedAt < this.opts.failbackMs)
+      return false;
     return this.probe(0, signal, null);
   }
 
   private leaveReason(signal: TickSignal): "read failed" | "stale head" | null {
     if (signal.lastReadFailed) return "read failed";
     const head = signal.lastHead;
-    if (head && this.now() - head.timestamp.getTime() > this.opts.staleHeadMs) return "stale head";
+    if (head && this.now() - head.timestamp.getTime() > this.opts.staleHeadMs)
+      return "stale head";
     return null;
   }
 
@@ -159,7 +185,11 @@ export class StickyRpc implements RpcLike, EndpointSelector {
     this.index = i;
     this.switchedAt = this.now();
     if (changed) {
-      this.opts.onWarning?.("switched RPC endpoint", { from, to: this.current.label, reason });
+      this.opts.onWarning?.("switched RPC endpoint", {
+        from,
+        to: this.current.label,
+        reason,
+      });
     }
     return changed;
   }
@@ -168,7 +198,9 @@ export class StickyRpc implements RpcLike, EndpointSelector {
     if (this.verified[i]) return;
     const endpoint = this.endpoints[i]!;
     const id = BigInt(
-      (await endpoint.rpc.request({ method: "eth_chainId" } as never)) as unknown as string,
+      (await endpoint.rpc.request({
+        method: "eth_chainId",
+      } as never)) as unknown as string,
     );
     if (id !== this.opts.chainId) {
       throw new WrongChainIdError(
@@ -179,14 +211,21 @@ export class StickyRpc implements RpcLike, EndpointSelector {
   }
 
   /** True when endpoint `i` can take over; a wrong chain ID still throws. */
-  private async probe(i: number, signal: TickSignal, mustPass: number | null): Promise<boolean> {
+  private async probe(
+    i: number,
+    signal: TickSignal,
+    mustPass: number | null,
+  ): Promise<boolean> {
     const now = this.now();
     if (now < this.nextProbe[i]!) return false;
     const endpoint = this.endpoints[i]!;
     const reject = (reason: string, detail: Record<string, unknown> = {}) => {
       this.nextProbe[i] = now + this.opts.probeIntervalMs;
       this.opts.onWarning?.("RPC endpoint not healthier; staying", {
-        candidate: endpoint.label, current: this.current.label, reason, ...detail,
+        candidate: endpoint.label,
+        current: this.current.label,
+        reason,
+        ...detail,
       });
       return false;
     };
@@ -198,18 +237,28 @@ export class StickyRpc implements RpcLike, EndpointSelector {
     } catch (error) {
       if (error instanceof WrongChainIdError) throw error;
       return reject("did not answer", {
-        error: error instanceof Error ? error.message.slice(0, 300) : String(error),
+        error:
+          error instanceof Error ? error.message.slice(0, 300) : String(error),
       });
     }
     if (!head) return reject("no latest block");
     if (head.number < signal.cursorBlock) {
-      return reject("behind the cursor", { head: head.number, cursor: signal.cursorBlock });
+      return reject("behind the cursor", {
+        head: head.number,
+        cursor: signal.cursorBlock,
+      });
     }
     if (now - head.timestamp.getTime() > this.opts.staleHeadMs) {
-      return reject("stale head", { head: head.number, headTime: head.timestamp.toISOString() });
+      return reject("stale head", {
+        head: head.number,
+        headTime: head.timestamp.toISOString(),
+      });
     }
     if (mustPass !== null && head.number <= mustPass) {
-      return reject("not ahead of the current head", { head: head.number, current: mustPass });
+      return reject("not ahead of the current head", {
+        head: head.number,
+        current: mustPass,
+      });
     }
     return true;
   }
@@ -219,7 +268,11 @@ async function latest(rpc: RpcLike): Promise<ChainHead | null> {
   const block = (await rpc.request({
     method: "eth_getBlockByNumber",
     params: ["latest", false],
-  } as never)) as unknown as { number: Hex | null; hash: Hex | null; timestamp: Hex } | null;
+  } as never)) as unknown as {
+    number: Hex | null;
+    hash: Hex | null;
+    timestamp: Hex;
+  } | null;
   if (!block || block.number === null || block.hash === null) return null;
   return {
     number: hexToNumber(block.number),

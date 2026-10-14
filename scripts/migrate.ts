@@ -18,7 +18,7 @@ async function main() {
 
   const migrationsPath = resolve(
     dirname(fileURLToPath(import.meta.url)),
-    "../migrations"
+    "../migrations",
   );
 
   try {

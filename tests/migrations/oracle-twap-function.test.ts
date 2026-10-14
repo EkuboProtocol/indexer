@@ -42,7 +42,7 @@ async function insertBlock({
       blockNumber,
       `${chainId}${blockNumber}`,
       new Date(timestamp * 1000),
-    ]
+    ],
   );
 }
 
@@ -82,7 +82,7 @@ async function insertPoolKey({
       "1000000",
       60,
       emitter,
-    ]
+    ],
   );
 
   return Number(pool_key_id);
@@ -125,7 +125,7 @@ async function insertPoolInitialization({
       poolKeyId,
       tick,
       "1",
-    ]
+    ],
   );
 }
 
@@ -174,7 +174,7 @@ async function insertSwap({
       "1",
       tickAfter,
       "1000",
-    ]
+    ],
   );
 }
 
@@ -225,7 +225,7 @@ async function insertOracleSnapshot({
       timestamp.toString(),
       tickCumulative.toString(),
       null,
-    ]
+    ],
   );
 }
 
@@ -363,7 +363,7 @@ test("computes the latest TWAP price between two tokens", async () => {
       baseToken,
       quoteToken,
       Number(durationSeconds),
-    ]
+    ],
   );
 
   expect(tick).not.toBeNull();
@@ -420,7 +420,7 @@ test("returns null when either pair lacks sufficient history", async () => {
     rows: [{ tick }],
   } = await client.query<{ tick: null }>(
     `SELECT get_pair_twap_tick($1,$2,$3,$4,$5,$6) AS tick`,
-    [chainId, oracleExtension, oracleToken, baseToken, quoteToken, 60]
+    [chainId, oracleExtension, oracleToken, baseToken, quoteToken, 60],
   );
 
   expect(tick).toBeNull();
@@ -441,6 +441,6 @@ test("throws when the TWAP duration is non-positive", async () => {
       baseToken,
       quoteToken,
       0,
-    ])
+    ]),
   ).rejects.toThrow(/twap duration must be positive/i);
 });

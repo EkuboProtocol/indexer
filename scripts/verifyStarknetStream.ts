@@ -104,9 +104,7 @@ const rows = await sql<
    WHERE chain_id = ${chainId}
      AND block_number BETWEEN ${from} AND ${to}`;
 const fromDb = new Set(
-  rows.map(
-    (r) => `${r.block_number}:${r.transaction_index}:${r.event_index}`,
-  ),
+  rows.map((r) => `${r.block_number}:${r.transaction_index}:${r.event_index}`),
 );
 console.log(`database holds  ${fromDb.size} Swapped events`);
 await sql.end();

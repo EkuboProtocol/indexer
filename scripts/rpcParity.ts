@@ -36,7 +36,13 @@
  * Endpoint URLs carry keys, so every message goes through `redactSecrets`.
  */
 import { appendFileSync } from "node:fs";
-import { createPublicClient, http, numberToHex, type Address, type PublicClient } from "viem";
+import {
+  createPublicClient,
+  http,
+  numberToHex,
+  type Address,
+  type PublicClient,
+} from "viem";
 import { redactSecrets } from "../src/_shared/redactSecrets";
 import { loadConfig } from "../src/config";
 import { createEvmProcessors } from "../src/evm";
@@ -76,10 +82,15 @@ const MAX_DRIFT_SECONDS = int("PARITY_MAX_DRIFT_SECONDS", 3);
 const MAX_HEAD_ERROR_PCT = int("PARITY_MAX_HEAD_ERROR_PCT", 5);
 // dRPC's documented eth_getLogs result cap.
 const DOCUMENTED_CAP = int("PARITY_DOCUMENTED_LOG_CAP", 10_000);
-const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const TRANSFER_TOPIC =
+  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
 const addresses = [
-  ...new Set(createEvmProcessors().map((processor) => processor.address.toLowerCase() as Address)),
+  ...new Set(
+    createEvmProcessors().map(
+      (processor) => processor.address.toLowerCase() as Address,
+    ),
+  ),
 ];
 const primary = client(PRIMARY_URL);
 const candidate = client(CANDIDATE_URL);
@@ -94,54 +105,113 @@ function int(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw === undefined || raw === "") return fallback;
   const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${name} must be a non-negative integer`);
+  if (!Number.isSafeInteger(value) || value < 0)
+    throw new Error(`${name} must be a non-negative integer`);
   return value;
 }
 
 function client(url: string): PublicClient {
-  return createPublicClient({ transport: http(url, { retryCount: 3, timeout: 60_000 }) });
+  return createPublicClient({
+    transport: http(url, { retryCount: 3, timeout: 60_000 }),
+  });
 }
 
 const redact = (text: string) => redactSecrets(text, secrets);
 /** viem's short message and the provider's own words, without the request dump. */
 function errorText(error: unknown): string {
-  const e = error as { shortMessage?: string; details?: string; message?: string };
-  const text = e?.shortMessage ? [e.shortMessage, e.details].filter(Boolean).join(": ") : (e?.message ?? String(error));
+  const e = error as {
+    shortMessage?: string;
+    details?: string;
+    message?: string;
+  };
+  const text = e?.shortMessage
+    ? [e.shortMessage, e.details].filter(Boolean).join(": ")
+    : (e?.message ?? String(error));
   return redact(text).slice(0, 300);
 }
-const emit = (line: Record<string, unknown>) => console.log(redact(JSON.stringify(line)));
+const emit = (line: Record<string, unknown>) =>
+  console.log(redact(JSON.stringify(line)));
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function getLogs(rpc: PublicClient, from: number, to: number, filter: { address?: Address[]; topics?: string[] } = { address: addresses }) {
+async function getLogs(
+  rpc: PublicClient,
+  from: number,
+  to: number,
+  filter: { address?: Address[]; topics?: string[] } = { address: addresses },
+) {
   return (await rpc.request({
     method: "eth_getLogs",
-    params: [{ fromBlock: numberToHex(BigInt(from)), toBlock: numberToHex(BigInt(to)), ...filter }],
+    params: [
+      {
+        fromBlock: numberToHex(BigInt(from)),
+        toBlock: numberToHex(BigInt(to)),
+        ...filter,
+      },
+    ],
   } as never)) as unknown as RawLog[];
 }
 
 type Header = { number: number; hash: string; timestamp: number };
 
-async function block(rpc: PublicClient, tag: "latest" | "finalized" | number): Promise<Header | null> {
+async function block(
+  rpc: PublicClient,
+  tag: "latest" | "finalized" | number,
+): Promise<Header | null> {
   const raw = (await rpc.request({
     method: "eth_getBlockByNumber",
     params: [typeof tag === "number" ? numberToHex(BigInt(tag)) : tag, false],
-  } as never)) as unknown as { number: string; hash: string; timestamp: string } | null;
-  return raw && { number: Number(BigInt(raw.number)), hash: raw.hash, timestamp: Number(BigInt(raw.timestamp)) };
+  } as never)) as unknown as {
+    number: string;
+    hash: string;
+    timestamp: string;
+  } | null;
+  return (
+    raw && {
+      number: Number(BigInt(raw.number)),
+      hash: raw.hash,
+      timestamp: Number(BigInt(raw.timestamp)),
+    }
+  );
 }
 
 // --- 0. chain id --------------------------------------------------------------
 
-const [primaryChainId, candidateChainId] = await Promise.all([primary.getChainId(), candidate.getChainId()]);
-const chainIdOk = BigInt(primaryChainId) === CHAIN_ID && BigInt(candidateChainId) === CHAIN_ID;
-emit({ kind: "chain_id", expected: CHAIN_ID.toString(), primary: primaryChainId, candidate: candidateChainId, ok: chainIdOk });
+const [primaryChainId, candidateChainId] = await Promise.all([
+  primary.getChainId(),
+  candidate.getChainId(),
+]);
+const chainIdOk =
+  BigInt(primaryChainId) === CHAIN_ID && BigInt(candidateChainId) === CHAIN_ID;
+emit({
+  kind: "chain_id",
+  expected: CHAIN_ID.toString(),
+  primary: primaryChainId,
+  candidate: candidateChainId,
+  ok: chainIdOk,
+});
 
 // --- 3. finalized tag -----------------------------------------------------------
 
-async function checkFinalized(): Promise<ParityReport["finalized"] & { number: number }> {
-  const [ours, theirs] = await Promise.all([block(primary, "finalized"), block(candidate, "finalized").catch((e) => e as Error)]);
+async function checkFinalized(): Promise<
+  ParityReport["finalized"] & { number: number }
+> {
+  const [ours, theirs] = await Promise.all([
+    block(primary, "finalized"),
+    block(candidate, "finalized").catch((e) => e as Error),
+  ]);
   if (!ours) throw new Error("primary has no finalized block");
-  if (theirs instanceof Error) return { ok: false, detail: `candidate errored: ${errorText(theirs)}`, number: ours.number };
-  if (!theirs) return { ok: false, detail: "candidate returned null", number: ours.number };
+  if (theirs instanceof Error)
+    return {
+      ok: false,
+      detail: `candidate errored: ${errorText(theirs)}`,
+      number: ours.number,
+    };
+  if (!theirs)
+    return {
+      ok: false,
+      detail: "candidate returned null",
+      number: ours.number,
+    };
   const reference = await block(primary, theirs.number);
   const ok = reference?.hash.toLowerCase() === theirs.hash.toLowerCase();
   const detail = `candidate ${theirs.number} (${ours.number - theirs.number} behind the primary's), hash ${ok ? "matches" : "differs"}`;
@@ -171,7 +241,8 @@ async function latestEventIn(lo: number, hi: number): Promise<number | null> {
       span = Math.max(RANGE, Math.floor(span / 4));
       continue;
     }
-    if (logs.length) return Math.max(...logs.map((log) => Number(BigInt(log.blockNumber))));
+    if (logs.length)
+      return Math.max(...logs.map((log) => Number(BigInt(log.blockNumber))));
     hi = from - 1;
     span *= 4;
   }
@@ -184,7 +255,9 @@ const windowOf = (blockNumber: number): [number, number] => {
   return [from, Math.min(settled, from + RANGE - 1)];
 };
 
-const windows = new Map<number, number>([[windowOf(settled)[0], windowOf(settled)[1]]]);
+const windows = new Map<number, number>([
+  [windowOf(settled)[0], windowOf(settled)[1]],
+]);
 const segment = Math.max(RANGE, Math.ceil((settled - START + 1) / WINDOWS));
 for (let hi = settled; hi >= START && windows.size <= WINDOWS; hi -= segment) {
   const found = await latestEventIn(Math.max(START, hi - segment + 1), hi);
@@ -194,7 +267,11 @@ for (let hi = settled; hi >= START && windows.size <= WINDOWS; hi -= segment) {
   }
 }
 
-const windowReport: ParityReport["windows"] = { compared: 0, eventBearing: 0, failures: [] };
+const windowReport: ParityReport["windows"] = {
+  compared: 0,
+  eventBearing: 0,
+  failures: [],
+};
 for (const [from, to] of [...windows].sort(([a], [b]) => a - b)) {
   const ours = await getLogs(primary, from, to);
   let theirs: RawLog[];
@@ -202,21 +279,43 @@ for (const [from, to] of [...windows].sort(([a], [b]) => a - b)) {
     theirs = await getLogs(candidate, from, to);
   } catch (error) {
     windowReport.failures.push(`${from}..${to}`);
-    emit({ kind: "window", from, to, primaryLogs: ours.length, candidateError: errorText(error) });
+    emit({
+      kind: "window",
+      from,
+      to,
+      primaryLogs: ours.length,
+      candidateError: errorText(error),
+    });
     continue;
   }
   const diff = diffLogs(ours, theirs);
   windowReport.compared++;
   if (ours.length) windowReport.eventBearing++;
   if (!isEmptyDiff(diff)) windowReport.failures.push(`${from}..${to}`);
-  emit({ kind: "window", from, to, primaryLogs: ours.length, candidateLogs: theirs.length, identical: isEmptyDiff(diff), ...(isEmptyDiff(diff) ? {} : { diff }) });
+  emit({
+    kind: "window",
+    from,
+    to,
+    primaryLogs: ours.length,
+    candidateLogs: theirs.length,
+    identical: isEmptyDiff(diff),
+    ...(isEmptyDiff(diff) ? {} : { diff }),
+  });
 }
 
 // --- 5. range and result caps ---------------------------------------------------
 
 let largestRangeOk = 0;
 let rangeError: string | null = null;
-for (const blocks of [RANGE, 2_000, 5_000, 10_000, 50_000, 100_000, 1_000_000]) {
+for (const blocks of [
+  RANGE,
+  2_000,
+  5_000,
+  10_000,
+  50_000,
+  100_000,
+  1_000_000,
+]) {
   if (blocks > settled - START + 1 || blocks < largestRangeOk) continue;
   try {
     await getLogs(candidate, settled - blocks + 1, settled);
@@ -233,12 +332,22 @@ emit({ kind: "range_cap", largestRangeOk, firstFailure: rangeError });
 const capProbes: CapProbe[] = [];
 for (let blocks = 1; blocks <= 100_000; blocks *= 2) {
   const count = (rpc: PublicClient) =>
-    getLogs(rpc, settled - blocks + 1, settled, { topics: [TRANSFER_TOPIC] }).then((logs) => logs.length, () => "error" as const);
+    getLogs(rpc, settled - blocks + 1, settled, {
+      topics: [TRANSFER_TOPIC],
+    }).then(
+      (logs) => logs.length,
+      () => "error" as const,
+    );
   const [ours, theirs] = await Promise.all([count(primary), count(candidate)]);
   capProbes.push({ blocks, primary: ours, candidate: theirs });
   emit({ kind: "result_cap_probe", blocks, primary: ours, candidate: theirs });
   const previous = capProbes.at(-2)?.candidate;
-  if (theirs === "error" || theirs > 2 * DOCUMENTED_CAP || (theirs >= 1_000 && theirs === previous)) break;
+  if (
+    theirs === "error" ||
+    theirs > 2 * DOCUMENTED_CAP ||
+    (theirs >= 1_000 && theirs === previous)
+  )
+    break;
 }
 const cap = recommendSuspectLogCount(capProbes, DOCUMENTED_CAP);
 emit({ kind: "result_cap", ...cap });
@@ -262,25 +371,51 @@ for (let i = 0; i < HEAD_READS; i++) {
     return null;
   });
   try {
-    const [ours, theirs] = await Promise.all([oursRead, block(candidate, "latest")]);
+    const [ours, theirs] = await Promise.all([
+      oursRead,
+      block(candidate, "latest"),
+    ]);
     if (!theirs) throw new Error("latest returned null");
-    if (ours) drift.push({ blocks: ours.number - theirs.number, seconds: ours.timestamp - theirs.timestamp });
+    if (ours)
+      drift.push({
+        blocks: ours.number - theirs.number,
+        seconds: ours.timestamp - theirs.timestamp,
+      });
     // In the stream's order: the head, the logs up to it, then its blocks.
     const from = Math.max(START, theirs.number - HEAD_SPAN + 1);
     const logs = await getLogs(candidate, from, theirs.number);
     const served = await block(candidate, theirs.number);
-    samples.push({ head: theirs.number, headHash: theirs.hash, servedHash: served?.hash ?? null, from, logs });
+    samples.push({
+      head: theirs.number,
+      headHash: theirs.hash,
+      servedHash: served?.hash ?? null,
+      from,
+      logs,
+    });
   } catch (error) {
     tally(headErrors, error);
   }
 }
-const driftReport = evaluateDrift(drift, { maxBlocks: MAX_DRIFT_BLOCKS, maxSeconds: MAX_DRIFT_SECONDS });
+const driftReport = evaluateDrift(drift, {
+  maxBlocks: MAX_DRIFT_BLOCKS,
+  maxSeconds: MAX_DRIFT_SECONDS,
+});
 emit({ kind: "drift", ...driftReport });
 
 const errorCount = [...headErrors.values()].reduce((a, b) => a + b, 0);
-for (const [error, count] of headErrors) emit({ kind: "head_read_errors", count, error });
-for (const [error, count] of primaryErrors) emit({ kind: "primary_head_read_errors", count, error });
-const head: ParityReport["head"] = { reads: HEAD_READS, errors: errorCount, match: 0, reorg: 0, mismatch: 0, nonEmpty: 0, timedOut: false };
+for (const [error, count] of headErrors)
+  emit({ kind: "head_read_errors", count, error });
+for (const [error, count] of primaryErrors)
+  emit({ kind: "primary_head_read_errors", count, error });
+const head: ParityReport["head"] = {
+  reads: HEAD_READS,
+  errors: errorCount,
+  match: 0,
+  reorg: 0,
+  mismatch: 0,
+  nonEmpty: 0,
+  timedOut: false,
+};
 const highest = Math.max(0, ...samples.map((s) => s.head));
 const deadline = Date.now() + FINALITY_TIMEOUT_MS;
 while ((await block(primary, "finalized"))!.number < highest) {
@@ -294,45 +429,77 @@ if (!head.timedOut && samples.length) {
   const lowest = Math.min(...samples.map((s) => s.from));
   const final: RawLog[] = [];
   for (let from = lowest; from <= highest; from += RANGE) {
-    final.push(...(await getLogs(primary, from, Math.min(highest, from + RANGE - 1))));
+    final.push(
+      ...(await getLogs(primary, from, Math.min(highest, from + RANGE - 1))),
+    );
   }
   const hashes = new Map<number, string>();
   for (const sample of samples) {
-    if (!hashes.has(sample.head)) hashes.set(sample.head, (await block(primary, sample.head))!.hash);
+    if (!hashes.has(sample.head))
+      hashes.set(sample.head, (await block(primary, sample.head))!.hash);
     const expected = final.filter((log) => {
       const n = Number(BigInt(log.blockNumber));
       return n >= sample.from && n <= sample.head;
     });
-    const { outcome, diff } = classifyHeadSample(sample, hashes.get(sample.head)!, expected);
+    const { outcome, diff } = classifyHeadSample(
+      sample,
+      hashes.get(sample.head)!,
+      expected,
+    );
     head[outcome]++;
     if (expected.length) head.nonEmpty++;
-    if (outcome === "mismatch") emit({ kind: "head_mismatch", head: sample.head, served: sample.servedHash !== null, diff });
+    if (outcome === "mismatch")
+      emit({
+        kind: "head_mismatch",
+        head: sample.head,
+        served: sample.servedHash !== null,
+        diff,
+      });
   }
 }
 emit({ kind: "head_reads", ...head });
 
 // --- verdict --------------------------------------------------------------------
 
-const report: ParityReport = { chainIdOk, finalized, windows: windowReport, head, drift: driftReport, cap };
+const report: ParityReport = {
+  chainIdOk,
+  finalized,
+  windows: windowReport,
+  head,
+  drift: driftReport,
+  cap,
+};
 const result = verdict(report, MAX_HEAD_ERROR_PCT);
-emit({ kind: "summary", network: process.env.NETWORK, pass: result.pass, reasons: result.reasons, suspectLogCount: cap.suspectLogCount, largestRangeOk });
+emit({
+  kind: "summary",
+  network: process.env.NETWORK,
+  pass: result.pass,
+  reasons: result.reasons,
+  suspectLogCount: cap.suspectLogCount,
+  largestRangeOk,
+});
 
 if (process.env.GITHUB_STEP_SUMMARY) {
-  appendFileSync(process.env.GITHUB_STEP_SUMMARY, redact([
-    `### ${process.env.NETWORK}: ${result.pass ? "PASS" : "FAIL"}`,
-    ...result.reasons.map((reason) => `- ${reason}`),
-    "",
-    "| check | result |",
-    "| --- | --- |",
-    `| chain id | ${chainIdOk ? "ok" : "MISMATCH"} |`,
-    `| finalized tag | ${finalized.detail} |`,
-    `| eth_getLogs windows (${RANGE} blocks, ${addresses.length} addresses) | ${windowReport.compared} compared, ${windowReport.eventBearing} with events, ${windowReport.failures.length} differ/failed |`,
-    `| near-head reads | ${head.match} match, ${head.reorg} reorged, ${head.mismatch} differ, ${head.nonEmpty} with events, ${head.errors}/${head.reads} errored${head.timedOut ? ", finality timed out" : ""} |`,
-    `| latest drift (p95 / max) | ${driftReport.p95Blocks} / ${driftReport.maxBlocks} blocks, ${driftReport.p95Seconds} / ${driftReport.maxSeconds} s |`,
-    `| largest range served | ${largestRangeOk} blocks${rangeError ? `; failed at ${rangeError}` : ""} |`,
-    `| SUSPECT_LOG_COUNT | ${cap.suspectLogCount} (${cap.silentTruncation ? `silent truncation (${cap.silentTruncation})` : `largest intact result ${cap.largestIntact}`}) |`,
-    "",
-  ].join("\n")));
+  appendFileSync(
+    process.env.GITHUB_STEP_SUMMARY,
+    redact(
+      [
+        `### ${process.env.NETWORK}: ${result.pass ? "PASS" : "FAIL"}`,
+        ...result.reasons.map((reason) => `- ${reason}`),
+        "",
+        "| check | result |",
+        "| --- | --- |",
+        `| chain id | ${chainIdOk ? "ok" : "MISMATCH"} |`,
+        `| finalized tag | ${finalized.detail} |`,
+        `| eth_getLogs windows (${RANGE} blocks, ${addresses.length} addresses) | ${windowReport.compared} compared, ${windowReport.eventBearing} with events, ${windowReport.failures.length} differ/failed |`,
+        `| near-head reads | ${head.match} match, ${head.reorg} reorged, ${head.mismatch} differ, ${head.nonEmpty} with events, ${head.errors}/${head.reads} errored${head.timedOut ? ", finality timed out" : ""} |`,
+        `| latest drift (p95 / max) | ${driftReport.p95Blocks} / ${driftReport.maxBlocks} blocks, ${driftReport.p95Seconds} / ${driftReport.maxSeconds} s |`,
+        `| largest range served | ${largestRangeOk} blocks${rangeError ? `; failed at ${rangeError}` : ""} |`,
+        `| SUSPECT_LOG_COUNT | ${cap.suspectLogCount} (${cap.silentTruncation ? `silent truncation (${cap.silentTruncation})` : `largest intact result ${cap.largestIntact}`}) |`,
+        "",
+      ].join("\n"),
+    ),
+  );
 }
 
 process.exit(result.pass ? 0 : 1);

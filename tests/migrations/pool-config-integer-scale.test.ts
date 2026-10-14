@@ -22,18 +22,20 @@ test("pool_config written by 00065 is normalized to an integer", async () => {
         (1n << 64n).toString(),
         Number(tickSpacing),
         EXTENSION.toString(),
-      ]
+      ],
     );
 
     const read = async () =>
       (
         await client.query<{ pool_config: string; scale: number }>(
           `SELECT pool_config::text AS pool_config, scale(pool_config) AS scale
-           FROM pool_keys`
+           FROM pool_keys`,
         )
       ).rows[0];
 
-    await runMigrations(client, { files: ["00065_fix_pool_config_core_offset"] });
+    await runMigrations(client, {
+      files: ["00065_fix_pool_config_core_offset"],
+    });
     const before = await read();
     // The state production was in: an integral value with a fractional scale.
     expect(before.scale).toBeGreaterThan(0);
@@ -43,7 +45,7 @@ test("pool_config written by 00065 is normalized to an integer", async () => {
     const after = await read();
     expect(after.scale).toBe(0);
     expect(BigInt(after.pool_config)).toBe(
-      (EXTENSION << 96n) + (fee << 32n) + tickSpacing
+      (EXTENSION << 96n) + (fee << 32n) + tickSpacing,
     );
   } finally {
     await client.close();

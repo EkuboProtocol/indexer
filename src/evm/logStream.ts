@@ -6,7 +6,10 @@
 import type { Address, Hex, PublicClient } from "viem";
 import { hexToBigInt, hexToNumber, numberToHex } from "viem";
 import type { IndexerCursor } from "../_shared/dao";
-import { recordEventIdentity, requireBlockInRange } from "../_shared/rpcRecords";
+import {
+  recordEventIdentity,
+  requireBlockInRange,
+} from "../_shared/rpcRecords";
 import {
   createBlockStream,
   digestBlocks,
@@ -147,7 +150,12 @@ export function groupLogsByBlock(
     const filterIds = matchingFilterIds(log, filters);
     if (filterIds.length === 0) continue;
 
-    recordEventIdentity(seen, blockNumber, log.blockHash, String(hexToNumber(log.logIndex)));
+    recordEventIdentity(
+      seen,
+      blockNumber,
+      log.blockHash,
+      String(hexToNumber(log.logIndex)),
+    );
     let entry = byBlock.get(blockNumber);
     if (!entry) {
       entry = {
@@ -174,7 +182,9 @@ export function groupLogsByBlock(
       data: log.data,
       transactionHash: log.transactionHash,
       transactionIndex: requireRepresentableIndex(
-        hexToNumber(log.transactionIndex), blockNumber, "the transaction index",
+        hexToNumber(log.transactionIndex),
+        blockNumber,
+        "the transaction index",
       ),
       // `evm.ts` uses a log's block-wide `logIndex` as its `event_index`,
       // because the apibara RPC stream this replaces never populated
@@ -377,14 +387,23 @@ async function completeBlocks(
 ): Promise<void> {
   for (const block of blocks) {
     const number = Number(block.header.blockNumber);
-    if (number !== head.number && Number.isFinite(block.header.timestamp.getTime()) && block.header.timestamp.getTime() > 0) continue;
-    const filled = number === head.number ? head : await fetchBlockByNumber(rpc, number);
+    if (
+      number !== head.number &&
+      Number.isFinite(block.header.timestamp.getTime()) &&
+      block.header.timestamp.getTime() > 0
+    )
+      continue;
+    const filled =
+      number === head.number ? head : await fetchBlockByNumber(rpc, number);
     if (!filled) {
       throw new Error(
         `Could not verify event-bearing block ${block.header.blockNumber}`,
       );
     }
-    if (filled.number !== Number(block.header.blockNumber) || filled.hash.toLowerCase() !== block.header.blockHash.toLowerCase()) {
+    if (
+      filled.number !== Number(block.header.blockNumber) ||
+      filled.hash.toLowerCase() !== block.header.blockHash.toLowerCase()
+    ) {
       throw new Error(
         `Block ${block.header.blockNumber} changed hash between the log read (${block.header.blockHash}) and the header read (${filled.hash}); refusing to timestamp its logs from a different block`,
       );
@@ -427,11 +446,16 @@ export function createEvmAdapter(
         toBlock: to,
         addresses,
         suspectLogCount:
-          typeof suspectLogCount === "function" ? suspectLogCount() : suspectLogCount,
+          typeof suspectLogCount === "function"
+            ? suspectLogCount()
+            : suspectLogCount,
       });
       for (const log of logs) {
         requireBlockInRange(hexToNumber(log.blockNumber), from, to);
-        if (log.removed) throw new Error("eth_getLogs returned a removed log in a numbered range");
+        if (log.removed)
+          throw new Error(
+            "eth_getLogs returned a removed log in a numbered range",
+          );
       }
       return groupLogsByBlock(logs, filters);
     },

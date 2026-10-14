@@ -158,7 +158,10 @@ describe("selectorPrefilter", () => {
     // filter with no selector cannot be represented as one, so narrowing the
     // read would silently drop that processor's events.
     expect(
-      selectorPrefilter([coreFilter, { id: 2, fromAddress: CORE_PADDED, keys: [] }]),
+      selectorPrefilter([
+        coreFilter,
+        { id: 2, fromAddress: CORE_PADDED, keys: [] },
+      ]),
     ).toBeNull();
   });
 });
@@ -185,9 +188,10 @@ describe("groupEventsByBlock", () => {
     // representation in a range read, so recording one would make it look like
     // it had vanished on the next re-read.
     expect(
-      groupEventsByBlock([emitted({ from_address: OTHER_CONTRACT })], [
-        coreFilter,
-      ]),
+      groupEventsByBlock(
+        [emitted({ from_address: OTHER_CONTRACT })],
+        [coreFilter],
+      ),
     ).toEqual([]);
   });
 
@@ -208,9 +212,21 @@ describe("groupEventsByBlock positions", () => {
     // reports the same, and so did a reconstruction from the block's receipts.
     const blocks = groupEventsByBlock(
       [
-        emitted({ transaction_hash: TX0, transaction_index: 0, event_index: 3 }),
-        emitted({ transaction_hash: TX0, transaction_index: 0, event_index: 19 }),
-        emitted({ transaction_hash: TX1, transaction_index: 1, event_index: 1 }),
+        emitted({
+          transaction_hash: TX0,
+          transaction_index: 0,
+          event_index: 3,
+        }),
+        emitted({
+          transaction_hash: TX0,
+          transaction_index: 0,
+          event_index: 19,
+        }),
+        emitted({
+          transaction_hash: TX1,
+          transaction_index: 1,
+          event_index: 1,
+        }),
       ],
       [coreFilter],
     );
@@ -502,7 +518,10 @@ describe("createStarknetRpc", () => {
       return next();
     }) as unknown as typeof fetch;
     try {
-      return { result: await run(createStarknetRpc("https://x", { retryDelayMs: 1 })), calls };
+      return {
+        result: await run(createStarknetRpc("https://x", { retryDelayMs: 1 })),
+        calls,
+      };
     } catch (error) {
       return { result: error as Error, calls };
     } finally {
@@ -510,8 +529,13 @@ describe("createStarknetRpc", () => {
     }
   };
 
-  const json = (body: unknown, status = 200) =>
-    () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, ...(body as object) }), { status });
+  const json =
+    (body: unknown, status = 200) =>
+    () =>
+      new Response(
+        JSON.stringify({ jsonrpc: "2.0", id: 1, ...(body as object) }),
+        { status },
+      );
 
   it("retries a compute-unit overage, which arrives as HTTP 200 code 429", async () => {
     // The trap: Alchemy reports an overage as a *successful* HTTP response
@@ -556,7 +580,9 @@ describe("createStarknetRpc retry envelope", () => {
     const original = globalThis.fetch;
     let calls = 0;
     globalThis.fetch = (async () =>
-      responses[Math.min(calls++, responses.length - 1)]!()) as unknown as typeof fetch;
+      responses[
+        Math.min(calls++, responses.length - 1)
+      ]!()) as unknown as typeof fetch;
     try {
       return {
         result: await run(createStarknetRpc("https://x", { retryDelayMs: 1 })),
@@ -568,8 +594,13 @@ describe("createStarknetRpc retry envelope", () => {
       globalThis.fetch = original;
     }
   };
-  const json = (body: unknown, status = 200) => () =>
-    new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, ...(body as object) }), { status });
+  const json =
+    (body: unknown, status = 200) =>
+    () =>
+      new Response(
+        JSON.stringify({ jsonrpc: "2.0", id: 1, ...(body as object) }),
+        { status },
+      );
 
   it("retries a 403, which an edge can return transiently", async () => {
     // viem retries 403 and 413 for the EVM streams. Throwing here instead would
@@ -595,7 +626,10 @@ describe("createStarknetRpc retry envelope", () => {
     // A proxy or CDN error page served with a 200. That is a failure to answer
     // rather than an answer, so it is retried like one.
     const { result, calls } = await withFetch(
-      [() => new Response("<html>502</html>", { status: 200 }), json({ result: 7 })],
+      [
+        () => new Response("<html>502</html>", { status: 200 }),
+        json({ result: 7 }),
+      ],
       (rpc) => rpc.request("starknet_blockNumber", []),
     );
     expect(result).toBe(7);
@@ -633,28 +667,54 @@ describe("createStarknetRpc retry envelope", () => {
   });
 });
 
-
 describe("RPC event consistency", () => {
   it("orders events by transaction and event index across pages", () => {
-    const [block] = groupEventsByBlock([
-      emitted({ transaction_index: 1, event_index: 0 }),
-      emitted({ event_index: 19 }), emitted({ event_index: 3 }),
-    ], [coreFilter]);
-    expect(block!.logs.map(e => [e.transactionIndex, e.eventIndex])).toEqual([[0, 3], [0, 19], [1, 0]]);
+    const [block] = groupEventsByBlock(
+      [
+        emitted({ transaction_index: 1, event_index: 0 }),
+        emitted({ event_index: 19 }),
+        emitted({ event_index: 3 }),
+      ],
+      [coreFilter],
+    );
+    expect(block!.logs.map((e) => [e.transactionIndex, e.eventIndex])).toEqual([
+      [0, 3],
+      [0, 19],
+      [1, 0],
+    ]);
   });
   it("rejects duplicate positions and mixed block hashes", () => {
-    expect(() => groupEventsByBlock([emitted(), emitted()], [coreFilter])).toThrow(/Duplicate/);
-    expect(() => groupEventsByBlock([emitted(), emitted({ block_hash: "0x123", event_index: 19 })], [coreFilter])).toThrow(/Mixed block hashes/);
+    expect(() =>
+      groupEventsByBlock([emitted(), emitted()], [coreFilter]),
+    ).toThrow(/Duplicate/);
+    expect(() =>
+      groupEventsByBlock(
+        [emitted(), emitted({ block_hash: "0x123", event_index: 19 })],
+        [coreFilter],
+      ),
+    ).toThrow(/Mixed block hashes/);
   });
   it("rejects negative, fractional and overflowing transaction indices", () => {
     for (const transaction_index of [-1, 0.5, 65536, NaN]) {
-      expect(() => groupEventsByBlock([emitted({ transaction_index })], [coreFilter])).toThrow(/cannot represent/);
+      expect(() =>
+        groupEventsByBlock([emitted({ transaction_index })], [coreFilter]),
+      ).toThrow(/cannot represent/);
     }
   });
   it("rejects events outside a requested range and unhashed events", async () => {
-    for (const event of [emitted({ block_number: BLOCK_NUMBER + 1 }), emitted({ block_hash: undefined })]) {
-      const { rpc } = rpcReturning({ starknet_getEvents: [{ events: [event] }] });
-      await expect(createStarknetAdapter({ rpc, filters: [coreFilter] }).readRange(BLOCK_NUMBER, BLOCK_NUMBER)).rejects.toThrow();
+    for (const event of [
+      emitted({ block_number: BLOCK_NUMBER + 1 }),
+      emitted({ block_hash: undefined }),
+    ]) {
+      const { rpc } = rpcReturning({
+        starknet_getEvents: [{ events: [event] }],
+      });
+      await expect(
+        createStarknetAdapter({ rpc, filters: [coreFilter] }).readRange(
+          BLOCK_NUMBER,
+          BLOCK_NUMBER,
+        ),
+      ).rejects.toThrow();
     }
   });
 });
@@ -664,36 +724,69 @@ describe("reads at the tip", () => {
     run: (adapter: ReturnType<typeof createStarknetAdapter>) => Promise<T>,
   ): Promise<T> => {
     const original = globalThis.fetch;
-    globalThis.fetch = (async () => new Response(JSON.stringify({
-      jsonrpc: "2.0", id: 1, error: { code: 24, message: "Block not found" },
-    }))) as unknown as typeof fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          error: { code: 24, message: "Block not found" },
+        }),
+      )) as unknown as typeof fetch;
     try {
-      return await run(createStarknetAdapter({
-        rpc: createStarknetRpc("https://x", { retryDelayMs: 1 }),
-        filters: [coreFilter],
-      }));
+      return await run(
+        createStarknetAdapter({
+          rpc: createStarknetRpc("https://x", { retryDelayMs: 1 }),
+          filters: [coreFilter],
+        }),
+      );
     } finally {
       globalThis.fetch = original;
     }
   };
-  const rejection = (read: Promise<unknown>) => read.then(
-    () => { throw new Error("expected a rejection"); },
-    (error: unknown) => error,
-  );
-  const blockNotFound = (endHash?: Hex) => withBlockNotFound(adapter =>
-    rejection(adapter.readRange(BLOCK_NUMBER - 10, BLOCK_NUMBER, endHash)));
+  const rejection = (read: Promise<unknown>) =>
+    read.then(
+      () => {
+        throw new Error("expected a rejection");
+      },
+      (error: unknown) => error,
+    );
+  const blockNotFound = (endHash?: Hex) =>
+    withBlockNotFound((adapter) =>
+      rejection(adapter.readRange(BLOCK_NUMBER - 10, BLOCK_NUMBER, endHash)),
+    );
 
   it("reads a header the node cannot find as unreadable", async () => {
-    expect(await withBlockNotFound(adapter => adapter.fetchBlock(BLOCK_NUMBER))).toBeNull();
+    expect(
+      await withBlockNotFound((adapter) => adapter.fetchBlock(BLOCK_NUMBER)),
+    ).toBeNull();
   });
 
   it("treats a cited block whose header the node cannot find as a stale snapshot", async () => {
     // The range read cited the block, then the backend serving the header read
     // did not have it yet. Exiting here restarted the worker at 21:18:50.
-    const error = await withBlockNotFound(adapter => rejection(adapter.completeFresh(
-      [{ header: { blockNumber: BigInt(BLOCK_NUMBER), blockHash: BLOCK_HASH, timestamp: new Date(0), baseFeePerGas: null }, logs: [] }],
-      { number: BLOCK_NUMBER, hash: BLOCK_HASH, timestamp: new Date(0), baseFeePerGas: null },
-    )));
+    const error = await withBlockNotFound((adapter) =>
+      rejection(
+        adapter.completeFresh(
+          [
+            {
+              header: {
+                blockNumber: BigInt(BLOCK_NUMBER),
+                blockHash: BLOCK_HASH,
+                timestamp: new Date(0),
+                baseFeePerGas: null,
+              },
+              logs: [],
+            },
+          ],
+          {
+            number: BLOCK_NUMBER,
+            hash: BLOCK_HASH,
+            timestamp: new Date(0),
+            baseFeePerGas: null,
+          },
+        ),
+      ),
+    );
     expect(error).toBeInstanceOf(StaleSnapshotError);
   });
 

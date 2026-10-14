@@ -184,14 +184,19 @@ function positiveInt(name: string, fallbackValue: number): number {
  */
 function suspectLogCounts(endpoints: number): number[] {
   const raw = process.env.SUSPECT_LOG_COUNT ?? "";
-  const values = raw === "" ? ["10000"] : raw.split(",").map((value) => value.trim());
+  const values =
+    raw === "" ? ["10000"] : raw.split(",").map((value) => value.trim());
   if (values.length !== 1 && values.length !== endpoints) {
-    throw new Error(`SUSPECT_LOG_COUNT must have one value or one per EVM_RPC_URL entry (${endpoints}), got ${values.length}`);
+    throw new Error(
+      `SUSPECT_LOG_COUNT must have one value or one per EVM_RPC_URL entry (${endpoints}), got ${values.length}`,
+    );
   }
   return Array.from({ length: endpoints }, (_, i) => {
     const value = Number(values[values.length === 1 ? 0 : i]);
     if (!Number.isSafeInteger(value) || value <= 0) {
-      throw new Error(`SUSPECT_LOG_COUNT entries must be positive integers, got ${raw}`);
+      throw new Error(
+        `SUSPECT_LOG_COUNT entries must be positive integers, got ${raw}`,
+      );
     }
     return value;
   });

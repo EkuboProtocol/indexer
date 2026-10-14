@@ -24,12 +24,18 @@ const KEY_PATTERNS: [RegExp, string][] = [
   [/(\/v\d+\/)[A-Za-z0-9_-]{20,}/g, "$1<redacted>"],
   [/(\/rpc\/v\d+_\d+\/)[A-Za-z0-9_-]{20,}/g, "$1<redacted>"],
   // Query-string credentials: dRPC `dkey`, and the common names for the rest.
-  [/([?&](?:dkey|key|apikey|api_key|api-key|token|access_token|secret|password)=)[^&\s"'\\]+/gi, "$1<redacted>"],
+  [
+    /([?&](?:dkey|key|apikey|api_key|api-key|token|access_token|secret|password)=)[^&\s"'\\]+/gi,
+    "$1<redacted>",
+  ],
 ];
 
 function configuredUrls(env: Record<string, string | undefined>): string[] {
   return CONFIGURED_URL_VARS.flatMap((name) =>
-    (env[name] ?? "").split(",").map((url) => url.trim()).filter((url) => url.length > 0),
+    (env[name] ?? "")
+      .split(",")
+      .map((url) => url.trim())
+      .filter((url) => url.length > 0),
   );
 }
 

@@ -65,7 +65,17 @@ async function readLogs(): Promise<LogLine[]> {
   if (replay) return parseLines(readFileSync(replay, "utf8"));
 
   const proc = Bun.spawn(
-    ["doctl", "apps", "logs", appId, component, "--type", "run", "--tail", String(tailLines)],
+    [
+      "doctl",
+      "apps",
+      "logs",
+      appId,
+      component,
+      "--type",
+      "run",
+      "--tail",
+      String(tailLines),
+    ],
     { stdout: "pipe", stderr: "pipe" },
   );
   const timer = setTimeout(() => proc.kill(), 120_000);
@@ -75,14 +85,18 @@ async function readLogs(): Promise<LogLine[]> {
     proc.exited,
   ]);
   clearTimeout(timer);
-  if (code !== 0) throw new Error(`doctl exited ${code}: ${stderr.trim().slice(0, 200)}`);
+  if (code !== 0)
+    throw new Error(`doctl exited ${code}: ${stderr.trim().slice(0, 200)}`);
 
   return parseLines(stdout);
 }
 
 const previous = loadState();
 const now = new Date();
-let state: QuotaMonitorState = { ...previous, firstRunAt: previous.firstRunAt ?? now.toISOString() };
+let state: QuotaMonitorState = {
+  ...previous,
+  firstRunAt: previous.firstRunAt ?? now.toISOString(),
+};
 const findings: Finding[] = [];
 let lines: LogLine[] | undefined;
 
@@ -142,7 +156,11 @@ if (findings.length > 0) {
         ...(secret
           ? {
               "x-paperclip-timestamp": timestamp,
-              "x-paperclip-signature": "sha256=" + createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex"),
+              "x-paperclip-signature":
+                "sha256=" +
+                createHmac("sha256", secret)
+                  .update(`${timestamp}.${body}`)
+                  .digest("hex"),
             }
           : {}),
       },

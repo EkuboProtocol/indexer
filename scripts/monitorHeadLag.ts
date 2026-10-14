@@ -45,7 +45,8 @@ const positive = (name: string, fallback: number): number => {
   const raw = process.env[name];
   if (raw === undefined || raw === "") return fallback;
   const value = Number(raw);
-  if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number, got ${raw}`);
+  if (!Number.isFinite(value) || value <= 0)
+    throw new Error(`${name} must be a positive number, got ${raw}`);
   return value;
 };
 
@@ -56,7 +57,8 @@ const config: HeadLagConfig = {
   realertMs: positive("HEAD_LAG_REALERT_MINUTES", 60) * 60_000,
 };
 const statePath =
-  process.env.HEAD_LAG_STATE ?? `${process.env.HOME}/.local/state/indexer-head-lag-monitor/state.json`;
+  process.env.HEAD_LAG_STATE ??
+  `${process.env.HOME}/.local/state/indexer-head-lag-monitor/state.json`;
 const testAlert = process.argv.includes("--test-alert");
 
 function loadState(): HeadLagState {
@@ -95,9 +97,14 @@ async function readCursors(): Promise<CursorRow[]> {
 async function deliver(findings: Finding[], report: unknown): Promise<boolean> {
   const url = process.env.ALERT_WEBHOOK_URL;
   if (!url) return false;
-  const headline = findings.some((f) => f.kind === "head_lag") ? "Indexer head lag" : "Indexer head-lag check failing";
+  const headline = findings.some((f) => f.kind === "head_lag")
+    ? "Indexer head lag"
+    : "Indexer head-lag check failing";
   const body = JSON.stringify({
-    payload: { summary: `${testAlert ? "[TEST] " : ""}${headline}: ${findings.map(describe).join("; ")}`, report },
+    payload: {
+      summary: `${testAlert ? "[TEST] " : ""}${headline}: ${findings.map(describe).join("; ")}`,
+      report,
+    },
   });
   const timestamp = String(Math.floor(Date.now() / 1000));
   const secret = process.env.ALERT_WEBHOOK_HMAC_SECRET;
@@ -109,7 +116,10 @@ async function deliver(findings: Finding[], report: unknown): Promise<boolean> {
         ? {
             "x-paperclip-timestamp": timestamp,
             "x-paperclip-signature":
-              "sha256=" + createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex"),
+              "sha256=" +
+              createHmac("sha256", secret)
+                .update(`${timestamp}.${body}`)
+                .digest("hex"),
           }
         : {}),
     },
@@ -135,7 +145,9 @@ try {
   report = {
     checkedAt: now.toISOString(),
     ok: evaluated.results.every((r) => !r.over),
-    maxLagSeconds: Math.max(...evaluated.results.map((r) => r.lagSeconds ?? Infinity)),
+    maxLagSeconds: Math.max(
+      ...evaluated.results.map((r) => r.lagSeconds ?? Infinity),
+    ),
     results: evaluated.results,
   };
 } catch (error) {
@@ -143,11 +155,19 @@ try {
   const evaluated = evaluateFailure(message, config, state, now);
   findings = evaluated.findings;
   next = evaluated.next;
-  report = { checkedAt: now.toISOString(), ok: false, error: message.slice(0, 500), checkFailures: next.checkFailures };
+  report = {
+    checkedAt: now.toISOString(),
+    ok: false,
+    error: message.slice(0, 500),
+    checkFailures: next.checkFailures,
+  };
 }
 
 if (testAlert) {
-  findings = [...findings, { kind: "check_failed", failures: 0, error: "synthetic test alert" }];
+  findings = [
+    ...findings,
+    { kind: "check_failed", failures: 0, error: "synthetic test alert" },
+  ];
 }
 report = { ...report, test: testAlert, findings };
 console.log(JSON.stringify(report));
@@ -157,7 +177,9 @@ if (findings.length > 0) {
   // A POST that throws (DNS, timeout) is an undelivered alert like any other:
   // exit 2 and still save state below, so streaks survive and it is re-raised.
   const delivered = await deliver(findings, report).catch((error: unknown) => {
-    console.error(`alert delivery failed: ${error instanceof Error ? error.name : "error"}`);
+    console.error(
+      `alert delivery failed: ${error instanceof Error ? error.name : "error"}`,
+    );
     return false;
   });
   if (!delivered) process.exitCode = 2;

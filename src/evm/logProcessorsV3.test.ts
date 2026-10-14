@@ -67,12 +67,10 @@ describe("createLogProcessorsV3", () => {
       ve33PositionsAddress,
     });
 
-    expect(processors.filter((p) => p.address === ve33Address)).toHaveLength(
-      7,
+    expect(processors.filter((p) => p.address === ve33Address)).toHaveLength(7);
+    expect(processors.filter((p) => p.address === veTokenAddress)).toHaveLength(
+      1,
     );
-    expect(
-      processors.filter((p) => p.address === veTokenAddress),
-    ).toHaveLength(1);
     expect(
       processors.filter((p) => p.address === ve33PositionsAddress),
     ).toHaveLength(1);
@@ -121,7 +119,8 @@ describe("createLogProcessorsV3", () => {
 
     const insertVe33VoteWeightAppliedEvent = mock(async () => {});
     const owner = "0x0000000000000000000000000000000000000030";
-    const stakeId = `0x${((12n << 64n) | 1_800_000_000n).toString(16).padStart(64, "0")}` as const;
+    const stakeId =
+      `0x${((12n << 64n) | 1_800_000_000n).toString(16).padStart(64, "0")}` as const;
     const poolId = `0x${"40".padStart(64, "0")}` as const;
 
     await processor!.handler(

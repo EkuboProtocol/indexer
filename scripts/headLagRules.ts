@@ -78,15 +78,24 @@ export type Finding =
  */
 export function parseChains(raw: string): Map<string, ChainConfig> {
   const chains = new Map<string, ChainConfig>();
-  for (const entry of raw.split(",").map((s) => s.trim()).filter(Boolean)) {
+  for (const entry of raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)) {
     const match = /^(\d+)=([\w.-]+)(?::(\d+|off))?$/.exec(entry);
     if (!match) {
-      throw new Error(`HEAD_LAG_CHAINS entry must be chainId=name[:seconds|off], got ${entry}`);
+      throw new Error(
+        `HEAD_LAG_CHAINS entry must be chainId=name[:seconds|off], got ${entry}`,
+      );
     }
     const [, chainId, name, threshold] = match;
     chains.set(chainId!, {
       name: name!,
-      ...(threshold === undefined ? {} : { thresholdSeconds: threshold === "off" ? "off" : Number(threshold) }),
+      ...(threshold === undefined
+        ? {}
+        : {
+            thresholdSeconds: threshold === "off" ? "off" : Number(threshold),
+          }),
     });
   }
   return chains;
@@ -98,8 +107,15 @@ function thresholdFor(config: HeadLagConfig, chainId: string): number | null {
   return configured ?? config.defaultThresholdSeconds;
 }
 
-function due(alertedAt: string | undefined, now: Date, realertMs: number): boolean {
-  return alertedAt === undefined || now.getTime() - Date.parse(alertedAt) >= realertMs;
+function due(
+  alertedAt: string | undefined,
+  now: Date,
+  realertMs: number,
+): boolean {
+  return (
+    alertedAt === undefined ||
+    now.getTime() - Date.parse(alertedAt) >= realertMs
+  );
 }
 
 /** The chain's lag, or null when it has no cursor row at all. */
@@ -109,10 +125,15 @@ function lagOf(row: CursorRow | undefined): number | null {
 }
 
 /** The streak, and the last alert while the chain is still in the same episode. */
-function nextChainState(over: boolean, previous: ChainState | undefined): ChainState {
+function nextChainState(
+  over: boolean,
+  previous: ChainState | undefined,
+): ChainState {
   if (!over) return { breaches: 0 };
   const breaches = (previous?.breaches ?? 0) + 1;
-  return previous?.alertedAt ? { breaches, alertedAt: previous.alertedAt } : { breaches };
+  return previous?.alertedAt
+    ? { breaches, alertedAt: previous.alertedAt }
+    : { breaches };
 }
 
 /** One chain's result, its carried-over state, and its finding when one is due. */
@@ -132,12 +153,29 @@ function checkChain(
   const name = config.chains.get(chainId)?.name ?? `chain-${chainId}`;
 
   const finding: Finding | null =
-    breaches >= config.sustainChecks && due(chainState.alertedAt, now, config.realertMs)
-      ? { kind: "head_lag", chainId, name, lagSeconds, thresholdSeconds: threshold, breaches, headBlockNumber }
+    breaches >= config.sustainChecks &&
+    due(chainState.alertedAt, now, config.realertMs)
+      ? {
+          kind: "head_lag",
+          chainId,
+          name,
+          lagSeconds,
+          thresholdSeconds: threshold,
+          breaches,
+          headBlockNumber,
+        }
       : null;
 
   return {
-    result: { chainId, name, thresholdSeconds: threshold, lagSeconds, headBlockNumber, over, breaches },
+    result: {
+      chainId,
+      name,
+      thresholdSeconds: threshold,
+      lagSeconds,
+      headBlockNumber,
+      over,
+      breaches,
+    },
     chainState,
     finding,
   };
@@ -155,8 +193,10 @@ export function evaluate(
   now: Date,
 ): { results: ChainResult[]; findings: Finding[]; next: HeadLagState } {
   const byChain = new Map(rows.map((row) => [row.chainId, row]));
-  const chainIds = [...new Set([...config.chains.keys(), ...byChain.keys()])].sort(
-    (a, b) => (BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0),
+  const chainIds = [
+    ...new Set([...config.chains.keys(), ...byChain.keys()]),
+  ].sort((a, b) =>
+    BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0,
   );
 
   const results: ChainResult[] = [];
@@ -166,7 +206,14 @@ export function evaluate(
   for (const chainId of chainIds) {
     const threshold = thresholdFor(config, chainId);
     if (threshold === null) continue;
-    const checked = checkChain(chainId, threshold, byChain.get(chainId), config, state.chains?.[chainId], now);
+    const checked = checkChain(
+      chainId,
+      threshold,
+      byChain.get(chainId),
+      config,
+      state.chains?.[chainId],
+      now,
+    );
     results.push(checked.result);
     chains[chainId] = checked.chainState;
     if (checked.finding) findings.push(checked.finding);
@@ -187,21 +234,30 @@ export function evaluateFailure(
   // Bounded: a driver error can be arbitrarily long, and it goes into the
   // webhook body and the alert issue verbatim.
   const findings: Finding[] =
-    failures >= config.sustainChecks && due(state.checkFailedAlertedAt, now, config.realertMs)
+    failures >= config.sustainChecks &&
+    due(state.checkFailedAlertedAt, now, config.realertMs)
       ? [{ kind: "check_failed", failures, error: error.slice(0, 500) }]
       : [];
   return { findings, next };
 }
 
 /** Marks delivered findings so they are not re-raised before `realertMs`. */
-export function markAlerted(state: HeadLagState, findings: Finding[], now: Date): HeadLagState {
+export function markAlerted(
+  state: HeadLagState,
+  findings: Finding[],
+  now: Date,
+): HeadLagState {
   const next: HeadLagState = { ...state, chains: { ...state.chains } };
   for (const finding of findings) {
     if (finding.kind === "check_failed") {
       next.checkFailedAlertedAt = now.toISOString();
     } else {
       const chain = next.chains![finding.chainId];
-      if (chain) next.chains![finding.chainId] = { ...chain, alertedAt: now.toISOString() };
+      if (chain)
+        next.chains![finding.chainId] = {
+          ...chain,
+          alertedAt: now.toISOString(),
+        };
     }
   }
   return next;

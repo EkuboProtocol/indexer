@@ -34,7 +34,9 @@ const inOneMinute = () => new Date(Date.now() + 60_000);
 
 test("the source chain's native price is copied to each mirrored chain", async () => {
   const validUntil = inOneMinute();
-  const { sql } = fakeSql([{ source: "qp1", value: 2686.5, valid_until: validUntil }]);
+  const { sql } = fakeSql([
+    { source: "qp1", value: 2686.5, valid_until: validUntil },
+  ]);
 
   const before = Date.now();
   const updates = await collect(sql);

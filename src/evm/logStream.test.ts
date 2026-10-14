@@ -79,9 +79,9 @@ describe("logMatchesFilter", () => {
     expect(
       logMatchesFilter(log({ topics: [T0, T1] }), filter({ strict: true })),
     ).toBe(false);
-    expect(logMatchesFilter(log({ topics: [T0] }), filter({ strict: true }))).toBe(
-      true,
-    );
+    expect(
+      logMatchesFilter(log({ topics: [T0] }), filter({ strict: true })),
+    ).toBe(true);
   });
 
   it("matches an anonymous event declared as strict with no topics", () => {
@@ -98,9 +98,21 @@ describe("groupLogsByBlock", () => {
   it("groups by block, orders blocks and logs, and carries the header", () => {
     const blocks = groupLogsByBlock(
       [
-        log({ blockNumber: numberToHex(101n), logIndex: "0x5", blockHash: "0xbb" }),
-        log({ blockNumber: numberToHex(100n), logIndex: "0x2", blockHash: "0xaa" }),
-        log({ blockNumber: numberToHex(100n), logIndex: "0x1", blockHash: "0xaa" }),
+        log({
+          blockNumber: numberToHex(101n),
+          logIndex: "0x5",
+          blockHash: "0xbb",
+        }),
+        log({
+          blockNumber: numberToHex(100n),
+          logIndex: "0x2",
+          blockHash: "0xaa",
+        }),
+        log({
+          blockNumber: numberToHex(100n),
+          logIndex: "0x1",
+          blockHash: "0xaa",
+        }),
       ],
       [filter()],
     );
@@ -135,30 +147,51 @@ describe("groupLogsByBlock", () => {
 
 describe("firstDivergentBlock", () => {
   const digest = (entries: [number, string, number][]) =>
-    new Map(entries.map(([n, hash, logCount]) => [n, { hash: hash as Hex, logCount }]));
+    new Map(
+      entries.map(([n, hash, logCount]) => [
+        n,
+        { hash: hash as Hex, logCount },
+      ]),
+    );
 
   it("returns undefined when the window agrees", () => {
     const a = digest([[10, "0xaa", 1]]);
-    expect(firstDivergentBlock(a, digest([[10, "0xaa", 1]]), 1, 20)).toBeUndefined();
+    expect(
+      firstDivergentBlock(a, digest([[10, "0xaa", 1]]), 1, 20),
+    ).toBeUndefined();
   });
 
   it("catches a block that changed hash", () => {
     expect(
-      firstDivergentBlock(digest([[10, "0xaa", 1]]), digest([[10, "0xbb", 1]]), 1, 20),
+      firstDivergentBlock(
+        digest([[10, "0xaa", 1]]),
+        digest([[10, "0xbb", 1]]),
+        1,
+        20,
+      ),
     ).toBe(10);
   });
 
   it("catches a block whose logs disappeared", () => {
-    expect(firstDivergentBlock(digest([[10, "0xaa", 1]]), digest([]), 1, 20)).toBe(10);
+    expect(
+      firstDivergentBlock(digest([[10, "0xaa", 1]]), digest([]), 1, 20),
+    ).toBe(10);
   });
 
   it("catches logs appearing in a block that had none", () => {
-    expect(firstDivergentBlock(digest([]), digest([[10, "0xaa", 1]]), 1, 20)).toBe(10);
+    expect(
+      firstDivergentBlock(digest([]), digest([[10, "0xaa", 1]]), 1, 20),
+    ).toBe(10);
   });
 
   it("catches a block that kept its hash but changed log count", () => {
     expect(
-      firstDivergentBlock(digest([[10, "0xaa", 1]]), digest([[10, "0xaa", 2]]), 1, 20),
+      firstDivergentBlock(
+        digest([[10, "0xaa", 1]]),
+        digest([[10, "0xaa", 2]]),
+        1,
+        20,
+      ),
     ).toBe(10);
   });
 
@@ -199,13 +232,17 @@ function rpcDouble(handlers: {
   const calls: string[] = [];
   // Headers read by number share the current fixture snapshot, rather than
   // advancing a simulated poll as a latest-head request would.
-  const headers = new Map<number, { number: number; hash: string; timestamp: number; baseFeePerGas?: bigint }>();
+  const headers = new Map<
+    number,
+    { number: number; hash: string; timestamp: number; baseFeePerGas?: bigint }
+  >();
   const getLogs = (params: unknown[]) => {
     const p = params[0] as { fromBlock: Hex; toBlock: Hex };
     const logs = handlers.logs?.(Number(p.fromBlock), Number(p.toBlock)) ?? [];
     for (const log of logs) {
       headers.set(Number(log.blockNumber), {
-        number: Number(log.blockNumber), hash: log.blockHash,
+        number: Number(log.blockNumber),
+        hash: log.blockHash,
         timestamp: Number(log.blockTimestamp ?? "0x0"),
       });
     }
@@ -214,12 +251,16 @@ function rpcDouble(handlers: {
   const getBlock = (tag: string) => {
     const b = headers.get(Number(tag)) ?? handlers.blocks?.(tag);
     if (!b) return null;
-    const number = tag === "latest" || tag === "finalized" ? b.number : Number(tag);
+    const number =
+      tag === "latest" || tag === "finalized" ? b.number : Number(tag);
     headers.set(number, b);
     return {
-      number: numberToHex(BigInt(number)), hash: b.hash,
+      number: numberToHex(BigInt(number)),
+      hash: b.hash,
       timestamp: numberToHex(BigInt(b.timestamp)),
-      ...(b.baseFeePerGas !== undefined ? { baseFeePerGas: numberToHex(b.baseFeePerGas) } : {}),
+      ...(b.baseFeePerGas !== undefined
+        ? { baseFeePerGas: numberToHex(b.baseFeePerGas) }
+        : {}),
     };
   };
   return {
@@ -227,7 +268,8 @@ function rpcDouble(handlers: {
     request: (async (args: { method: string; params: unknown[] }) => {
       calls.push(args.method);
       if (args.method === "eth_getLogs") return getLogs(args.params);
-      if (args.method === "eth_getBlockByNumber") return getBlock(args.params[0] as string);
+      if (args.method === "eth_getBlockByNumber")
+        return getBlock(args.params[0] as string);
       throw new Error(`unexpected ${args.method}`);
     }) as RpcLike["request"],
   };
@@ -236,12 +278,14 @@ function rpcDouble(handlers: {
 describe("fetchLogsChecked", () => {
   it("returns a response comfortably under the cap", async () => {
     const rpc = rpcDouble({ logs: () => [log(), log()] });
-    expect(await fetchLogsChecked(rpc, {
-      fromBlock: 1,
-      toBlock: 10,
-      addresses: [CORE],
-      suspectLogCount: 100,
-    })).toHaveLength(2);
+    expect(
+      await fetchLogsChecked(rpc, {
+        fromBlock: 1,
+        toBlock: 10,
+        addresses: [CORE],
+        suspectLogCount: 100,
+      }),
+    ).toHaveLength(2);
     expect(rpc.calls).toEqual(["eth_getLogs"]);
   });
 
@@ -335,7 +379,11 @@ describe("createLogStream", () => {
           : { number: 105, hash: "0x105", timestamp: 1_700_000_000 },
       logs: () => [
         log({ blockNumber: numberToHex(101n), blockHash: "0x101" }),
-        log({ blockNumber: numberToHex(104n), blockHash: "0x104", logIndex: "0x1" }),
+        log({
+          blockNumber: numberToHex(104n),
+          blockHash: "0x104",
+          logIndex: "0x1",
+        }),
       ],
     });
 
@@ -365,7 +413,11 @@ describe("createLogStream", () => {
       blocks: (tag) =>
         tag === "finalized"
           ? { number: 50, hash: "0x50", timestamp: 1_700_000_000 }
-          : { number: (height += 7), hash: `0x${height}`, timestamp: 1_700_000_000 },
+          : {
+              number: (height += 7),
+              hash: `0x${height}`,
+              timestamp: 1_700_000_000,
+            },
       logs: () => [],
     });
 
@@ -403,7 +455,8 @@ describe("createLogStream", () => {
       blocks: (tag) => {
         if (tag === "finalized")
           return { number: 90, hash: "0x90", timestamp: 1_700_000_000 };
-        if (tag === "0x64") return { number: 100, hash: "0x100", timestamp: 1_700_000_000 };
+        if (tag === "0x64")
+          return { number: 100, hash: "0x100", timestamp: 1_700_000_000 };
         headReads++;
         return {
           number: 102,
@@ -424,7 +477,10 @@ describe("createLogStream", () => {
         rpc,
         filters: [filter()],
         startingCursor: { orderKey: 100n, uniqueKey: "0x100" },
-        loadPreviousCursor: async () => ({ orderKey: 100n, uniqueKey: "0x100" }),
+        loadPreviousCursor: async () => ({
+          orderKey: 100n,
+          uniqueKey: "0x100",
+        }),
         options: {
           pollIntervalMs: 1,
           finalizedRefreshIntervalMs: 1_000_000,
@@ -450,7 +506,9 @@ describe("createLogStream", () => {
     const reorged = () => headReads > 6;
     const calls: string[] = [];
     const header = (number: number, hash: string) => ({
-      number: numberToHex(BigInt(number)), hash, timestamp: numberToHex(1_700_000_000n),
+      number: numberToHex(BigInt(number)),
+      hash,
+      timestamp: numberToHex(1_700_000_000n),
     });
     const rpc: RpcLike = {
       request: (async (args: { method: string; params: unknown[] }) => {
@@ -472,8 +530,13 @@ describe("createLogStream", () => {
         rpc,
         filters: [filter()],
         startingCursor: { orderKey: 1000n, uniqueKey: "0x1000" },
-        loadPreviousCursor: async (before) => (before > 20 ? { orderKey: 20n, uniqueKey: "0x20" } : null),
-        options: { pollIntervalMs: 1, finalizedRefreshIntervalMs: 1, maxLogRangeBlocks: 64 },
+        loadPreviousCursor: async (before) =>
+          before > 20 ? { orderKey: 20n, uniqueKey: "0x20" } : null,
+        options: {
+          pollIntervalMs: 1,
+          finalizedRefreshIntervalMs: 1,
+          maxLogRangeBlocks: 64,
+        },
       }),
       50,
       (m) => m.some((x) => x._tag === "invalidate"),
@@ -481,7 +544,10 @@ describe("createLogStream", () => {
 
     const invalidate = messages.find((m) => m._tag === "invalidate");
     expect(invalidate).toBeDefined();
-    expect(invalidate!.invalidate.cursor).toEqual({ orderKey: 990n, uniqueKey: "0x990" });
+    expect(invalidate!.invalidate.cursor).toEqual({
+      orderKey: 990n,
+      uniqueKey: "0x990",
+    });
   });
 
   it("ignores a finalized block that moves backwards", async () => {
@@ -517,16 +583,19 @@ describe("createLogStream", () => {
 
     const finalizes = messages.filter((m) => m._tag === "finalize");
     // Only the forward move is announced; the rewind is refused, not fatal.
-    expect(finalizes.every((f) => Number(f.finalize.cursor.orderKey) === 95)).toBe(
-      true,
-    );
+    expect(
+      finalizes.every((f) => Number(f.finalize.cursor.orderKey) === 95),
+    ).toBe(true);
     expect(warnings.some((w) => w.includes("backwards"))).toBe(true);
   });
 });
 
 describe("digestBlocks", () => {
   it("summarises a block by hash and log count", () => {
-    const blocks = groupLogsByBlock([log(), log({ logIndex: "0x1" })], [filter()]);
+    const blocks = groupLogsByBlock(
+      [log(), log({ logIndex: "0x1" })],
+      [filter()],
+    );
     const digests = digestBlocks(blocks);
     expect(digests.get(100)).toEqual({
       hash: `0x${"ab".repeat(32)}`,
@@ -940,7 +1009,7 @@ describe("createLogStream startup rollback depth", () => {
 const ALCHEMY_TOO_LARGE =
   "Invalid parameters were provided to the RPC method.\n" +
   "Double check you have provided the correct parameters.\n\n" +
-  "Request body: {\"method\":\"eth_getLogs\"}\n\n" +
+  'Request body: {"method":"eth_getLogs"}\n\n' +
   "Details: Log response size exceeded. You can make eth_getLogs requests " +
   "with up to a 5,000 block range and no limit on the response size, or you " +
   "can request any block range with a cap of 10K logs in the response.";
@@ -974,7 +1043,12 @@ describe("groupLogsByBlock event index", () => {
     // inside a Postgres function several layers away from its cause.
     expect(() =>
       groupLogsByBlock(
-        [log({ blockNumber: numberToHex(500n), logIndex: numberToHex(70_000n) })],
+        [
+          log({
+            blockNumber: numberToHex(500n),
+            logIndex: numberToHex(70_000n),
+          }),
+        ],
         [filter()],
       ),
     ).toThrow(/compute_event_id cannot represent/);
@@ -1139,7 +1213,11 @@ describe("createLogStream finalized announcements", () => {
     const rpc = rpcDouble({
       blocks: (tag) => {
         if (tag === "finalized")
-          return { number: head + 4, hash: `0xf${head}`, timestamp: 1_700_000_000 };
+          return {
+            number: head + 4,
+            hash: `0xf${head}`,
+            timestamp: 1_700_000_000,
+          };
         head += 5;
         return { number: head, hash: `0x${head}`, timestamp: 1_700_000_000 };
       },
@@ -1223,19 +1301,18 @@ describe("createLogStream rollback cursor", () => {
         };
       },
       // 101 keeps its hash; 102 changes, so the rollback lands on 101.
-      logs: () =>
-        [
-          log({
-            blockNumber: numberToHex(101n),
-            blockHash: "0xaaa",
-            logIndex: "0x0",
-          }),
-          log({
-            blockNumber: numberToHex(102n),
-            blockHash: reorged() ? "0xccc" : "0xbbb",
-            logIndex: "0x1",
-          }),
-        ],
+      logs: () => [
+        log({
+          blockNumber: numberToHex(101n),
+          blockHash: "0xaaa",
+          logIndex: "0x0",
+        }),
+        log({
+          blockNumber: numberToHex(102n),
+          blockHash: reorged() ? "0xccc" : "0xbbb",
+          logIndex: "0x1",
+        }),
+      ],
     });
 
     const messages = await take(
@@ -1273,10 +1350,16 @@ describe("fetchLogsChecked on an eth_getLogs error", () => {
     ["base", "eth_getLogs is limited to a 10,000 range"],
     ["ink", "block range greater than 10000 max"],
     ["optimism", "Block range is too large"],
-    ["alchemy", "Log response size exceeded. You can make eth_getLogs requests"],
+    [
+      "alchemy",
+      "Log response size exceeded. You can make eth_getLogs requests",
+    ],
     ["infura", "query returned more than 10000 results"],
     ["body", "HTTP response body exceeded the size limit."],
-    ["throttle", "Your app has exceeded its compute units per second capacity."],
+    [
+      "throttle",
+      "Your app has exceeded its compute units per second capacity.",
+    ],
     ["unknown", "something nobody has seen before"],
   ] as const;
 
@@ -1442,7 +1525,9 @@ describe("createLogStream head base fee", () => {
     // which is honest -- the DAO coalesces rather than blanking the column.
     const messages = await take(streamWith([101, 102, 103]), 6, undefined, 400);
 
-    const blocks = messages.flatMap((m) => (m._tag === "data" ? m.data.data : []));
+    const blocks = messages.flatMap((m) =>
+      m._tag === "data" ? m.data.data : [],
+    );
     const head = blocks.find((b) => Number(b.header.blockNumber) === 103);
     expect(head).toBeDefined();
     expect(head!.header.baseFeePerGas).toBe(headBaseFee);
@@ -1451,7 +1536,9 @@ describe("createLogStream head base fee", () => {
   it("carries it on the trailing block of a quiet chain too", async () => {
     const messages = await take(streamWith([]), 4, undefined, 400);
 
-    const blocks = messages.flatMap((m) => (m._tag === "data" ? m.data.data : []));
+    const blocks = messages.flatMap((m) =>
+      m._tag === "data" ? m.data.data : [],
+    );
     expect(blocks.length).toBeGreaterThan(0);
     for (const block of blocks) {
       expect(block.header.baseFeePerGas).toBe(headBaseFee);
@@ -2102,75 +2189,139 @@ describe("observeBlockRate on a halted chain", () => {
   });
 });
 
-
 describe("EVM timestamp completion across a reorg", () => {
-  const makeAdapter = (hash: Hex) => createEvmAdapter(rpcDouble({
-    blocks: () => ({ number: 100, hash, timestamp: 1_700_000_000 }),
-    logs: () => [],
-  }), [filter()], 10_000);
-  const head = { number: 101, hash: "0x101" as Hex, timestamp: new Date(), baseFeePerGas: null };
+  const makeAdapter = (hash: Hex) =>
+    createEvmAdapter(
+      rpcDouble({
+        blocks: () => ({ number: 100, hash, timestamp: 1_700_000_000 }),
+        logs: () => [],
+      }),
+      [filter()],
+      10_000,
+    );
+  const head = {
+    number: 101,
+    hash: "0x101" as Hex,
+    timestamp: new Date(),
+    baseFeePerGas: null,
+  };
 
   it("refuses to attach a different fork's timestamp to logs", async () => {
-    const blocks = groupLogsByBlock([log({ blockHash: "0xaaa", blockTimestamp: undefined })], [filter()]);
-    await expect(makeAdapter("0xbbb").completeFresh(blocks, head)).rejects.toThrow(/changed hash/);
+    const blocks = groupLogsByBlock(
+      [log({ blockHash: "0xaaa", blockTimestamp: undefined })],
+      [filter()],
+    );
+    await expect(
+      makeAdapter("0xbbb").completeFresh(blocks, head),
+    ).rejects.toThrow(/changed hash/);
     expect(blocks[0]!.header.timestamp.getTime()).toBe(0);
   });
 
   it("uses timestamped intermediate logs without requesting their headers", async () => {
     const blocks = groupLogsByBlock([log({ blockHash: "0xaaa" })], [filter()]);
     const timestamp = blocks[0]!.header.timestamp;
-    const adapter = createEvmAdapter({ request: async () => { throw new Error("unexpected RPC"); } } as RpcLike, [filter()], 10_000);
+    const adapter = createEvmAdapter(
+      {
+        request: async () => {
+          throw new Error("unexpected RPC");
+        },
+      } as RpcLike,
+      [filter()],
+      10_000,
+    );
     await adapter.completeFresh(blocks, head);
     expect(blocks[0]!.header.timestamp).toEqual(timestamp);
     expect(blocks[0]!.header.baseFeePerGas).toBeNull();
   });
 
   it("fills timestamps when the hash matches case-insensitively", async () => {
-    const blocks = groupLogsByBlock([log({ blockHash: "0xaaa", blockTimestamp: undefined })], [filter()]);
+    const blocks = groupLogsByBlock(
+      [log({ blockHash: "0xaaa", blockTimestamp: undefined })],
+      [filter()],
+    );
     await makeAdapter("0xAAA").completeFresh(blocks, head);
     expect(blocks[0]!.header.timestamp.getTime()).toBe(1_700_000_000_000);
   });
 });
 
-
 describe("RPC log consistency", () => {
   it("rejects duplicate positions and mixed block hashes", () => {
-    expect(() => groupLogsByBlock([log(), log()], [filter()])).toThrow(/Duplicate/);
-    expect(() => groupLogsByBlock([log(), log({ blockHash: "0x123", logIndex: "0x2" })], [filter()])).toThrow(/Mixed block hashes/);
+    expect(() => groupLogsByBlock([log(), log()], [filter()])).toThrow(
+      /Duplicate/,
+    );
+    expect(() =>
+      groupLogsByBlock(
+        [log(), log({ blockHash: "0x123", logIndex: "0x2" })],
+        [filter()],
+      ),
+    ).toThrow(/Mixed block hashes/);
   });
   it("rejects logs outside the requested range", async () => {
-    const adapter = createEvmAdapter(rpcDouble({ logs: () => [log()] }), [filter()], 10_000);
-    await expect(adapter.readRange(1, 2)).rejects.toThrow(/outside requested range/);
+    const adapter = createEvmAdapter(
+      rpcDouble({ logs: () => [log()] }),
+      [filter()],
+      10_000,
+    );
+    await expect(adapter.readRange(1, 2)).rejects.toThrow(
+      /outside requested range/,
+    );
   });
 });
 
-
 describe("timestamped EVM range fencing", () => {
   for (const changed of [false, true]) {
-    it(changed ? "rejects a changed anchor without intermediate header reads" : "checks only cursor and anchor after timestamped range results", async () => {
-      const requests: string[] = [];
-      const rpc = { request: async ({ method, params }: { method: string; params: unknown[] }) => {
-        if (method === "eth_getLogs") {
-          requests.push("logs");
-          return [log({ blockNumber: "0x64", blockHash: "0xaaa" })];
+    it(
+      changed
+        ? "rejects a changed anchor without intermediate header reads"
+        : "checks only cursor and anchor after timestamped range results",
+      async () => {
+        const requests: string[] = [];
+        const rpc = {
+          request: async ({
+            method,
+            params,
+          }: {
+            method: string;
+            params: unknown[];
+          }) => {
+            if (method === "eth_getLogs") {
+              requests.push("logs");
+              return [log({ blockNumber: "0x64", blockHash: "0xaaa" })];
+            }
+            const number = Number(params[0]);
+            requests.push(`header:${number}`);
+            if (number !== 99 && number !== 101)
+              throw new Error("unexpected intermediate header");
+            return {
+              number: numberToHex(number),
+              hash: changed && number === 101 ? "0xdead" : numberToHex(number),
+              timestamp: "0x6553f100",
+            };
+          },
+        } as RpcLike;
+        const adapter = createEvmAdapter(rpc, [filter()], 10_000);
+        const pending = readSnapshot(
+          adapter,
+          {
+            from: 99,
+            to: 101,
+            head: {
+              number: 101,
+              hash: "0x65",
+              timestamp: new Date(1_700_000_000_000),
+              baseFeePerGas: 5n,
+            },
+          },
+          { number: 99, hash: "0x63" },
+        );
+        if (changed) await expect(pending).rejects.toThrow(/changed hash/);
+        else {
+          const result = await pending;
+          expect(result.fresh).toHaveLength(1);
+          expect(result.cursorChanged).toBe(false);
         }
-        const number = Number(params[0]);
-        requests.push(`header:${number}`);
-        if (number !== 99 && number !== 101) throw new Error("unexpected intermediate header");
-        return { number: numberToHex(number), hash: changed && number === 101 ? "0xdead" : numberToHex(number), timestamp: "0x6553f100" };
-      } } as RpcLike;
-      const adapter = createEvmAdapter(rpc, [filter()], 10_000);
-      const pending = readSnapshot(adapter, {
-        from: 99, to: 101,
-        head: { number: 101, hash: "0x65", timestamp: new Date(1_700_000_000_000), baseFeePerGas: 5n },
-      }, { number: 99, hash: "0x63" });
-      if (changed) await expect(pending).rejects.toThrow(/changed hash/);
-      else {
-        const result = await pending;
-        expect(result.fresh).toHaveLength(1);
-        expect(result.cursorChanged).toBe(false);
-      }
-      expect(requests).toEqual(["logs", "header:99", "header:101"]);
-    });
+        expect(requests).toEqual(["logs", "header:99", "header:101"]);
+      },
+    );
   }
 });

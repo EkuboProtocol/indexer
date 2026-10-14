@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect, Stream } from "effect";
@@ -172,7 +179,9 @@ describe.skipIf(!SERVER)("bridgeMirrorPriceFetcher against Postgres", () => {
     await token(L1, 0x1234n);
     await bridge([L1, 0x1234n], [L2, 0xbbbbn]);
     const updates = await runMirror();
-    expect(updates.map((update) => update.tokenAddress)).not.toContain("0x1234");
+    expect(updates.map((update) => update.tokenAddress)).not.toContain(
+      "0x1234",
+    );
   });
 
   test("hidden tokens and chains outside the job are skipped", async () => {

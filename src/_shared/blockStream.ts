@@ -28,7 +28,12 @@
  */
 import type { Hex } from "viem";
 import type { IndexerCursor } from "./dao";
-import { readSnapshot, requireHeader, sameHash, StaleSnapshotError } from "./blockSnapshot";
+import {
+  readSnapshot,
+  requireHeader,
+  sameHash,
+  StaleSnapshotError,
+} from "./blockSnapshot";
 import { commonStoredCursor, type LoadPreviousCursor } from "./cursorRecovery";
 
 /** Identity of a block, as far as this stream is concerned. */
@@ -105,7 +110,11 @@ export interface ChainAdapter<TEvent> {
    * range read, so recording one would make it look like it had disappeared on
    * the very next re-read.
    */
-  readRange(from: number, to: number, endHash?: Hex): Promise<StreamBlock<TEvent>[]>;
+  readRange(
+    from: number,
+    to: number,
+    endHash?: Hex,
+  ): Promise<StreamBlock<TEvent>[]>;
 
   /**
    * Fills in whatever `readRange` could not carry, for fresh blocks only.
@@ -277,7 +286,11 @@ export function requireRepresentableIndex(
   blockNumber: number,
   numbering: string,
 ): number {
-  if (!Number.isSafeInteger(eventIndex) || eventIndex < 0 || eventIndex >= MAX_EVENT_INDEX) {
+  if (
+    !Number.isSafeInteger(eventIndex) ||
+    eventIndex < 0 ||
+    eventIndex >= MAX_EVENT_INDEX
+  ) {
     throw new Error(
       `Block ${blockNumber} contains an event at index ${eventIndex}, which compute_event_id cannot represent (the limit is ${MAX_EVENT_INDEX}). event_index is ${numbering}, so a block reaching that many cannot be indexed without re-basing event_id.`,
     );
@@ -647,8 +660,12 @@ async function* announceFinalized<TEvent>(
     pending.number <= state.cursorBlock &&
     reconciledThrough >= state.cursorBlock
   ) {
-    const canonical = requireHeader(await adapter.fetchBlock(pending.number), pending.number);
-    if (!sameHash(canonical.hash, pending.hash)) throw new Error("Finalized block disagrees with the canonical chain");
+    const canonical = requireHeader(
+      await adapter.fetchBlock(pending.number),
+      pending.number,
+    );
+    if (!sameHash(canonical.hash, pending.hash))
+      throw new Error("Finalized block disagrees with the canonical chain");
     state.finalized = pending;
     state.pendingFinalized = null;
   }
@@ -857,7 +874,13 @@ async function reconcileWindow<TEvent>(
   if (!state.seeded) {
     seedWindow(state, digests, plan.from);
     return loadStoredBlocks
-      ? verifySeedAgainstStore<TEvent>(state, digests, plan, opts, loadStoredBlocks)
+      ? verifySeedAgainstStore<TEvent>(
+          state,
+          digests,
+          plan,
+          opts,
+          loadStoredBlocks,
+        )
       : null;
   }
   return maybeRollback<TEvent>(state, digests, plan, opts);
@@ -934,10 +957,13 @@ async function verifySeedAgainstStore<TEvent>(
     to,
   );
   if (missing === undefined) return null;
-  opts.onWarning?.("stored history is missing an event-bearing block; rolling back", {
-    block: missing,
-    cursor: state.cursorBlock,
-  });
+  opts.onWarning?.(
+    "stored history is missing an event-bearing block; rolling back",
+    {
+      block: missing,
+      cursor: state.cursorBlock,
+    },
+  );
   return rollbackTo<TEvent>(state, missing);
 }
 
@@ -955,7 +981,8 @@ function seedWindow(
   from: number,
 ): void {
   for (const [blockNumber, digest] of digests) {
-    if (blockNumber <= state.cursorBlock) state.emitted.set(blockNumber, digest);
+    if (blockNumber <= state.cursorBlock)
+      state.emitted.set(blockNumber, digest);
   }
   // The seed read is the first thing `emitted` knows anything about, so it is
   // where the authoritative range begins.
@@ -980,8 +1007,10 @@ function tailMessage<TEvent>(
   if (last && Number(last.header.blockNumber) === anchor.number) return null;
   return dataMessage<TEvent>({
     header: {
-      blockNumber: BigInt(anchor.number), blockHash: anchor.hash,
-      timestamp: anchor.timestamp, baseFeePerGas: anchor.baseFeePerGas,
+      blockNumber: BigInt(anchor.number),
+      blockHash: anchor.hash,
+      timestamp: anchor.timestamp,
+      baseFeePerGas: anchor.baseFeePerGas,
     },
     logs: [],
   });
@@ -1020,7 +1049,10 @@ export function initStreamState(
     opts,
     state: {
       cursorBlock: Number(startingCursor.orderKey),
-      cursorHash: typeof startingCursor.uniqueKey === "string" ? startingCursor.uniqueKey : null,
+      cursorHash:
+        typeof startingCursor.uniqueKey === "string"
+          ? startingCursor.uniqueKey
+          : null,
       emitted: new Map(),
       finalized: null,
       pendingFinalized: null,
@@ -1123,16 +1155,30 @@ async function checkStartingCursor<TEvent>(
   if (typeof expected !== "string" && !loadPreviousCursor) return null;
   const block = await adapter.fetchBlock(state.cursorBlock);
   if (!block || block.number !== state.cursorBlock) {
-    throw new Error(`Could not verify the stored cursor at block ${state.cursorBlock}`);
+    throw new Error(
+      `Could not verify the stored cursor at block ${state.cursorBlock}`,
+    );
   }
-  if (typeof expected === "string" && BigInt(block.hash) === BigInt(expected)) return null;
+  if (typeof expected === "string" && BigInt(block.hash) === BigInt(expected))
+    return null;
 
-  const cursor = await commonStoredCursor(adapter, state.cursorBlock + 1, loadPreviousCursor);
-  opts.onWarning?.("stored cursor is not canonical; rolling back to verified history", {
-    block: state.cursorBlock, expected, found: block.hash, rollbackTo: Number(cursor.orderKey),
-  });
+  const cursor = await commonStoredCursor(
+    adapter,
+    state.cursorBlock + 1,
+    loadPreviousCursor,
+  );
+  opts.onWarning?.(
+    "stored cursor is not canonical; rolling back to verified history",
+    {
+      block: state.cursorBlock,
+      expected,
+      found: block.hash,
+      rollbackTo: Number(cursor.orderKey),
+    },
+  );
   rollbackTo<TEvent>(state, Number(cursor.orderKey) + 1);
-  state.cursorHash = typeof cursor.uniqueKey === "string" ? cursor.uniqueKey : null;
+  state.cursorHash =
+    typeof cursor.uniqueKey === "string" ? cursor.uniqueKey : null;
   return { _tag: "invalidate", invalidate: { cursor } };
 }
 
@@ -1145,22 +1191,36 @@ async function reconcileSnapshot<T>(
 ): Promise<StreamMessage<T> | null> {
   const digests = digestBlocks(snapshot.blocks);
   if (!snapshot.cursorChanged) {
-    return reconcileWindow<T>(state, digests, plan, opts, args.loadStoredBlocks);
+    return reconcileWindow<T>(
+      state,
+      digests,
+      plan,
+      opts,
+      args.loadStoredBlocks,
+    );
   }
 
   // A matching stored block proves the whole ancestry beneath it, even when
   // the actual fork point is deeper than the configured polling window.
-  const common = [...state.emitted.entries()].reverse().find(([number, old]) => {
-    const next = digests.get(number);
-    return next && sameHash(old.hash, next.hash) && old.logCount === next.logCount;
-  });
+  const common = [...state.emitted.entries()]
+    .reverse()
+    .find(([number, old]) => {
+      const next = digests.get(number);
+      return (
+        next && sameHash(old.hash, next.hash) && old.logCount === next.logCount
+      );
+    });
   if (common) return rollbackTo<T>(state, common[0] + 1);
 
   const cursor = await commonStoredCursor(
-    args.adapter, state.cursorBlock + 1, args.loadPreviousCursor, state.finalized,
+    args.adapter,
+    state.cursorBlock + 1,
+    args.loadPreviousCursor,
+    state.finalized,
   );
   rollbackTo<T>(state, Number(cursor.orderKey) + 1);
-  state.cursorHash = typeof cursor.uniqueKey === "string" ? cursor.uniqueKey : null;
+  state.cursorHash =
+    typeof cursor.uniqueKey === "string" ? cursor.uniqueKey : null;
   return { _tag: "invalidate", invalidate: { cursor } };
 }
 
@@ -1182,16 +1242,22 @@ async function readFreshSnapshot<TEvent>(
 ): Promise<Awaited<ReturnType<typeof readSnapshot<TEvent>>> | null> {
   try {
     const snapshot = await readSnapshot(adapter, plan, {
-      number: state.cursorBlock, hash: state.cursorHash,
+      number: state.cursorBlock,
+      hash: state.cursorHash,
     });
     state.staleSnapshots = 0;
     return snapshot;
   } catch (error) {
-    if (!(error instanceof StaleSnapshotError) || ++state.staleSnapshots > MAX_STALE_SNAPSHOTS) {
+    if (
+      !(error instanceof StaleSnapshotError) ||
+      ++state.staleSnapshots > MAX_STALE_SNAPSHOTS
+    ) {
       throw error;
     }
     opts.onWarning?.("retrying a stale snapshot", {
-      head: plan.head.number, attempt: state.staleSnapshots, reason: error.message,
+      head: plan.head.number,
+      attempt: state.staleSnapshots,
+      reason: error.message,
     });
     return null;
   }
@@ -1246,7 +1312,10 @@ function backOffAfterReadFailure(
     attempt: state.failedReads,
     failingForMs: now - state.failingSince,
     retryInMs: delay,
-    error: (error instanceof Error ? error.message : String(error)).slice(0, 500),
+    error: (error instanceof Error ? error.message : String(error)).slice(
+      0,
+      500,
+    ),
   });
   return delay;
 }
@@ -1258,8 +1327,7 @@ function clearReadFailures(state: StreamState): void {
   state.lastReadFailed = false;
 }
 
-const sleep = (ms: number) =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** `planRead`, or null once the wait before the next poll has been slept. */
 async function planOrWait<TEvent>(
@@ -1276,7 +1344,12 @@ async function planOrWait<TEvent>(
     if (!plan) await sleep(pollIntervalFor(state, opts));
     return plan;
   } catch (error) {
-    await sleep(backOffAfterReadFailure(state, opts, error, { read: "head", cursor: state.cursorBlock }));
+    await sleep(
+      backOffAfterReadFailure(state, opts, error, {
+        read: "head",
+        cursor: state.cursorBlock,
+      }),
+    );
     return null;
   }
 }
@@ -1293,9 +1366,15 @@ async function snapshotOrWait<TEvent>(
     if (!snapshot) await sleep(opts.pollIntervalMs);
     return snapshot;
   } catch (error) {
-    await sleep(backOffAfterReadFailure(state, opts, error, {
-      read: "range", from: plan.from, to: plan.to, head: plan.head.number, cursor: state.cursorBlock,
-    }));
+    await sleep(
+      backOffAfterReadFailure(state, opts, error, {
+        read: "range",
+        from: plan.from,
+        to: plan.to,
+        head: plan.head.number,
+        cursor: state.cursorBlock,
+      }),
+    );
     return null;
   }
 }
@@ -1340,14 +1419,21 @@ async function verifiedStart<TEvent>(
     await selectEndpoint(args, state);
     try {
       const message = await checkStartingCursor(
-        args.adapter, state, args.startingCursor, opts, args.loadPreviousCursor,
+        args.adapter,
+        state,
+        args.startingCursor,
+        opts,
+        args.loadPreviousCursor,
       );
       clearReadFailures(state);
       return message;
     } catch (error) {
-      await sleep(backOffAfterReadFailure(state, opts, error, {
-        read: "starting cursor", cursor: state.cursorBlock,
-      }));
+      await sleep(
+        backOffAfterReadFailure(state, opts, error, {
+          read: "starting cursor",
+          cursor: state.cursorBlock,
+        }),
+      );
     }
   }
 }

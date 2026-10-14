@@ -3,9 +3,38 @@ name: Tests
 on:
   push:
 
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
 jobs:
-  unit-tests:
+  checks:
+    name: Format and lint
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun ci
+
+      # Every step runs even when an earlier one fails, so one push reports
+      # every kind of problem at once.
+      - name: Format
+        run: bun run format:check
+
+      - name: Lint
+        if: ${{ !cancelled() }}
+        run: bun run lint
+
+  unit-tests:
+    name: Unit tests (shard ${{ matrix.shard }} of 4)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     # The concurrent-persist test needs a real server; PGlite has a single
     # connection. Postgres 18 matches production.
     services:
@@ -26,6 +55,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun ci
-      - run: bun run lint
-      # Runs the "test" script so CI and local runs share one timeout.
-      - run: bun run test
+      # Each shard runs every fourth test file. Runs the "test" script so CI
+      # and local runs share one timeout. A "./" prefix makes Bun treat each
+      # argument as a path rather than a name filter.
+      - name: Unit tests
+        run: |
+          files=$(find ./src ./scripts ./tests -name '*.test.ts' | LC_ALL=C sort | awk -v n=4 -v i=${{ matrix.shard }} '(NR - 1) % n == i - 1')
+          test -n "$files"
+          bun run test $files

@@ -6,28 +6,28 @@ type Client = Awaited<ReturnType<typeof createClient>>;
 async function insertToken(
   client: Client,
   chainId: bigint,
-  tokenAddress: bigint
+  tokenAddress: bigint,
 ) {
   await client.query(
     `INSERT INTO erc20_tokens (
         chain_id, token_address, token_symbol, token_name, token_decimals,
         visibility_priority, sort_order
      ) VALUES ($1, $2, 'SYM', 'Token', 18, 1, 1)`,
-    [chainId, tokenAddress]
+    [chainId, tokenAddress],
   );
 }
 
 async function insertSource(
   client: Client,
   source: string,
-  confidence: number
+  confidence: number,
 ) {
   await client.query(
     `INSERT INTO erc20_token_price_sources (source, confidence)
      VALUES ($1, $2)
      ON CONFLICT (source) DO UPDATE
        SET confidence = excluded.confidence`,
-    [source, confidence]
+    [source, confidence],
   );
 }
 
@@ -45,16 +45,20 @@ test("latest price uses the highest-confidence fresh source", async () => {
           (chain_id, token_address, source, "timestamp", value)
        VALUES ($1, $2, 'LOW', CURRENT_TIMESTAMP - INTERVAL '1 minute', 10),
               ($1, $2, 'TOP', CURRENT_TIMESTAMP - INTERVAL '2 minutes', 20)`,
-      [chainId, token]
+      [chainId, token],
     );
 
     const {
       rows: [latest],
-    } = await client.query<{ source: string; value: number; confidence: number }>(
+    } = await client.query<{
+      source: string;
+      value: number;
+      confidence: number;
+    }>(
       `SELECT source, value, confidence
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
 
     expect(latest).toEqual({ source: "TOP", value: 20, confidence: 2 });
@@ -76,7 +80,7 @@ test("lower-confidence observations do not rewrite the effective price", async (
       `INSERT INTO erc20_tokens_usd_prices
           (chain_id, token_address, source, "timestamp", value)
        VALUES ($1, $2, 'TOP', CURRENT_TIMESTAMP, 20)`,
-      [chainId, token]
+      [chainId, token],
     );
     const {
       rows: [{ ctid: beforeCtid }],
@@ -84,14 +88,14 @@ test("lower-confidence observations do not rewrite the effective price", async (
       `SELECT ctid::text
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
 
     await client.query(
       `INSERT INTO erc20_tokens_usd_prices
           (chain_id, token_address, source, "timestamp", value)
        VALUES ($1, $2, 'LOW', CURRENT_TIMESTAMP, 10)`,
-      [chainId, token]
+      [chainId, token],
     );
     const {
       rows: [{ ctid: afterCtid }],
@@ -99,7 +103,7 @@ test("lower-confidence observations do not rewrite the effective price", async (
       `SELECT ctid::text
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
 
     expect(afterCtid).toBe(beforeCtid);
@@ -124,16 +128,20 @@ test("latest price averages all fresh values tied at maximum confidence", async 
        VALUES ($1, $2, 'ONE', CURRENT_TIMESTAMP - INTERVAL '3 minutes', 10),
               ($1, $2, 'TWO', CURRENT_TIMESTAMP - INTERVAL '2 minutes', 14),
               ($1, $2, 'LOW', CURRENT_TIMESTAMP - INTERVAL '1 minute', 100)`,
-      [chainId, token]
+      [chainId, token],
     );
 
     const {
       rows: [latest],
-    } = await client.query<{ source: string; value: number; confidence: number }>(
+    } = await client.query<{
+      source: string;
+      value: number;
+      confidence: number;
+    }>(
       `SELECT source, value, confidence
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
 
     expect(latest).toEqual({ source: "AVG", value: 12, confidence: 5 });
@@ -158,16 +166,20 @@ test("stale sources are excluded before selecting maximum confidence", async () 
                CURRENT_TIMESTAMP - INTERVAL '1 minute'),
               ($1, $2, 'NEW', CURRENT_TIMESTAMP - INTERVAL '1 minute', 7,
                CURRENT_TIMESTAMP + INTERVAL '1 hour')`,
-      [chainId, token]
+      [chainId, token],
     );
 
     const {
       rows: [latest],
-    } = await client.query<{ source: string; value: number; confidence: number }>(
+    } = await client.query<{
+      source: string;
+      value: number;
+      confidence: number;
+    }>(
       `SELECT source, value, confidence
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
 
     expect(latest).toEqual({ source: "NEW", value: 7, confidence: 1 });
@@ -189,14 +201,14 @@ test("tokens with no fresh source have no latest price", async () => {
           (chain_id, token_address, source, "timestamp", value, valid_until)
        VALUES ($1, $2, 'OLD', CURRENT_TIMESTAMP - INTERVAL '6 minutes', 100,
                CURRENT_TIMESTAMP - INTERVAL '1 minute')`,
-      [chainId, token]
+      [chainId, token],
     );
 
     const { rows } = await client.query(
       `SELECT 1
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
     expect(rows).toHaveLength(0);
   } finally {
@@ -220,7 +232,7 @@ test("expiration refresh promotes the next fresh confidence tier", async () => {
                CURRENT_TIMESTAMP + INTERVAL '1 minute'),
               ($1, $2, 'LOW', CURRENT_TIMESTAMP, 10,
                CURRENT_TIMESTAMP + INTERVAL '1 hour')`,
-      [chainId, token]
+      [chainId, token],
     );
 
     const {
@@ -229,14 +241,14 @@ test("expiration refresh promotes the next fresh confidence tier", async () => {
       `SELECT source, value
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
     expect(beforeExpiration).toEqual({ source: "TOP", value: 20 });
 
     await client.query(
       `SELECT refresh_expired_erc20_token_latest_prices(
           CURRENT_TIMESTAMP + INTERVAL '2 minutes'
-       )`
+       )`,
     );
 
     const {
@@ -245,7 +257,7 @@ test("expiration refresh promotes the next fresh confidence tier", async () => {
       `SELECT source, value
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
     expect(afterExpiration).toEqual({ source: "LOW", value: 10 });
   } finally {
@@ -266,7 +278,7 @@ test("cache tracks only the latest observation from each source", async () => {
           (chain_id, token_address, source, "timestamp", value)
        VALUES ($1, $2, 'SRC', CURRENT_TIMESTAMP - INTERVAL '2 minutes', 1),
               ($1, $2, 'SRC', CURRENT_TIMESTAMP - INTERVAL '1 minute', 2.5)`,
-      [chainId, token]
+      [chainId, token],
     );
 
     const {
@@ -275,7 +287,7 @@ test("cache tracks only the latest observation from each source", async () => {
       `SELECT value
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
     const {
       rows: [cacheCount],
@@ -283,7 +295,7 @@ test("cache tracks only the latest observation from each source", async () => {
       `SELECT COUNT(*)::integer AS count
        FROM erc20_tokens_latest_price_by_source
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
 
     expect(latest.value).toBe(2.5);
@@ -306,7 +318,7 @@ test("deleting a source's latest observation backfills that source", async () =>
           (chain_id, token_address, source, "timestamp", value)
        VALUES ($1, $2, 'SRC', CURRENT_TIMESTAMP - INTERVAL '2 minutes', 1),
               ($1, $2, 'SRC', CURRENT_TIMESTAMP - INTERVAL '1 minute', 2)`,
-      [chainId, token]
+      [chainId, token],
     );
 
     await client.query(
@@ -315,7 +327,7 @@ test("deleting a source's latest observation backfills that source", async () =>
          AND token_address = $2
          AND source = 'SRC'
          AND value = 2`,
-      [chainId, token]
+      [chainId, token],
     );
 
     const {
@@ -324,21 +336,21 @@ test("deleting a source's latest observation backfills that source", async () =>
       `SELECT value
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
     expect(latestAfterDelete.value).toBe(1);
 
     await client.query(
       `DELETE FROM erc20_tokens_usd_prices
        WHERE chain_id = $1 AND token_address = $2 AND source = 'SRC'`,
-      [chainId, token]
+      [chainId, token],
     );
 
     const { rows } = await client.query(
       `SELECT 1
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, token]
+      [chainId, token],
     );
     expect(rows).toHaveLength(0);
   } finally {
@@ -353,13 +365,15 @@ test("source policy is confidence-only and observations carry their validity", a
       `SELECT column_name
        FROM information_schema.columns
        WHERE table_name = 'erc20_token_price_sources'
-       ORDER BY ordinal_position`
+       ORDER BY ordinal_position`,
     );
-    const { rows: historyColumns } = await client.query<{ column_name: string }>(
+    const { rows: historyColumns } = await client.query<{
+      column_name: string;
+    }>(
       `SELECT column_name
        FROM information_schema.columns
        WHERE table_name = 'erc20_tokens_usd_prices'
-       ORDER BY ordinal_position`
+       ORDER BY ordinal_position`,
     );
 
     expect(sourceColumns.map(({ column_name }) => column_name)).toEqual([
@@ -367,17 +381,17 @@ test("source policy is confidence-only and observations carry their validity", a
       "confidence",
     ]);
     expect(historyColumns.map(({ column_name }) => column_name)).toContain(
-      "valid_until"
+      "valid_until",
     );
     expect(historyColumns.map(({ column_name }) => column_name)).not.toContain(
-      "confidence"
+      "confidence",
     );
 
     await expect(
       client.query(
         `INSERT INTO erc20_token_price_sources (source, confidence)
-         VALUES ('BAD', 256)`
-      )
+         VALUES ('BAD', 256)`,
+      ),
     ).rejects.toThrow();
   } finally {
     await client.close();
@@ -399,20 +413,20 @@ test("rows without an explicit validity fall back to five minutes", async () => 
           (chain_id, token_address, source, "timestamp", value)
        VALUES ($1, $2, 'SRC', CURRENT_TIMESTAMP - INTERVAL '4 minutes', 5),
               ($1, $3, 'SRC', CURRENT_TIMESTAMP - INTERVAL '6 minutes', 9)`,
-      [chainId, freshToken, staleToken]
+      [chainId, freshToken, staleToken],
     );
 
     const { rows: freshRows } = await client.query(
       `SELECT 1
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, freshToken]
+      [chainId, freshToken],
     );
     const { rows: staleRows } = await client.query(
       `SELECT 1
        FROM erc20_tokens_latest_price
        WHERE chain_id = $1 AND token_address = $2`,
-      [chainId, staleToken]
+      [chainId, staleToken],
     );
 
     expect(freshRows).toHaveLength(1);
@@ -431,14 +445,14 @@ test("quoter price reads retain the physical primary-key lookup plan", async () 
       `SELECT table_type
        FROM information_schema.tables
        WHERE table_schema = 'public'
-         AND table_name = 'erc20_tokens_latest_price'`
+         AND table_name = 'erc20_tokens_latest_price'`,
     );
     const { rows } = await client.query<Record<string, string>>(
       `EXPLAIN
        SELECT t.token_address, t.token_decimals, p.value
        FROM erc20_tokens t
                 JOIN erc20_tokens_latest_price p USING (chain_id, token_address)
-       WHERE t.chain_id = 1`
+       WHERE t.chain_id = 1`,
     );
     const plan = rows.map((row) => Object.values(row)[0]).join("\n");
 

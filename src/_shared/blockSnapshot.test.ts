@@ -4,25 +4,49 @@ import { readSnapshot, StaleSnapshotError } from "./blockSnapshot";
 import { commonStoredCursor } from "./cursorRecovery";
 import { parseRpcEnvelope } from "./rpcEnvelope";
 
-const header = (number: number, hash = `0x${number.toString(16)}`): ChainHead => ({
-  number, hash: hash as `0x${string}`, timestamp: new Date(1000), baseFeePerGas: 1n,
+const header = (
+  number: number,
+  hash = `0x${number.toString(16)}`,
+): ChainHead => ({
+  number,
+  hash: hash as `0x${string}`,
+  timestamp: new Date(1000),
+  baseFeePerGas: 1n,
 });
-const adapter = (over: Partial<ChainAdapter<string>> = {}): ChainAdapter<string> => ({
-  label: "fixture", fetchHead: async () => header(100),
-  fetchBlock: async n => header(n), fetchFinalized: async () => null,
-  readRange: async () => [], completeFresh: async () => {}, ...over,
+const adapter = (
+  over: Partial<ChainAdapter<string>> = {},
+): ChainAdapter<string> => ({
+  label: "fixture",
+  fetchHead: async () => header(100),
+  fetchBlock: async (n) => header(n),
+  fetchFinalized: async () => null,
+  readRange: async () => [],
+  completeFresh: async () => {},
+  ...over,
 });
 const plan = { from: 91, to: 100, head: header(100) };
 
 it("rejects a reorg during an empty range read", async () => {
-  const rpc = adapter({ fetchBlock: async n => header(n, "0xbbb") });
-  await expect(readSnapshot(rpc, plan, { number: 90, hash: null })).rejects.toThrow(/changed hash/);
+  const rpc = adapter({ fetchBlock: async (n) => header(n, "0xbbb") });
+  await expect(
+    readSnapshot(rpc, plan, { number: 90, hash: null }),
+  ).rejects.toThrow(/changed hash/);
 });
 
 it("resolves missing backfill tails before reading or emitting a range", async () => {
   let reads = 0;
-  const rpc = adapter({ fetchBlock: async () => null, readRange: async () => { reads++; return []; } });
-  const read = readSnapshot(rpc, { ...plan, to: 99 }, { number: 90, hash: null });
+  const rpc = adapter({
+    fetchBlock: async () => null,
+    readRange: async () => {
+      reads++;
+      return [];
+    },
+  });
+  const read = readSnapshot(
+    rpc,
+    { ...plan, to: 99 },
+    { number: 90, hash: null },
+  );
   await expect(read).rejects.toThrow(/valid block 99/);
   // A header the node cannot serve yet is retried in-stream, not a restart.
   await expect(read).rejects.toBeInstanceOf(StaleSnapshotError);
@@ -30,71 +54,151 @@ it("resolves missing backfill tails before reading or emitting a range", async (
 });
 
 it("detects a cursor reorg between startup verification and window seeding", async () => {
-  const result = await readSnapshot(adapter(), plan, { number: 90, hash: "0xaaa" });
+  const result = await readSnapshot(adapter(), plan, {
+    number: 90,
+    hash: "0xaaa",
+  });
   expect(result.cursorChanged).toBe(true);
 });
 
 it("rejects head events from a different fork before completing them", async () => {
   let completions = 0;
   const rpc = adapter({
-    readRange: async () => [{ header: { blockNumber: 100n, blockHash: "0xbbb", timestamp: new Date(1000), baseFeePerGas: null }, logs: ["event"] }],
-    completeFresh: async () => { completions++; },
+    readRange: async () => [
+      {
+        header: {
+          blockNumber: 100n,
+          blockHash: "0xbbb",
+          timestamp: new Date(1000),
+          baseFeePerGas: null,
+        },
+        logs: ["event"],
+      },
+    ],
+    completeFresh: async () => {
+      completions++;
+    },
   });
-  await expect(readSnapshot(rpc, plan, { number: 90, hash: null })).rejects.toThrow(/disagree/);
+  await expect(
+    readSnapshot(rpc, plan, { number: 90, hash: null }),
+  ).rejects.toThrow(/disagree/);
   expect(completions).toBe(0);
 });
 
 it("rejects an incorrect numbered header", async () => {
-  await expect(readSnapshot(adapter({ fetchBlock: async () => header(101) }), plan, { number: 90, hash: null })).rejects.toThrow(/valid block 100/);
+  await expect(
+    readSnapshot(adapter({ fetchBlock: async () => header(101) }), plan, {
+      number: 90,
+      hash: null,
+    }),
+  ).rejects.toThrow(/valid block 100/);
 });
 
 it("finds common persisted history beyond the polling window", async () => {
   const requested: number[] = [];
-  const stored = [900, 600, 20].map(n => ({ orderKey: BigInt(n), uniqueKey: `0x${n.toString(16)}` }));
-  const rpc = adapter({ fetchBlock: async n => { requested.push(n); return header(n, n > 20 ? "0xaaa" : "0x14"); } });
-  expect(await commonStoredCursor(rpc, 1000, async before => stored.find(c => c.orderKey < BigInt(before)) ?? null)).toEqual(stored[2]!);
+  const stored = [900, 600, 20].map((n) => ({
+    orderKey: BigInt(n),
+    uniqueKey: `0x${n.toString(16)}`,
+  }));
+  const rpc = adapter({
+    fetchBlock: async (n) => {
+      requested.push(n);
+      return header(n, n > 20 ? "0xaaa" : "0x14");
+    },
+  });
+  expect(
+    await commonStoredCursor(
+      rpc,
+      1000,
+      async (before) => stored.find((c) => c.orderKey < BigInt(before)) ?? null,
+    ),
+  ).toEqual(stored[2]!);
   expect(requested).toEqual([900, 600, 20]);
 });
 
 it("does not treat an unavailable recovery block as proof of a deeper reorg", async () => {
-  await expect(commonStoredCursor(adapter({ fetchBlock: async () => null }), 100, async () => ({ orderKey: 90n, uniqueKey: "0x90" }))).rejects.toThrow(/verify recovery/);
+  await expect(
+    commonStoredCursor(
+      adapter({ fetchBlock: async () => null }),
+      100,
+      async () => ({ orderKey: 90n, uniqueKey: "0x90" }),
+    ),
+  ).rejects.toThrow(/verify recovery/);
 });
 
 it("rejects malformed successful HTTP responses and mismatched JSON-RPC IDs", () => {
-  for (const body of [null, {}, [], { jsonrpc: "2.0", id: 2, result: 1 }, { jsonrpc: "2.0", id: 1 }, { jsonrpc: "2.0", id: 1, result: 1, error: { code: 1, message: "x" } }]) {
+  for (const body of [
+    null,
+    {},
+    [],
+    { jsonrpc: "2.0", id: 2, result: 1 },
+    { jsonrpc: "2.0", id: 1 },
+    { jsonrpc: "2.0", id: 1, result: 1, error: { code: 1, message: "x" } },
+  ]) {
     expect(() => parseRpcEnvelope(body)).toThrow();
   }
-  expect(parseRpcEnvelope({ jsonrpc: "2.0", id: 1, result: null })).toEqual({ jsonrpc: "2.0", id: 1, result: null });
+  expect(parseRpcEnvelope({ jsonrpc: "2.0", id: 1, result: null })).toEqual({
+    jsonrpc: "2.0",
+    id: 1,
+    result: null,
+  });
 });
-
 
 it("lands on the finalized block when nothing is stored above the verified block", async () => {
   const requested: number[] = [];
-  const rpc = adapter({ fetchBlock: async n => { requested.push(n); return header(n); } });
-  const stored = async (before: number) => (20 < before ? { orderKey: 20n, uniqueKey: "0x14" } : null);
-  expect(await commonStoredCursor(rpc, 1000, stored, header(960))).toEqual({ orderKey: 960n, uniqueKey: "0x3c0" });
+  const rpc = adapter({
+    fetchBlock: async (n) => {
+      requested.push(n);
+      return header(n);
+    },
+  });
+  const stored = async (before: number) =>
+    20 < before ? { orderKey: 20n, uniqueKey: "0x14" } : null;
+  expect(await commonStoredCursor(rpc, 1000, stored, header(960))).toEqual({
+    orderKey: 960n,
+    uniqueKey: "0x3c0",
+  });
   expect(requested).toEqual([20, 960]);
 });
 
 it("keeps the stored rollback point when the finalized block is unusable", async () => {
-  const stored = async (before: number) => (20 < before ? { orderKey: 20n, uniqueKey: "0x14" } : null);
+  const stored = async (before: number) =>
+    20 < before ? { orderKey: 20n, uniqueKey: "0x14" } : null;
   const verified = { orderKey: 20n, uniqueKey: "0x14" };
   // Re-read hash disagrees: a stale finalized view must not pick the fork.
-  expect(await commonStoredCursor(adapter(), 1000, stored, header(960, "0xbad"))).toEqual(verified);
+  expect(
+    await commonStoredCursor(adapter(), 1000, stored, header(960, "0xbad")),
+  ).toEqual(verified);
   // At or above the cursor, or at or below the stored block, there is nothing to gain.
-  expect(await commonStoredCursor(adapter(), 1000, stored, header(1000))).toEqual(verified);
-  expect(await commonStoredCursor(adapter(), 1000, stored, header(20))).toEqual(verified);
+  expect(
+    await commonStoredCursor(adapter(), 1000, stored, header(1000)),
+  ).toEqual(verified);
+  expect(await commonStoredCursor(adapter(), 1000, stored, header(20))).toEqual(
+    verified,
+  );
 });
 
 it("does not skip orphaned stored rows by landing on the finalized block", async () => {
-  const stored = [900, 20].map(n => ({ orderKey: BigInt(n), uniqueKey: `0x${n.toString(16)}` }));
-  const rpc = adapter({ fetchBlock: async n => header(n, n > 20 ? "0xaaa" : "0x14") });
+  const stored = [900, 20].map((n) => ({
+    orderKey: BigInt(n),
+    uniqueKey: `0x${n.toString(16)}`,
+  }));
+  const rpc = adapter({
+    fetchBlock: async (n) => header(n, n > 20 ? "0xaaa" : "0x14"),
+  });
   // Block 900 is orphaned, so rows above 20 must be deleted even though 960 is final.
-  expect(await commonStoredCursor(rpc, 1000, async before => stored.find(c => c.orderKey < BigInt(before)) ?? null, header(960, "0xaaa")))
-    .toEqual(stored[1]!);
+  expect(
+    await commonStoredCursor(
+      rpc,
+      1000,
+      async (before) => stored.find((c) => c.orderKey < BigInt(before)) ?? null,
+      header(960, "0xaaa"),
+    ),
+  ).toEqual(stored[1]!);
 });
 
 it("preserves an explicit initial indexing boundary when no stored events exist", async () => {
-  expect(await commonStoredCursor(adapter(), 1000, async () => ({ orderKey: 500n })))
-    .toEqual({ orderKey: 500n, uniqueKey: "0x1f4" });
+  expect(
+    await commonStoredCursor(adapter(), 1000, async () => ({ orderKey: 500n })),
+  ).toEqual({ orderKey: 500n, uniqueKey: "0x1f4" });
 });

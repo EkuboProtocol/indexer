@@ -9,7 +9,7 @@ import { parsePositionsProtocolFeeConfigs } from "../../src/evm/positionsProtoco
 describe("positions protocol fee helpers", () => {
   test("parses comma-delimited protocol fee configs", () => {
     const configs = parsePositionsProtocolFeeConfigs(
-      "0x0000000000000000000000000000000000000001:123:2,0x0000000000000000000000000000000000000002:2,0x0000000000000000000000000000000000000003"
+      "0x0000000000000000000000000000000000000001:123:2,0x0000000000000000000000000000000000000002:2,0x0000000000000000000000000000000000000003",
     );
 
     expect(configs).toEqual([
@@ -56,8 +56,8 @@ describe("positions protocol fee helpers", () => {
         calculateWithdrawalProtocolFeeDelta(
           100n,
           EVM_POOL_FEE_DENOMINATOR >> 1n,
-          0n
-        )
+          0n,
+        ),
       ).toBe(0n);
     });
 
@@ -66,8 +66,8 @@ describe("positions protocol fee helpers", () => {
         calculateWithdrawalProtocolFeeDelta(
           0n,
           EVM_POOL_FEE_DENOMINATOR >> 1n,
-          1n
-        )
+          1n,
+        ),
       ).toBe(0n);
     });
 
@@ -76,8 +76,8 @@ describe("positions protocol fee helpers", () => {
         calculateWithdrawalProtocolFeeDelta(
           100n,
           EVM_POOL_FEE_DENOMINATOR >> 1n,
-          1n
-        )
+          1n,
+        ),
       ).toBe(50n);
     });
 
@@ -87,7 +87,7 @@ describe("positions protocol fee helpers", () => {
 
     test("negative amount throws", () => {
       expect(() => calculateWithdrawalProtocolFeeDelta(-1n, 0n, 1n)).toThrow(
-        "Amount should not be negative"
+        "Amount should not be negative",
       );
     });
 
@@ -96,8 +96,8 @@ describe("positions protocol fee helpers", () => {
         calculateWithdrawalProtocolFeeDelta(
           100n,
           EVM_POOL_FEE_DENOMINATOR >> 1n,
-          10n
-        )
+          10n,
+        ),
       ).toBe(5n);
     });
   });

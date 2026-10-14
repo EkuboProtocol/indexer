@@ -6,7 +6,7 @@ type Client = Awaited<ReturnType<typeof createClient>>;
 async function reloptions(client: Client, table: string) {
   const { rows } = await client.query<{ reloptions: string[] | null }>(
     `SELECT reloptions FROM pg_class WHERE relname = $1 AND relkind = 'r'`,
-    [table]
+    [table],
   );
   return rows[0]?.reloptions ?? [];
 }
@@ -29,7 +29,7 @@ test("the valid_until index is gone so latest-price updates can go HOT", async (
   const client = await createClient();
 
   const { rows } = await client.query<{ indexname: string }>(
-    `SELECT indexname FROM pg_indexes WHERE tablename = 'erc20_tokens_latest_price'`
+    `SELECT indexname FROM pg_indexes WHERE tablename = 'erc20_tokens_latest_price'`,
   );
   const names = rows.map((row) => row.indexname);
 

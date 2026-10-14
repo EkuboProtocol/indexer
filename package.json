@@ -20,7 +20,11 @@
     "sync-token-prices": "bun src/price-sync/index.ts",
     "migrate": "bun scripts/migrate.ts",
     "test": "bun test --timeout 30000",
-    "lint": "eslint ."
+    "lint": "bun scripts/lint.ts",
+    "typecheck": "bun node_modules/@typescript/native/bin/tsc -b",
+    "lint:prune": "bun scripts/lint.ts --prune",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
   },
   "author": "Moody Salem",
   "type": "module",
@@ -30,8 +34,10 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
     "@types/bun": "^1.4.1",
-    "@typescript-eslint/parser": "8.71.1",
-    "eslint": "10.12.0"
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "oxfmt": "0.73.0",
+    "oxlint": "1.88.0",
+    "oxlint-tsgolint": "^7.0.2004"
   },
   "dependencies": {
     "@effect/platform-bun": "4.0.3",

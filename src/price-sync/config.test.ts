@@ -97,7 +97,9 @@ test("an unset CoinGecko key is absent rather than empty", async () => {
   // The key is only required when CoinGecko syncing is actually enabled, so an
   // operator who never turned it on must still be able to start the worker.
   expect((await load({})).coingeckoApiKey).toBeUndefined();
-  expect((await load({ COINGECKO_API_KEY: "" })).coingeckoApiKey).toBeUndefined();
+  expect(
+    (await load({ COINGECKO_API_KEY: "" })).coingeckoApiKey,
+  ).toBeUndefined();
   expect((await load({ COINGECKO_API_KEY: "k" })).coingeckoApiKey).toBe("k");
 });
 
@@ -115,39 +117,42 @@ test("Chainlink feed configuration is parsed from JSON", async () => {
   expect(Object.keys(config.chainlinkConfig)).toEqual(["1"]);
 });
 
-const rejections: [name: string, env: Record<string, string>, message: string][] =
+const rejections: [
+  name: string,
+  env: Record<string, string>,
+  message: string,
+][] = [
   [
-    [
-      "a negative native CoinGecko interval",
-      { COINGECKO_NATIVE_PRICE_SYNC_INTERVAL_SECONDS: "-1" },
-      "COINGECKO_NATIVE_PRICE_SYNC_INTERVAL_SECONDS must be a non-negative integer",
-    ],
-    [
-      "a non-positive sync interval",
-      { TOKEN_PRICE_SYNC_INTERVAL_MS: "0" },
-      "TOKEN_PRICE_SYNC_INTERVAL_MS must be a positive integer",
-    ],
-    [
-      "a negative optional interval",
-      { COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS: "-1" },
-      "COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS must be a non-negative integer",
-    ],
-    [
-      "a negative catalog refresh interval",
-      { CHAINLINK_FEED_CATALOG_REFRESH_INTERVAL_SECONDS: "-5" },
-      "CHAINLINK_FEED_CATALOG_REFRESH_INTERVAL_SECONDS must be a non-negative integer",
-    ],
-    [
-      "a zero quoter rate limit",
-      { MAX_QUOTER_REQUESTS_PER_MINUTE: "0" },
-      "MAX_QUOTER_REQUESTS_PER_MINUTE must be a positive integer",
-    ],
-    [
-      "malformed Chainlink configuration",
-      { CHAINLINK_TOKEN_PRICE_CONFIG: "{not json" },
-      "CHAINLINK_TOKEN_PRICE_CONFIG must be valid JSON",
-    ],
-  ];
+    "a negative native CoinGecko interval",
+    { COINGECKO_NATIVE_PRICE_SYNC_INTERVAL_SECONDS: "-1" },
+    "COINGECKO_NATIVE_PRICE_SYNC_INTERVAL_SECONDS must be a non-negative integer",
+  ],
+  [
+    "a non-positive sync interval",
+    { TOKEN_PRICE_SYNC_INTERVAL_MS: "0" },
+    "TOKEN_PRICE_SYNC_INTERVAL_MS must be a positive integer",
+  ],
+  [
+    "a negative optional interval",
+    { COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS: "-1" },
+    "COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS must be a non-negative integer",
+  ],
+  [
+    "a negative catalog refresh interval",
+    { CHAINLINK_FEED_CATALOG_REFRESH_INTERVAL_SECONDS: "-5" },
+    "CHAINLINK_FEED_CATALOG_REFRESH_INTERVAL_SECONDS must be a non-negative integer",
+  ],
+  [
+    "a zero quoter rate limit",
+    { MAX_QUOTER_REQUESTS_PER_MINUTE: "0" },
+    "MAX_QUOTER_REQUESTS_PER_MINUTE must be a positive integer",
+  ],
+  [
+    "malformed Chainlink configuration",
+    { CHAINLINK_TOKEN_PRICE_CONFIG: "{not json" },
+    "CHAINLINK_TOKEN_PRICE_CONFIG must be valid JSON",
+  ],
+];
 
 for (const [name, env, message] of rejections) {
   test(`${name} is rejected at startup`, async () => {
