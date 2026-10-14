@@ -421,6 +421,48 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### 2026-10-14: TWAMM execution in hourly volume (00137)
+
+**`00137_twamm_hourly_volume`. `hourly_volume_by_token.volume` now includes
+what TWAMM orders sell, not only the net core swap the TWAMM extension makes
+when it executes them. No column changes. History needs a manual backfill.**
+
+Each `twamm_virtual_order_executions` insert computes what the pool's orders
+sold since its previous execution (sale rate × seconds / 2^32 for each period
+of constant sale rate, split by hour), subtracts the input of the extension's
+own core swaps for that execution (same transaction and pool, locker = pool
+extension), which the swaps trigger already counts, and stores the remainder
+per hour and token in the new `twamm_hourly_volume_by_token`. That table's
+triggers add it to `hourly_volume_by_token`. Its rows cascade from the
+execution, so reorgs subtract exactly what was added. Fees are unchanged.
+
+Readers (`api` volume endpoints, `last_24h_pool_stats_view`) sum `volume` and
+need no change; TWAMM pools simply report higher volume.
+
+Deploy: the migration creates two indexes on `twamm_order_updates` and a
+trigger on `twamm_virtual_order_executions`, so it parks the workers on
+`blocks` first (the 00120/00123 pattern). It does not touch existing rows.
+
+**Manual step, after the migration is applied:** backfill executions indexed
+before it, per chain, until `examined` is 0:
+
+```sql
+SELECT * FROM backfill_twamm_hourly_volume(<chain_id>, -9223372036854775808, 5000);
+-- then repeat with the returned last_event_id in place of the second argument
+```
+
+It is idempotent: executions that already have rows are skipped, so it can be
+rerun or overlap with the live trigger.
+
+Rollback: `DROP TRIGGER twamm_hourly_volume ON twamm_virtual_order_executions;
+DELETE FROM twamm_hourly_volume_by_token;` (its delete trigger takes the
+contributions back out of `hourly_volume_by_token`), then drop the table, the
+functions `insert_twamm_hourly_volume`, `backfill_twamm_hourly_volume`,
+`twamm_hourly_volume_on_voe_insert` and `apply_twamm_hourly_volume`, and the
+two `twamm_order_updates_pool_key_id_*` indexes. Everything removed is derived
+from indexed events and can be recomputed by reapplying the migration and the
+backfill.
+
 ### 2026-10-14: Stored-history recovery stops at persisted finality
 
 **All networks. No schema change and no manual step to deploy. Cursor recovery that
