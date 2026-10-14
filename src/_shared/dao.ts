@@ -1,4 +1,4 @@
-import type { Sql } from "postgres";
+import type { Sql, TransactionSql } from "postgres";
 import { type EventKey } from "./eventKey";
 import postgres from "postgres";
 import { pollForAdvisoryLock } from "./advisoryLockPoll";
@@ -455,10 +455,15 @@ const LOCK_WAIT_LOG_INTERVAL_MS = 30_000;
 // Data access object that manages inserts/deletes
 export class DAO {
   private readonly chainId: bigint;
-  private readonly sql: Sql<{ numeric: bigint; bigint: bigint }>;
+  // Inside `begin`, the DAO wraps that transaction rather than the pool.
+  private readonly sql:
+    | Sql<{ numeric: bigint; bigint: bigint }>
+    | TransactionSql<{ numeric: bigint; bigint: bigint }>;
 
   private constructor(
-    sql: Sql<{ numeric: bigint; bigint: bigint }>,
+    sql:
+      | Sql<{ numeric: bigint; bigint: bigint }>
+      | TransactionSql<{ numeric: bigint; bigint: bigint }>,
     chainId: bigint,
   ) {
     this.chainId = chainId;
@@ -524,6 +529,8 @@ export class DAO {
   public async begin<T>(
     cb: (dao: DAO) => T | Promise<T>,
   ): Promise<UnwrapPromiseArray<T>> {
+    if (!("begin" in this.sql))
+      throw new Error("Cannot begin a transaction inside a transaction");
     return this.sql.begin((sql) => {
       const dao = new DAO(sql, this.chainId);
       return cb(dao);
@@ -531,6 +538,8 @@ export class DAO {
   }
 
   public async end() {
+    if (!("end" in this.sql))
+      throw new Error("Cannot end the connection from inside a transaction");
     await this.sql.end({ timeout: 5 });
   }
 

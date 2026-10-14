@@ -1,7 +1,8 @@
 import { expect, it } from "bun:test";
 import type { ChainAdapter, ChainHead } from "./blockStream";
 import { readSnapshot, StaleSnapshotError } from "./blockSnapshot";
-import { commonStoredCursor } from "./cursorRecovery";
+import { commonStoredCursor, type LoadPreviousCursor } from "./cursorRecovery";
+import type { IndexerCursor } from "./dao";
 import { parseRpcEnvelope } from "./rpcEnvelope";
 
 const header = (
@@ -96,7 +97,7 @@ it("rejects an incorrect numbered header", async () => {
 
 it("finds common persisted history beyond the polling window", async () => {
   const requested: number[] = [];
-  const stored = [900, 600, 20].map((n) => ({
+  const stored = [900, 600, 20].map((n): IndexerCursor => ({
     orderKey: BigInt(n),
     uniqueKey: `0x${n.toString(16)}`,
   }));
@@ -137,7 +138,9 @@ it("rejects malformed successful HTTP responses and mismatched JSON-RPC IDs", ()
   ]) {
     expect(() => parseRpcEnvelope(body)).toThrow();
   }
-  expect(parseRpcEnvelope({ jsonrpc: "2.0", id: 1, result: null })).toEqual({
+  expect<unknown>(
+    parseRpcEnvelope({ jsonrpc: "2.0", id: 1, result: null }),
+  ).toEqual({
     jsonrpc: "2.0",
     id: 1,
     result: null,
@@ -152,7 +155,7 @@ it("lands on the finalized block when nothing is stored above the verified block
       return header(n);
     },
   });
-  const stored = async (before: number) =>
+  const stored: LoadPreviousCursor = async (before) =>
     20 < before ? { orderKey: 20n, uniqueKey: "0x14" } : null;
   expect(await commonStoredCursor(rpc, 1000, stored, header(960))).toEqual({
     orderKey: 960n,
@@ -162,9 +165,9 @@ it("lands on the finalized block when nothing is stored above the verified block
 });
 
 it("keeps the stored rollback point when the finalized block is unusable", async () => {
-  const stored = async (before: number) =>
+  const stored: LoadPreviousCursor = async (before) =>
     20 < before ? { orderKey: 20n, uniqueKey: "0x14" } : null;
-  const verified = { orderKey: 20n, uniqueKey: "0x14" };
+  const verified: IndexerCursor = { orderKey: 20n, uniqueKey: "0x14" };
   // Re-read hash disagrees: a stale finalized view must not pick the fork.
   expect(
     await commonStoredCursor(adapter(), 1000, stored, header(960, "0xbad")),
@@ -179,7 +182,7 @@ it("keeps the stored rollback point when the finalized block is unusable", async
 });
 
 it("does not skip orphaned stored rows by landing on the finalized block", async () => {
-  const stored = [900, 20].map((n) => ({
+  const stored = [900, 20].map((n): IndexerCursor => ({
     orderKey: BigInt(n),
     uniqueKey: `0x${n.toString(16)}`,
   }));

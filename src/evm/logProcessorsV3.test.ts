@@ -1,19 +1,24 @@
 import { describe, expect, it, mock } from "bun:test";
 import { encodeAbiParameters, encodeEventTopics } from "viem";
 import { VE33_ABI } from "./abis_v3";
-import { createLogProcessorsV3 } from "./logProcessorsV3";
+import {
+  createLogProcessorsV3,
+  type LogProcessorConfigV3,
+} from "./logProcessorsV3";
 
-const config = {
-  mevCaptureAddress: "0x0000000000000000000000000000000000000001",
-  boostedFeesConcentratedAddress: "0x0000000000000000000000000000000000000002",
-  boostedFeesStableswapAddress: "0x0000000000000000000000000000000000000003",
-  coreAddress: "0x0000000000000000000000000000000000000004",
-  oracleAddress: "0x0000000000000000000000000000000000000005",
-  incentivesAddress: "0x0000000000000000000000000000000000000006",
-  tokenWrapperFactoryAddress: "0x0000000000000000000000000000000000000007",
-  auctionsAddress: "0x0000000000000000000000000000000000000008",
-  positionsContracts: [],
-} as const;
+const config: Omit<LogProcessorConfigV3, "twammAddresses" | "ordersAddresses"> =
+  {
+    mevCaptureAddress: "0x0000000000000000000000000000000000000001",
+    boostedFeesConcentratedAddress:
+      "0x0000000000000000000000000000000000000002",
+    boostedFeesStableswapAddress: "0x0000000000000000000000000000000000000003",
+    coreAddress: "0x0000000000000000000000000000000000000004",
+    oracleAddress: "0x0000000000000000000000000000000000000005",
+    incentivesAddress: "0x0000000000000000000000000000000000000006",
+    tokenWrapperFactoryAddress: "0x0000000000000000000000000000000000000007",
+    auctionsAddress: "0x0000000000000000000000000000000000000008",
+    positionsContracts: [],
+  };
 
 describe("createLogProcessorsV3", () => {
   it("creates identical TWAMM and Orders processors for current and legacy addresses", () => {
@@ -133,7 +138,7 @@ describe("createLogProcessorsV3", () => {
         transactionHash: `0x${"50".padStart(64, "0")}`,
       },
       {
-        topics,
+        topics: [topics[0]],
         data: encodeAbiParameters(
           [
             { type: "address" },

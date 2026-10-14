@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   checks:
-    name: Format and lint
+    name: Format, lint and types
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +27,10 @@ jobs:
       - name: Lint
         if: ${{ !cancelled() }}
         run: bun run lint
+
+      - name: Type check
+        if: ${{ !cancelled() }}
+        run: bun run typecheck
 
   unit-tests:
     name: Unit tests (shard ${{ matrix.shard }} of 4)

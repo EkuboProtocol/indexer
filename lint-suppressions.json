@@ -1,9 +1,4 @@
 {
-  "scripts/auditEventGaps.ts": {
-    "typescript(await-thenable)": {
-      "count": 2
-    }
-  },
   "scripts/backfillStarknetExtensionCallPoints.ts": {
     "typescript(no-unnecessary-type-assertion)": {
       "count": 3

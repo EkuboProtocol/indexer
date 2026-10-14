@@ -131,9 +131,10 @@ test("starknet pools keep pool_config null after the migration", async () => {
 
     await runMigrations(client, { files: ["00060_pool_config_v2"] });
 
-    const { rows } = await client.query<
-      { pool_config: string | null; pool_config_type: string }[]
-    >(
+    const { rows } = await client.query<{
+      pool_config: string | null;
+      pool_config_type: string;
+    }>(
       `SELECT pool_config, pool_config_type
        FROM pool_keys
        WHERE pool_key_id = $1`,
