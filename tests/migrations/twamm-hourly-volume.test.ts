@@ -395,3 +395,97 @@ test("backfill applies history indexed before the migration, idempotently", asyn
 
   await client.close();
 });
+
+// Sum of what a constant rate sells over [from, to), floored per hour piece,
+// as insert_twamm_hourly_volume does.
+function soldOverHours(rate: bigint, from: number, to: number) {
+  let total = 0n;
+  for (let t = from; t < to;) {
+    const end = Math.min(to, (Math.floor(t / HOUR) + 1) * HOUR);
+    total += (rate * BigInt(end - t)) / X32;
+    t = end;
+  }
+  return total;
+}
+
+test("hourly shares add up exactly with 18-decimal amounts (production case)", async () => {
+  // Rates, times and the core swap of a Starknet execution that 00137 split
+  // into hours whose shares exceeded the total, leaving -13 on the last hour.
+  const R0 = 327522308078679081783406n;
+  const R1 = 339580519834336722231490n;
+  const base = Date.parse("2025-03-27T00:00:00Z") / 1000 - T0;
+  const prev = Date.parse("2025-03-28T23:57:17Z") / 1000 - T0;
+  const end = Date.parse("2025-03-30T08:25:36Z") / 1000 - T0;
+  const cur = Date.parse("2025-03-30T20:07:39Z") / 1000 - T0;
+  const swapIn1 = 784956497846576n;
+
+  const client = await createClient();
+  const pool = await seedPool(client);
+  await block(client, 1, base);
+  await voe(client, pool, 1, 0, 0, 0n, 0n);
+  await block(client, 2, base + HOUR);
+  await voe(client, pool, 2, 0, 0, 0n, 0n);
+  await orderUpdate(client, pool, 2, 0, 1, 1, -T0, end, R0, 0n);
+  await orderUpdate(client, pool, 2, 0, 2, 2, -T0, end, 0n, R1);
+  await block(client, 3, prev);
+  await voe(client, pool, 3, 0, 0, R0, R1);
+  await block(client, 4, cur);
+  await swap(client, pool, 4, 0, 0, TWAMM, -756769123650430n, swapIn1);
+  await voe(client, pool, 4, 0, 1, 0n, 0n);
+
+  const { rows } = await client.query<{
+    block_number: number;
+    token: string;
+    volume: string;
+    negative: number;
+  }>(
+    `SELECT v.block_number::int AS block_number, t.token::text, SUM(t.volume)::text AS volume,
+            count(*) FILTER (WHERE t.volume < 0)::int AS negative
+     FROM twamm_hourly_volume_by_token t
+              JOIN twamm_virtual_order_executions v USING (chain_id, event_id)
+     GROUP BY 1, 2
+     ORDER BY 1, 2`,
+  );
+  expect(rows).toEqual([
+    {
+      block_number: 3,
+      token: TOKEN0,
+      volume: String(soldOverHours(R0, base + HOUR, prev)),
+      negative: 0,
+    },
+    {
+      block_number: 3,
+      token: TOKEN1,
+      volume: String(soldOverHours(R1, base + HOUR, prev)),
+      negative: 0,
+    },
+    {
+      block_number: 4,
+      token: TOKEN0,
+      volume: String(soldOverHours(R0, prev, end)),
+      negative: 0,
+    },
+    {
+      block_number: 4,
+      token: TOKEN1,
+      volume: String(soldOverHours(R1, prev, end) - swapIn1),
+      negative: 0,
+    },
+  ]);
+
+  await client.close();
+});
+
+test("recompute rewrites applied rows without changing correct ones", async () => {
+  const client = await createClient();
+  await seedAll(client);
+  const {
+    rows: [row],
+  } = await client.query<{ examined: number }>(
+    `SELECT examined FROM recompute_twamm_hourly_volume($1, $2, 100)`,
+    [CHAIN_ID, MIN_EVENT_ID],
+  );
+  expect(row?.examined).toBe(2);
+  expect(await hourly(client)).toEqual(AFTER_BLOCK_4);
+  await client.close();
+});

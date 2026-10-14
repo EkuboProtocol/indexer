@@ -421,6 +421,29 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### 2026-10-14: Exact division for TWAMM hourly volume (00138)
+
+**`00138_twamm_hourly_volume_exact_division`. Replaces the body of
+`insert_twamm_hourly_volume` and adds `recompute_twamm_hourly_volume`. No table
+locks, no column changes.**
+
+00137 floored rounded numeric quotients, so an execution's hourly shares could
+add up to a few base units more than its total and leave the last hour slightly
+negative (3 of 1,671,457 rows after the backfill, by at most 13 base units).
+The function now uses exact integer division.
+
+**Manual step, after the migration is applied:** rewrite the rows 00137
+already wrote, per chain, until `examined` is 0:
+
+```sql
+SELECT * FROM recompute_twamm_hourly_volume(<chain_id>, -9223372036854775808, 2000);
+-- then repeat with the returned last_event_id in place of the second argument
+```
+
+Each batch deletes and rewrites its executions' rows in one transaction, so
+hourly volume never drops while it runs. Rollback: restore the 00137 function
+body; the rows differ from it by rounding only.
+
 ### 2026-10-14: TWAMM execution in hourly volume (00137)
 
 **`00137_twamm_hourly_volume`. `hourly_volume_by_token.volume` now includes
