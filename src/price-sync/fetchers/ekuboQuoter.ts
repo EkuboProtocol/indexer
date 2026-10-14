@@ -104,39 +104,42 @@ export function quoterPriceFetcher({
   // the impact cap rejects, drops that token and leaves the rest of the batch
   // intact -- which is what the try/catch-to-null did, minus swallowing
   // programmer errors along with request failures.
-  const quoteToken = Effect.fn("quoter.quoteToken")(function* (token: TokenRow) {
-    const url = `${baseUrl}/${chainId}/${-amountOut}/${address}/${toHexAddress(
-      token.token_address,
-    )}`;
-
-    const quote = yield* spacer(
-      fetchJson<EkuboQuoteResponse>({
-        source: SOURCE,
-        operation: `quote ${token.token_symbol} on chain ${chainId}`,
-        url,
-        referrer: "https://ekubo.org/",
-      }),
-    );
-
-    const outcome = priceFromQuote(quote, token, quoteAmount, maxImpact);
-    if ("skipped" in outcome) {
-      yield* Effect.logWarning(
-        `Skipping result for ${token.token_symbol} because ${outcome.skipped}: ${url}`,
-      );
-      return null;
-    }
-
-    if (!outcome.price) return null;
-
-    yield* Effect.logInfo(
-      `Found price ${outcome.price} for ${token.token_symbol} (${chainId}:${toHexAddress(
+  const quoteToken = Effect.fn("quoter.quoteToken")(
+    function* (token: TokenRow) {
+      const url = `${baseUrl}/${chainId}/${-amountOut}/${address}/${toHexAddress(
         token.token_address,
-      )})`,
-    );
-    return [token.token_address, outcome.price] as const;
-  }, Effect.catch((error) =>
-    Effect.logWarning(error.message).pipe(Effect.as(null)),
-  ));
+      )}`;
+
+      const quote = yield* spacer(
+        fetchJson<EkuboQuoteResponse>({
+          source: SOURCE,
+          operation: `quote ${token.token_symbol} on chain ${chainId}`,
+          url,
+          referrer: "https://ekubo.org/",
+        }),
+      );
+
+      const outcome = priceFromQuote(quote, token, quoteAmount, maxImpact);
+      if ("skipped" in outcome) {
+        yield* Effect.logWarning(
+          `Skipping result for ${token.token_symbol} because ${outcome.skipped}: ${url}`,
+        );
+        return null;
+      }
+
+      if (!outcome.price) return null;
+
+      yield* Effect.logInfo(
+        `Found price ${outcome.price} for ${token.token_symbol} (${chainId}:${toHexAddress(
+          token.token_address,
+        )})`,
+      );
+      return [token.token_address, outcome.price] as const;
+    },
+    Effect.catch((error) =>
+      Effect.logWarning(error.message).pipe(Effect.as(null)),
+    ),
+  );
 
   const plan = Effect.fn("quoter.plan")(function* () {
     const tokens = yield* fetchTokensWithTvl(sql, chainId);

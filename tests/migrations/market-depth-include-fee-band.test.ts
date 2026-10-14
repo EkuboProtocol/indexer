@@ -16,7 +16,7 @@ const MIGRATION = "00130_market_depth_include_fee_band";
 async function seedPool(
   client: Client,
   poolId: number,
-  { fee, feeDenominator = 1_000_000 }: { fee: number; feeDenominator?: number }
+  { fee, feeDenominator = 1_000_000 }: { fee: number; feeDenominator?: number },
 ) {
   const {
     rows: [{ pool_key_id }],
@@ -25,7 +25,7 @@ async function seedPool(
                             fee_denominator, tick_spacing, pool_extension)
      VALUES ($1, 2000, $2, 4000, 4001, $3, $4, 10, 0)
      RETURNING pool_key_id`,
-    [CHAIN_ID, String(poolId), fee, feeDenominator]
+    [CHAIN_ID, String(poolId), fee, feeDenominator],
   );
   return Number(pool_key_id);
 }
@@ -34,7 +34,7 @@ async function seedPool(
 async function seedPositions(
   client: Client,
   poolKeyId: number,
-  positions: [lower: number, upper: number, liquidity: string][]
+  positions: [lower: number, upper: number, liquidity: string][],
 ) {
   const deltas = new Map<number, bigint>();
   for (const [lower, upper, liquidity] of positions) {
@@ -46,7 +46,7 @@ async function seedPositions(
       `INSERT INTO per_pool_per_tick_liquidity (pool_key_id, tick, net_liquidity_delta_diff,
                                                 total_liquidity_on_tick)
        VALUES ($1, $2, $3::numeric, abs($3::numeric))`,
-      [poolKeyId, tick, delta.toString()]
+      [poolKeyId, tick, delta.toString()],
     );
   }
 }
@@ -60,7 +60,7 @@ async function seedSwap(client: Client, poolKeyId: number, tickAfter: number) {
                         emitter, pool_key_id, locker, delta0, delta1, sqrt_ratio_after, tick_after,
                         liquidity_after)
      VALUES ($1, 1, $2, 0, $3, 2000, $4, 3000, 1, -1, 1, $5, 1)`,
-    [CHAIN_ID, nextEvent, String(nextEvent), poolKeyId, tickAfter]
+    [CHAIN_ID, nextEvent, String(nextEvent), poolKeyId, tickAfter],
   );
 }
 
@@ -80,7 +80,7 @@ async function seedFixture(client: Client) {
   await client.query(
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
      VALUES ($1, 1, '1', $2, 1)`,
-    [CHAIN_ID, BASE_TIME]
+    [CHAIN_ID, BASE_TIME],
   );
 
   const usdg = await seedPool(client, 1, { fee: 70 });
@@ -118,7 +118,7 @@ type DepthRow = {
 async function marketDepth(
   client: Client,
   relation: string,
-  poolKeyId?: number
+  poolKeyId?: number,
 ): Promise<DepthRow[]> {
   const { rows } = await client.query<DepthRow>(
     `SELECT pool_key_id::text,
@@ -129,7 +129,7 @@ async function marketDepth(
      FROM ${relation}
      WHERE $1::int8 IS NULL OR pool_key_id = $1::int8
      ORDER BY pool_key_id, depth_percent`,
-    [poolKeyId ?? null]
+    [poolKeyId ?? null],
   );
   return rows;
 }
@@ -142,7 +142,7 @@ async function marketDepth(
 async function positionAmounts(
   client: Client,
   positions: [lower: number, upper: number, liquidity: bigint][],
-  t: number
+  t: number,
 ): Promise<[bigint, bigint]> {
   let amount0 = "0";
   let amount1 = "0";
@@ -156,7 +156,7 @@ async function positionAmounts(
        SELECT ($4::numeric + $5::numeric * (1::NUMERIC / s - 1::NUMERIC / su))::text AS a0,
               ($6::numeric + $5::numeric * (s - sl))::text                           AS a1
        FROM p`,
-      [lower, upper, t, amount0, liquidity.toString(), amount1]
+      [lower, upper, t, amount0, liquidity.toString(), amount1],
     );
     amount0 = row.a0;
     amount1 = row.a1;
@@ -263,7 +263,7 @@ test("pools with no liquidity within a fee width of the price are unchanged", as
   await runMigrations(client, { files: [MIGRATION] });
 
   expect(await marketDepth(client, "pool_market_depth_view", clear)).toEqual(
-    before
+    before,
   );
 
   await client.close();
@@ -276,11 +276,11 @@ test("the materialized view and its concurrent refresh work on the new definitio
   await runMigrations(client, { files: [MIGRATION] });
 
   await client.exec(
-    `REFRESH MATERIALIZED VIEW CONCURRENTLY pool_market_depth_materialized`
+    `REFRESH MATERIALIZED VIEW CONCURRENTLY pool_market_depth_materialized`,
   );
 
   expect(await marketDepth(client, "pool_market_depth_materialized")).toEqual(
-    await marketDepth(client, "pool_market_depth_view")
+    await marketDepth(client, "pool_market_depth_view"),
   );
 
   await client.close();

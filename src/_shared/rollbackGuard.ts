@@ -84,16 +84,24 @@ function refuse(chainId: bigint, refusal: RollbackRefusal): never {
  * Throws when deleting every stored block above `to` is deeper than
  * `MAX_REORG_DEPTH` below `from`. Call before the delete.
  */
-export function assertRollbackDepthAllowed(
-  args: { chainId: bigint; from: IndexerCursor; to: number; maxReorgDepth: number | null },
-): void {
+export function assertRollbackDepthAllowed(args: {
+  chainId: bigint;
+  from: IndexerCursor;
+  to: number;
+  maxReorgDepth: number | null;
+}): void {
   if (args.maxReorgDepth === null) return;
   const fromBlock = Number(args.from.orderKey);
   const depth = fromBlock - args.to;
   if (depth <= args.maxReorgDepth) return;
   refuse(args.chainId, {
-    reason: "exceeds_max_reorg_depth", fromBlock, toBlock: args.to, depth,
-    finalizedBlock: null, failedFinalizedBlock: null, maxReorgDepth: args.maxReorgDepth,
+    reason: "exceeds_max_reorg_depth",
+    fromBlock,
+    toBlock: args.to,
+    depth,
+    finalizedBlock: null,
+    failedFinalizedBlock: null,
+    maxReorgDepth: args.maxReorgDepth,
   });
 }
 
@@ -108,7 +116,12 @@ export function assertRollbackDepthAllowed(
  */
 export async function assertRecoveryWalkAllowed(
   dao: RollbackGuardDao,
-  args: { chainId: bigint; from: IndexerCursor; before: number; maxReorgDepth: number | null },
+  args: {
+    chainId: bigint;
+    from: IndexerCursor;
+    before: number;
+    maxReorgDepth: number | null;
+  },
 ): Promise<void> {
   const fromBlock = Number(args.from.orderKey);
   // The first lookup starts above the cursor; nothing has failed yet.
@@ -119,13 +132,19 @@ export async function assertRecoveryWalkAllowed(
   const finalized = await dao.loadFinalizedCursor();
   const finalizedBlock = finalized ? Number(finalized.orderKey) : null;
   const base = {
-    fromBlock, toBlock: null, depth, finalizedBlock,
-    failedFinalizedBlock: null, maxReorgDepth: args.maxReorgDepth,
+    fromBlock,
+    toBlock: null,
+    depth,
+    finalizedBlock,
+    failedFinalizedBlock: null,
+    maxReorgDepth: args.maxReorgDepth,
   };
 
   if (finalizedBlock !== null && args.before <= finalizedBlock) {
     refuse(args.chainId, {
-      ...base, reason: "finalized_history_not_canonical", failedFinalizedBlock: args.before,
+      ...base,
+      reason: "finalized_history_not_canonical",
+      failedFinalizedBlock: args.before,
     });
   }
   if (args.maxReorgDepth !== null && depth > args.maxReorgDepth) {

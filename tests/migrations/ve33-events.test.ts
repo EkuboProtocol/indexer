@@ -116,18 +116,7 @@ test("ve33 pool fee events require a known pool key", async () => {
         amount0,
         amount1
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-    [
-      chainId,
-      blockNumber,
-      0,
-      1,
-      "9001",
-      "6000",
-      poolKeyId,
-      "2000",
-      "5",
-      "0",
-    ],
+    [chainId, blockNumber, 0, 1, "9001", "6000", poolKeyId, "2000", "5", "0"],
   );
 
   const { rows } = await client.query<{
@@ -188,12 +177,7 @@ test("voted swap fee migration backfills existing rows and removes the default",
     await legacyClient.query(
       `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
        VALUES ($1, $2, $3, $4, 0)`,
-      [
-        chainId,
-        blockNumber,
-        "111551144",
-        new Date("2026-06-29T00:00:00.000Z"),
-      ],
+      [chainId, blockNumber, "111551144", new Date("2026-06-29T00:00:00.000Z")],
     );
     await legacyClient.query(
       `INSERT INTO ve33_vote_weight_applied (

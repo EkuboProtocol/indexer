@@ -39,7 +39,7 @@ async function loadMigrationDirs(select?: string[]) {
   }));
 
   const lookup = new Map(
-    normalizedSelect.map((item) => [item.normalized, item.original])
+    normalizedSelect.map((item) => [item.normalized, item.original]),
   );
 
   const picked: string[] = [];
@@ -60,7 +60,7 @@ async function loadMigrationDirs(select?: string[]) {
 
 export async function runMigrationsThrough(
   client: PGlite,
-  endMigrationNumber: number
+  endMigrationNumber: number,
 ) {
   const entries = await fs.readdir(MIGRATIONS_DIR, { withFileTypes: true });
   const migrations = entries
@@ -77,7 +77,7 @@ export async function runMigrationsThrough(
 
 export async function runMigrations(
   client: PGlite,
-  options: { files?: string[] } = {}
+  options: { files?: string[] } = {},
 ) {
   const { files } = options;
   const selections = files ? [...files] : undefined;
@@ -85,9 +85,13 @@ export async function runMigrations(
   // Include the num_events migration when the base chain tables are present.
   const hasBlocks =
     selections?.some(
-      (name) => normalizeSelection(name) === "00001_chain_tables"
+      (name) => normalizeSelection(name) === "00001_chain_tables",
     ) ?? false;
-  if (selections && hasBlocks && !selections.includes("00087_blocks_num_events")) {
+  if (
+    selections &&
+    hasBlocks &&
+    !selections.includes("00087_blocks_num_events")
+  ) {
     selections.push("00087_blocks_num_events");
   }
 
@@ -96,7 +100,7 @@ export async function runMigrations(
   for (const file of migrations) {
     const sql = await fs.readFile(
       path.join(MIGRATIONS_DIR, file, "index.sql"),
-      "utf8"
+      "utf8",
     );
     await client.exec(sql);
   }
@@ -120,7 +124,7 @@ export async function ensureIndexerCursor(client: PGlite, chainId: number) {
       `INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated, fork_counter)
        VALUES ($1, 0, NULL, $2, 0)
        ON CONFLICT (chain_id) DO NOTHING`,
-      [chainId, now]
+      [chainId, now],
     );
   } catch (error: any) {
     if (error?.code !== "42703") {
@@ -130,7 +134,7 @@ export async function ensureIndexerCursor(client: PGlite, chainId: number) {
       `INSERT INTO indexer_cursor (chain_id, order_key, unique_key, last_updated)
        VALUES ($1, 0, NULL, $2)
        ON CONFLICT (chain_id) DO NOTHING`,
-      [chainId, now]
+      [chainId, now],
     );
   }
 }

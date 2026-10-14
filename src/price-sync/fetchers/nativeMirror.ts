@@ -83,15 +83,13 @@ export function nativeMirrorPriceFetcher({
       `Mirroring chain ${fromChainId} native price ${row.value} from ${row.source} to chains ${toChainIds.join(", ")}`,
     );
 
-    return toChainIds.map(
-      (chainId): PriceUpdate => ({
-        chainId,
-        tokenAddress: "0x0",
-        timestamp,
-        usdPrice: row.value,
-        validUntil: row.valid_until,
-      }),
-    );
+    return toChainIds.map((chainId): PriceUpdate => ({
+      chainId,
+      tokenAddress: "0x0",
+      timestamp,
+      usdPrice: row.value,
+      validUntil: row.valid_until,
+    }));
   });
 
   return {

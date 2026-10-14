@@ -32,7 +32,7 @@ test("pending drop cadences and drop allocations helpers", async () => {
       `INSERT INTO nft_locker_mappings (chain_id, nft_address, locker)
        VALUES ($1, $2, $3)
        ON CONFLICT (chain_id, nft_address) DO UPDATE SET locker = EXCLUDED.locker`,
-      [1, nftEmitter, "7000"]
+      [1, nftEmitter, "7000"],
     );
 
     await insertPositionTransfers(client, {
@@ -51,7 +51,7 @@ test("pending drop cadences and drop allocations helpers", async () => {
        FROM incentives.pending_drop_cadences
        WHERE chain_id = $1
        ORDER BY slug`,
-      [1]
+      [1],
     );
 
     expect(pendingRows.length).toBe(1);
@@ -67,7 +67,7 @@ test("pending drop cadences and drop allocations helpers", async () => {
       amount: string;
     }>(
       `SELECT recipient, amount FROM incentives.drop_allocations($1::bigint[])`,
-      [periodArrayParam]
+      [periodArrayParam],
     );
 
     expect(allocations.length).toBe(2);
@@ -93,19 +93,15 @@ test("drop allocations uses salt transform when locker mapping enabled", async (
       cadence: "1 day",
     });
 
-    const [periodId] = await insertRewardPeriods(
-      client,
-      campaignId,
-      [
-        {
-          start: "2024-01-01T00:00:00Z",
-          end: "2024-01-03T00:00:00Z",
-        },
-      ]
-    );
+    const [periodId] = await insertRewardPeriods(client, campaignId, [
+      {
+        start: "2024-01-01T00:00:00Z",
+        end: "2024-01-03T00:00:00Z",
+      },
+    ]);
 
     const tokenId = (2n ** 200n + 1234n).toString();
-    const saltModulo = (BigInt(tokenId) % (2n ** 192n)).toString();
+    const saltModulo = (BigInt(tokenId) % 2n ** 192n).toString();
     const positionsLocker = "7000";
     const nftEmitter = "8000000000000000001";
     const tokenOwner = "9000";
@@ -117,7 +113,7 @@ test("drop allocations uses salt transform when locker mapping enabled", async (
        ON CONFLICT (chain_id, nft_address)
            DO UPDATE SET locker = EXCLUDED.locker,
                          token_id_transform = EXCLUDED.token_id_transform`,
-      [1, nftEmitter, positionsLocker, bitMod]
+      [1, nftEmitter, positionsLocker, bitMod],
     );
 
     await client.query(
@@ -127,7 +123,7 @@ test("drop allocations uses salt transform when locker mapping enabled", async (
           salt,
           reward_amount
        ) VALUES ($1,$2,$3,$4)`,
-      [periodId, positionsLocker, saltModulo, "500"]
+      [periodId, positionsLocker, saltModulo, "500"],
     );
 
     await insertPositionTransfers(client, {
@@ -144,7 +140,7 @@ test("drop allocations uses salt transform when locker mapping enabled", async (
     }>(
       `SELECT recipient::text, amount::text
        FROM incentives.drop_allocations($1::bigint[])`,
-      [periodArrayParam]
+      [periodArrayParam],
     );
 
     expect(rows.length).toBe(1);
@@ -177,7 +173,7 @@ test("pending reward periods view surfaces uncomputed periods", async () => {
           end: "2024-01-03T00:00:00Z",
         },
       ],
-      { markComputed: false }
+      { markComputed: false },
     );
 
     const { rows } = await client.query<{
@@ -186,7 +182,7 @@ test("pending reward periods view surfaces uncomputed periods", async () => {
       `SELECT reward_period_id
        FROM incentives.pending_reward_periods
        WHERE campaign_id = $1`,
-      [pendingCampaignId]
+      [pendingCampaignId],
     );
 
     expect(rows.length).toBe(1);
@@ -214,7 +210,7 @@ async function seedBlocks(client: PGlite) {
        (1, 100, 1000, '2024-01-01T00:00:00Z', 0),
        (1, 101, 1001, '2024-01-02T00:00:00Z', 0),
        (1, 102, 1002, '2024-01-03T00:00:00Z', 0),
-       (1, 103, 1003, '2024-01-04T00:00:00Z', 0)`
+       (1, 103, 1003, '2024-01-04T00:00:00Z', 0)`,
   );
 }
 
@@ -248,7 +244,7 @@ async function insertCampaign(client: PGlite, params: CampaignParams) {
       params.cadence,
       params.minAllocation,
       params.coreAddress ?? 111,
-    ]
+    ],
   );
   return Number(id);
 }
@@ -262,7 +258,7 @@ async function insertRewardPeriods(
   client: PGlite,
   campaignId: number,
   periods: PeriodInput[],
-  options: { markComputed?: boolean } = {}
+  options: { markComputed?: boolean } = {},
 ) {
   const { markComputed = true } = options;
   const ids: number[] = [];
@@ -292,7 +288,7 @@ async function insertRewardPeriods(
         900,
         900,
         markComputed ? period.end : null,
-      ]
+      ],
     );
     ids.push(Number(id));
   }
@@ -306,7 +302,7 @@ async function insertComputedRewards(
     positionsLocker: string;
     tokenOwner: string;
     directLocker: string;
-  }
+  },
 ) {
   const values = [
     [periodIds[0], addresses.positionsLocker, "1001", "600"],
@@ -324,7 +320,7 @@ async function insertComputedRewards(
           salt,
           reward_amount
        ) VALUES ($1,$2,$3,$4)`,
-      [periodId, locker, salt, reward]
+      [periodId, locker, salt, reward],
     );
   }
 }
@@ -336,7 +332,7 @@ async function insertPositionTransfers(
     tokenOwner: string;
     tokenId: string;
     nftEmitter?: string;
-  }
+  },
 ) {
   const emitter = params.nftEmitter ?? params.positionsLocker;
   await client.query(
@@ -353,6 +349,6 @@ async function insertPositionTransfers(
      ) VALUES
         (1, 100, 0, 0, 5001, $3, $2, 0, 4000),
         (1, 101, 0, 1, 5002, $3, $2, 4000, $1)`,
-    [params.tokenOwner, params.tokenId, emitter]
+    [params.tokenOwner, params.tokenId, emitter],
   );
 }

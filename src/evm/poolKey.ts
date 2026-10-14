@@ -140,7 +140,7 @@ export function toPoolConfigV2({
   if (fee > MAX_FEE) throw new Error("Invalid fee");
   return numberToHex(
     BigInt(tickSpacing) + (fee << 32n) + (BigInt(extension) << 96n),
-    { size: 32 }
+    { size: 32 },
   );
 }
 
@@ -156,7 +156,7 @@ export function toPoolId(poolKey: EncodedPoolKey): `0x${string}` {
         { name: "token1", type: "address" },
         { name: "config", type: "bytes32" },
       ],
-      [poolKey.token0, poolKey.token1, poolKey.config]
-    )
+      [poolKey.token0, poolKey.token1, poolKey.config],
+    ),
   );
 }

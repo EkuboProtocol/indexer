@@ -23,9 +23,9 @@ test("circle stablecoin migration inserts relationships without requiring token 
     const migrationSql = await readFile(
       path.resolve(
         process.cwd(),
-        "migrations/00097_circle_stablecoin_bridge_relationships/index.sql"
+        "migrations/00097_circle_stablecoin_bridge_relationships/index.sql",
       ),
-      "utf8"
+      "utf8",
     );
 
     await client.exec(migrationSql);
@@ -33,7 +33,7 @@ test("circle stablecoin migration inserts relationships without requiring token 
     const {
       rows: [{ count }],
     } = await client.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM erc20_tokens_bridge_relationships`
+      `SELECT COUNT(*)::text AS count FROM erc20_tokens_bridge_relationships`,
     );
 
     expect(count).toBe("880");
@@ -45,7 +45,7 @@ test("circle stablecoin migration inserts relationships without requiring token 
          AND source_token_address = $1
          AND dest_chain_id = 8453
          AND dest_token_address = $2`,
-      [usdcEthereum, usdcBase]
+      [usdcEthereum, usdcBase],
     );
     expect(usdcMainnetPair.length).toBe(1);
 
@@ -56,7 +56,7 @@ test("circle stablecoin migration inserts relationships without requiring token 
          AND source_token_address = $1
          AND dest_chain_id = 84532
          AND dest_token_address = $2`,
-      [usdcEthereum, usdcBaseSepolia]
+      [usdcEthereum, usdcBaseSepolia],
     );
     expect(noMainnetToTestnet.length).toBe(0);
 
@@ -67,7 +67,7 @@ test("circle stablecoin migration inserts relationships without requiring token 
          AND source_token_address = $1
          AND dest_chain_id = 8453
          AND dest_token_address = $2`,
-      [eurcEthereum, eurcBase]
+      [eurcEthereum, eurcBase],
     );
     expect(eurcMainnetPair.length).toBe(1);
 
@@ -76,7 +76,7 @@ test("circle stablecoin migration inserts relationships without requiring token 
     const {
       rows: [{ count: countAfterSecondRun }],
     } = await client.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM erc20_tokens_bridge_relationships`
+      `SELECT COUNT(*)::text AS count FROM erc20_tokens_bridge_relationships`,
     );
 
     expect(countAfterSecondRun).toBe("880");

@@ -159,14 +159,19 @@ export function createEventProcessors({
     <StarknetEventProcessor<ExtensionCallPointsSetEvent>>{
       filter: {
         fromAddress: coreAddress,
-        keys: ["0x38a9213201ed0d67771d34d45fd58a5f718fcaf84ec8f5bcca5b8a4874fd104"],
+        keys: [
+          "0x38a9213201ed0d67771d34d45fd58a5f718fcaf84ec8f5bcca5b8a4874fd104",
+        ],
       },
       parser: parseExtensionCallPointsSet,
       async handle(dao, { parsed, key }): Promise<void> {
-        await dao.insertStarknetExtensionCallPoints({
-          extension: parsed.extension,
-          callPoints: encodeCallPoints(parsed.call_points),
-        }, key);
+        await dao.insertStarknetExtensionCallPoints(
+          {
+            extension: parsed.extension,
+            callPoints: encodeCallPoints(parsed.call_points),
+          },
+          key,
+        );
       },
     },
     <StarknetEventProcessor<TransferEvent>>{
@@ -186,7 +191,7 @@ export function createEventProcessors({
             from: parsed.from,
             to: parsed.to,
           },
-          key
+          key,
         );
       },
     },
@@ -216,7 +221,7 @@ export function createEventProcessors({
             },
             poolId: poolKeyToPoolId(parsed.pool_key),
           },
-          key
+          key,
         );
       },
     },
@@ -246,7 +251,7 @@ export function createEventProcessors({
             amount0: -parsed.delta.amount0,
             amount1: -parsed.delta.amount1,
           },
-          key
+          key,
         );
 
         pendingPositionFeesCollected = {
@@ -277,7 +282,7 @@ export function createEventProcessors({
             tickAfter: Number(parsed.tick_after),
             liquidityAfter: parsed.liquidity_after,
           },
-          key
+          key,
         );
       },
     },
@@ -306,7 +311,7 @@ export function createEventProcessors({
             sqrtRatio: parsed.sqrt_ratio,
             tick: Number(parsed.tick),
           },
-          key
+          key,
         );
       },
     },
@@ -327,7 +332,7 @@ export function createEventProcessors({
             token: parsed.token,
             amount: parsed.amount,
           },
-          key
+          key,
         );
       },
     },
@@ -354,7 +359,7 @@ export function createEventProcessors({
             delta0: parsed.delta.amount0,
             delta1: parsed.delta.amount1,
           },
-          key
+          key,
         );
       },
     },
@@ -388,7 +393,7 @@ export function createEventProcessors({
             amount0: isToken0 ? parsed.amount : 0n,
             amount1: isToken1 ? parsed.amount : 0n,
           },
-          key
+          key,
         );
       },
     },
@@ -409,7 +414,7 @@ export function createEventProcessors({
             amount0: parsed.amount0,
             amount1: parsed.amount1,
           },
-          key
+          key,
         );
       },
     },
@@ -432,7 +437,7 @@ export function createEventProcessors({
             decimals: parsed.decimals,
             totalSupply: parsed.total_supply,
           },
-          key
+          key,
         );
       },
     },
@@ -458,7 +463,7 @@ export function createEventProcessors({
             decimals: parsed.decimals,
             totalSupply: parsed.total_supply,
           },
-          key
+          key,
         );
       },
     },
@@ -481,7 +486,7 @@ export function createEventProcessors({
             decimals: parsed.decimals,
             totalSupply: parsed.total_supply,
           },
-          key
+          key,
         );
       },
     },
@@ -525,7 +530,7 @@ export function createEventProcessors({
             is_selling_token1:
               parsed.order_key.sell_token > parsed.order_key.buy_token,
           },
-          key
+          key,
         );
       },
     },
@@ -567,7 +572,7 @@ export function createEventProcessors({
             is_selling_token1:
               parsed.order_key.sell_token > parsed.order_key.buy_token,
           },
-          key
+          key,
         );
       },
     },
@@ -596,7 +601,7 @@ export function createEventProcessors({
             saleRateToken0: parsed.token0_sale_rate,
             saleRateToken1: parsed.token1_sale_rate,
           },
-          key
+          key,
         );
       },
     },
@@ -617,7 +622,7 @@ export function createEventProcessors({
             amount: parsed.amount,
             delegate: parsed.delegate,
           },
-          key
+          key,
         );
       },
     },
@@ -639,7 +644,7 @@ export function createEventProcessors({
             recipient: parsed.to,
             delegate: parsed.delegate,
           },
-          key
+          key,
         );
       },
     },
@@ -664,10 +669,10 @@ export function createEventProcessors({
                 to: call.to,
                 selector: call.selector,
                 calldata: call.calldata,
-              })
+              }),
             ),
           },
-          key
+          key,
         );
       },
     },
@@ -686,7 +691,7 @@ export function createEventProcessors({
           {
             proposal_id: parsed.id,
           },
-          key
+          key,
         );
       },
     },
@@ -706,7 +711,7 @@ export function createEventProcessors({
           {
             proposal_id: parsed.id,
           },
-          key
+          key,
         );
       },
     },
@@ -728,7 +733,7 @@ export function createEventProcessors({
             weight: parsed.weight,
             yea: parsed.yea,
           },
-          key
+          key,
         );
       },
     },
@@ -748,7 +753,7 @@ export function createEventProcessors({
             proposal_id: parsed.id,
             results: parsed.result_data,
           },
-          key
+          key,
         );
       },
     },
@@ -768,7 +773,7 @@ export function createEventProcessors({
             proposal_id: parsed.id,
             description: parsed.description,
           },
-          key
+          key,
         );
       },
     },
@@ -796,7 +801,7 @@ export function createEventProcessors({
             executionDelay: parsed.new_config.execution_delay,
             executionWindow: parsed.new_config.execution_window,
           },
-          key
+          key,
         );
       },
     },
@@ -819,7 +824,7 @@ export function createEventProcessors({
             tickCumulative: parsed.snapshot.tick_cumulative,
             secondsPerLiquidityCumulative: null,
           },
-          key
+          key,
         );
       },
     },
@@ -852,7 +857,7 @@ export function createEventProcessors({
             liquidity: parsed.liquidity,
             amount: parsed.amount,
           },
-          key
+          key,
         );
       },
     },
@@ -885,7 +890,7 @@ export function createEventProcessors({
             amount0: parsed.amount0,
             amount1: parsed.amount1,
           },
-          key
+          key,
         );
       },
     },
@@ -913,7 +918,7 @@ export function createEventProcessors({
               protocolFees0: parsed.protocol_fees0,
               protocolFees1: parsed.protocol_fees1,
             },
-            key
+            key,
           );
         }
       },

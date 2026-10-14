@@ -20,7 +20,10 @@ export interface PriceUpdate {
  * schedule needs, and it removes the "call this to get a fresh iterable"
  * convention the async-generator version relied on.
  */
-export type PriceFetcher = Stream.Stream<readonly PriceUpdate[], PriceSyncError>;
+export type PriceFetcher = Stream.Stream<
+  readonly PriceUpdate[],
+  PriceSyncError
+>;
 
 export interface PriceSyncJob {
   // Chains this job may yield updates for. Per-chain jobs list exactly one; a

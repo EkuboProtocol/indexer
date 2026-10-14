@@ -10,7 +10,9 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
-function stubFetch(handler: (url: string, init: RequestInit) => Promise<Response>) {
+function stubFetch(
+  handler: (url: string, init: RequestInit) => Promise<Response>,
+) {
   const seen: { url: string; init: RequestInit }[] = [];
   globalThis.fetch = ((input: string | URL, init: RequestInit = {}) => {
     seen.push({ url: String(input), init });
@@ -19,7 +21,7 @@ function stubFetch(handler: (url: string, init: RequestInit) => Promise<Response
   return seen;
 }
 
-const request = <T,>() =>
+const request = <T>() =>
   fetchJson<T>({
     source: "tst",
     operation: "fetch prices",
@@ -34,11 +36,12 @@ const failure = (): Promise<PriceSyncError> =>
   Effect.runPromise(Effect.flip(request<unknown>()));
 
 test("a 200 response is decoded", async () => {
-  const seen = stubFetch(async () =>
-    new Response(JSON.stringify({ price: 3_000 }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }),
+  const seen = stubFetch(
+    async () =>
+      new Response(JSON.stringify({ price: 3_000 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
   );
 
   const result = await Effect.runPromise(request<{ price: number }>());
@@ -89,7 +92,9 @@ test("a response that never arrives times out and aborts the request", async () 
 
   const program = Effect.gen(function* () {
     const fiber = yield* Effect.forkChild(Effect.flip(request<unknown>()));
-    yield* TestClock.adjust(Duration.millis(Duration.toMillis(REQUEST_TIMEOUT) + 1));
+    yield* TestClock.adjust(
+      Duration.millis(Duration.toMillis(REQUEST_TIMEOUT) + 1),
+    );
     return yield* Fiber.join(fiber);
   });
 

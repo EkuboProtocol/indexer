@@ -2,12 +2,18 @@ import { describe, expect, it } from "bun:test";
 import type { Address, Hex } from "viem";
 import { numberToHex } from "viem";
 import type { ChainHead, TickSignal } from "../_shared/blockStream";
-import { createLogStream, type RawLog, type RpcLike, type StreamMessage } from "./logStream";
+import {
+  createLogStream,
+  type RawLog,
+  type RpcLike,
+  type StreamMessage,
+} from "./logStream";
 import { StickyRpc, WrongChainIdError } from "./stickyRpc";
 
 const CORE = "0x00000000000014aA86C5d3c41765bb24e11bd701" as Address;
 const CHAIN_ID = 4663n;
-const hashOf = (n: number) => numberToHex(BigInt(n) + (1n << 200n), { size: 32 });
+const hashOf = (n: number) =>
+  numberToHex(BigInt(n) + (1n << 200n), { size: 32 });
 
 /**
  * A provider over one shared chain: block `n` is `n` seconds after `genesisSec`,
@@ -21,9 +27,12 @@ function provider(label: string, calls: string[], genesisSec: number) {
     down: false,
     chainId: CHAIN_ID,
   };
-  const headNumber = () => state.frozenAt ?? Math.floor(Date.now() / 1000) - genesisSec;
+  const headNumber = () =>
+    state.frozenAt ?? Math.floor(Date.now() / 1000) - genesisSec;
   const block = (n: number) => ({
-    number: numberToHex(n), hash: hashOf(n), timestamp: numberToHex(genesisSec + n),
+    number: numberToHex(n),
+    hash: hashOf(n),
+    timestamp: numberToHex(genesisSec + n),
   });
   const blockByNumber = (tag: string) => {
     const head = headNumber();
@@ -32,26 +41,50 @@ function provider(label: string, calls: string[], genesisSec: number) {
     const n = Number(BigInt(tag));
     return n <= head ? block(n) : null;
   };
-  const getLogs = ({ fromBlock, toBlock }: { fromBlock: Hex; toBlock: Hex }) => {
-    if (state.refuseLogs) throw new Error("Invalid parameters were provided to the RPC method");
+  const getLogs = ({
+    fromBlock,
+    toBlock,
+  }: {
+    fromBlock: Hex;
+    toBlock: Hex;
+  }) => {
+    if (state.refuseLogs)
+      throw new Error("Invalid parameters were provided to the RPC method");
     const logs: RawLog[] = [];
     for (let n = Number(BigInt(fromBlock)); n <= Number(BigInt(toBlock)); n++) {
       if (n % 5 !== 0 || n > headNumber()) continue;
       logs.push({
-        address: CORE, topics: [hashOf(1)], data: "0x", blockHash: hashOf(n),
-        blockNumber: numberToHex(n), blockTimestamp: numberToHex(genesisSec + n),
-        transactionHash: hashOf(n + 7), transactionIndex: "0x0", logIndex: "0x0",
+        address: CORE,
+        topics: [hashOf(1)],
+        data: "0x",
+        blockHash: hashOf(n),
+        blockNumber: numberToHex(n),
+        blockTimestamp: numberToHex(genesisSec + n),
+        transactionHash: hashOf(n + 7),
+        transactionIndex: "0x0",
+        logIndex: "0x0",
       });
     }
     return logs;
   };
   const rpc: RpcLike = {
-    request: (async ({ method, params }: { method: string; params: unknown[] }) => {
+    request: (async ({
+      method,
+      params,
+    }: {
+      method: string;
+      params: unknown[];
+    }) => {
       calls.push(`${label}:${method}`);
-      if (state.down) throw new Error(`HTTP request failed. URL: http://${label}/v2/SECRETKEY`);
+      if (state.down)
+        throw new Error(
+          `HTTP request failed. URL: http://${label}/v2/SECRETKEY`,
+        );
       if (method === "eth_chainId") return numberToHex(state.chainId);
-      if (method === "eth_getBlockByNumber") return blockByNumber(params[0] as string);
-      if (method === "eth_getLogs") return getLogs(params[0] as { fromBlock: Hex; toBlock: Hex });
+      if (method === "eth_getBlockByNumber")
+        return blockByNumber(params[0] as string);
+      if (method === "eth_getLogs")
+        return getLogs(params[0] as { fromBlock: Hex; toBlock: Hex });
       throw new Error(`unexpected ${method}`);
     }) as RpcLike["request"],
   };
@@ -97,15 +130,21 @@ function stream(sticky: StickyRpc, cursor: number) {
     filters: [{ id: 1, address: CORE, topics: [], strict: false }],
     startingCursor: { orderKey: BigInt(cursor) },
     options: {
-      pollIntervalMs: 1, maxPollIntervalMs: 2, maxLogRangeBlocks: 100,
-      heartbeatIntervalMs: 1_000_000, providerOutageBudgetMs: 60_000,
+      pollIntervalMs: 1,
+      maxPollIntervalMs: 2,
+      maxLogRangeBlocks: 100,
+      heartbeatIntervalMs: 1_000_000,
+      providerOutageBudgetMs: 60_000,
       suspectLogCount: () => sticky.current.suspectLogCount,
     },
   });
 }
 
 /** The next `n` data messages, leaving the stream open (a `for await` break would close it). */
-async function take(s: AsyncGenerator<StreamMessage>, n: number): Promise<StreamMessage[]> {
+async function take(
+  s: AsyncGenerator<StreamMessage>,
+  n: number,
+): Promise<StreamMessage[]> {
   const out: StreamMessage[] = [];
   while (out.length < n) {
     const { value, done } = await s.next();
@@ -145,8 +184,9 @@ describe("StickyRpc in the block stream", () => {
     await s.return(undefined);
 
     expect(sticky.current.label).toBe("http://B");
-    expect(warnings.find((w) => w.message === "switched RPC endpoint")?.detail)
-      .toEqual({ from: "http://A", to: "http://B", reason: "read failed" });
+    expect(
+      warnings.find((w) => w.message === "switched RPC endpoint")?.detail,
+    ).toEqual({ from: "http://A", to: "http://B", reason: "read failed" });
     expect(after.length).toBe(60);
     // Plan, snapshot, reconciliation and finality within a turn: one endpoint.
     const turns = endpointsPerTurn(calls);
@@ -170,10 +210,16 @@ describe("StickyRpc in the block stream", () => {
 
 describe("StickyRpc switching", () => {
   const signal = (over: Partial<TickSignal>): TickSignal => ({
-    cursorBlock: 0, lastReadFailed: false, lastHead: null, ...over,
+    cursorBlock: 0,
+    lastReadFailed: false,
+    lastHead: null,
+    ...over,
   });
   const headAt = (number: number, genesisSec: number): ChainHead => ({
-    number, hash: hashOf(number), timestamp: new Date((genesisSec + number) * 1000), baseFeePerGas: null,
+    number,
+    hash: hashOf(number),
+    timestamp: new Date((genesisSec + number) * 1000),
+    baseFeePerGas: null,
   });
 
   it("leaves a silently frozen head for a provider that is ahead of it", async () => {
@@ -181,7 +227,11 @@ describe("StickyRpc switching", () => {
     await sticky.start();
     const frozen = b.headNumber() - 300;
     a.state.frozenAt = frozen;
-    expect(await sticky.beforeTick(signal({ cursorBlock: frozen, lastHead: headAt(frozen, genesisSec) }))).toBe(true);
+    expect(
+      await sticky.beforeTick(
+        signal({ cursorBlock: frozen, lastHead: headAt(frozen, genesisSec) }),
+      ),
+    ).toBe(true);
     expect(sticky.current.label).toBe("http://B");
     expect(warnings.at(-1)?.detail.reason).toBe("stale head");
   });
@@ -192,9 +242,15 @@ describe("StickyRpc switching", () => {
     const halted = a.headNumber() - 300;
     a.state.frozenAt = halted;
     b.state.frozenAt = halted;
-    const tick = signal({ cursorBlock: halted, lastHead: headAt(halted, genesisSec) });
+    const tick = signal({
+      cursorBlock: halted,
+      lastHead: headAt(halted, genesisSec),
+    });
     expect(await sticky.beforeTick(tick)).toBe(false);
-    expect(warnings.at(-1)).toMatchObject({ message: "RPC endpoint not healthier; staying", detail: { reason: "stale head" } });
+    expect(warnings.at(-1)).toMatchObject({
+      message: "RPC endpoint not healthier; staying",
+      detail: { reason: "stale head" },
+    });
     // Not re-probed within the probe interval.
     const probes = warnings.length;
     expect(await sticky.beforeTick(tick)).toBe(false);
@@ -206,14 +262,22 @@ describe("StickyRpc switching", () => {
     const { a, b, sticky } = setup();
     await sticky.start();
     b.state.frozenAt = a.headNumber() - 10;
-    expect(await sticky.beforeTick(signal({ cursorBlock: a.headNumber(), lastReadFailed: true }))).toBe(false);
+    expect(
+      await sticky.beforeTick(
+        signal({ cursorBlock: a.headNumber(), lastReadFailed: true }),
+      ),
+    ).toBe(false);
   });
 
   it("fails back only once the primary passes its probe", async () => {
     const { a, sticky } = setup({ failbackMs: 1 });
     await sticky.start();
     a.state.down = true;
-    expect(await sticky.beforeTick(signal({ cursorBlock: 10, lastReadFailed: true }))).toBe(true);
+    expect(
+      await sticky.beforeTick(
+        signal({ cursorBlock: 10, lastReadFailed: true }),
+      ),
+    ).toBe(true);
     await Bun.sleep(5);
     // Still down: no failback, and B is kept.
     expect(await sticky.beforeTick(signal({ cursorBlock: 10 }))).toBe(false);
@@ -224,7 +288,11 @@ describe("StickyRpc switching", () => {
     const { a, sticky, warnings } = setup({ failbackMs: 1 });
     await sticky.start();
     a.state.refuseLogs = true;
-    expect(await sticky.beforeTick(signal({ cursorBlock: 10, lastReadFailed: true }))).toBe(true);
+    expect(
+      await sticky.beforeTick(
+        signal({ cursorBlock: 10, lastReadFailed: true }),
+      ),
+    ).toBe(true);
     await Bun.sleep(5);
     expect(await sticky.beforeTick(signal({ cursorBlock: 10 }))).toBe(true);
     expect(sticky.current.label).toBe("http://A");
@@ -250,38 +318,61 @@ describe("StickyRpc startup", () => {
   it("is fatal when any endpoint names another chain, including at first use", async () => {
     const wrongPrimary = setup();
     wrongPrimary.a.state.chainId = 1n;
-    await expect(wrongPrimary.sticky.start()).rejects.toBeInstanceOf(WrongChainIdError);
+    await expect(wrongPrimary.sticky.start()).rejects.toBeInstanceOf(
+      WrongChainIdError,
+    );
 
     const wrongSecondary = setup();
     wrongSecondary.b.state.chainId = 1n;
     await wrongSecondary.sticky.start();
-    await expect(wrongSecondary.sticky.beforeTick({ cursorBlock: 0, lastReadFailed: true, lastHead: null }))
-      .rejects.toBeInstanceOf(WrongChainIdError);
+    await expect(
+      wrongSecondary.sticky.beforeTick({
+        cursorBlock: 0,
+        lastReadFailed: true,
+        lastHead: null,
+      }),
+    ).rejects.toBeInstanceOf(WrongChainIdError);
   });
 
   it("backs off until an endpoint answers, within the budget", async () => {
     const { a, b, sticky } = setup();
     a.state.down = true;
     b.state.down = true;
-    setTimeout(() => { b.state.down = false; }, 20);
+    setTimeout(() => {
+      b.state.down = false;
+    }, 20);
     await sticky.startWithin(60_000, 5, 10);
     expect(sticky.current.label).toBe("http://B");
 
     const dead = setup();
     dead.a.state.down = true;
     dead.b.state.down = true;
-    await expect(dead.sticky.startWithin(10, 2, 4)).rejects.toThrow(/HTTP request failed/);
+    await expect(dead.sticky.startWithin(10, 2, 4)).rejects.toThrow(
+      /HTTP request failed/,
+    );
   });
 
   it("never switches with a single endpoint", async () => {
     const calls: string[] = [];
     const only = provider("A", calls, Math.floor(Date.now() / 1000) - 1_000);
-    const sticky = new StickyRpc([{ label: "http://A", rpc: only.rpc, suspectLogCount: 10_000 }], {
-      chainId: CHAIN_ID, staleHeadMs: 1, failbackMs: 1, probeIntervalMs: 1,
-    });
+    const sticky = new StickyRpc(
+      [{ label: "http://A", rpc: only.rpc, suspectLogCount: 10_000 }],
+      {
+        chainId: CHAIN_ID,
+        staleHeadMs: 1,
+        failbackMs: 1,
+        probeIntervalMs: 1,
+      },
+    );
     await sticky.start();
     calls.length = 0;
-    expect(await sticky.beforeTick({ cursorBlock: 0, lastReadFailed: true, lastHead: null })).toBe(false);
+    expect(
+      await sticky.beforeTick({
+        cursorBlock: 0,
+        lastReadFailed: true,
+        lastHead: null,
+      }),
+    ).toBe(false);
     expect(calls).toEqual([]);
   });
 });

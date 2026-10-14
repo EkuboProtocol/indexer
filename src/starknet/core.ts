@@ -33,17 +33,23 @@ export const parseExtensionCallPointsSet = combineParsers({
   extension: { index: 0, parser: parseAddress },
   call_points: { index: 1, parser: parseCallPoints },
 });
-export type ExtensionCallPointsSetEvent = GetParserType<typeof parseExtensionCallPointsSet>;
+export type ExtensionCallPointsSetEvent = GetParserType<
+  typeof parseExtensionCallPointsSet
+>;
 
-export function encodeCallPoints(points: GetParserType<typeof parseCallPoints>): number {
-  return Number(points.before_initialize_pool)
-    + Number(points.after_initialize_pool) * 128
-    + Number(points.before_swap) * 64
-    + Number(points.after_swap) * 32
-    + Number(points.before_update_position) * 16
-    + Number(points.after_update_position) * 8
-    + Number(points.before_collect_fees) * 4
-    + Number(points.after_collect_fees) * 2;
+export function encodeCallPoints(
+  points: GetParserType<typeof parseCallPoints>,
+): number {
+  return (
+    Number(points.before_initialize_pool) +
+    Number(points.after_initialize_pool) * 128 +
+    Number(points.before_swap) * 64 +
+    Number(points.after_swap) * 32 +
+    Number(points.before_update_position) * 16 +
+    Number(points.after_update_position) * 8 +
+    Number(points.before_collect_fees) * 4 +
+    Number(points.after_collect_fees) * 2
+  );
 }
 export const parseBounds = combineParsers({
   lower: { index: 0, parser: parseI129 },
@@ -135,9 +141,7 @@ export const parseSavedBalanceEvent = combineParsers({
   key: { index: 0, parser: parseSavedBalanceKey },
   amount: { index: 1, parser: parseU128 },
 });
-export type SavedBalanceEvent = GetParserType<
-  typeof parseSavedBalanceEvent
->;
+export type SavedBalanceEvent = GetParserType<typeof parseSavedBalanceEvent>;
 
 export const parseFeesAccumulatedEvent = combineParsers({
   pool_key: { index: 0, parser: parsePoolKey },

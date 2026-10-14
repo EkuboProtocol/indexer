@@ -54,7 +54,9 @@ test("no chain has both the ETH mirror and a Sushi job", () => {
   });
   const chainsOf = (source: string) =>
     new Set(
-      jobs.filter((job) => job.source === source).flatMap((job) => job.chainIds),
+      jobs
+        .filter((job) => job.source === source)
+        .flatMap((job) => job.chainIds),
     );
 
   const mirrored = chainsOf("em1");

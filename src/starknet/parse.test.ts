@@ -7,7 +7,7 @@ describe("parse", () => {
     it("works correctly for random data from 0", () => {
       const result = parsePoolKey(
         ["0x5", "0x4", "0x3", "0x2", "0x1", "0x0"],
-        0
+        0,
       );
 
       expect(result).toEqual({
@@ -25,7 +25,7 @@ describe("parse", () => {
     it("works correctly for random data from random place", () => {
       const result = parsePoolKey(
         ["0x5", "0x4", "0x3", "0x2", "0x1", "0x2", "0x3", "0x4"],
-        3
+        3,
       );
 
       expect(result).toEqual({
@@ -44,10 +44,7 @@ describe("parse", () => {
   describe("parseSavedBalanceEvent", () => {
     it("parses the saved balance key and amount", () => {
       expect(
-        parseSavedBalanceEvent(
-          ["0x123", "0x456", "0x789", "0xabc"],
-          0
-        )
+        parseSavedBalanceEvent(["0x123", "0x456", "0x789", "0xabc"], 0),
       ).toEqual({
         next: 4,
         value: {
@@ -96,13 +93,13 @@ describe("parse", () => {
         expect(
           parseUint8Array(
             data.map((x) => `0x${x.toString(16)}`) as readonly `0x${string}`[],
-            startingFrom
-          )
+            startingFrom,
+          ),
         ).toEqual({
           value: new TextEncoder().encode(expected.value),
           next: expected.next,
         });
-      }
+      },
     );
   });
 
@@ -171,10 +168,10 @@ not really`,
         expect(
           parseByteArray(
             data.map((x) => `0x${x.toString(16)}`) as readonly `0x${string}`[],
-            startingFrom
-          )
+            startingFrom,
+          ),
         ).toEqual(expected);
-      }
+      },
     );
   });
 });

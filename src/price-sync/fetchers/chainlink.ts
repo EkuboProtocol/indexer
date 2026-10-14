@@ -236,7 +236,9 @@ export function chainlinkPriceFetcher({
   };
 
   const configuredFeeds = () =>
-    new Map(config.feeds.map((feed) => [feed.tokenAddress.toLowerCase(), feed]));
+    new Map(
+      config.feeds.map((feed) => [feed.tokenAddress.toLowerCase(), feed]),
+    );
 
   // Discovery is best-effort: explicitly configured feeds must keep reporting
   // through a catalog outage rather than depending on it.

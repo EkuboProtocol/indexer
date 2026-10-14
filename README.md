@@ -326,8 +326,7 @@ verification remains active regardless of that cap.
 
 ### Polling and backoff
 
-`POLL_INTERVAL_MS` defaults to 2,000. After `QUIET_POLLS_BEFORE_BACKOFF` (default
-30) consecutive polls without indexed events, the interval doubles up to
+`POLL_INTERVAL_MS` defaults to 2,000. After `QUIET_POLLS_BEFORE_BACKOFF` (default 30) consecutive polls without indexed events, the interval doubles up to
 `MAX_POLL_INTERVAL_MS` (default 30,000). Events or a reorg reset it. Set the maximum
 equal to the minimum to disable backoff. Backoff also delays head/gas freshness.
 
@@ -513,6 +512,7 @@ reconstruction.
 
 Rollback: `DROP FUNCTION mev_capture_daily_metrics(int8, int8, int8);
 DROP FUNCTION mev_capture_block_series(int8, int8, int8);`
+
 ### 2026-09-29: Integer scale for legacy `pool_config` values (00131)
 
 **`00131_pool_config_integer_scale`. Data-only. No manual steps.**
@@ -578,7 +578,6 @@ list with one provider satisfying the RPC endpoint consistency contract above.
 Uncoordinated proxy pools are unsupported. EVM no longer fetches intermediate
 headers when event logs already supply timestamps. No database migration is
 required; existing cursors are preserved.
-
 
 This log records indexer deployments that:
 
@@ -678,7 +677,7 @@ computing the view, so a run goes 25.1 s → ~10.5 s. The job moves from every 1
 minutes to every **10**: 1,512 s/day against today's 2,410, a 37% cut, while
 the worst-case lag between a liquidity change and the pools table drops from 25
 minutes to 20 (the API's own 600 s cache is the other half of that). Every 5
-minutes was considered and not taken — it would cost ~3,000 s/day, *more* than
+minutes was considered and not taken — it would cost ~3,000 s/day, _more_ than
 today, for a further 5 minutes. It is a one-token change in the migration's
 `DO` block if that trade is wanted later.
 
@@ -852,10 +851,10 @@ to carry an event, which on an all-empty chain is arbitrarily stale.
 
 Consumers updated alongside:
 
-| repo | what changed |
-|---|---|
-| `EkuboProtocol/api` | `getLatestBlock` reads `indexer_cursor`; the timestamp and block-number lookups stay on `blocks` |
-| `EkuboProtocol/quoter-service` | `LATEST_BLOCK_QUERY` reads `indexer_cursor` |
+| repo                           | what changed                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `EkuboProtocol/api`            | `getLatestBlock` reads `indexer_cursor`; the timestamp and block-number lookups stay on `blocks` |
+| `EkuboProtocol/quoter-service` | `LATEST_BLOCK_QUERY` reads `indexer_cursor`                                                      |
 
 `base_fee_per_gas` has no consumer inside the database — no view, matview or
 function references it — so quoter-service's tip query was its only reader.
@@ -976,21 +975,21 @@ Monad, Robinhood, Arbitrum and Starknet had any price source, so the nine
 mainnets this release adds would have indexed pools with no USD prices at all.
 Each of the 13 EVM mainnets now has at least three:
 
-| chain | CoinGecko native | CoinGecko tokens | Sushi | Ekubo quoter |
-|---|---|---|---|---|
-| Ethereum (1) | ethereum | — | yes | USDC |
-| Optimism (10) | ethereum | optimistic-ethereum | yes | USDC |
-| BNB Smart Chain (56) | binancecoin | binance-smart-chain | yes | USDC (18dp) |
-| Gnosis (100) | xdai | xdai | yes | USDC.e |
-| Unichain (130) | ethereum | unichain | no | USDC |
-| Polygon (137) | polygon-ecosystem-token | polygon-pos | yes | USDC |
-| Monad (143) | monad | monad | yes | USDC |
-| World Chain (480) | ethereum | world-chain | no | USDC |
-| MegaETH (4326) | ethereum | megaeth | yes | — |
-| Robinhood (4663) | ethereum | robinhood | yes | USDC |
-| Base (8453) | ethereum | base | yes | USDC |
-| Arbitrum (42161) | ethereum | arbitrum-one | yes | — |
-| Ink (57073) | ethereum | ink | no | USDC |
+| chain                | CoinGecko native        | CoinGecko tokens    | Sushi | Ekubo quoter |
+| -------------------- | ----------------------- | ------------------- | ----- | ------------ |
+| Ethereum (1)         | ethereum                | —                   | yes   | USDC         |
+| Optimism (10)        | ethereum                | optimistic-ethereum | yes   | USDC         |
+| BNB Smart Chain (56) | binancecoin             | binance-smart-chain | yes   | USDC (18dp)  |
+| Gnosis (100)         | xdai                    | xdai                | yes   | USDC.e       |
+| Unichain (130)       | ethereum                | unichain            | no    | USDC         |
+| Polygon (137)        | polygon-ecosystem-token | polygon-pos         | yes   | USDC         |
+| Monad (143)          | monad                   | monad               | yes   | USDC         |
+| World Chain (480)    | ethereum                | world-chain         | no    | USDC         |
+| MegaETH (4326)       | ethereum                | megaeth             | yes   | —            |
+| Robinhood (4663)     | ethereum                | robinhood           | yes   | USDC         |
+| Base (8453)          | ethereum                | base                | yes   | USDC         |
+| Arbitrum (42161)     | ethereum                | arbitrum-one        | yes   | —            |
+| Ink (57073)          | ethereum                | ink                 | no    | USDC         |
 
 CoinGecko asset-platform slugs and native coin IDs are taken from CoinGecko's
 own `/asset_platforms` response rather than assumed. Sushi is wired only where
@@ -1038,11 +1037,11 @@ migration drops `erc20_tokens_latest_price_valid_until_idx`, and
 expired rows by sequential scan. That is only cheap once the heap matches its
 live rows. Measured on 2026-09-02 against the bloated 46,147-page heap:
 
-| | buffers | time |
-|---|---|---|
-| index scan (today) | 50 | 0.14 ms |
-| seq scan on bloated heap | 46,147 (45,155 read from disk) | 103.6 ms |
-| seq scan after repack (~250 pages) | ~250 | sub-ms |
+|                                    | buffers                        | time     |
+| ---------------------------------- | ------------------------------ | -------- |
+| index scan (today)                 | 50                             | 0.14 ms  |
+| seq scan on bloated heap           | 46,147 (45,155 read from disk) | 103.6 ms |
+| seq scan after repack (~250 pages) | ~250                           | sub-ms   |
 
 **Repack first, then deploy.** Deploying the migration against an unrepacked
 table makes that once-a-second query 750x more expensive.

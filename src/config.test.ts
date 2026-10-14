@@ -22,8 +22,16 @@ function childEnv(vars: Record<string, string>): Record<string, string> {
 }
 
 function run(cmd: string[], vars: Record<string, string>) {
-  const child = Bun.spawnSync(cmd, { cwd: ROOT, env: childEnv(vars), timeout: 30_000 });
-  return { exitCode: child.exitCode, stdout: child.stdout.toString(), stderr: child.stderr.toString() };
+  const child = Bun.spawnSync(cmd, {
+    cwd: ROOT,
+    env: childEnv(vars),
+    timeout: 30_000,
+  });
+  return {
+    exitCode: child.exitCode,
+    stdout: child.stdout.toString(),
+    stderr: child.stderr.toString(),
+  };
 }
 
 describe("isProduction", () => {
@@ -37,21 +45,32 @@ describe("isProduction", () => {
 });
 
 describe("requireDeployedRpcUrl", () => {
-  for (const [networkType, name] of [["evm", "EVM_RPC_URL"], ["starknet", "STARKNET_RPC_URL"]] as const) {
+  for (const [networkType, name] of [
+    ["evm", "EVM_RPC_URL"],
+    ["starknet", "STARKNET_RPC_URL"],
+  ] as const) {
     it(`requires ${name} in a production environment`, () => {
       for (const value of [undefined, "", "  "]) {
-        expect(() => requireDeployedRpcUrl(networkType, { NODE_ENV: "PRODUCTION", [name]: value })).toThrow(
-          `Missing ${name}`,
-        );
+        expect(() =>
+          requireDeployedRpcUrl(networkType, {
+            NODE_ENV: "PRODUCTION",
+            [name]: value,
+          }),
+        ).toThrow(`Missing ${name}`);
       }
       expect(() =>
-        requireDeployedRpcUrl(networkType, { NODE_ENV: "PRODUCTION", [name]: "https://rpc.example/v2/key" }),
+        requireDeployedRpcUrl(networkType, {
+          NODE_ENV: "PRODUCTION",
+          [name]: "https://rpc.example/v2/key",
+        }),
       ).not.toThrow();
     });
 
     it(`leaves ${name} to the .env files outside production`, () => {
       expect(() => requireDeployedRpcUrl(networkType, {})).not.toThrow();
-      expect(() => requireDeployedRpcUrl(networkType, { NODE_ENV: "development" })).not.toThrow();
+      expect(() =>
+        requireDeployedRpcUrl(networkType, { NODE_ENV: "development" }),
+      ).not.toThrow();
     });
   }
 });
@@ -62,15 +81,22 @@ describe("worker startup without an RPC URL in the environment", () => {
     ["src/starknet.ts", "STARKNET_RPC_URL", "mainnet"],
   ] as const) {
     it(`${entrypoint} exits naming ${name} in production`, () => {
-      const result = run(["bun", entrypoint], { NODE_ENV: "PRODUCTION", NETWORK: network });
+      const result = run(["bun", entrypoint], {
+        NODE_ENV: "PRODUCTION",
+        NETWORK: network,
+      });
       expect(result.exitCode).not.toBe(0);
       // The logger reports the uncaught error as JSON on stdout.
-      expect(result.stdout + result.stderr).toContain(`Missing ${name}: in production`);
+      expect(result.stdout + result.stderr).toContain(
+        `Missing ${name}: in production`,
+      );
     });
   }
 
   it("takes the committed default outside production", () => {
-    const fileDefault = parse(readFileSync(join(ROOT, ".env.evm.base-mainnet"))).EVM_RPC_URL;
+    const fileDefault = parse(
+      readFileSync(join(ROOT, ".env.evm.base-mainnet")),
+    ).EVM_RPC_URL;
     expect(fileDefault).toBeTruthy();
     const script = `
       import { loadConfig, requireDeployedRpcUrl } from "./src/config";
@@ -80,6 +106,8 @@ describe("worker startup without an RPC URL in the environment", () => {
     `;
     const result = run(["bun", "-e", script], { NETWORK: "base-mainnet" });
     expect(result.exitCode).toBe(0);
-    expect(JSON.parse(result.stdout.trim().split("\n").at(-1)!)).toBe(fileDefault);
+    expect(JSON.parse(result.stdout.trim().split("\n").at(-1)!)).toBe(
+      fileDefault,
+    );
   });
 });

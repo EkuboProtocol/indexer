@@ -20,7 +20,9 @@ const env = {
 };
 
 async function viemError(url: string): Promise<Error> {
-  const client = createPublicClient({ transport: http(url, { retryCount: 0 }) });
+  const client = createPublicClient({
+    transport: http(url, { retryCount: 0 }),
+  });
   try {
     await client.request({ method: "eth_chainId" } as never);
   } catch (error) {
@@ -84,7 +86,9 @@ describe("the price-sync console", () => {
       await Effect.runPromise(
         Effect.gen(function* () {
           // worker.ts runCycle and chainlink.ts feed discovery.
-          yield* Effect.logError(`Price sync job clk:1 failed: ${wrapped.message}`);
+          yield* Effect.logError(
+            `Price sync job clk:1 failed: ${wrapped.message}`,
+          );
           yield* Effect.logWarning(
             `Chainlink feed discovery failed for chain 1; using 0 configured feeds: ${wrapped.message}`,
           );
@@ -136,7 +140,11 @@ describe("the price-sync console", () => {
 
 const repoRoot = join(import.meta.dir, "../..");
 
-async function run(command: string[], extraEnv: Record<string, string>, runForMs?: number) {
+async function run(
+  command: string[],
+  extraEnv: Record<string, string>,
+  runForMs?: number,
+) {
   const child = Bun.spawn(command, {
     cwd: repoRoot,
     env: {
@@ -152,7 +160,10 @@ async function run(command: string[], extraEnv: Record<string, string>, runForMs
     stdout: "pipe",
     stderr: "pipe",
   });
-  const timer = runForMs === undefined ? undefined : setTimeout(() => child.kill("SIGTERM"), runForMs);
+  const timer =
+    runForMs === undefined
+      ? undefined
+      : setTimeout(() => child.kill("SIGTERM"), runForMs);
   const [stdout, stderr] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
@@ -163,10 +174,10 @@ async function run(command: string[], extraEnv: Record<string, string>, runForMs
 }
 
 describe("the price-sync worker process", () => {
-  it(
-    "writes no key to stdout or stderr while its RPC and database fail",
-    async () => {
-      const output = await run(["bun", "src/price-sync/index.ts"], {
+  it("writes no key to stdout or stderr while its RPC and database fail", async () => {
+    const output = await run(
+      ["bun", "src/price-sync/index.ts"],
+      {
         PG_CONNECTION_STRING: `postgres://user:pw@127.0.0.1:9/db`,
         TOKEN_PRICE_SYNC_INTERVAL_MS: "60000",
         COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS: "0",
@@ -184,16 +195,16 @@ describe("the price-sync worker process", () => {
             ],
           },
         }),
-      }, 4_000);
+      },
+      4_000,
+    );
 
-      // The line that would carry the key: viem prints the endpoint it failed on.
-      expect(output).toContain("Price sync job 1:cl1 failed");
-      expect(output).toContain("URL: http://127.0.0.1:9/<redacted>");
-      expect(output).not.toContain(ALCHEMY_KEY);
-      expect(output).not.toContain(COINGECKO_KEY);
-    },
-    15_000,
-  );
+    // The line that would carry the key: viem prints the endpoint it failed on.
+    expect(output).toContain("Price sync job 1:cl1 failed");
+    expect(output).toContain("URL: http://127.0.0.1:9/<redacted>");
+    expect(output).not.toContain(ALCHEMY_KEY);
+    expect(output).not.toContain(COINGECKO_KEY);
+  }, 15_000);
 
   it("redacts an uncaught exception and an unhandled rejection", async () => {
     const dir = mkdtempSync(join(tmpdir(), "price-sync-redaction-"));

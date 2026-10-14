@@ -62,10 +62,16 @@ describe("network entrypoint guards", () => {
   });
 });
 
-
 it("rejects missing hashes and negative block numbers", () => {
   for (const parse of [parseEvmBlockHeader, parseStarknetBlockHeader]) {
-    expect(parse({ logs: [], header: { blockNumber: 1n, timestamp: new Date() } })).toBeNull();
-    expect(parse({ logs: [], header: { blockNumber: -1n, blockHash: "0x1", timestamp: new Date() } })).toBeNull();
+    expect(
+      parse({ logs: [], header: { blockNumber: 1n, timestamp: new Date() } }),
+    ).toBeNull();
+    expect(
+      parse({
+        logs: [],
+        header: { blockNumber: -1n, blockHash: "0x1", timestamp: new Date() },
+      }),
+    ).toBeNull();
   }
 });

@@ -35,7 +35,7 @@ async function seedBlock({
       blockNumber,
       `${chainId}${blockNumber}`,
       new Date("2024-01-01T00:00:00Z"),
-    ]
+    ],
   );
 }
 
@@ -55,7 +55,7 @@ async function insertPoolKey(chainId: number) {
         pool_extension
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING pool_key_id`,
-    [chainId, "1000", "2000", "3000", "3001", "25", "1000000", 60, "4000"]
+    [chainId, "1000", "2000", "3000", "3001", "25", "1000000", 60, "4000"],
   );
 
   return Number(poolKeyId);
@@ -64,7 +64,7 @@ async function insertPoolKey(chainId: number) {
 async function getPoolTvl(poolKeyId: number) {
   const { rows } = await client.query<{ balance0: string; balance1: string }>(
     `SELECT balance0, balance1 FROM pool_tvl WHERE pool_key_id = $1`,
-    [poolKeyId]
+    [poolKeyId],
   );
   return rows[0];
 }
@@ -108,7 +108,7 @@ test("deleting blocks cascades pool_balance_change rows and restores pool_tvl", 
       "1500",
       20,
       "900",
-    ]
+    ],
   );
 
   let tvl = await getPoolTvl(poolKeyId);
@@ -145,7 +145,7 @@ test("deleting blocks cascades pool_balance_change rows and restores pool_tvl", 
       "1800",
       24,
       "1100",
-    ]
+    ],
   );
 
   tvl = await getPoolTvl(poolKeyId);
@@ -156,7 +156,7 @@ test("deleting blocks cascades pool_balance_change rows and restores pool_tvl", 
 
   await client.query(
     `DELETE FROM blocks WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, reorgBlock]
+    [chainId, reorgBlock],
   );
 
   tvl = await getPoolTvl(poolKeyId);
@@ -167,7 +167,7 @@ test("deleting blocks cascades pool_balance_change rows and restores pool_tvl", 
     `SELECT 1
      FROM pool_balance_change
      WHERE chain_id = $1 AND block_number = $2`,
-    [chainId, reorgBlock]
+    [chainId, reorgBlock],
   );
   expect(remainingBalanceChanges.length).toBe(0);
 });

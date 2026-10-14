@@ -24,15 +24,19 @@ import { createLogStream, type LogStreamFilter } from "../src/evm/logStream";
 const [url, name, spanRaw, chunkRaw, addrsRaw] = process.argv.slice(2);
 const SPAN = Number(spanRaw ?? 2000);
 const CHUNK = Number(chunkRaw ?? 1000);
-const ADDRS = (addrsRaw ? addrsRaw.split(",") : [
-  "0x00000000000014aA86C5d3c41765bb24e11bd701",
-  "0x5555fF9Ff2757500BF4EE020DcfD0210CFfa41Be",
-  "0x517E506700271AEa091b02f42756F5E174Af5230",
-  "0xd47f1B1eDCfEaBb08F6eBd8FC337c27E636C75BA",
-  "0xC52D2656cb8C634263E6A15469588beB9C3Bb738",
-  "0xcB4e1b5Fb7b120dB0815aFA63453C969136C0Ec9",
-  "0x02D9876A21AF7545f8632C3af76eC90b5ad4b66D",
-]) as readonly `0x${string}`[];
+const ADDRS = (
+  addrsRaw
+    ? addrsRaw.split(",")
+    : [
+        "0x00000000000014aA86C5d3c41765bb24e11bd701",
+        "0x5555fF9Ff2757500BF4EE020DcfD0210CFfa41Be",
+        "0x517E506700271AEa091b02f42756F5E174Af5230",
+        "0xd47f1B1eDCfEaBb08F6eBd8FC337c27E636C75BA",
+        "0xC52D2656cb8C634263E6A15469588beB9C3Bb738",
+        "0xcB4e1b5Fb7b120dB0815aFA63453C969136C0Ec9",
+        "0x02D9876A21AF7545f8632C3af76eC90b5ad4b66D",
+      ]
+) as readonly `0x${string}`[];
 
 const client = createPublicClient({ transport: http(url!, { retryCount: 2 }) });
 const head = Number(await client.getBlockNumber());
@@ -55,8 +59,12 @@ for (let lo = from; lo <= to; lo += CHUNK) {
         address: ADDRS as unknown as `0x${string}`[],
       },
     ],
-  } as never)) as unknown as { blockNumber: `0x${string}`; logIndex: `0x${string}` }[];
-  for (const l of logs) truth.add(key(BigInt(l.blockNumber), Number(l.logIndex)));
+  } as never)) as unknown as {
+    blockNumber: `0x${string}`;
+    logIndex: `0x${string}`;
+  }[];
+  for (const l of logs)
+    truth.add(key(BigInt(l.blockNumber), Number(l.logIndex)));
 }
 
 const filters: LogStreamFilter[] = ADDRS.map((a, i) => ({
@@ -93,7 +101,9 @@ for await (const msg of stream) {
 }
 
 const missed = [...truth].filter((k) => !seen.has(k));
-const extra = [...seen].filter((k) => !truth.has(k) && Number(k.split(":")[0]) <= to);
+const extra = [...seen].filter(
+  (k) => !truth.has(k) && Number(k.split(":")[0]) <= to,
+);
 
 console.log(
   JSON.stringify({
@@ -104,7 +114,8 @@ console.log(
     eventsFromStream: seen.size,
     missed: missed.length,
     extra: extra.length,
-    verdict: missed.length === 0 && extra.length === 0 ? "EXACT MATCH" : "MISMATCH",
+    verdict:
+      missed.length === 0 && extra.length === 0 ? "EXACT MATCH" : "MISMATCH",
     ...(missed.length ? { missedSample: missed.slice(0, 5) } : {}),
     ...(extra.length ? { extraSample: extra.slice(0, 5) } : {}),
   }),

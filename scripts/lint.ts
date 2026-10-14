@@ -28,18 +28,27 @@ const prune = args.includes("--prune");
 const suppressRules = args
   .filter((arg) => arg.startsWith("--suppress-rule="))
   .map((arg) => arg.slice("--suppress-rule=".length));
-const oxlintArgs = args.filter((arg) => arg !== "--prune" && !arg.startsWith("--suppress-rule="));
+const oxlintArgs = args.filter(
+  (arg) => arg !== "--prune" && !arg.startsWith("--suppress-rule="),
+);
 
-const result = Bun.spawnSync(["oxlint", "--format=json", "--max-warnings=0", ...oxlintArgs], {
-  stdout: "pipe",
-  stderr: "inherit",
-});
+const result = Bun.spawnSync(
+  ["oxlint", "--format=json", "--max-warnings=0", ...oxlintArgs],
+  {
+    stdout: "pipe",
+    stderr: "inherit",
+  },
+);
 let diagnostics: Diagnostic[];
 try {
-  diagnostics = (JSON.parse(result.stdout.toString()) as { diagnostics: Diagnostic[] }).diagnostics;
+  diagnostics = (
+    JSON.parse(result.stdout.toString()) as { diagnostics: Diagnostic[] }
+  ).diagnostics;
 } catch {
   console.error(result.stdout.toString());
-  console.error(`oxlint did not produce a report (exit code ${result.exitCode})`);
+  console.error(
+    `oxlint did not produce a report (exit code ${result.exitCode})`,
+  );
   process.exit(result.exitCode || 1);
 }
 
@@ -54,14 +63,18 @@ for (const diagnostic of diagnostics) {
   list.push(diagnostic);
 }
 
-const suppressions = JSON.parse(readFileSync(SUPPRESSIONS_FILE, "utf8")) as Suppressions;
+const suppressions = JSON.parse(
+  readFileSync(SUPPRESSIONS_FILE, "utf8"),
+) as Suppressions;
 
 function write(next: Suppressions) {
   const sorted: Suppressions = {};
   for (const file of Object.keys(next).sort()) {
     const rules = Object.keys(next[file]!).sort();
     if (rules.length === 0) continue;
-    sorted[file] = Object.fromEntries(rules.map((rule) => [rule, next[file]![rule]!]));
+    sorted[file] = Object.fromEntries(
+      rules.map((rule) => [rule, next[file]![rule]!]),
+    );
   }
   writeFileSync(SUPPRESSIONS_FILE, `${JSON.stringify(sorted, null, 2)}\n`);
 }
@@ -90,7 +103,8 @@ if (prune) {
 }
 
 const annotate = process.env.GITHUB_ACTIONS === "true";
-const escape = (text: string) => text.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+const escape = (text: string) =>
+  text.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
 
 let failures = 0;
 for (const [file, byRule] of found) {
@@ -105,7 +119,9 @@ for (const [file, byRule] of found) {
       if (diagnostic.help) console.log(`  help: ${diagnostic.help}`);
       if (annotate) {
         const location = span ? `,line=${span.line},col=${span.column}` : "";
-        console.log(`::error file=${file}${location},title=${escape(rule)}::${escape(diagnostic.message)}`);
+        console.log(
+          `::error file=${file}${location},title=${escape(rule)}::${escape(diagnostic.message)}`,
+        );
       }
     }
     if (allowed > 0) {
@@ -135,4 +151,6 @@ if (failures > 0 || unused > 0) {
   );
   process.exit(1);
 }
-console.log(`No new lint violations; ${recorded} known violation(s) are recorded in ${SUPPRESSIONS_FILE}.`);
+console.log(
+  `No new lint violations; ${recorded} known violation(s) are recorded in ${SUPPRESSIONS_FILE}.`,
+);

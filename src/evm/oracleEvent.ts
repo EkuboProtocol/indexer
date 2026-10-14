@@ -13,7 +13,7 @@ const ORACLE_EVENT_LENGTH = 52; // bytes
 function sliceHex(
   hex: string,
   startBytes: number,
-  lengthBytes: number
+  lengthBytes: number,
 ): string {
   const start = startBytes * 2;
   return hex.slice(start, start + lengthBytes * 2);
@@ -29,7 +29,7 @@ export function parseOracleEvent(data: `0x${string}`): OracleEvent {
     throw new Error(
       `Unexpected oracle event length: expected ${
         ORACLE_EVENT_LENGTH * 2
-      } hex chars, received ${hex.length}`
+      } hex chars, received ${hex.length}`,
     );
   }
 
@@ -40,8 +40,7 @@ export function parseOracleEvent(data: `0x${string}`): OracleEvent {
 
   const snapshot = BigInt(`0x${snapshotChunk}`);
   const timestamp = snapshot & ((1n << 32n) - 1n);
-  const secondsPerLiquidityCumulative =
-    (snapshot >> 32n) & ((1n << 160n) - 1n);
+  const secondsPerLiquidityCumulative = (snapshot >> 32n) & ((1n << 160n) - 1n);
   const tickCumulativeRaw = snapshot >> 192n;
   const tickCumulative = toSigned(tickCumulativeRaw, 64);
 

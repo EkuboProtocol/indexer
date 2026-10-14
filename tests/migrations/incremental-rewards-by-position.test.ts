@@ -14,7 +14,7 @@ async function seedCampaign(client: Client, coreAddress = 111) {
      ) VALUES (1, '2024-01-01T00:00:00Z', '2024-06-01T00:00:00Z',
                'Test', 'test', 6000, '{0}', 1000, '1 day', 0, $1)
      RETURNING id`,
-    [coreAddress]
+    [coreAddress],
   );
   return id;
 }
@@ -36,7 +36,7 @@ async function seedPeriod(client: Client, campaignId: number) {
         realized_volatility, token0_reward_amount, token1_reward_amount
      ) VALUES ($1, 10, 11, $2, $3, 0.1, 1000, 0)
      RETURNING id`,
-    [campaignId, start, end]
+    [campaignId, start, end],
   );
   return id;
 }
@@ -46,13 +46,13 @@ async function addReward(
   periodId: number,
   locker: number,
   salt: number,
-  amount: string
+  amount: string,
 ) {
   await client.query(
     `INSERT INTO incentives.computed_rewards
        (campaign_reward_period_id, locker, salt, reward_amount)
      VALUES ($1,$2,$3,$4)`,
-    [periodId, locker, salt, amount]
+    [periodId, locker, salt, amount],
   );
 }
 
@@ -60,12 +60,12 @@ async function generateDrop(client: Client, periodId: number) {
   const {
     rows: [{ id }],
   } = await client.query<{ id: number }>(
-    `INSERT INTO incentives.generated_drop (root) VALUES (123456) RETURNING id`
+    `INSERT INTO incentives.generated_drop (root) VALUES (123456) RETURNING id`,
   );
   await client.query(
     `INSERT INTO incentives.generated_drop_reward_periods (drop_id, campaign_reward_period_id)
      VALUES ($1,$2)`,
-    [id, periodId]
+    [id, periodId],
   );
   return id;
 }
@@ -82,14 +82,14 @@ async function row(client: Client) {
     `SELECT total_reward_amount, pending_reward_amount,
             source_row_count::TEXT AS source_row_count, core_address
      FROM incentives.computed_rewards_by_position
-     ORDER BY campaign_id, locker, salt`
+     ORDER BY campaign_id, locker, salt`,
   );
   return rows;
 }
 
 async function drift(client: Client) {
   const { rows } = await client.query(
-    `SELECT * FROM incentives.verify_rewards_by_position()`
+    `SELECT * FROM incentives.verify_rewards_by_position()`,
   );
   return rows;
 }
@@ -120,7 +120,7 @@ test("rewards aggregate forward as rows are inserted, updated and deleted", asyn
   await client.query(
     `UPDATE incentives.computed_rewards SET reward_amount = 100
      WHERE campaign_reward_period_id = $1`,
-    [second]
+    [second],
   );
   expect((await row(client))[0]).toMatchObject({
     total_reward_amount: "600",
@@ -131,7 +131,7 @@ test("rewards aggregate forward as rows are inserted, updated and deleted", asyn
   await client.query(
     `DELETE FROM incentives.computed_rewards
      WHERE campaign_reward_period_id IN ($1, $2)`,
-    [first, second]
+    [first, second],
   );
 
   // Every underlying row is gone, so the group goes with it.
@@ -202,7 +202,7 @@ test("a period cannot be attached to two drops", async () => {
   // and it is why summing over the drop join cannot double count. It is an
   // index rather than a constraint, so it does not appear in pg_constraint.
   expect(generateDrop(client, period)).rejects.toThrow(
-    /idx_generated_drop_reward_periods_crp_id/
+    /idx_generated_drop_reward_periods_crp_id/,
   );
 });
 
@@ -214,7 +214,7 @@ test("core_address follows the campaign it is projected from", async () => {
 
   await client.query(
     `UPDATE incentives.campaigns SET core_address = 222 WHERE id = $1`,
-    [campaign]
+    [campaign],
   );
 
   expect((await row(client))[0]).toMatchObject({ core_address: "222" });
@@ -230,7 +230,7 @@ test("the matview name still resolves, with the same columns", async () => {
   // The API selects from this name; it is now a view over the table, and must
   // not leak source_row_count.
   const { rows } = await client.query(
-    `SELECT * FROM incentives.computed_rewards_by_position_materialized`
+    `SELECT * FROM incentives.computed_rewards_by_position_materialized`,
   );
   expect(Object.keys(rows[0] as object).sort()).toEqual([
     "campaign_id",
@@ -244,7 +244,7 @@ test("the matview name still resolves, with the same columns", async () => {
   const { rows: kind } = await client.query<{ relkind: string }>(
     `SELECT relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'incentives'
-       AND c.relname = 'computed_rewards_by_position_materialized'`
+       AND c.relname = 'computed_rewards_by_position_materialized'`,
   );
   expect(kind[0]!.relkind).toBe("v");
 });

@@ -17,9 +17,8 @@ test("concurrent callers launch one per minTime", async () => {
 
   const program = Effect.gen(function* () {
     const spacer = yield* makeLaunchSpacer(MIN_TIME_MS);
-    const fibers = yield* Effect.forEach(
-      [0, 1, 2],
-      () => Effect.forkChild(spacer(launchAt(launches))),
+    const fibers = yield* Effect.forEach([0, 1, 2], () =>
+      Effect.forkChild(spacer(launchAt(launches))),
     );
 
     yield* TestClock.adjust(Duration.millis(5 * MIN_TIME_MS));
@@ -73,9 +72,8 @@ test("the spacer caps the rate without capping concurrency", async () => {
 
   const program = Effect.gen(function* () {
     const spacer = yield* makeLaunchSpacer(MIN_TIME_MS);
-    const fibers = yield* Effect.forEach(
-      [0, 1, 2, 3],
-      () => Effect.forkChild(spacer(slowRequest)),
+    const fibers = yield* Effect.forEach([0, 1, 2, 3], () =>
+      Effect.forkChild(spacer(slowRequest)),
     );
 
     yield* TestClock.adjust(Duration.millis(20 * MIN_TIME_MS));

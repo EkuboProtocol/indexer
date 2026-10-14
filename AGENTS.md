@@ -33,6 +33,7 @@ Commits follow short, action-oriented summaries (see `git log`, e.g. `increase n
 Any deployment that requires manual intervention or alters the database schema must be recorded in the README’s breaking changelog section. Include the date, affected networks, necessary operator actions, and downstream compatibility notes so future contributors know how to prepare for rollouts.
 
 ## Checks
+
 - Run `bun run format:check` (`bun run format` fixes it), `bun run lint` and
   `bun run test` before considering a change done. CI runs them on every push.
 - Formatting is oxfmt (`.oxfmtrc.json`). `migrations/` is not formatted: applied
@@ -44,6 +45,7 @@ Any deployment that requires manual intervention or alters the database schema m
   clean and not yet in CI.
 
 ## Complexity and lint policy
+
 - Lint is oxlint (`.oxlintrc.json`), run through `scripts/lint.ts`. It enforces
   `complexity`, capped at 10 per function, and the type-aware rules from
   typescript-eslint's recommended-type-checked set, which oxlint runs through

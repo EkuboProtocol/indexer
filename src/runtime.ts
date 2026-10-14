@@ -143,7 +143,10 @@ export async function runIndexer<TBlock>({
         startingCursor: currentCursor!,
         loadPreviousCursor: async (before: number) => {
           await assertRecoveryWalkAllowed(dao, {
-            chainId, from: currentCursor, before, maxReorgDepth,
+            chainId,
+            from: currentCursor,
+            before,
+            maxReorgDepth,
           });
           const stored = await dao.loadPreviousBlockCursor(before);
           if (stored) return stored;

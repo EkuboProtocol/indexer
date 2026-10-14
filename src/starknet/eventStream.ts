@@ -38,7 +38,11 @@
 import { toHex, type Hex } from "viem";
 import type { IndexerCursor } from "../_shared/dao";
 import { parseRpcEnvelope, type RpcEnvelope } from "../_shared/rpcEnvelope";
-import { checkContinuationToken, recordEventIdentity, requireBlockInRange } from "../_shared/rpcRecords";
+import {
+  checkContinuationToken,
+  recordEventIdentity,
+  requireBlockInRange,
+} from "../_shared/rpcRecords";
 import { StaleSnapshotError } from "../_shared/blockSnapshot";
 import {
   createBlockStream,
@@ -226,20 +230,30 @@ export function groupEventsByBlock(
     // wrong `event_id`, which is a primary key other tables order on, and it
     // would be written with no error anywhere. An endpoint that does not send
     // these is serving a spec older than the URL asks for.
-    if (event.transaction_index === undefined || event.event_index === undefined) {
+    if (
+      event.transaction_index === undefined ||
+      event.event_index === undefined
+    ) {
       throw new Error(
         `starknet_getEvents returned an event in block ${event.block_number} with no transaction_index or event_index. The RPC URL must name JSON-RPC v0.10 or later, which is where EMITTED_EVENT carries them.`,
       );
     }
 
-    recordEventIdentity(seen, event.block_number, event.block_hash, `${event.transaction_index}:${event.event_index}`);
+    recordEventIdentity(
+      seen,
+      event.block_number,
+      event.block_hash,
+      `${event.transaction_index}:${event.event_index}`,
+    );
     block.logs.push({
       address: event.from_address,
       keys: event.keys,
       data: event.data,
       transactionHash: event.transaction_hash,
       transactionIndex: requireRepresentableIndex(
-        event.transaction_index, event.block_number, "the transaction index",
+        event.transaction_index,
+        event.block_number,
+        "the transaction index",
       ),
       eventIndex: requireRepresentableIndex(
         event.event_index,
@@ -253,7 +267,11 @@ export function groupEventsByBlock(
   return [...byBlock.entries()]
     .sort(([a], [b]) => a - b)
     .map(([, block]) => {
-      block.logs.sort((a, b) => a.transactionIndex - b.transactionIndex || a.eventIndex - b.eventIndex);
+      block.logs.sort(
+        (a, b) =>
+          a.transactionIndex - b.transactionIndex ||
+          a.eventIndex - b.eventIndex,
+      );
       return block;
     });
 }
@@ -272,7 +290,11 @@ interface BlockHeaderResponse {
 }
 
 function toChainHead(block: BlockHeaderResponse | null): ChainHead | null {
-  if (!block || block.block_hash === undefined || block.block_number === undefined) {
+  if (
+    !block ||
+    block.block_hash === undefined ||
+    block.block_number === undefined
+  ) {
     return null;
   }
   const priceInFri = block.l2_gas_price?.price_in_fri;
@@ -311,13 +333,18 @@ export function createStarknetAdapter({
   // node answering can trail the one that just advertised the block.
   const fetchHeader = async (blockId: BlockId): Promise<ChainHead | null> =>
     toChainHead(
-      await rpc.request<BlockHeaderResponse | null>(
-        "starknet_getBlockWithTxHashes",
-        [blockId],
-      ).catch((error: unknown) => {
-        if (error instanceof StarknetRpcError && error.code === BLOCK_NOT_FOUND) return null;
-        throw error;
-      }),
+      await rpc
+        .request<BlockHeaderResponse | null>("starknet_getBlockWithTxHashes", [
+          blockId,
+        ])
+        .catch((error: unknown) => {
+          if (
+            error instanceof StarknetRpcError &&
+            error.code === BLOCK_NOT_FOUND
+          )
+            return null;
+          throw error;
+        }),
     );
 
   return {
@@ -346,37 +373,48 @@ export function createStarknetAdapter({
           );
         }
 
-        const page = await rpc.request<{
-          events: EmittedEvent[];
-          // Nullable, not merely optional: the field is optional in the spec, so
-          // a node may end a listing either by omitting it or by sending null.
-          continuation_token?: string | null;
-        }>("starknet_getEvents", [
-          {
-            from_block: { block_number: from },
-            to_block: endHash ? { block_hash: endHash } : { block_number: to },
-            ...(keysPrefilter ? { keys: [keysPrefilter] } : {}),
-            chunk_size: chunkSize,
-            ...(continuationToken
-              ? { continuation_token: continuationToken }
-              : {}),
-          },
-        ]).catch((error: unknown) => {
-          // At the tip the anchor may not have reached the backend serving
-          // this call yet, or may have been reorged out since the header read.
-          // Either way the snapshot is stale, not the endpoint broken.
-          if (endHash && error instanceof StarknetRpcError && error.code === BLOCK_NOT_FOUND) {
-            throw new StaleSnapshotError(
-              `starknet_getEvents could not find end block ${to} (${endHash}); retry the snapshot`,
-              { cause: error },
-            );
-          }
-          throw error;
-        });
+        const page = await rpc
+          .request<{
+            events: EmittedEvent[];
+            // Nullable, not merely optional: the field is optional in the spec, so
+            // a node may end a listing either by omitting it or by sending null.
+            continuation_token?: string | null;
+          }>("starknet_getEvents", [
+            {
+              from_block: { block_number: from },
+              to_block: endHash
+                ? { block_hash: endHash }
+                : { block_number: to },
+              ...(keysPrefilter ? { keys: [keysPrefilter] } : {}),
+              chunk_size: chunkSize,
+              ...(continuationToken
+                ? { continuation_token: continuationToken }
+                : {}),
+            },
+          ])
+          .catch((error: unknown) => {
+            // At the tip the anchor may not have reached the backend serving
+            // this call yet, or may have been reorged out since the header read.
+            // Either way the snapshot is stale, not the endpoint broken.
+            if (
+              endHash &&
+              error instanceof StarknetRpcError &&
+              error.code === BLOCK_NOT_FOUND
+            ) {
+              throw new StaleSnapshotError(
+                `starknet_getEvents could not find end block ${to} (${endHash}); retry the snapshot`,
+                { cause: error },
+              );
+            }
+            throw error;
+          });
 
         for (const event of page.events) {
           requireBlockInRange(event.block_number!, from, to);
-          if (event.block_hash == null) throw new Error("Numbered event range returned an event without a block hash");
+          if (event.block_hash == null)
+            throw new Error(
+              "Numbered event range returned an event without a block hash",
+            );
           events.push(event);
         }
         continuationToken = page.continuation_token;
@@ -415,7 +453,10 @@ export function createStarknetAdapter({
         // between them. A timestamp from a different block would be written to
         // `blocks.block_time` with nothing to flag it, so a block that changed
         // identity is refused instead, and the stream re-reads the snapshot.
-        if (header.number !== blockNumber || !feltEquals(header.hash, block.header.blockHash)) {
+        if (
+          header.number !== blockNumber ||
+          !feltEquals(header.hash, block.header.blockHash)
+        ) {
           throw new StaleSnapshotError(
             `Block ${blockNumber} changed hash between the event read (${block.header.blockHash}) and the header read (${header.hash}); refusing to timestamp its events from a different block`,
           );
@@ -462,7 +503,10 @@ const BLOCK_NOT_FOUND = 24;
 /** A JSON-RPC error answer, carrying its code so callers can classify it. */
 export class StarknetRpcError extends Error {
   override readonly name = "StarknetRpcError";
-  constructor(message: string, readonly code: number) {
+  constructor(
+    message: string,
+    readonly code: number,
+  ) {
     super(message);
   }
 }

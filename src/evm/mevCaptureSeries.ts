@@ -37,7 +37,11 @@ export type MevCapturePoolEvent =
       tickAfter: number;
       liquidityAfter: bigint;
     })
-  | (EventPosition & { kind: "fees_accumulated"; amount0: bigint; amount1: bigint });
+  | (EventPosition & {
+      kind: "fees_accumulated";
+      amount0: bigint;
+      amount1: bigint;
+    });
 
 export type SwapEvent = Extract<MevCapturePoolEvent, { kind: "swap" }>;
 
@@ -197,12 +201,16 @@ export class MevCapturePoolTracker {
     this.liquidityPoints.push({ blockNumber, liquidity });
   }
 
-  private applyPosition(event: Extract<MevCapturePoolEvent, { kind: "position" }>) {
+  private applyPosition(
+    event: Extract<MevCapturePoolEvent, { kind: "position" }>,
+  ) {
     this.tick = event.tickAfter;
     this.setLiquidity(event.blockNumber, event.liquidityAfter);
   }
 
-  private applyDonation(event: Extract<MevCapturePoolEvent, { kind: "fees_accumulated" }>) {
+  private applyDonation(
+    event: Extract<MevCapturePoolEvent, { kind: "fees_accumulated" }>,
+  ) {
     // A donation empties what the extension saved at the pool's last swapping
     // timestamp: any touch at a later timestamp donates first, so it can only
     // belong to the most recent earlier block that swapped.
@@ -232,10 +240,23 @@ export class MevCapturePoolTracker {
     else this.blocks.set(event.blockNumber, newBlockRow(row));
   }
 
-  private swapRow(event: SwapEvent, tickLast: number, isFirstTouch: boolean): SwapRow {
+  private swapRow(
+    event: SwapEvent,
+    tickLast: number,
+    isFirstTouch: boolean,
+  ): SwapRow {
     const { fee, tickSpacing, poolId } = this.pool;
-    const [baseFee0, baseFee1] = baseFeeOnInput(event.delta0, event.delta1, fee);
-    const additionalFee = mevCaptureAdditionalFee(event.tickAfter, tickLast, tickSpacing, fee);
+    const [baseFee0, baseFee1] = baseFeeOnInput(
+      event.delta0,
+      event.delta1,
+      fee,
+    );
+    const additionalFee = mevCaptureAdditionalFee(
+      event.tickAfter,
+      tickLast,
+      tickSpacing,
+      fee,
+    );
     const [surchargeExactIn0, surchargeExactIn1] = surchargeExactIn(
       event.delta0,
       event.delta1,

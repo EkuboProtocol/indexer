@@ -22,17 +22,28 @@ export function recordEventIdentity(
   seen.set(eventKey, hash);
 }
 
-export function requireBlockInRange(number: number, from: number, to: number): void {
+export function requireBlockInRange(
+  number: number,
+  from: number,
+  to: number,
+): void {
   if (!Number.isSafeInteger(number) || number < from || number > to) {
-    throw new Error(`RPC returned block ${number} outside requested range ${from}..${to}`);
+    throw new Error(
+      `RPC returned block ${number} outside requested range ${from}..${to}`,
+    );
   }
 }
 
 /** Tokens are opaque; repeated tokens or non-string values cannot advance. */
-export function checkContinuationToken(token: unknown, seen: Set<string>): void {
+export function checkContinuationToken(
+  token: unknown,
+  seen: Set<string>,
+): void {
   if (token === undefined || token === null) return;
   if (typeof token !== "string" || token.length === 0 || seen.has(token)) {
-    throw new Error("starknet_getEvents returned an invalid or repeated continuation token");
+    throw new Error(
+      "starknet_getEvents returned an invalid or repeated continuation token",
+    );
   }
   seen.add(token);
 }

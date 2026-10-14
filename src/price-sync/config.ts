@@ -70,9 +70,9 @@ const raw = Config.all({
   quoterUrl: Config.String("EKUBO_QUOTER_URL").pipe(
     Config.withDefault("https://prod-api-quoter.ekubo.org"),
   ),
-  maxQuoterRequestsPerMinute: Config.Int(
-    "MAX_QUOTER_REQUESTS_PER_MINUTE",
-  ).pipe(Config.withDefault(60)),
+  maxQuoterRequestsPerMinute: Config.Int("MAX_QUOTER_REQUESTS_PER_MINUTE").pipe(
+    Config.withDefault(60),
+  ),
 });
 
 /**

@@ -24,7 +24,11 @@ export function parseCommonBlockHeader(header: {
 
   const number = Number(header.blockNumber);
   const timestamp = header.timestamp.getTime();
-  if (!Number.isSafeInteger(number) || number < 0 || !Number.isFinite(timestamp)) {
+  if (
+    !Number.isSafeInteger(number) ||
+    number < 0 ||
+    !Number.isFinite(timestamp)
+  ) {
     return null;
   }
 
@@ -32,7 +36,11 @@ export function parseCommonBlockHeader(header: {
   // that as an unusable block is safer than indexing under a zero hash.
   let hash: bigint;
   try {
-    if (typeof header.blockHash !== "string" || !/^0x[0-9a-f]+$/i.test(header.blockHash)) return null;
+    if (
+      typeof header.blockHash !== "string" ||
+      !/^0x[0-9a-f]+$/i.test(header.blockHash)
+    )
+      return null;
     hash = BigInt(header.blockHash);
   } catch {
     return null;

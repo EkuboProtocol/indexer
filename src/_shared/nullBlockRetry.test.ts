@@ -2,9 +2,10 @@ import { describe, expect, it } from "bun:test";
 import type { Transport } from "viem";
 import { withNullBlockRetry } from "./nullBlockRetry";
 
-function transportReturning(
-  results: unknown[],
-): { transport: Transport; calls: { method: string }[] } {
+function transportReturning(results: unknown[]): {
+  transport: Transport;
+  calls: { method: string }[];
+} {
   const calls: { method: string }[] = [];
   let index = 0;
 
@@ -25,7 +26,11 @@ const getBlock = { method: "eth_getBlockByNumber", params: ["0x1", false] };
 
 describe("withNullBlockRetry", () => {
   it("retries a null block on the same transport and returns the block", async () => {
-    const { transport, calls } = transportReturning([null, null, { number: "0x1" }]);
+    const { transport, calls } = transportReturning([
+      null,
+      null,
+      { number: "0x1" },
+    ]);
 
     const wrapped = withNullBlockRetry(transport, { retryDelayMs: 0 })(options);
 
@@ -42,8 +47,12 @@ describe("withNullBlockRetry", () => {
       url: "https://a.rpc/v2/SECRETKEY0123456789abcdef?dkey=SECRET2",
     })(options);
 
-    const error = await wrapped.request(getBlock).catch((e: unknown) => e as Error);
-    expect(error.message).toMatch(/returned a null block after 2 retries on https:\/\/a\.rpc:/);
+    const error = await wrapped
+      .request(getBlock)
+      .catch((e: unknown) => e as Error);
+    expect(error.message).toMatch(
+      /returned a null block after 2 retries on https:\/\/a\.rpc:/,
+    );
     expect(error.message).not.toContain("SECRET");
     expect(calls).toHaveLength(3);
   });

@@ -17,7 +17,14 @@ import { redactSecrets } from "../_shared/redactSecrets";
  * key is caught wherever it sits: the message, an error's stack or `cause`, or
  * an annotation.
  */
-const CONSOLE_METHODS = ["log", "info", "warn", "error", "debug", "trace"] as const;
+const CONSOLE_METHODS = [
+  "log",
+  "info",
+  "warn",
+  "error",
+  "debug",
+  "trace",
+] as const;
 
 // A key shorter than this would be replaced inside ordinary words.
 const MIN_SECRET_LENGTH = 8;
@@ -30,7 +37,9 @@ function chainlinkRpcUrls(rawConfig: string | undefined): string[] {
     return Object.values(chains).flatMap((chain: unknown) => {
       const urls = (chain as { rpcUrls?: unknown } | null)?.rpcUrls;
       return Array.isArray(urls)
-        ? urls.filter((url): url is string => typeof url === "string" && url.length > 0)
+        ? urls.filter(
+            (url): url is string => typeof url === "string" && url.length > 0,
+          )
         : [];
     });
   } catch {
@@ -77,7 +86,9 @@ export function installLogRedaction(
   target: Console = globalThis.console,
   env: Record<string, string | undefined> = process.env,
 ): () => void {
-  const originals = CONSOLE_METHODS.map((method) => [method, target[method]] as const);
+  const originals = CONSOLE_METHODS.map(
+    (method) => [method, target[method]] as const,
+  );
   for (const [method, original] of originals) {
     target[method] = (...args: unknown[]) =>
       original.call(target, redactPriceSyncLog(format(...args), env));

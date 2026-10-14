@@ -27,10 +27,25 @@
  */
 import { createHmac } from "node:crypto";
 
-type Summary = { kind: "summary"; chainId: string; from: number; to: number; missing: number; hash: number; missingEvents: number; [k: string]: unknown };
+type Summary = {
+  kind: "summary";
+  chainId: string;
+  from: number;
+  to: number;
+  missing: number;
+  hash: number;
+  missingEvents: number;
+  [k: string]: unknown;
+};
 type Result =
   | { network: string; ok: true; summary: Summary }
-  | { network: string; ok: false; gap: true; summary: Summary; findings: unknown[] }
+  | {
+      network: string;
+      ok: false;
+      gap: true;
+      summary: Summary;
+      findings: unknown[];
+    }
   | { network: string; ok: false; gap: false; error: string };
 
 const chains = (process.env.GAP_MONITOR_CHAINS ?? "")
@@ -39,15 +54,25 @@ const chains = (process.env.GAP_MONITOR_CHAINS ?? "")
   .filter(Boolean)
   .map((entry) => {
     const at = entry.indexOf("=");
-    if (at <= 0) throw new Error(`GAP_MONITOR_CHAINS entry must be network=rpcUrl, got ${entry}`);
+    if (at <= 0)
+      throw new Error(
+        `GAP_MONITOR_CHAINS entry must be network=rpcUrl, got ${entry}`,
+      );
     const name = entry.slice(0, at);
     // "starknet/mainnet" names a Starknet network; a bare name is EVM.
-    const [networkType, network] = name.startsWith("starknet/") ? ["starknet", name.slice(9)] : ["evm", name];
+    const [networkType, network] = name.startsWith("starknet/")
+      ? ["starknet", name.slice(9)]
+      : ["evm", name];
     // An optional "|maxRange" caps the eth_getLogs span for an endpoint that
     // refuses wide ones, instead of paying a refusal and a backoff per read.
     const [rpcUrl, maxRange] = entry.slice(at + 1).split("|");
-    if (maxRange !== undefined && !(Number.isSafeInteger(Number(maxRange)) && Number(maxRange) > 0)) {
-      throw new Error(`GAP_MONITOR_CHAINS maxRange must be a positive integer, got ${maxRange} in ${name}`);
+    if (
+      maxRange !== undefined &&
+      !(Number.isSafeInteger(Number(maxRange)) && Number(maxRange) > 0)
+    ) {
+      throw new Error(
+        `GAP_MONITOR_CHAINS maxRange must be a positive integer, got ${maxRange} in ${name}`,
+      );
     }
     return { network, networkType, rpcUrl: rpcUrl!, maxRange };
   });
@@ -56,7 +81,12 @@ if (chains.length === 0) throw new Error("Set GAP_MONITOR_CHAINS");
 const windowSeconds = process.env.GAP_MONITOR_WINDOW_SECONDS ?? "10800";
 const testAlert = process.argv.includes("--test-alert");
 
-async function auditOnce(network: string, networkType: string, rpcUrl: string, maxRange?: string): Promise<Result> {
+async function auditOnce(
+  network: string,
+  networkType: string,
+  rpcUrl: string,
+  maxRange?: string,
+): Promise<Result> {
   const child = Bun.spawn(["bun", "scripts/auditEventGaps.ts"], {
     cwd: `${import.meta.dir}/..`,
     env: {
@@ -88,13 +118,27 @@ async function auditOnce(network: string, networkType: string, rpcUrl: string, m
       return [];
     }
   });
-  const summary = lines.find((line) => line.kind === "summary") as Summary | undefined;
+  const summary = lines.find((line) => line.kind === "summary") as
+    | Summary
+    | undefined;
   if (!summary) {
-    const tail = (stderr + stdout).trim().split("\n").slice(-3).join(" | ").slice(0, 500);
-    return { network, ok: false, gap: false, error: `exit ${code}, no summary: ${tail}` };
+    const tail = (stderr + stdout)
+      .trim()
+      .split("\n")
+      .slice(-3)
+      .join(" | ")
+      .slice(0, 500);
+    return {
+      network,
+      ok: false,
+      gap: false,
+      error: `exit ${code}, no summary: ${tail}`,
+    };
   }
   if (summary.missing + summary.hash > 0) {
-    const findings = lines.filter((line) => line.kind === "missing" || line.kind === "hash").slice(0, 20);
+    const findings = lines
+      .filter((line) => line.kind === "missing" || line.kind === "hash")
+      .slice(0, 20);
     return { network, ok: false, gap: true, summary, findings };
   }
   return { network, ok: true, summary };
@@ -111,20 +155,33 @@ for (const { network, networkType, rpcUrl, maxRange } of chains) {
   results.push({ ...result, network: label });
 }
 if (testAlert) {
-  results.push({ network: "test", ok: false, gap: false, error: "synthetic test alert" });
+  results.push({
+    network: "test",
+    ok: false,
+    gap: false,
+    error: "synthetic test alert",
+  });
 }
 
 const failures = results.filter((r) => !r.ok);
-const report = { checkedAt: new Date().toISOString(), ok: failures.length === 0, test: testAlert, windowSeconds: Number(windowSeconds), results };
+const report = {
+  checkedAt: new Date().toISOString(),
+  ok: failures.length === 0,
+  test: testAlert,
+  windowSeconds: Number(windowSeconds),
+  results,
+};
 console.log(JSON.stringify(report));
 
 if (failures.length > 0) {
   process.exitCode = 1;
   const gaps = failures.filter((r) => !r.ok && r.gap);
   const describe = (r: Result) =>
-    r.ok ? "" : r.gap
-      ? `${r.network}: ${r.summary.missing} missing / ${r.summary.hash} wrong-hash block(s) in ${r.summary.from}..${r.summary.to}`
-      : `${r.network}: check failed (${r.error.slice(0, 160)})`;
+    r.ok
+      ? ""
+      : r.gap
+        ? `${r.network}: ${r.summary.missing} missing / ${r.summary.hash} wrong-hash block(s) in ${r.summary.from}..${r.summary.to}`
+        : `${r.network}: check failed (${r.error.slice(0, 160)})`;
   if (process.env.ALERT_WEBHOOK_URL) {
     const body = JSON.stringify({
       payload: {
@@ -141,7 +198,11 @@ if (failures.length > 0) {
         ...(secret
           ? {
               "x-paperclip-timestamp": timestamp,
-              "x-paperclip-signature": "sha256=" + createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex"),
+              "x-paperclip-signature":
+                "sha256=" +
+                createHmac("sha256", secret)
+                  .update(`${timestamp}.${body}`)
+                  .digest("hex"),
             }
           : {}),
       },

@@ -17,14 +17,14 @@ async function seedBlock(client: Client, blockNumber: number, at: Date) {
     `INSERT INTO blocks (chain_id, block_number, block_hash, block_time, num_events)
      VALUES ($1, $2, $3, $4, 1)
      ON CONFLICT DO NOTHING`,
-    [CHAIN_ID, blockNumber, String(blockNumber), at]
+    [CHAIN_ID, blockNumber, String(blockNumber), at],
   );
 }
 
 async function seedPool(
   client: Client,
   poolId: number,
-  { fee = 100, feeDenominator = 1_000_000 } = {}
+  { fee = 100, feeDenominator = 1_000_000 } = {},
 ) {
   const {
     rows: [{ pool_key_id }],
@@ -33,7 +33,7 @@ async function seedPool(
                             fee_denominator, tick_spacing, pool_extension)
      VALUES ($1, 2000, $2, 4000, 4001, $3, $4, 60, 0)
      RETURNING pool_key_id`,
-    [CHAIN_ID, String(poolId), fee, feeDenominator]
+    [CHAIN_ID, String(poolId), fee, feeDenominator],
   );
   return Number(pool_key_id);
 }
@@ -41,14 +41,14 @@ async function seedPool(
 async function seedTicks(
   client: Client,
   poolKeyId: number,
-  ticks: [tick: number, delta: string][]
+  ticks: [tick: number, delta: string][],
 ) {
   for (const [tick, delta] of ticks) {
     await client.query(
       `INSERT INTO per_pool_per_tick_liquidity (pool_key_id, tick, net_liquidity_delta_diff,
                                                 total_liquidity_on_tick)
        VALUES ($1, $2, $3::numeric, abs($3::numeric))`,
-      [poolKeyId, tick, delta]
+      [poolKeyId, tick, delta],
     );
   }
 }
@@ -60,7 +60,7 @@ async function seedSwap(
   poolKeyId: number,
   blockNumber: number,
   tickAfter: number,
-  liquidityAfter: string
+  liquidityAfter: string,
 ) {
   nextEvent += 1;
   await client.query(
@@ -68,7 +68,15 @@ async function seedSwap(
                         emitter, pool_key_id, locker, delta0, delta1, sqrt_ratio_after, tick_after,
                         liquidity_after)
      VALUES ($1, $2, $3, 0, $4, 2000, $5, 3000, 1, -1, 1, $6, $7::numeric)`,
-    [CHAIN_ID, blockNumber, nextEvent, String(nextEvent), poolKeyId, tickAfter, liquidityAfter]
+    [
+      CHAIN_ID,
+      blockNumber,
+      nextEvent,
+      String(nextEvent),
+      poolKeyId,
+      tickAfter,
+      liquidityAfter,
+    ],
   );
 }
 
@@ -77,7 +85,7 @@ async function setPoolState(client: Client, poolKeyId: number, tick: number) {
     `INSERT INTO pool_states (pool_key_id, sqrt_ratio, liquidity, tick, last_event_id)
      VALUES ($1, 1, 0, $2, 1)
      ON CONFLICT (pool_key_id) DO UPDATE SET tick = EXCLUDED.tick`,
-    [poolKeyId, tick]
+    [poolKeyId, tick],
   );
 }
 
@@ -90,7 +98,11 @@ async function setPoolState(client: Client, poolKeyId: number, tick: number) {
  */
 async function seedFixture(client: Client) {
   await ensureIndexerCursor(client, CHAIN_ID);
-  await seedBlock(client, 1, new Date(BASE_TIME.getTime() - 4 * 60 * 60 * 1000));
+  await seedBlock(
+    client,
+    1,
+    new Date(BASE_TIME.getTime() - 4 * 60 * 60 * 1000),
+  );
   await seedBlock(client, 2, new Date(BASE_TIME.getTime() - 40 * 60 * 1000));
   await seedBlock(client, 3, new Date(BASE_TIME.getTime() - 10 * 60 * 1000));
   await seedBlock(client, 4, BASE_TIME);
@@ -161,7 +173,7 @@ async function marketDepth(client: Client, relation: string) {
   }>(
     `SELECT pool_key_id::text, depth_percent, depth0::text, depth1::text
      FROM ${relation}
-     ORDER BY pool_key_id, depth_percent`
+     ORDER BY pool_key_id, depth_percent`,
   );
   return rows;
 }
@@ -191,7 +203,7 @@ test("the rewritten view returns exactly what the old definition returned", asyn
   expect(after.some((r) => r.pool_key_id === String(pools.empty))).toBe(false);
   // The 1% fee pool keeps only the bands wider than its fee.
   const expensiveRows = after.filter(
-    (r) => r.pool_key_id === String(pools.expensive)
+    (r) => r.pool_key_id === String(pools.expensive),
   );
   expect(expensiveRows.length).toBeGreaterThan(0);
   expect(expensiveRows.length).toBeLessThan(41);
@@ -208,11 +220,11 @@ test("the materialized view and its concurrent refresh still work on the new def
   // This is what the cron job runs; it needs the unique index from 00024 and it
   // is the step that would fail if the replaced view changed shape.
   await client.exec(
-    `REFRESH MATERIALIZED VIEW CONCURRENTLY pool_market_depth_materialized`
+    `REFRESH MATERIALIZED VIEW CONCURRENTLY pool_market_depth_materialized`,
   );
 
   expect(await marketDepth(client, "pool_market_depth_materialized")).toEqual(
-    await marketDepth(client, "pool_market_depth_view")
+    await marketDepth(client, "pool_market_depth_view"),
   );
 
   await client.close();
@@ -222,7 +234,11 @@ test("the median still ignores swaps older than the hour before the last one", a
   const client = new PGlite("memory://temp");
   await runMigrationsThrough(client, 126);
   await ensureIndexerCursor(client, CHAIN_ID);
-  await seedBlock(client, 1, new Date(BASE_TIME.getTime() - 4 * 60 * 60 * 1000));
+  await seedBlock(
+    client,
+    1,
+    new Date(BASE_TIME.getTime() - 4 * 60 * 60 * 1000),
+  );
   await seedBlock(client, 2, BASE_TIME);
 
   const pool = await seedPool(client, 20);
@@ -238,7 +254,7 @@ test("the median still ignores swaps older than the hour before the last one", a
   // planner fence, and this is what proves it stayed one.
   await seedSwap(client, pool, 1, 45_000, "4000000000000000000");
   expect(await marketDepth(client, "pool_market_depth_view")).toEqual(
-    inWindowOnly
+    inWindowOnly,
   );
 
   await client.close();

@@ -10,7 +10,7 @@ const HEX_ADDRESS_REGEX = /^0x[0-9a-fA-F]+$/;
 const FIXED_POINT_FEE_DENOMINATOR = 1n << 64n;
 
 export function parsePositionsProtocolFeeConfigs(
-  raw: string | undefined
+  raw: string | undefined,
 ): PositionsContractProtocolFeeConfig[] | undefined {
   if (!raw) return undefined;
 
@@ -28,12 +28,12 @@ export function parsePositionsProtocolFeeConfigs(
 
     if (!addressRaw)
       throw new Error(
-        `Invalid positions protocol fee config entry "${entry}". Expected "address:swapProtocolFee[:withdrawalProtocolFeeDivisor]".`
+        `Invalid positions protocol fee config entry "${entry}". Expected "address:swapProtocolFee[:withdrawalProtocolFeeDivisor]".`,
       );
 
     if (!HEX_ADDRESS_REGEX.test(addressRaw))
       throw new Error(
-        `Invalid positions contract address "${addressRaw}" in protocol fee config "${entry}".`
+        `Invalid positions contract address "${addressRaw}" in protocol fee config "${entry}".`,
       );
 
     const swapProtocolFee =
@@ -42,7 +42,7 @@ export function parsePositionsProtocolFeeConfigs(
       throw new Error(
         `Swap protocol fee must be between 0 and ${
           FIXED_POINT_FEE_DENOMINATOR - 1n
-        } (inclusive). Entry: "${entry}".`
+        } (inclusive). Entry: "${entry}".`,
       );
 
     const withdrawalProtocolFeeDivisor =
@@ -51,7 +51,7 @@ export function parsePositionsProtocolFeeConfigs(
         : 0n;
     if (withdrawalProtocolFeeDivisor < 0n)
       throw new Error(
-        `Withdrawal protocol fee divisor must be >= 0. Entry: "${entry}".`
+        `Withdrawal protocol fee divisor must be >= 0. Entry: "${entry}".`,
       );
 
     return {
