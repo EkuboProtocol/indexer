@@ -55,17 +55,11 @@ export function parseEvmBlockHeader(
     block: evmBlock as EvmBlock,
     header: {
       ...common,
-      // Only the head block carries one; `stampHeadBaseFee` is what puts it
-      // there, since a log-derived block has no base fee of its own.
       baseFeePerGas: header.baseFeePerGas ?? null,
     },
   };
 }
 
-// Announces which of the optional contract sets this process ended up indexing.
-// Purely diagnostic, and lifted out of createEvmEntrypoint because it is four
-// independent "did we get this one?" checks that have nothing to do with the
-// wiring around them.
 function logIndexedContracts({
   evmV2AddressConfig,
   evmV3AddressConfig,
@@ -97,10 +91,6 @@ function logIndexedContracts({
     logger.info(`Indexing V3 Ve33 contracts`, { evmV3Ve33AddressConfig });
 }
 
-/**
- * The configured contracts' log processors, in filter-id order. Exported so an
- * audit can build exactly the filters the stream uses.
- */
 export function createEvmProcessors() {
   const evmV2AddressConfig = loadHexAddresses({
     mevCaptureAddress: "MEV_CAPTURE_ADDRESS",
@@ -176,12 +166,6 @@ function positiveInt(name: string, fallbackValue: number): number {
   return parsed;
 }
 
-/**
- * `SUSPECT_LOG_COUNT` per endpoint: one value for all, or one per `EVM_RPC_URL`
- * entry in the same order. The default is Alchemy's documented `eth_getLogs`
- * result cap; a response landing exactly on an endpoint's cap is refused
- * rather than indexed short.
- */
 function suspectLogCounts(endpoints: number): number[] {
   const raw = process.env.SUSPECT_LOG_COUNT ?? "";
   const values =
@@ -202,10 +186,6 @@ function suspectLogCounts(endpoints: number): number[] {
   });
 }
 
-/**
- * `EVM_RPC_URL` as a `StickyRpc`. A single URL behaves exactly as before: one
- * endpoint, no switching.
- */
 function createStickyRpc(chainId: bigint): StickyRpc {
   const urls = requireEvmRpcUrls(process.env.EVM_RPC_URL);
   const caps = suspectLogCounts(urls.length);
@@ -233,8 +213,6 @@ export async function createEvmEntrypoint(
   const processors = createEvmProcessors();
 
   const rpc = createStickyRpc(chainId);
-  // Retried rather than thrown: an exit here restarts at once and asks the
-  // same endpoints again. The stream's outage budget bounds it the same way.
   await rpc.startWithin(
     BLOCK_STREAM_DEFAULTS.providerOutageBudgetMs,
     positiveInt("POLL_INTERVAL_MS", 2_000),
@@ -259,28 +237,13 @@ export async function createEvmEntrypoint(
         endpoints: rpc,
         options: {
           pollIntervalMs: positiveInt("POLL_INTERVAL_MS", 2_000),
-          // Most chains we index have produced fewer than sixty events in
-          // their entire indexed history, and a poll costs the same eighty
-          // compute units whether it finds one or none. Backing off on a chain
-          // that is doing nothing is what makes indexing all of them cheap.
-          //
-          // The cost is latency on a chain that goes quiet for longer than
-          // POLL_INTERVAL_MS * QUIET_POLLS_BEFORE_BACKOFF -- 60s -- which is
-          // not only the dead chains: Ethereum in a lull reaches the ceiling
-          // too. Then an event takes up to MAX_POLL_INTERVAL_MS to be indexed
-          // and indexer_cursor.head_base_fee_per_gas, which quoter-service
-          // reads to price gas, is that stale. Set MAX_POLL_INTERVAL_MS equal
-          // to POLL_INTERVAL_MS on a chain where that is not acceptable.
           maxPollIntervalMs: positiveInt("MAX_POLL_INTERVAL_MS", 30_000),
           quietPollsBeforeBackoff: positiveInt(
             "QUIET_POLLS_BEFORE_BACKOFF",
             30,
           ),
           maxLogRangeBlocks: positiveInt("GET_LOGS_RANGE_SIZE", 1_000),
-          // Compare this much recent history directly; cursor hashes and
-          // persisted checkpoints also detect and recover deeper reorgs.
           reorgWindowSeconds: positiveInt("REORG_WINDOW_SECONDS", 120),
-          // The current endpoint's result cap; see `suspectLogCounts`.
           suspectLogCount: () => rpc.current.suspectLogCount,
           heartbeatIntervalMs: Number(
             streamOptions.heartbeatInterval.seconds * 1000n,

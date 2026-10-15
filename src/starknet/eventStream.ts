@@ -1,40 +1,3 @@
-/**
- * The Starknet adapter for the shared block stream.
- *
- * Starknet used to be indexed from an apibara DNA gRPC stream while every EVM
- * chain moved to range-reading its own RPC. That left two ways of handling the
- * same three problems -- reorgs, backoff and the cursor -- and only one of them
- * had the bugs beaten out of it. This puts Starknet on the same core, so a fix
- * to the reorg window or the poll backoff lands on every chain at once.
- *
- * Three things genuinely differ from EVM, and they are all here rather than in
- * the shared core:
- *
- * 1. `starknet_getEvents` takes one address, not a list. Asking per contract
- *    would be twelve requests a poll where EVM makes one, so the range read is
- *    filtered by event selector instead -- which the RPC does accept as an
- *    OR-list -- and narrowed to our contracts locally. Measured on mainnet the
- *    selector prefilter cuts a range read from 15.9 to 3.3 events per block.
- *
- * 2. `EMITTED_EVENT` carries a transaction index and an event index only from
- *    JSON-RPC v0.10, which is why the URL pins that version. Under v0.9 they
- *    are absent and the `continuation_token` counts *matched* results, so it
- *    cannot supply them either -- they had to be rebuilt from the block's
- *    receipts, pairing our events back onto their true positions. That is a
- *    lot of machinery to get exactly right for two integers, and both were
- *    checked three ways before this was allowed to rely on them: v0.10's
- *    values, a receipts reconstruction, and the rows the DNA stream wrote
- *    years ago all agree, over 5,000 mainnet blocks.
- *
- *    A block read remains, but only for the timestamp: `EMITTED_EVENT` has
- *    none and `blocks.block_time` needs one. It costs the same 20 compute
- *    units the receipts read did, so this is a simplification rather than a
- *    saving -- one request per block above the cursor either way.
- *
- * 3. A felt is not an EVM word. Nodes return them unpadded, the processor
- *    filters are written unpadded, and the database stores them as numerics, so
- *    every comparison here is on the value and never on the string.
- */
 import { toHex, type Hex } from "viem";
 import type { IndexerCursor } from "../_shared/dao";
 import { parseRpcEnvelope, type RpcEnvelope } from "../_shared/rpcEnvelope";
@@ -55,22 +18,17 @@ import {
   type StreamMessage as SharedStreamMessage,
 } from "../_shared/blockStream";
 
-/** A single processor's event filter, as `eventProcessors` already writes it. */
 export interface StarknetStreamFilter {
-  /** 1-based, matching the `filterIds` the block processors index into. */
   id: number;
   fromAddress: Hex;
-  /** Matched positionally against the event's keys, as a prefix. */
   keys: Hex[];
 }
 
-/** One event, as the runtime's processors consume it. */
 export interface StarknetStreamEvent {
   address: Hex;
   keys: Hex[];
   data: Hex[];
   transactionHash: Hex;
-  /** Position of the emitting transaction in its block. */
   transactionIndex: number;
   /**
    * Position of the event within its transaction, counting *every* event the
@@ -90,7 +48,6 @@ export interface StarknetStreamEvent {
 export type StarknetStreamBlock = SharedStreamBlock<StarknetStreamEvent>;
 export type StarknetStreamMessage = SharedStreamMessage<StarknetStreamEvent>;
 
-/** Felts compare by value: nodes pad them inconsistently and we do not. */
 function feltEquals(a: string, b: string): boolean {
   return BigInt(a) === BigInt(b);
 }
@@ -118,13 +75,6 @@ function canonicalFelt(felt: string): Hex {
   return toHex(BigInt(felt), { size: 32 });
 }
 
-/**
- * True when `event` satisfies `filter`.
- *
- * Prefix match on keys, mirroring what the DNA filter did: an event carrying
- * more keys than the filter names still matches, which is what lets a filter on
- * the selector alone match every event of that name.
- */
 export function eventMatchesFilter(
   event: Pick<StarknetStreamEvent, "address" | "keys">,
   filter: StarknetStreamFilter,
@@ -179,19 +129,10 @@ interface EmittedEvent {
   block_hash?: Hex;
   block_number?: number;
   transaction_hash: Hex;
-  /** v0.10 and above. Absent is a misconfigured endpoint, not an old block. */
   transaction_index?: number;
   event_index?: number;
 }
 
-/**
- * Groups matched events into blocks, in ascending block order, preserving the
- * order the node returned them in within a block.
- *
- * Blocks carrying nothing we match are omitted, which the shared diff depends
- * on: a block with no matched event has no representation in a range read, so
- * recording one would make it look like it had disappeared on the next re-read.
- */
 export function groupEventsByBlock(
   events: EmittedEvent[],
   filters: StarknetStreamFilter[],
@@ -217,7 +158,6 @@ export function groupEventsByBlock(
         header: {
           blockNumber: BigInt(event.block_number),
           blockHash: canonicalFelt(event.block_hash),
-          // Filled by `completeFresh`, which reads the block anyway.
           timestamp: new Date(0),
           baseFeePerGas: null,
         },
@@ -302,8 +242,6 @@ function toChainHead(block: BlockHeaderResponse | null): ChainHead | null {
     number: block.block_number,
     hash: canonicalFelt(block.block_hash),
     timestamp: new Date(block.timestamp * 1000),
-    // What the DNA stream reported as the header's base fee, and what
-    // `indexer_cursor.head_base_fee_per_gas` has held for Starknet all along.
     baseFeePerGas: priceInFri === undefined ? null : BigInt(priceInFri),
   };
 }
@@ -311,9 +249,7 @@ function toChainHead(block: BlockHeaderResponse | null): ChainHead | null {
 export interface StarknetAdapterOptions {
   rpc: StarknetRpc;
   filters: StarknetStreamFilter[];
-  /** Events per `starknet_getEvents` page. */
   chunkSize?: number;
-  /** Refuses a range read that will not terminate rather than looping forever. */
   maxPages?: number;
 }
 
@@ -328,9 +264,6 @@ export function createStarknetAdapter({
   }
   const keysPrefilter = selectorPrefilter(filters);
 
-  // A block this backend does not have (yet) is unreadable, which the adapter
-  // contract spells null -- as `eth_getBlockByNumber` does. At the tip the
-  // node answering can trail the one that just advertised the block.
   const fetchHeader = async (blockId: BlockId): Promise<ChainHead | null> =>
     toChainHead(
       await rpc
@@ -352,10 +285,6 @@ export function createStarknetAdapter({
 
     fetchHead: () => fetchHeader("latest"),
 
-    // Starknet's finality is settlement on Ethereum, and `l1_accepted` names
-    // the deepest block that has it. It trails the head by hours rather than
-    // seconds, which costs nothing here: the finalized block is only a floor on
-    // the re-read and a cursor to announce.
     fetchFinalized: () => fetchHeader("l1_accepted"),
 
     fetchBlock: (blockNumber) => fetchHeader({ block_number: blockNumber }),
@@ -376,8 +305,6 @@ export function createStarknetAdapter({
         const page = await rpc
           .request<{
             events: EmittedEvent[];
-            // Nullable, not merely optional: the field is optional in the spec, so
-            // a node may end a listing either by omitting it or by sending null.
             continuation_token?: string | null;
           }>("starknet_getEvents", [
             {
@@ -393,9 +320,6 @@ export function createStarknetAdapter({
             },
           ])
           .catch((error: unknown) => {
-            // At the tip the anchor may not have reached the backend serving
-            // this call yet, or may have been reorged out since the header read.
-            // Either way the snapshot is stale, not the endpoint broken.
             if (
               endHash &&
               error instanceof StarknetRpcError &&
@@ -426,20 +350,10 @@ export function createStarknetAdapter({
         // until `maxPages`, then an error blaming the range size.
       } while (continuationToken != null);
 
-      // Unlike `eth_getLogs` there is no truncation to guard against. A capped
-      // response says so by handing back a continuation token, and the loop
-      // above only stops when the node reports there is no more -- so a short
-      // read is a protocol violation rather than something indistinguishable
-      // from a complete answer.
       return groupEventsByBlock(events, filters);
     },
 
     async completeFresh(blocks, head) {
-      // Only the timestamp, and only for blocks above the cursor. Everything
-      // below is being re-read to diff its digest, which the range read already
-      // answers, so paying a request per block for it would be the reorg
-      // window's width in waste on every poll -- ~390k requests a day against
-      // ~6k.
       for (const block of blocks) {
         const blockNumber = Number(block.header.blockNumber);
         const header = await fetchHeader({ block_number: blockNumber });
@@ -465,9 +379,6 @@ export function createStarknetAdapter({
         block.header.timestamp = header.timestamp;
       }
 
-      // The head's own gas price is already in hand from this poll's head read,
-      // and it is the only block whose base fee is stored -- the DAO keeps it on
-      // `indexer_cursor`, which quoter-service reads to price gas.
       for (const block of blocks) {
         if (Number(block.header.blockNumber) === head.number) {
           block.header.baseFeePerGas = head.baseFeePerGas;
@@ -477,30 +388,10 @@ export function createStarknetAdapter({
   };
 }
 
-/**
- * Retryable JSON-RPC error codes, matching the list viem applies to the EVM
- * streams.
- *
- * A JSON-RPC error is usually an answer rather than a failure to answer, so
- * most are not retried. These are the exceptions, and 429 is the one that
- * matters here: Alchemy reports a compute-unit overage as an **HTTP 200
- * carrying code 429**, so a client that only inspects the status code sees a
- * successful response containing an error and gives up.
- *
- * Getting this wrong is not a dropped request. A throw out of `fetchHead` is
- * backed off by the block stream only at the poll interval, doubling to its
- * ceiling, rather than with viem's retry schedule -- and on Starknet the
- * runtime's NO_BLOCKS_TIMEOUT_MS (five minutes) exits the worker well before
- * the stream's ten-minute outage budget, after which `restart.sh` restarts it
- * against the same throttling endpoint. Retrying in place, as viem does for
- * every EVM worker, is what keeps a throttle from becoming a restart.
- */
 const RETRYABLE_RPC_CODES = new Set([-1, -32005, -32603, 429]);
 
-/** Starknet's `BLOCK_NOT_FOUND`. */
 const BLOCK_NOT_FOUND = 24;
 
-/** A JSON-RPC error answer, carrying its code so callers can classify it. */
 export class StarknetRpcError extends Error {
   override readonly name = "StarknetRpcError";
   constructor(
@@ -511,35 +402,17 @@ export class StarknetRpcError extends Error {
   }
 }
 
-/**
- * HTTP statuses viem retries for the EVM streams, enumerated so this client
- * matches them rather than approximating them.
- *
- * 403 and 413 are the two a `status >= 500 || 408 || 429` test misses. A
- * transient 403 from a provider edge would otherwise throw straight out of
- * `fetchHead` into the stream's read backoff, where an EVM worker would have
- * retried in place; if it persisted for five minutes, NO_BLOCKS_TIMEOUT_MS
- * would exit the Starknet worker.
- */
 const RETRYABLE_HTTP_STATUSES = new Set([403, 408, 413, 429]);
 
 function isRetryableStatus(status: number): boolean {
   return RETRYABLE_HTTP_STATUSES.has(status) || status >= 500;
 }
 
-/** One attempt, classified into a value, a retry, or a throw. */
 type Attempt<T> =
   | { outcome: "ok"; value: T }
   | { outcome: "retry"; error: Error }
   | { outcome: "fail"; error: Error };
 
-/**
- * A JSON-RPC client with the retry behaviour viem gives the EVM streams.
- *
- * Retries a transport failure, a timeout, a status the server says is
- * transient, a body that is not the JSON it claimed, and the JSON-RPC codes
- * above. Anything else is an answer, and is returned or thrown as one.
- */
 export function createStarknetRpc(
   url: string,
   {
@@ -548,8 +421,6 @@ export function createStarknetRpc(
     timeoutMs = 20_000,
   }: { retries?: number; retryDelayMs?: number; timeoutMs?: number } = {},
 ): StarknetRpc {
-  // Split out of `request` so each half stays under the lint's complexity cap,
-  // and so the classification can be read without the retry loop around it.
   const attempt = async <T>(
     method: string,
     params: unknown,
@@ -589,8 +460,6 @@ export function createStarknetRpc(
     try {
       body = parseRpcEnvelope<T>(await response.json());
     } catch (error) {
-      // A 200 carrying a proxy or CDN error page rather than JSON. That is a
-      // failure to answer, not an answer, so it is retried like one.
       return {
         outcome: "retry",
         error: new Error(
@@ -647,10 +516,6 @@ export interface CreateStarknetEventStreamArgs {
   options?: BlockStreamOptions & { chunkSize?: number; maxPages?: number };
 }
 
-/**
- * Yields the same messages the DNA stream did, so the runtime, the DAO and
- * every processor are untouched.
- */
 export function createStarknetEventStream(
   args: CreateStarknetEventStreamArgs,
 ): AsyncGenerator<StarknetStreamMessage> {

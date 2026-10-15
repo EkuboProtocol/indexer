@@ -10,9 +10,6 @@ import {
   type QuotaMonitorState,
 } from "./coingeckoQuotaRules";
 
-// `gated` is trimmed from the real prod capture after the indexer#219 deploy
-// (2026-09-29 15:12 UTC): a refused credit check, one trip line, cold starts.
-// `legacy` is the pre-gate worker's per-job 10006 failure.
 const fixture = (name: string) =>
   parseLines(
     readFileSync(
@@ -94,8 +91,6 @@ test("a trip after credits were seen back alerts at once", () => {
 });
 
 test("a re-trip the recovery came after stays quiet", () => {
-  // EKU-554: the last six-hourly re-trip before the monthly reset, read
-  // together with the credit check that reopened the gate an hour later.
   const retrip = line(
     later(TRIP_AT, 6 * 3_600_000),
     "ERROR (#7): COINGECKO_QUOTA_EXHAUSTED …",
@@ -170,11 +165,6 @@ test("a low credit reading alerts once a day unless it drops much further", () =
   ]);
 });
 
-// Replays of a whole month, one monitor run five minutes after each reading.
-// Both start from the real first reading after the October reset (02:51:56Z,
-// used=186) and read every three hours, in the worker's line format:
-// `on-pace` reaches 89,000 used by the last reading (the top of the 80-89k
-// October estimate); `over-pace` burns 3,300/day and runs dry on the 31st.
 const onPace = fixture("on-pace");
 const overPace = fixture("over-pace");
 const monitorDefaults = { lowPct: DEFAULT_LOW_PCT, staleMs: options.staleMs };
@@ -206,7 +196,6 @@ test("an over-pace month alerts from day three, once a day, then low near the en
   const alerts = replayMonth(overPace);
   const pace = alerts.filter(({ kind }) => kind === "credits_pace");
 
-  // 50.9h in: the first reading past the 48h grace window.
   expect(pace[0].at).toBe("2026-10-03T02:51:56.746Z");
   expect(pace[0].detail).toContain("projecting 99257 (99.3%)");
   expect(pace.map(({ at }) => at.slice(0, 10))).toEqual(
@@ -214,7 +203,6 @@ test("an over-pace month alerts from day three, once a day, then low near the en
       (day) => day >= "2026-10-03",
     ),
   );
-  // Below 5%, a day later, then below a quarter of that.
   expect(
     alerts.filter(({ kind }) => kind === "credits_low").map(({ at }) => at),
   ).toEqual([
@@ -225,8 +213,6 @@ test("an over-pace month alerts from day three, once a day, then low near the en
 });
 
 test("pace ignores the month's first 48h, then alerts on the same rate", () => {
-  // 6,000 used 36h in projects 124k, but `used` may still be September's
-  // total or a restart burst this early.
   const early = line(
     "2026-10-02T12:00:00.000Z",
     "INFO (#65): COINGECKO_CREDITS plan=Basic limit=100000 used=6000 remaining=94000 remaining_pct=94.0",
@@ -243,7 +229,6 @@ test("pace ignores the month's first 48h, then alerts on the same rate", () => {
 });
 
 test("pace projects from the 1st, 00:00 UTC to the next 1st", () => {
-  // 30-day September: 47,500 used at the half-way point is exactly 95,000.
   expect(projectMonthEnd(47_500, "2026-09-16T00:00:00.000Z").projected).toBe(
     95_000,
   );

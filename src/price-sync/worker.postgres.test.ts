@@ -15,8 +15,6 @@ import type { PriceSyncJob } from "./fetchers/types";
 import { persistPriceUpdates } from "./persistPriceUpdates";
 import { lastStoredPriceAt, type PriceSyncSql } from "./worker";
 
-// CI provides a server; locally, point this at any Postgres you can create
-// databases on.
 const SERVER = process.env.TEST_PG_CONNECTION_STRING;
 
 describe.skipIf(!SERVER)("lastStoredPriceAt against Postgres", () => {
@@ -92,7 +90,6 @@ describe.skipIf(!SERVER)("lastStoredPriceAt against Postgres", () => {
   test("returns the newest price of the job's source on its chains only", async () => {
     await store("cg1", 1n, "2026-10-14T10:00:00.000Z");
     await store("cg1", 10n, "2026-10-14T11:00:00.000Z");
-    // Another chain and another source are not this job's last run.
     await store("cg1", 8453n, "2026-10-14T12:00:00.000Z");
     await store("cgn", 1n, "2026-10-14T13:00:00.000Z");
 

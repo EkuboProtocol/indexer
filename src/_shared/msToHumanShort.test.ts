@@ -13,12 +13,7 @@ describe("msToHumanShort", () => {
   });
 
   it("limits the output to three components", () => {
-    const input =
-      2 * 86_400_000 + // 2d
-      3 * 3_600_000 + // 3h
-      4 * 60_000 + // 4min
-      5 * 1000 + // 5s
-      6; // 6ms
+    const input = 2 * 86_400_000 + 3 * 3_600_000 + 4 * 60_000 + 5 * 1000 + 6;
 
     expect(msToHumanShort(input)).toBe("2d, 3h, 4min");
   });

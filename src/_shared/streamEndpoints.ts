@@ -1,4 +1,3 @@
-/** One endpoint whose range and header reads share a consistent canonical view. */
 function requireRpcUrl(value: string | undefined, name: string): string {
   const url = value?.trim();
   if (!url) throw new Error(`Missing ${name}`);

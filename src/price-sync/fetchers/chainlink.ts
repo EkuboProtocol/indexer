@@ -26,7 +26,6 @@ interface ChainlinkPriceFetcherOptions {
   config: ChainlinkChainConfig;
   catalogRefreshIntervalMs: number;
   catalogCache: ChainlinkCatalogCache;
-  /** Test seam: reads the feeds on chain. */
   readFeedPrices?: typeof fetchChainlinkTokenPrices;
 }
 
@@ -35,21 +34,10 @@ type ChainlinkTokenRow = {
   token_symbol: string;
 };
 
-// An upper bound on how long any single observation may be considered fresh.
 const MAX_PRICE_VALIDITY_MS = 30 * 24 * 60 * 60 * 1_000;
 
-// How far a discovered feed may sit from every other recent price for its
-// token before it is taken to be pricing a different asset. Catalog discovery
-// matches on symbol alone, and cl1 outranks every source but the quoter, so a
-// collision does not merely add a wrong row: it replaces the right price. The
-// collisions seen in production are off by 3x to thousands of times (Base's
-// OP is One Path, Base's TRUMP is MAGA), while a real feed sits within a few
-// percent of the market, or ten to twenty for a bridged or thinly traded
-// variant. A withheld feed costs nothing but the Chainlink upgrade: the token
-// keeps the price it would have had without Chainlink.
 const MAX_REFERENCE_RATIO = 1.25;
 
-// A zero or non-finite reference is no evidence either way.
 function usableReferencePrices(referencePrices: readonly number[]): number[] {
   return referencePrices.filter((p) => Number.isFinite(p) && p > 0);
 }
@@ -75,16 +63,6 @@ export interface ChainlinkRoundTracker {
   (chainId: bigint, tokenAddress: string, roundUpdatedAt: Date): boolean;
 }
 
-/**
- * Reports a feed's round at most once.
- *
- * A feed keeps returning its last round until it next publishes, so polling
- * faster than the heartbeat re-reads one observation many times over. Emitting
- * those repeats would write a row per poll that says nothing new, so this
- * tracks the round already reported per feed and admits only genuine updates.
- * Held in memory: after a restart the first poll re-reports one round per feed,
- * which the latest-price cache absorbs.
- */
 export function makeChainlinkRoundTracker(): ChainlinkRoundTracker {
   const lastReportedRoundAt = new Map<string, number>();
 
@@ -97,9 +75,6 @@ export function makeChainlinkRoundTracker(): ChainlinkRoundTracker {
   };
 }
 
-// Most-rejected rule first. The tail is the long list of Chainlink products
-// this indexer was never going to price, so the head is the interesting part:
-// it is where a feed that should have appeared went.
 function formatSkippedFeeds(skipped: ReadonlyMap<string, number>): string {
   return [...skipped]
     .sort(([, a], [, b]) => b - a)
@@ -107,8 +82,6 @@ function formatSkippedFeeds(skipped: ReadonlyMap<string, number>): string {
     .join("; ");
 }
 
-// Feed discovery and the on-chain reads both need full-width EVM addresses,
-// unlike the numeric form the database stores prices under.
 function toEvmAddress(address: string): `0x${string}` {
   return `0x${BigInt(address).toString(16).padStart(40, "0")}`;
 }
@@ -148,21 +121,8 @@ type ReferencePriceRow = {
   value: number;
 };
 
-// How long after a reference price stops serving it still counts as evidence.
-// A source does not stop pricing a token for good when its row lapses: SushiSwap
-// drops dozens of mainnet tokens from its list for four to six minutes several
-// times an hour, against a validity of three, and the worst lapse seen is
-// seventeen minutes. Judging only against prices valid right now would publish
-// a withheld feed in each such gap, and its row would then serve for the feed's
-// staleness window, hours or days, long after the reference came back. Reading
-// the verdict from the database rather than remembering it also keeps it
-// across a restart, which every merge causes. A reference that lapsed longer
-// ago than this is taken to be gone, and the feed is published unchecked.
 const REFERENCE_LOOKBACK_MS = 60 * 60 * 1_000;
 
-// Every other source's recent price for the given tokens: current, or lapsed
-// within the lookback. Older rows are left out: a price that stopped serving
-// that long ago is no evidence either way.
 function fetchReferencePrices(
   sql: Sql<{ bigint: bigint }>,
   chainId: bigint,
@@ -206,9 +166,6 @@ export function chainlinkPriceFetcher({
   let lastWithheldSummary = "";
   const everUnchecked = new Set<string>();
 
-  // Validity is anchored at the round's own updatedAt and extends through the
-  // feed's staleness window -- mirroring the read-side contract -- floored at
-  // the job's default so a fast-heartbeat feed cannot expire between syncs.
   const toUpdate = (
     tokenAddress: string,
     usdPrice: number,
@@ -240,8 +197,6 @@ export function chainlinkPriceFetcher({
       config.feeds.map((feed) => [feed.tokenAddress.toLowerCase(), feed]),
     );
 
-  // Discovery is best-effort: explicitly configured feeds must keep reporting
-  // through a catalog outage rather than depending on it.
   const discoverFeeds = Effect.fn("chainlink.discoverFeeds")(
     function* () {
       const catalogUrl = config.catalogUrl;
@@ -284,9 +239,6 @@ export function chainlinkPriceFetcher({
     ),
   );
 
-  // Drops discovered feeds whose answer disagrees with every other recent
-  // price for their token. Configured feeds are an operator's explicit choice
-  // and are kept as they are.
   const withholdCollisions = Effect.fn("chainlink.withholdCollisions")(
     function* (
       observations: Record<string, ChainlinkPriceObservation>,
@@ -313,9 +265,6 @@ export function chainlinkPriceFetcher({
         (address) => usableReferencePrices(referencesFor(address)).length === 0,
       );
 
-      // Logged when the set changes, like the discovery summary: a collision
-      // persists from one poll to the next, and saying so every minute would
-      // bury the line that matters.
       const withheldSummary = summarizeAddresses(withheld);
       if (withheldSummary !== lastWithheldSummary) {
         lastWithheldSummary = withheldSummary;
@@ -325,13 +274,6 @@ export function chainlinkPriceFetcher({
           }`,
         );
       }
-      // Logged only when a feed joins the set that was never in it before,
-      // rather than whenever the set changes. A token can leave and rejoin as
-      // its only other price lapses for longer than the lookback and returns,
-      // and naming the whole set each time would bury a feed that is new
-      // among lines that only report an expiry. The first line still
-      // names the full set, and each later one names it again with the
-      // newcomers called out.
       const newlyUnchecked = unchecked.filter(
         (address) => !everUnchecked.has(address.toLowerCase()),
       );

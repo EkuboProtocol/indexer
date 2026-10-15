@@ -22,7 +22,6 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
-// Records every URL requested and replies with the caller's payload.
 function stubCoinGecko(reply: (url: URL) => unknown): string[] {
   const requested: string[] = [];
   globalThis.fetch = (async (input: string | URL) => {
@@ -42,8 +41,6 @@ function toRows(addresses: readonly string[]) {
   }));
 }
 
-// `sql` is only ever used here as a tagged template returning token rows: the
-// indexed tokens, or the retained `cg1` observations the rotation seeds from.
 function stubSql(
   addresses: () => readonly string[],
   retainedPrices: readonly string[] = [],
@@ -58,8 +55,6 @@ function stubSql(
     )) as unknown as Sql<{ bigint: bigint }>;
 }
 
-// Runs one cycle with the clock at `atMs`, which fixes the rotation slot and
-// whether a quota pause has elapsed.
 async function collect(fetch: PriceFetcher, atMs = 0): Promise<PriceUpdate[]> {
   const batches = await Effect.runPromise(
     Effect.gen(function* () {
@@ -152,7 +147,6 @@ test("the token fetcher sweeps every address on its first cycle", async () => {
 });
 
 test("the token fetcher drops addresses CoinGecko does not price from later cycles", async () => {
-  // Only the first two tokens are listed; the rest should fall out of rotation.
   const requested = stubCoinGecko(() => ({
     [TOKENS[0]]: { usd: 1 },
     [TOKENS[1]]: { usd: 2 },
@@ -161,7 +155,6 @@ test("the token fetcher drops addresses CoinGecko does not price from later cycl
     sql: stubSql(() => TOKENS),
     chainId: 8453n,
     intervalMs: 1_000,
-    // Long enough that no unpriced token is due again during this test.
     unpricedReprobeIntervalMs: 1_000_000,
     platform: "base",
     apiKey,
@@ -181,7 +174,6 @@ test("the token fetcher re-probes unpriced addresses on rotation", async () => {
     sql: stubSql(() => TOKENS),
     chainId: 8453n,
     intervalMs: 1_000,
-    // Two slots: half the unpriced tail comes due on each cycle.
     unpricedReprobeIntervalMs: 2_000,
     platform: "base",
     apiKey,
@@ -192,8 +184,6 @@ test("the token fetcher re-probes unpriced addresses on rotation", async () => {
   await collect(job.fetch, 1_000);
   await collect(job.fetch, 2_000);
 
-  // The slot follows the clock: t=1s is slot 1 (indexes 1 and 3), t=2s is
-  // slot 0 (0 and 2).
   expect(requestedAddresses(requested)).toEqual([
     [TOKENS[1], TOKENS[3]],
     [TOKENS[0], TOKENS[2]],
@@ -216,11 +206,10 @@ test("the token fetcher picks up a token that CoinGecko lists later", async () =
 
   await collect(job.fetch, 0);
   listed = true;
-  await collect(job.fetch, 1_000); // slot 1 re-probes TOKENS[1] and finds a price
+  await collect(job.fetch, 1_000);
   requested.length = 0;
   await collect(job.fetch, 2_000);
 
-  // Now priced, TOKENS[1] is requested every cycle rather than on rotation.
   expect(requestedAddresses(requested)[0]).toContain(TOKENS[1]);
 });
 
@@ -241,15 +230,12 @@ test("the token fetcher forgets addresses that leave erc20_tokens", async () => 
   requested.length = 0;
   await collect(job.fetch, 1_000);
 
-  // TOKENS[0] was the only priced address, so dropping it from erc20_tokens
-  // must drop it from the fast lane too rather than pinning it there forever.
   expect(requestedAddresses(requested).flat()).not.toContain(TOKENS[0]);
 });
 
 test("a restart seeds the rotation from retained cg1 prices instead of sweeping", async () => {
   const requested = stubCoinGecko(() => ({ [TOKENS[2]]: { usd: 3 } }));
   let addresses: readonly string[] = TOKENS;
-  // A fresh fetcher is what a restarted process has: nothing in memory.
   const job = coingeckoPriceFetcher({
     sql: stubSql(() => addresses, [TOKENS[2]]),
     chainId: 8453n,
@@ -259,13 +245,11 @@ test("a restart seeds the rotation from retained cg1 prices instead of sweeping"
     apiKey,
   });
 
-  // t=5s is slot 5, which no token index hits: only the seeded priced token.
   const updates = await collect(job.fetch, 5_000);
 
   expect(requestedAddresses(requested)).toEqual([[TOKENS[2]]]);
   expect(updates.map((update) => update.usdPrice)).toEqual([3]);
 
-  // A token that enters the table after startup is still discovered at once.
   const added = "0x5555555555555555555555555555555555555555";
   addresses = [...TOKENS, added];
   requested.length = 0;
@@ -320,8 +304,6 @@ test("the token fetcher passes a minimum visibility priority to its table read",
   });
   await collect(unrestricted.fetch);
 
-  // [chainId, minimum, minimum, include tokens with Ekubo liquidity]: the
-  // minimum is both null-checked and compared.
   expect(tokenReads).toEqual([
     [1n, 1, 1, false],
     [8453n, null, null, false],
@@ -335,8 +317,6 @@ test("the token fetcher pads Starknet addresses to 64 hex digits", async () => {
     "0x036834a40984312f7f7de8d31e3f6305b325389eaeea5b1c0664b2fb936461a4";
   const other =
     "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7";
-  // Echo the priced address back unpadded and upper-cased: it must still be
-  // recognised as the requested token, or it would fall out of the fast lane.
   const requested = stubCoinGecko(() => ({
     [`0x${short.slice(2).toUpperCase()}`]: { usd: 60_000 },
   }));
@@ -356,8 +336,6 @@ test("the token fetcher pads Starknet addresses to 64 hex digits", async () => {
     updates.map((update) => [update.tokenAddress, update.usdPrice]),
   ).toEqual([[short, 60_000]]);
 
-  // t=1s serves slot 1, the priced token's own index, so the unpriced token
-  // at index 0 is not due and only the priced token is asked about.
   requested.length = 0;
   await collect(job.fetch, 1_000);
   expect(requestedAddresses(requested)).toEqual([[padded]]);
@@ -371,7 +349,6 @@ const QUOTA_BODY = JSON.stringify({
   },
 });
 
-// Replies 429 with CoinGecko's monthly-limit body while `exhausted()` holds.
 function stubQuota(
   exhausted: () => boolean,
   reply: (url: URL) => unknown,
@@ -414,17 +391,13 @@ test("a monthly quota refusal pauses every CoinGecko job sharing the gate", asyn
     quotaGate,
   });
 
-  // The refusal is absorbed rather than failing the cycle...
   expect(await collect(tokens.fetch, 0)).toEqual([]);
   expect(requested).toHaveLength(1);
 
-  // ...and no job asks again while the pause lasts.
   expect(await collect(native.fetch, 1_000)).toEqual([]);
   expect(await collect(tokens.fetch, COINGECKO_QUOTA_PAUSE_MS - 1)).toEqual([]);
   expect(requested).toHaveLength(1);
 
-  // Once it lapses they resume, and the refused batch was not recorded as
-  // "unpriced": every token is still swept.
   exhausted = false;
   requested.length = 0;
   const updates = await collect(tokens.fetch, COINGECKO_QUOTA_PAUSE_MS);
@@ -502,7 +475,7 @@ test("the credit check reads GET /key and reopens a paused gate once credits ret
     quotaGate,
   });
 
-  await collect(job.fetch, 0); // trips the gate
+  await collect(job.fetch, 0);
   exhausted = false;
   await Effect.runPromise(
     checkCoinGeckoCredits({ apiKey, quotaGate }).pipe(
@@ -525,17 +498,16 @@ test("re-probe slots neither repeat nor skip when launches drift across epochs",
     sql: stubSql(() => TOKENS),
     chainId: 8453n,
     intervalMs: 1_000,
-    // Four slots: one token index apiece.
     unpricedReprobeIntervalMs: 4_000,
     platform: "base",
     apiKey,
   });
 
-  await collect(job.fetch, 0); // cold sweep, epoch 0
+  await collect(job.fetch, 0);
   requested.length = 0;
-  await collect(job.fetch, 1_000); // epoch 1: slot 1
-  await collect(job.fetch, 1_999); // epoch 1 again: nothing due
-  await collect(job.fetch, 3_500); // jumped to epoch 3: slots 2 and 3
+  await collect(job.fetch, 1_000);
+  await collect(job.fetch, 1_999);
+  await collect(job.fetch, 3_500);
 
   expect(requestedAddresses(requested)).toEqual([
     [TOKENS[1]],
@@ -572,9 +544,9 @@ test("the credit check keeps the gate closed until a margin of credits is back",
       ),
     );
 
-  await collect(job.fetch, 0); // trips the gate
+  await collect(job.fetch, 0);
   exhausted = false;
-  await check(); // 500 left: below the margin, stays paused
+  await check();
   await collect(job.fetch, 1_000);
   remaining = COINGECKO_REOPEN_MIN_REMAINING;
   await check();
@@ -609,12 +581,12 @@ test("a failed cycle leaves its re-probe slot due for the next one", async () =>
     apiKey,
   });
 
-  await collect(job.fetch, 0); // cold sweep, epoch 0
+  await collect(job.fetch, 0);
   failing = true;
-  await expect(collect(job.fetch, 1_000)).rejects.toThrow(/500/); // epoch 1 fails
+  await expect(collect(job.fetch, 1_000)).rejects.toThrow(/500/);
   failing = false;
   requested.length = 0;
-  await collect(job.fetch, 2_000); // epoch 2 serves slots 1 and 2
+  await collect(job.fetch, 2_000);
 
   expect(requestedAddresses(requested)).toEqual([[TOKENS[1], TOKENS[2]]]);
 });

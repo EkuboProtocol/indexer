@@ -19,18 +19,10 @@ import { persistPriceUpdates } from "./persistPriceUpdates";
 import { runPriceSyncJob } from "./runPriceSyncJob";
 import { priceSyncJobId, validatePriceSyncJobs } from "./validatePriceSyncJobs";
 
-// How often the latest-price cache is reconciled against source expirations.
 const PRICE_EXPIRATION_POLL_INTERVAL_MS = 1_000;
 
 export type PriceSyncSql = Sql<{ bigint: bigint }>;
 
-/**
- * The connection pool, tied to the program's scope.
- *
- * Every exit path -- a clean "nothing enabled" return, a startup failure, a
- * SIGTERM in the middle of a cycle -- runs this release step, so the pool is
- * closed in one place instead of at each of the three former exits.
- */
 export function acquireSql(connectionString: string) {
   return Effect.acquireRelease(
     Effect.sync(
@@ -92,9 +84,6 @@ export function runCycle(sql: PriceSyncSql, job: PriceSyncJob) {
   );
 }
 
-// The newest observation the job's source has stored on any of its chains,
-// standing in for when its last successful cycle ran. `undefined` when none is
-// retained.
 export function lastStoredPriceAt(
   sql: PriceSyncSql,
   job: PriceSyncJob,
@@ -111,8 +100,6 @@ export function lastStoredPriceAt(
   }).pipe(Effect.map((rows) => rows[0]?.last ?? undefined));
 }
 
-// Time left until the cycle after `lastRunAtMs` is due, capped at one interval
-// so a timestamp from the future cannot hold the job back for longer.
 export function firstLaunchDelayMs(
   lastRunAtMs: number | undefined,
   nowMs: number,
@@ -122,11 +109,6 @@ export function firstLaunchDelayMs(
   return Math.min(intervalMs, Math.max(0, lastRunAtMs + intervalMs - nowMs));
 }
 
-// Every deploy restarts the worker, and launching a metered job at once on
-// each restart bought a full extra cycle of CoinGecko credits per deploy. A
-// job that opts in resumes its cadence from its last stored price instead.
-// Without a stored price, or if the lookup fails, it launches at once as
-// before: a missed delay costs one cycle, a wrong one costs prices.
 export function initialDelayMs(sql: PriceSyncSql, job: PriceSyncJob) {
   const jobId = priceSyncJobId(job);
 
@@ -151,7 +133,6 @@ export function initialDelayMs(sql: PriceSyncSql, job: PriceSyncJob) {
         ),
       ),
     );
-    // Already logged; launch now.
     if (last === null) return 0;
 
     const now = yield* Clock.currentTimeMillis;
@@ -166,9 +147,6 @@ export function initialDelayMs(sql: PriceSyncSql, job: PriceSyncJob) {
   });
 }
 
-// `Schedule.fixed` spaces launches, not the gaps between them, which is the
-// contract the Bottleneck `minTime` scheduler provided: a cycle that overruns
-// its interval starts the next one immediately instead of adding to the delay.
 export function jobLoop(sql: PriceSyncSql, job: PriceSyncJob) {
   return Effect.gen(function* () {
     const delayMs = yield* initialDelayMs(sql, job);
@@ -180,9 +158,6 @@ export function jobLoop(sql: PriceSyncSql, job: PriceSyncJob) {
   });
 }
 
-// Expiry is time-driven, not write-driven: when the highest-confidence source
-// for a token goes stale, a lower-confidence one has to be promoted even
-// though nothing new arrived.
 export function expirationLoop(sql: PriceSyncSql) {
   return tryPriceSync({
     source: "expiry",
@@ -202,8 +177,6 @@ export function expirationLoop(sql: PriceSyncSql) {
   );
 }
 
-// Logs CoinGecko credit headroom for the quota monitor. A failed check logs a
-// line of its own so the monitor can tell "no reading" from "no credits".
 export function coingeckoCreditsLoop(
   apiKey: string,
   quotaGate: CoinGeckoQuotaGate,
@@ -227,7 +200,6 @@ export const partitionEnabled = Effect.fn("partitionEnabled")(function* (
   const enabled: PriceSyncJob[] = [];
 
   for (const job of jobs) {
-    // An interval of zero disables the job.
     if (job.intervalMs === 0) {
       yield* Effect.logInfo(
         `Price sync job ${priceSyncJobId(job)} is disabled`,
@@ -278,11 +250,6 @@ export const main = Effect.gen(function* () {
     return;
   }
 
-  // Each loop is its own fiber; none of them ever completes on its own. On
-  // SIGINT/SIGTERM `runMain` interrupts this effect, which interrupts every
-  // loop and then closes the scope -- so the shutdown flag, the signal
-  // handlers and the "stop the schedulers" pass all go away.
-  // Only worth a request when some CoinGecko job is actually running.
   const creditsLoop =
     config.coingeckoApiKey !== undefined &&
     (config.coingeckoIntervalMs > 0 || config.coingeckoNativeIntervalMs > 0)

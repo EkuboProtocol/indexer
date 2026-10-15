@@ -15,19 +15,10 @@ type MirroredRow = {
 
 interface BridgeMirrorFetcherOptions {
   sql: Sql<{ bigint: bigint }>;
-  // The chains whose tokens may receive a mirrored price.
   chainIds: bigint[];
   intervalMs: number;
 }
 
-// For every listed token on the given chains that no other source currently
-// prices, the best current price of a token it is bridged to or from.
-//
-// A relationship is read in both directions: token lists record an L2 token's
-// canonical L1 counterpart on the L2 token, and StarkGate records the reverse.
-// Mirrored rows are never copied again, so a price only travels one hop from a
-// direct observation. Ordered by confidence, then counterpart chain and source,
-// so a token with several priced counterparts resolves the same way every cycle.
 function readMirroredPrices(
   sql: Sql<{ bigint: bigint }>,
   chainIds: readonly bigint[],
@@ -104,8 +95,6 @@ export function bridgeMirrorPriceFetcher({
 
     const updates = new Map<bigint, PriceUpdate[]>();
     for (const row of rows) {
-      // The query filters on the database clock and this on the worker's;
-      // a validity ending at or before the timestamp fails the whole batch.
       if (row.valid_until <= timestamp) continue;
       if (!Number.isFinite(row.value) || row.value <= 0) continue;
 

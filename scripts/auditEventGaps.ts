@@ -1,40 +1,3 @@
-/**
- * Compares every block the chain reports events for, under the indexer's own
- * filters, against the `blocks` table. Read-only on both sides.
- *
- * A missed block leaves nothing behind to notice: the cursor advances, nothing
- * errors, and every aggregate over it is quietly wrong. Ethereum block
- * 25739240 went missing that way (EKU-272). This settles, for a range, whether
- * any other block did.
- *
- *   NETWORK=mainnet AUDIT_RPC_URL=<url> PG_CONNECTION_STRING=<url> \
- *     bun scripts/auditEventGaps.ts [from] [to]
- *
- * AUDIT_NETWORK_TYPE=starknet audits Starknet instead (AUDIT_RPC_URL must speak
- * JSON-RPC v0.10, as the stream requires).
- *
- * `from` defaults to the block after STARTING_CURSOR_BLOCK_NUMBER and `to` to
- * the stored finalized cursor, so a default run only reads settled history.
- * AUDIT_LAST_SECONDS instead starts `from` that much chain time before `to`,
- * which is what the periodic monitor (scripts/monitorEventGaps.ts) runs.
- * AUDIT_RANGE sets the initial eth_getLogs span (default 2000); it halves on a
- * provider error and grows back on success, up to AUDIT_MAX_RANGE. AUDIT_DELAY_MS
- * paces requests for rate-limited public endpoints.
- *
- * Prints one JSON line per discrepancy and a final summary line:
- *   missing  the chain has events for the block, the table has no row
- *   hash     the row names a different block than the canonical one
- *   count    the row's num_events differs from what the filters match now
- *   extra    a row for a block the chain has no matching events in
- * `count` and `extra` also come from filter changes -- a contract added to or
- * removed from the configuration after the block was indexed -- and `count`
- * from rows written before num_events meant "matched filters", so `count` is
- * only totalled unless AUDIT_REPORT_COUNTS=1. Each line carries the
- * per-address breakdown needed to tell a filter change from lost data.
- *
- * Exits 1 when anything is `missing` or `hash`, the two that mean lost or
- * wrong data regardless of configuration history.
- */
 import postgres from "postgres";
 import { createPublicClient, http } from "viem";
 import type { ChainAdapter } from "../src/_shared/blockStream";
@@ -61,7 +24,6 @@ const rpcUrl =
     : process.env.STARKNET_RPC_URL);
 if (!rpcUrl) throw new Error("Set AUDIT_RPC_URL");
 
-/** The stream's own adapter and filters, so "matched" means what it means to the indexer. */
 async function createAuditAdapter(
   url: string,
 ): Promise<ChainAdapter<{ address: string; filterIds: number[] }>> {
@@ -118,7 +80,6 @@ const from =
         )
       : start;
 
-/** How many blocks the chain produced in the last `seconds` before `to`, measured from its own headers. */
 async function blocksIn(seconds: number, to: number): Promise<number> {
   const probe = Math.min(1_000, to - 1);
   const [end, begin] = await Promise.all([
@@ -130,8 +91,6 @@ async function blocksIn(seconds: number, to: number): Promise<number> {
       `Could not read blocks ${to - probe} and ${to} to size the window`,
     );
   const elapsed = (end.timestamp.getTime() - begin.timestamp.getTime()) / 1_000;
-  // Headers with one-second timestamps can tie on a fast chain; fall back to
-  // one block a second rather than dividing by zero.
   const rate = elapsed > 0 ? probe / elapsed : 1;
   return Math.ceil(rate * seconds);
 }
@@ -171,8 +130,6 @@ const report = (line: Record<string, unknown>) =>
   console.log(JSON.stringify(line));
 
 let span = Number(process.env.AUDIT_RANGE ?? 2000);
-// Starknet pages its events, and a dense span exhausts the adapter's page
-// budget before it can throw and halve, so it grows to a narrower ceiling.
 const maxSpan = Number(
   process.env.AUDIT_MAX_RANGE ?? (networkType === "starknet" ? 5_000 : 100_000),
 );
@@ -190,9 +147,6 @@ while (lo <= to) {
     blocks = await adapter.readRange(lo, hi);
     failures = 0;
   } catch (error) {
-    // Public endpoints refuse wide spans and rate-limit bursts, and the error
-    // says which in a different way on each. Narrow first, then wait it out;
-    // give up only when even one block keeps failing.
     if (++failures > 10) throw error;
     span = Math.max(1, Math.floor(span / 2));
     await Bun.sleep(Math.min(60_000, 500 * 2 ** failures));

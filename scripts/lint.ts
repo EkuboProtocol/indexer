@@ -1,14 +1,3 @@
-// Runs oxlint over the repository and holds known violations to the per-file,
-// per-rule counts in lint-suppressions.json. A file may not gain a violation of
-// a recorded rule, and a count that is higher than the file needs fails too, so
-// the file only ever shrinks.
-//
-//   bun run lint                        lint; fails on any unrecorded violation
-//   bun run lint --fix                  extra arguments are passed to oxlint
-//   bun run lint:prune                  lower recorded counts to what remains
-//   bun run lint --suppress-rule=CODE   record every current violation of CODE,
-//                                       e.g. "typescript(no-floating-promises)";
-//                                       only when introducing a rule
 import { readFileSync, writeFileSync } from "node:fs";
 
 const SUPPRESSIONS_FILE = "lint-suppressions.json";

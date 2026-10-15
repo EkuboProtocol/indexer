@@ -17,8 +17,6 @@ export const parsePoolKey = combineParsers({
   extension: { index: 4, parser: parseAddress },
 });
 export type PoolKey = GetParserType<typeof parsePoolKey>;
-// Cairo serializes the eight booleans individually; the storage bit positions
-// put before_initialize_pool last (bit 0), not first (bit 7).
 export const parseCallPoints = combineParsers({
   before_initialize_pool: { index: 0, parser: parseBoolean },
   after_initialize_pool: { index: 1, parser: parseBoolean },

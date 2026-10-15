@@ -9,15 +9,12 @@ export interface PriceSyncConfig {
   readonly pgConnectionString: string;
   readonly defaultIntervalMs: number;
   readonly coingeckoIntervalMs: number;
-  // The `cgn` native-currency job. It costs one request per cycle for every
-  // chain, so it can run far more often than the per-chain token jobs.
   readonly coingeckoNativeIntervalMs: number;
   readonly chainlinkIntervalMs: number;
   readonly chainlinkConfig: ChainlinkPriceConfig;
   readonly chainlinkCatalogRefreshIntervalMs: number;
   readonly coingeckoApiKey: string | undefined;
   readonly quoterBaseUrl: string;
-  // Minimum spacing between quoter request launches.
   readonly quoterMinTimeMs: number;
 }
 
@@ -29,9 +26,6 @@ function invalid(name: string, requirement: string) {
   });
 }
 
-// `Config.int` already rejects anything non-integer, so these only add the
-// range each setting needs -- and keep the message an operator would have seen
-// from the hand-rolled readers.
 function requirePositive(name: string, value: number) {
   return value > 0
     ? Effect.succeed(value)
@@ -75,14 +69,6 @@ const raw = Config.all({
   ),
 });
 
-/**
- * Every setting the worker reads, in one place.
- *
- * Previously these were parsed at module scope, which meant an invalid value
- * threw during import -- before any logger existed, and from whichever module
- * happened to be loaded first. Reading them here makes a bad setting an
- * ordinary typed failure of the startup effect.
- */
 export const loadPriceSyncConfig = Effect.fn("loadPriceSyncConfig")(
   function* () {
     const values = yield* raw;
@@ -95,8 +81,6 @@ export const loadPriceSyncConfig = Effect.fn("loadPriceSyncConfig")(
       "COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS",
       values.coingeckoIntervalSeconds,
     );
-    // Unset follows the token jobs, which is what every deployment did before
-    // the two could differ.
     const coingeckoNativeSeconds = yield* requireNonNegative(
       "COINGECKO_NATIVE_PRICE_SYNC_INTERVAL_SECONDS",
       Option.getOrElse(

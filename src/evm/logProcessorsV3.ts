@@ -169,7 +169,6 @@ export function createLogProcessorsV3({
             poolId: toPoolId({
               token0: parsed.orderKey.token0,
               token1: parsed.orderKey.token1,
-              // v2 and v3 behavior match as long as tickSpacing == 0n
               config: toPoolConfigV2({
                 fee,
                 tickSpacing: 0,
@@ -205,7 +204,6 @@ export function createLogProcessorsV3({
             poolId: toPoolId({
               token0: parsed.orderKey.token0,
               token1: parsed.orderKey.token1,
-              // v2 and v3 behavior match as long as tickSpacing == 0n
               config: toPoolConfigV2({
                 fee,
                 tickSpacing: 0,

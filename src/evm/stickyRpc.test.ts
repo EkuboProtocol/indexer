@@ -15,11 +15,6 @@ const CHAIN_ID = 4663n;
 const hashOf = (n: number) =>
   numberToHex(BigInt(n) + (1n << 200n), { size: 32 });
 
-/**
- * A provider over one shared chain: block `n` is `n` seconds after `genesisSec`,
- * the head follows the wall clock, and every 5th block carries one event. A
- * provider can refuse `eth_getLogs`, freeze its head, or stop answering.
- */
 function provider(label: string, calls: string[], genesisSec: number) {
   const state = {
     refuseLogs: false,
@@ -110,9 +105,6 @@ function setup(opts: { failbackMs?: number; staleHeadMs?: number } = {}) {
       onWarning: (message, detail) => warnings.push({ message, detail }),
     },
   );
-  // Every loop turn starts with `beforeTick`. Mark where it starts (its own
-  // probes may go anywhere) and where the turn's reads begin, so requests can
-  // be grouped by the turn that made them.
   const beforeTick = sticky.beforeTick.bind(sticky);
   sticky.beforeTick = async (signal: TickSignal) => {
     calls.push("--probe--");
@@ -140,7 +132,6 @@ function stream(sticky: StickyRpc, cursor: number) {
   });
 }
 
-/** The next `n` data messages, leaving the stream open (a `for await` break would close it). */
 async function take(
   s: AsyncGenerator<StreamMessage>,
   n: number,
@@ -154,7 +145,6 @@ async function take(
   return out;
 }
 
-/** Each loop turn's reads (not `beforeTick`'s probes), by the endpoint that served them. */
 function endpointsPerTurn(calls: string[]): Set<string>[] {
   const turns: Set<string>[] = [];
   let inTurn = false;
@@ -175,8 +165,6 @@ describe("StickyRpc in the block stream", () => {
   it("fails over on a refused range and never mixes providers within a loop turn", async () => {
     const { calls, warnings, a, sticky } = setup();
     await sticky.start();
-    // Far enough behind that catching up takes several range reads, so a read
-    // after the refusal starts is made rather than served from the first one.
     const s = stream(sticky, a.headNumber() - 600);
     await take(s, 3);
     a.state.refuseLogs = true;
@@ -188,7 +176,6 @@ describe("StickyRpc in the block stream", () => {
       warnings.find((w) => w.message === "switched RPC endpoint")?.detail,
     ).toEqual({ from: "http://A", to: "http://B", reason: "read failed" });
     expect(after.length).toBe(60);
-    // Plan, snapshot, reconciliation and finality within a turn: one endpoint.
     const turns = endpointsPerTurn(calls);
     expect(turns.length).toBeGreaterThan(5);
     for (const turn of turns) expect(turn.size).toBeLessThanOrEqual(1);
@@ -251,7 +238,6 @@ describe("StickyRpc switching", () => {
       message: "RPC endpoint not healthier; staying",
       detail: { reason: "stale head" },
     });
-    // Not re-probed within the probe interval.
     const probes = warnings.length;
     expect(await sticky.beforeTick(tick)).toBe(false);
     expect(warnings.length).toBe(probes);
@@ -279,7 +265,6 @@ describe("StickyRpc switching", () => {
       ),
     ).toBe(true);
     await Bun.sleep(5);
-    // Still down: no failback, and B is kept.
     expect(await sticky.beforeTick(signal({ cursorBlock: 10 }))).toBe(false);
     expect(sticky.current.label).toBe("http://B");
   });

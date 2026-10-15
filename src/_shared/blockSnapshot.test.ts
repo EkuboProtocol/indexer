@@ -49,7 +49,6 @@ it("resolves missing backfill tails before reading or emitting a range", async (
     { number: 90, hash: null },
   );
   await expect(read).rejects.toThrow(/valid block 99/);
-  // A header the node cannot serve yet is retried in-stream, not a restart.
   await expect(read).rejects.toBeInstanceOf(StaleSnapshotError);
   expect(reads).toBe(0);
 });
@@ -168,11 +167,9 @@ it("keeps the stored rollback point when the finalized block is unusable", async
   const stored: LoadPreviousCursor = async (before) =>
     20 < before ? { orderKey: 20n, uniqueKey: "0x14" } : null;
   const verified: IndexerCursor = { orderKey: 20n, uniqueKey: "0x14" };
-  // Re-read hash disagrees: a stale finalized view must not pick the fork.
   expect(
     await commonStoredCursor(adapter(), 1000, stored, header(960, "0xbad")),
   ).toEqual(verified);
-  // At or above the cursor, or at or below the stored block, there is nothing to gain.
   expect(
     await commonStoredCursor(adapter(), 1000, stored, header(1000)),
   ).toEqual(verified);
@@ -189,7 +186,6 @@ it("does not skip orphaned stored rows by landing on the finalized block", async
   const rpc = adapter({
     fetchBlock: async (n) => header(n, n > 20 ? "0xaaa" : "0x14"),
   });
-  // Block 900 is orphaned, so rows above 20 must be deleted even though 960 is final.
   expect(
     await commonStoredCursor(
       rpc,

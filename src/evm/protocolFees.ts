@@ -1,6 +1,5 @@
 export const EVM_POOL_FEE_DENOMINATOR = 1n << 64n;
 
-// computes the fee for a given amount, rounding up. assumes amount >= 0.
 export function computeFee(
   amount: bigint,
   fee: bigint,

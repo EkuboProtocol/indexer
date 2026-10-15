@@ -1,8 +1,3 @@
-/**
- * EVM range adapter. Logs provide event identities and usually timestamps;
- * headers are fetched only when timestamps are missing. The snapshot reader
- * verifies the cursor and ending header before committing the range.
- */
 import type { Address, Hex, PublicClient } from "viem";
 import { hexToBigInt, hexToNumber, numberToHex } from "viem";
 import type { IndexerCursor } from "../_shared/dao";
@@ -28,8 +23,6 @@ import {
   type StreamMessage as SharedStreamMessage,
 } from "../_shared/blockStream";
 
-// Re-exported so this module stays the one place EVM code imports the stream
-// from, whether the piece it needs is EVM-specific or shared.
 export {
   digestBlocks,
   firstDivergentBlock,
@@ -39,23 +32,14 @@ export {
   reorgWindowBlocksFor,
 };
 
-/** A single processor's log filter, mirroring the shape the entrypoint builds. */
 export interface LogStreamFilter {
-  /** 1-based, matching the `filterIds` the block processors index into. */
   id: number;
   address: Address;
   topics: (Hex | null)[];
-  /** When set, the log must carry exactly `topics.length` topics. */
   strict: boolean;
 }
 
 export interface LogStreamOptions extends BlockStreamOptions {
-  /**
-   * A log count that is suspected of being a provider's cap rather than a real
-   * result. Set it to the provider's documented `eth_getLogs` limit. A function
-   * is read on every range, for an RPC whose endpoint (and so whose cap) can
-   * change between reads.
-   */
   suspectLogCount?: number | (() => number);
 }
 
@@ -76,7 +60,6 @@ export interface RawLog {
   removed?: boolean;
 }
 
-/** One log, as the runtime's processors consume it. */
 export interface StreamLog {
   address: Address;
   topics: Hex[];
@@ -87,17 +70,9 @@ export interface StreamLog {
   filterIds: number[];
 }
 
-/** The block shape the runtime's `parseEvmBlockHeader` expects. */
 export type StreamBlock = SharedStreamBlock<StreamLog>;
 export type StreamMessage = SharedStreamMessage<StreamLog>;
 
-/**
- * True when `log` satisfies `filter`.
- *
- * Positional topic match with `null` as a wildcard. A non-strict filter matches
- * a log that carries more topics than the filter names, which is what lets a
- * filter on `topic0` alone match every event of that signature.
- */
 export function logMatchesFilter(
   log: Pick<RawLog, "address" | "topics">,
   filter: LogStreamFilter,
@@ -130,12 +105,6 @@ export function matchingFilterIds(
   return ids;
 }
 
-/**
- * Groups logs into blocks, in ascending block order, with logs inside a block
- * ordered by log index. `eth_getLogs` is specified to return logs in order, but
- * ordering the emitted stream is the whole contract with the runtime, so it is
- * enforced here rather than assumed.
- */
 export function groupLogsByBlock(
   logs: RawLog[],
   filters: LogStreamFilter[],
@@ -163,8 +132,6 @@ export function groupLogsByBlock(
           header: {
             blockNumber: BigInt(blockNumber),
             blockHash: log.blockHash,
-            // Present on every chain we index; `requireTimestamps` below is what
-            // handles a provider that omits it rather than a silent zero date.
             timestamp: new Date(
               log.blockTimestamp ? hexToNumber(log.blockTimestamp) * 1000 : 0,
             ),
@@ -376,10 +343,6 @@ async function fetchBlockByNumber(
   };
 }
 
-/**
- * Trust timestamped logs under the provider consistency contract in README.md.
- * Reuse the anchor for the head fee; hash-check any missing-timestamp fallback.
- */
 async function completeBlocks(
   rpc: RpcLike,
   blocks: StreamBlock[],
@@ -465,10 +428,6 @@ export function createEvmAdapter(
   };
 }
 
-/**
- * Yields the same messages the previous stream did, so the runtime, the DAO and
- * every processor are untouched.
- */
 export function createLogStream(
   args: CreateLogStreamArgs,
 ): AsyncGenerator<StreamMessage> {

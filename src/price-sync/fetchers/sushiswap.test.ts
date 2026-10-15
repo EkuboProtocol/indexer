@@ -60,8 +60,6 @@ test("the fetcher prices the chain it was configured for", async () => {
 });
 
 test("the native currency is rekeyed onto 0x0", async () => {
-  // Sushi reports the native currency under a sentinel address; the database
-  // keys it as 0x0, and the interface reads it there.
   stubSushi(() => ({ [NATIVE_SENTINEL]: 3_000, [USDC]: 1 }));
 
   const updates = await collect(1n);
@@ -74,7 +72,6 @@ test("the native currency is rekeyed onto 0x0", async () => {
   expect(Object.keys(byAddress)).toHaveLength(2);
 });
 
-// Checksummed, as jobs.ts writes it; Sushi keys the list in lower case.
 const WXDAI = "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d";
 
 function pricesByAddress(updates: PriceUpdate[]): Record<string, number> {
@@ -84,13 +81,11 @@ function pricesByAddress(updates: PriceUpdate[]): Record<string, number> {
 }
 
 test("without a sentinel, the wrapped native token prices 0x0", async () => {
-  // Gnosis, Monad and MegaETH list only the wrapped token.
   stubSushi(() => ({ [WXDAI.toLowerCase()]: 0.9995, [USDC]: 1 }));
 
   const byAddress = pricesByAddress(await collect(100n, WXDAI));
 
   expect(byAddress["0x0"]).toBe(0.9995);
-  // The wrapped token keeps its own price under its own address.
   expect(byAddress[WXDAI.toLowerCase()]).toBe(0.9995);
   expect(Object.keys(byAddress)).toHaveLength(3);
 });
@@ -123,7 +118,6 @@ test("a configured wrapper Sushi does not list leaves 0x0 unpriced", async () =>
 });
 
 test("an empty price list yields no batches at all", async () => {
-  // An empty batch would otherwise be counted as a cycle that wrote nothing.
   stubSushi(() => ({}));
 
   const job = sushiswapPriceFetcher({ chainId: 1n, intervalMs: 60_000 });

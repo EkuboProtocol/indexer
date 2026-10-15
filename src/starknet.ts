@@ -30,18 +30,11 @@ export function parseStarknetBlockHeader(
     block: starknetBlock as StarknetStreamBlock,
     header: {
       ...common,
-      // The L2 gas price, which the stream reads from the head block. Only the
-      // head's is stored -- `indexer_cursor.head_base_fee_per_gas`, which
-      // quoter-service reads to price gas.
       baseFeePerGas: starknetBlock.header.baseFeePerGas ?? null,
     },
   };
 }
 
-/**
- * The configured contracts' event processors, in filter-id order. Exported so
- * an audit can build exactly the filters the stream uses.
- */
 export function createStarknetProcessors() {
   const starknetAddressConfig = loadHexAddresses({
     nftAddress: "NFT_ADDRESS",
@@ -108,19 +101,11 @@ export async function createStarknetEntrypoint(
         loadStoredBlocks: streamOptions.loadStoredBlocks,
         options: {
           pollIntervalMs: positiveInt("POLL_INTERVAL_MS", 2_000),
-          // Starknet is never quiet for long -- it lands an event we index
-          // roughly every thirteen seconds -- so the backoff this shares with
-          // the EVM chains will rarely leave the floor. It is left armed
-          // because "rarely" is not "never": the ceiling costs at most one
-          // interval of latency, and NO_BLOCKS_TIMEOUT_MS is five minutes, far
-          // above it.
           maxPollIntervalMs: positiveInt("MAX_POLL_INTERVAL_MS", 30_000),
           quietPollsBeforeBackoff: positiveInt(
             "QUIET_POLLS_BEFORE_BACKOFF",
             30,
           ),
-          // ~0.59 blocks a second on mainnet, so the default 120 s window is
-          // ~71 blocks and the span has to be at least twice that.
           maxLogRangeBlocks: positiveInt("GET_LOGS_RANGE_SIZE", 500),
           reorgWindowSeconds: positiveInt("REORG_WINDOW_SECONDS", 120),
           heartbeatIntervalMs: Number(

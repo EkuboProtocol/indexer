@@ -34,19 +34,18 @@
  */
 
 export interface LogLine {
-  // Millisecond ISO timestamp, so string comparison orders correctly.
   at: string;
   text: string;
 }
 
 export interface QuotaMonitorState {
-  lastQuotaAlertAt?: string; // log timestamp of the last exhausted line alerted on
-  lastRecoveryAt?: string; // log timestamp of the newest sign credits were back
-  lastCreditsAt?: string; // log timestamp of the newest COINGECKO_CREDITS line
+  lastQuotaAlertAt?: string;
+  lastRecoveryAt?: string;
+  lastCreditsAt?: string;
   lastCreditsLine?: string;
-  lastLowAlertAt?: string; // wall clock of the last credits_low alert
+  lastLowAlertAt?: string;
   lastLowAlertPct?: number;
-  lastPaceAlertAt?: string; // wall clock of the last credits_pace alert
+  lastPaceAlertAt?: string;
   lastStaleAlertAt?: string;
   consecutiveCheckFailures?: number;
   firstRunAt?: string;
@@ -74,14 +73,10 @@ const LOW_REALERT_MS = 24 * 3_600_000;
 const PACE_REALERT_MS = 24 * 3_600_000;
 export const PACE_GRACE_MS = 48 * 3_600_000;
 export const PACE_ALERT_FRACTION = 0.95;
-// credits_pace gives the early warning. At 5% a month on pace to end at
-// 80-89k used never trips credits_low (EKU-557).
 export const DEFAULT_LOW_PCT = 5;
 
-// `token-price-sync 2026-09-29T14:44:30.353667580Z [..] ERROR (#56): ...`
 const LINE = /^\S+ (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z) (.*)$/;
 
-/** Parses `doctl apps logs` output, dropping lines without a timestamp. */
 export function parseLines(output: string): LogLine[] {
   return output.split("\n").flatMap((line) => {
     const match = LINE.exec(line);
@@ -133,7 +128,6 @@ const plus = (iso: string, ms: number) =>
 const isAfter = (at: string | undefined, than: string) =>
   at !== undefined && at > than;
 
-// Newest sign the credits were back: a restored gate or a positive reading.
 function trackRecovery(lines: LogLine[], state: QuotaMonitorState) {
   const recovery = newest(lines, isRecovery);
   if (recovery && !isAfter(state.lastRecoveryAt, recovery.at)) {
@@ -145,8 +139,6 @@ function quotaFinding(
   lines: LogLine[],
   state: QuotaMonitorState,
 ): Finding | undefined {
-  // Trip lines take precedence: a credit check refused with 10006 is expected
-  // during a pause and must neither stand in for nor hold back a trip line.
   const exhausted = newest(lines, isTrip) ?? newest(lines, isLegacyRefusal);
   if (!exhausted) return undefined;
 
@@ -169,10 +161,6 @@ function quotaFinding(
   };
 }
 
-/**
- * Credits used by the next reset if the rest of the month burns at the
- * average rate since the 1st, 00:00 UTC, as of the reading at `atIso`.
- */
 export function projectMonthEnd(used: number, atIso: string) {
   const at = new Date(atIso);
   const monthStart = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1);
@@ -246,8 +234,6 @@ function lowFinding(
   };
 }
 
-// CoinGecko refuses `GET /key` with 10006 too once credits are spent, so a
-// quota-refused newest check is not "stale": quota_exhausted covers it.
 function quotaExplainsMissingReadings(creditLines: LogLine[]): boolean {
   const newestCredit = creditLines.at(-1);
   return (
@@ -271,8 +257,6 @@ function staleFinding(
     lastTwo.every(({ text }) =>
       text.includes("COINGECKO_CREDITS_CHECK_FAILED"),
     );
-  // Armed by the first reading, so a worker that predates the credit check
-  // does not read as a stale one.
   const stale =
     state.lastCreditsAt !== undefined &&
     now.getTime() - Date.parse(state.lastCreditsAt) > staleMs;
@@ -295,10 +279,6 @@ function staleFinding(
   };
 }
 
-/**
- * Evaluates one run's log lines against the carried-over state. Returns the
- * findings and the state to persist if they are delivered.
- */
 export function evaluate(
   lines: readonly LogLine[],
   previous: QuotaMonitorState,

@@ -45,8 +45,6 @@ export type MevCapturePoolEvent =
 
 export type SwapEvent = Extract<MevCapturePoolEvent, { kind: "swap" }>;
 
-// MEVCapture.handleForwardData: the multiplier is the number of tick spacings
-// moved since the first touch in this timestamp, capped at uint64.
 export function mevCaptureAdditionalFee(
   tickAfter: number,
   tickLast: number,
@@ -65,7 +63,6 @@ function inputSide(delta0: bigint, delta1: bigint): 0 | 1 | null {
   return null;
 }
 
-// The contractual pool fee, taken by Core on the input amount.
 export function baseFeeOnInput(
   delta0: bigint,
   delta1: bigint,
@@ -77,7 +74,6 @@ export function baseFeeOnInput(
   return [0n, 0n];
 }
 
-// Exact-input swaps pay the surcharge out of their output token.
 export function surchargeExactIn(
   delta0: bigint,
   delta1: bigint,
@@ -95,7 +91,6 @@ function amountBeforeFee(afterFee: bigint, fee: bigint): bigint {
   return v / d + (v % d === 0n ? 0n : 1n);
 }
 
-// Exact-output swaps pay the surcharge on top of their input token.
 export function surchargeExactOut(
   delta0: bigint,
   delta1: bigint,
@@ -142,7 +137,6 @@ export interface BlockRow {
   baseFee1: bigint;
   surchargeEstimate0: bigint;
   surchargeEstimate1: bigint;
-  // Filled when the donation for this block's accrual is seen.
   surcharge0: bigint | null;
   surcharge1: bigint | null;
   donationBlockNumber: number | null;
@@ -170,8 +164,6 @@ export interface InitialPoolState {
   liquidity: bigint;
 }
 
-// Replays one pool's Core events in log order. `initial` is the pool's state
-// at the end of the block before the first event passed in.
 export class MevCapturePoolTracker {
   readonly swaps: SwapRow[] = [];
   readonly blocks = new Map<number, BlockRow>();
@@ -211,9 +203,6 @@ export class MevCapturePoolTracker {
   private applyDonation(
     event: Extract<MevCapturePoolEvent, { kind: "fees_accumulated" }>,
   ) {
-    // A donation empties what the extension saved at the pool's last swapping
-    // timestamp: any touch at a later timestamp donates first, so it can only
-    // belong to the most recent earlier block that swapped.
     const target =
       this.lastSwapBlock !== null && this.lastSwapBlock < event.blockNumber
         ? this.blocks.get(this.lastSwapBlock)
@@ -332,9 +321,6 @@ function addSwapToBlock(block: BlockRow, row: SwapRow) {
   block.liquidityAfterLastSwap = row.liquidityAfter;
 }
 
-// Liquidity is piecewise constant between events. Points must be sorted and
-// carry the timestamp of the block that set them; the value set in a block is
-// in force from that block's timestamp.
 export function timeWeightedLiquidity(
   initial: bigint,
   points: { timestamp: number; liquidity: bigint }[],
@@ -357,7 +343,6 @@ export function timeWeightedLiquidity(
   return acc / BigInt(to - from);
 }
 
-// Liquidity in force at `at`, given the same sorted points.
 export function liquidityAt(
   initial: bigint,
   points: { timestamp: number; liquidity: bigint }[],

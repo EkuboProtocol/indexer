@@ -50,20 +50,16 @@ export async function runIndexer<TBlock>({
   const dao = DAO.create(process.env.PG_CONNECTION_STRING!, chainId);
   const maxReorgDepth = parseMaxReorgDepth(process.env.MAX_REORG_DEPTH);
 
-  // Timer for exiting if no blocks are received within the configured time
   const NO_BLOCKS_TIMEOUT_MS = parseInt(
     process.env.NO_BLOCKS_TIMEOUT_MS || "0",
   );
   let noBlocksTimer: NodeJS.Timeout | null = null;
 
-  // Function to set or reset the no-blocks timer
   function resetNoBlocksTimer() {
-    // Clear existing timer if it exists
     if (noBlocksTimer) {
       clearTimeout(noBlocksTimer);
     }
 
-    // Only set a new timer if the timeout is greater than 0
     if (NO_BLOCKS_TIMEOUT_MS > 0) {
       noBlocksTimer = setTimeout(() => {
         logger.error(
@@ -98,7 +94,6 @@ export async function runIndexer<TBlock>({
 
     const entrypoint = await createEntrypoint(chainId);
 
-    // first set up the schema
     let currentCursor: IndexerCursor;
     {
       const initializeTimer = logger.startTimer();
@@ -129,7 +124,6 @@ export async function runIndexer<TBlock>({
       });
     }
 
-    // Start the no-blocks timer when application starts
     resetNoBlocksTimer();
 
     // Retry loop: if the stored cursor is no longer canonical (e.g. due to an
@@ -258,7 +252,6 @@ export async function runIndexer<TBlock>({
             }
 
             case "data": {
-              // Reset the no-blocks timer since we received block data
               resetNoBlocksTimer();
 
               const endCursor = message.data.endCursor;
@@ -289,7 +282,6 @@ export async function runIndexer<TBlock>({
 
                 let eventsProcessed = 0;
 
-                // Passes unless the block is at or below the cursor.
                 assertRollbackDepthAllowed({
                   chainId,
                   from: expectedCursor,
@@ -352,7 +344,6 @@ export async function runIndexer<TBlock>({
           }
         }
 
-        // Stream ended gracefully; exit the retry loop
         break;
       } catch (error) {
         if (

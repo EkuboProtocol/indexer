@@ -12,29 +12,16 @@ import {
 } from "./eventStream";
 import { StaleSnapshotError } from "../_shared/blockSnapshot";
 
-/**
- * Block 14555766 of Starknet mainnet, reduced to the shape this reads.
- *
- * Not invented. The chain really answers with 28 events for its first
- * transaction and 8 for its second, with ours at indices 3 and 19 of the first
- * and 1 of the second -- and the production database really holds
- * (tx 0, event 3), (tx 0, event 19) and (tx 1, event 1) for it, written years
- * ago by the DNA stream this replaces. Reproducing those three pairs from the
- * RPC is the whole reason the receipts read exists.
- */
 const BLOCK_NUMBER = 14_555_766;
 const BLOCK_TIMESTAMP = 1_788_870_514;
-// Unpadded, exactly as the node returns it. The config below is padded.
 const BLOCK_HASH =
   "0xe2e6b27298293e43981bc78a466ed6c4435cda64fceb1b849a151581e942a7" as Hex;
 const TX0 =
   "0x14e1987a79e7343af32021e4644ffe7e6229a6c3a852761344a9fb331750544" as Hex;
 const TX1 =
   "0x21ffe2bf674418f0804f98316027146bfc6378aff0dffce43dc06d0a6cc7032" as Hex;
-/** As `.env.starknet.mainnet` writes it: zero-padded, and mixed case. */
 const CORE_PADDED =
   "0x00000005dd3D2F4429AF886cD1a3b08289DBcEa99A294197E9eB43b0e0325b4b" as Hex;
-/** As the node returns it. */
 const CORE_UNPADDED =
   "0x5dd3d2f4429af886cd1a3b08289dbcea99a294197e9eb43b0e0325b4b" as Hex;
 const SWAPPED =
@@ -61,7 +48,6 @@ function emitted(over: Partial<Record<string, unknown>> = {}) {
   } as Parameters<typeof groupEventsByBlock>[0][number];
 }
 
-/** A block header, as `starknet_getBlockWithTxHashes` answers. */
 function header(over: Record<string, unknown> = {}) {
   return {
     block_hash: BLOCK_HASH,
@@ -99,9 +85,6 @@ function rpcReturning(handlers: Record<string, unknown[]>): {
 
 describe("eventMatchesFilter", () => {
   it("compares felts by value, not by string", () => {
-    // The single most likely way to break Starknet indexing: the node writes a
-    // felt unpadded, the env writes it padded, and a string compare silently
-    // matches nothing at all while looking perfectly healthy.
     expect(
       eventMatchesFilter(
         { address: CORE_UNPADDED, keys: [SWAPPED] },
@@ -154,9 +137,6 @@ describe("selectorPrefilter", () => {
   });
 
   it("is disabled entirely by a filter that matches on address alone", () => {
-    // A prefilter has to be a superset of what the local matcher accepts. A
-    // filter with no selector cannot be represented as one, so narrowing the
-    // read would silently drop that processor's events.
     expect(
       selectorPrefilter([
         coreFilter,
@@ -184,9 +164,6 @@ describe("groupEventsByBlock", () => {
   });
 
   it("omits a block carrying nothing we match", () => {
-    // Load-bearing for the shared diff: a block with no matched event has no
-    // representation in a range read, so recording one would make it look like
-    // it had vanished on the next re-read.
     expect(
       groupEventsByBlock(
         [emitted({ from_address: OTHER_CONTRACT })],
@@ -207,9 +184,6 @@ describe("groupEventsByBlock", () => {
 
 describe("groupEventsByBlock positions", () => {
   it("carries through the transaction and event indices the database holds", () => {
-    // Block 14555766's three Core events. The production database holds
-    // (0, 3), (0, 19) and (1, 1) for them, written by the DNA stream; v0.10
-    // reports the same, and so did a reconstruction from the block's receipts.
     const blocks = groupEventsByBlock(
       [
         emitted({
@@ -241,9 +215,6 @@ describe("groupEventsByBlock positions", () => {
   });
 
   it("refuses an event with no position rather than defaulting it to zero", () => {
-    // A zero here is not a near miss: it is a wrong `event_id`, which is a
-    // primary key other tables order on, written with no error anywhere. An
-    // endpoint answering without these is serving a spec older than v0.10.
     expect(() =>
       groupEventsByBlock(
         [emitted({ transaction_index: undefined, event_index: undefined })],
@@ -276,9 +247,6 @@ describe("completeFresh", () => {
   });
 
   it("never changes how many events a block holds", async () => {
-    // The shared diff compares the count recorded when a block was emitted
-    // against the count the next range read reports. A completion step that
-    // added or dropped one would manufacture a reorg on every single poll.
     const { rpc } = rpcReturning({ starknet_getBlockWithTxHashes: [header()] });
     const adapter = createStarknetAdapter({ rpc, filters: [coreFilter] });
     const blocks = groupEventsByBlock(
@@ -296,8 +264,6 @@ describe("completeFresh", () => {
   });
 
   it("refuses a block that changed hash between the two reads", async () => {
-    // Two requests, so the chain can move between them. A timestamp from a
-    // different block would reach `blocks.block_time` with nothing to flag it.
     const { rpc } = rpcReturning({
       starknet_getBlockWithTxHashes: [header({ block_hash: "0xdead" })],
     });
@@ -368,8 +334,6 @@ describe("readRange", () => {
   });
 
   it("sends the selector prefilter rather than asking per address", async () => {
-    // One address per request would be twelve requests a poll where EVM makes
-    // one, which is the whole cost argument for this shape.
     const { rpc, calls } = rpcReturning({
       starknet_getEvents: [{ events: [] }],
     });
@@ -382,11 +346,6 @@ describe("readRange", () => {
   });
 
   it("stops on a token the node ends the listing with as null", async () => {
-    // `continuation_token` is optional in the spec, so implementations differ
-    // on whether the last page omits it or sends an explicit null. Testing for
-    // `undefined` alone would keep the loop alive while the falsy token was
-    // dropped from the request -- page one re-fetched until `maxPages`, then an
-    // error blaming the range size, which is not the problem.
     const { rpc, calls } = rpcReturning({
       starknet_getEvents: [{ events: [emitted()], continuation_token: null }],
     });
@@ -429,7 +388,6 @@ describe("fetchHead", () => {
 
     expect(await adapter.fetchHead()).toEqual({
       number: BLOCK_NUMBER,
-      // Padded to 32 bytes on the way out; the node sends 62 hex characters.
       hash: `0x00${BLOCK_HASH.slice(2)}`,
       timestamp: new Date(BLOCK_TIMESTAMP * 1000),
       baseFeePerGas: 28_776_978_417n,
@@ -437,8 +395,6 @@ describe("fetchHead", () => {
   });
 
   it("asks for l1_accepted as the finalized block", async () => {
-    // Starknet finality is settlement on Ethereum. `latest` is ACCEPTED_ON_L2,
-    // which can still be reorged.
     const { rpc, calls } = rpcReturning({
       starknet_getBlockWithTxHashes: [
         { block_hash: BLOCK_HASH, block_number: 1, timestamp: 1 },
@@ -472,11 +428,6 @@ describe("matchingFilterIds", () => {
 });
 
 describe("canonical block hashes", () => {
-  // The adapter compares felts by value, but the shared core cannot:
-  // `firstDivergentBlock` diffs hash strings and `headUnchanged` compares them
-  // outright. A node that strips leading zeroes on one request and not the next
-  // would read as a block that changed hash -- a reorg that never happened,
-  // with rows deleted and re-indexed for it.
   const PADDED = `0x${"0".repeat(2)}${BLOCK_HASH.slice(2)}` as Hex;
 
   it("pads a block hash carried on an event", () => {
@@ -538,9 +489,6 @@ describe("createStarknetRpc", () => {
       );
 
   it("retries a compute-unit overage, which arrives as HTTP 200 code 429", async () => {
-    // The trap: Alchemy reports an overage as a *successful* HTTP response
-    // carrying a JSON-RPC error. Throwing here would exit the generator and
-    // restart.sh would poll the throttling endpoint a second later, forever.
     const { result, calls } = await withFetch(
       [
         json({ error: { code: 429, message: "capacity" } }),
@@ -603,9 +551,6 @@ describe("createStarknetRpc retry envelope", () => {
       );
 
   it("retries a 403, which an edge can return transiently", async () => {
-    // viem retries 403 and 413 for the EVM streams. Throwing here instead would
-    // exit the generator, and runtime.ts exits the process on that -- a worker
-    // restart where an EVM worker retries in place.
     const { result, calls } = await withFetch(
       [json({}, 403), json({ result: 5 })],
       (rpc) => rpc.request("starknet_blockNumber", []),
@@ -623,8 +568,6 @@ describe("createStarknetRpc retry envelope", () => {
   });
 
   it("retries a 200 whose body is not JSON", async () => {
-    // A proxy or CDN error page served with a 200. That is a failure to answer
-    // rather than an answer, so it is retried like one.
     const { result, calls } = await withFetch(
       [
         () => new Response("<html>502</html>", { status: 200 }),
@@ -646,9 +589,6 @@ describe("createStarknetRpc retry envelope", () => {
   });
 
   it("bounds a request that never answers", async () => {
-    // Without a deadline a half-open socket parks the generator forever: the
-    // retry loop never runs, and the only backstop left is the five-minute
-    // NO_BLOCKS_TIMEOUT_MS.
     const rpc = createStarknetRpc("https://x", { retries: 0, timeoutMs: 20 });
     const original = globalThis.fetch;
     globalThis.fetch = ((_u: string, init: RequestInit) =>
@@ -762,8 +702,6 @@ describe("reads at the tip", () => {
   });
 
   it("treats a cited block whose header the node cannot find as a stale snapshot", async () => {
-    // The range read cited the block, then the backend serving the header read
-    // did not have it yet. Exiting here restarted the worker at 21:18:50.
     const error = await withBlockNotFound((adapter) =>
       rejection(
         adapter.completeFresh(
@@ -791,8 +729,6 @@ describe("reads at the tip", () => {
   });
 
   it("treats an end hash the node cannot find as a stale snapshot", async () => {
-    // The anchor was read from the head a moment earlier; the backend serving
-    // getEvents may not have it yet. Exiting here restarted the worker ~1/min.
     const error = await blockNotFound(BLOCK_HASH);
     expect(error).toBeInstanceOf(StaleSnapshotError);
     expect((error as Error).message).toMatch(/retry the snapshot/);

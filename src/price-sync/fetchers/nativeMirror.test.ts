@@ -4,8 +4,6 @@ import type { Sql } from "postgres";
 import { nativeMirrorPriceFetcher } from "./nativeMirror";
 import type { PriceUpdate } from "./types";
 
-// Answers every query with `rows` and records the statement text, so a test
-// can check what was asked as well as what came back.
 function fakeSql(rows: unknown[]): {
   sql: Sql<{ bigint: bigint }>;
   statements: string[];
@@ -45,10 +43,7 @@ test("the source chain's native price is copied to each mirrored chain", async (
   for (const update of updates) {
     expect(update.tokenAddress).toBe("0x0");
     expect(update.usdPrice).toBe(2686.5);
-    // The copied validity is kept, so the mirror never outlives its source.
     expect(update.validUntil).toEqual(validUntil);
-    // Stamped now, not with the source row's timestamp: re-copying an unchanged
-    // row under its old timestamp would collide in the price history.
     expect(update.timestamp.getTime()).toBeGreaterThanOrEqual(before);
   }
 });
@@ -78,8 +73,6 @@ test("no current source price yields no batches at all", async () => {
 });
 
 test("a row that expired between the query and the emit is skipped", async () => {
-  // The query filters on the database clock; the worker's can be a little
-  // ahead, and a validity that ends before the timestamp fails the batch.
   const { sql } = fakeSql([
     { source: "qp1", value: 2686.5, valid_until: new Date(Date.now() - 1) },
   ]);

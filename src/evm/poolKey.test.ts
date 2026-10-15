@@ -270,9 +270,9 @@ describe("parseOrderConfig", () => {
       endTime: 999999n,
     },
     {
-      fee: (1n << 70n) - 1n, // exceeds 64 bits -> should be masked
+      fee: (1n << 70n) - 1n,
       isToken1: true,
-      salt: (1n << 80n) - 1n, // exceeds 56 bits -> should be masked
+      salt: (1n << 80n) - 1n,
       startTime: (1n << 80n) - 5n,
       endTime: (1n << 90n) - 7n,
     },

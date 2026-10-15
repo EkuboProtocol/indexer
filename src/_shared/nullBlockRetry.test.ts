@@ -68,10 +68,6 @@ describe("withNullBlockRetry", () => {
 });
 
 describe("error passthrough", () => {
-  // fetchLogsChecked decides whether to split a range by looking for a numeric
-  // `code` on the error: a server that answered has one, a timeout does not.
-  // That only holds if this wrapper leaves errors alone, so pin it here rather
-  // than in the caller, where the dependency is invisible.
   it("preserves a JSON-RPC code on a method it does not retry", async () => {
     const inner = () =>
       ({

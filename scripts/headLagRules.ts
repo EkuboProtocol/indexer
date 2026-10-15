@@ -23,11 +23,9 @@
  * episode as soon as one check sees it under threshold.
  */
 
-/** A missing threshold inherits the default; `off` stops checking the chain. */
 export type ChainConfig = { name: string; thresholdSeconds?: number | "off" };
 
 export type HeadLagConfig = {
-  /** Keyed by chain ID. */
   chains: Map<string, ChainConfig>;
   defaultThresholdSeconds: number;
   sustainChecks: number;
@@ -37,9 +35,7 @@ export type HeadLagConfig = {
 export type CursorRow = {
   chainId: string;
   headBlockNumber: string | null;
-  /** Seconds between the database's `now()` and the head's block time. */
   lagSeconds: number | null;
-  /** Seconds since the cursor row was last written. */
   updatedSecondsAgo: number;
 };
 
@@ -73,9 +69,6 @@ export type Finding =
     }
   | { kind: "check_failed"; failures: number; error: string };
 
-/**
- * Parses `HEAD_LAG_CHAINS`: comma-separated `chainId=name[:thresholdSeconds|off]`.
- */
 export function parseChains(raw: string): Map<string, ChainConfig> {
   const chains = new Map<string, ChainConfig>();
   for (const entry of raw
@@ -118,13 +111,11 @@ function due(
   );
 }
 
-/** The chain's lag, or null when it has no cursor row at all. */
 function lagOf(row: CursorRow | undefined): number | null {
   if (!row) return null;
   return row.lagSeconds ?? row.updatedSecondsAgo;
 }
 
-/** The streak, and the last alert while the chain is still in the same episode. */
 function nextChainState(
   over: boolean,
   previous: ChainState | undefined,
@@ -136,7 +127,6 @@ function nextChainState(
     : { breaches };
 }
 
-/** One chain's result, its carried-over state, and its finding when one is due. */
 function checkChain(
   chainId: string,
   threshold: number,
@@ -181,11 +171,6 @@ function checkChain(
   };
 }
 
-/**
- * Evaluates one successful check. Every chain in the database is checked --
- * a chain added to the indexer is covered before anyone remembers to list it --
- * and every configured chain must be present.
- */
 export function evaluate(
   rows: CursorRow[],
   config: HeadLagConfig,
@@ -222,7 +207,6 @@ export function evaluate(
   return { results, findings, next: { chains } };
 }
 
-/** Evaluates a run whose check could not complete. Chain streaks are kept. */
 export function evaluateFailure(
   error: string,
   config: HeadLagConfig,
@@ -231,8 +215,6 @@ export function evaluateFailure(
 ): { findings: Finding[]; next: HeadLagState } {
   const failures = (state.checkFailures ?? 0) + 1;
   const next: HeadLagState = { ...state, checkFailures: failures };
-  // Bounded: a driver error can be arbitrarily long, and it goes into the
-  // webhook body and the alert issue verbatim.
   const findings: Finding[] =
     failures >= config.sustainChecks &&
     due(state.checkFailedAlertedAt, now, config.realertMs)
@@ -241,7 +223,6 @@ export function evaluateFailure(
   return { findings, next };
 }
 
-/** Marks delivered findings so they are not re-raised before `realertMs`. */
 export function markAlerted(
   state: HeadLagState,
   findings: Finding[],

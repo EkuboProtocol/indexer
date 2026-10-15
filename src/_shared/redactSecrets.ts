@@ -20,10 +20,8 @@
 const CONFIGURED_URL_VARS = ["EVM_RPC_URL", "STARKNET_RPC_URL"] as const;
 
 const KEY_PATTERNS: [RegExp, string][] = [
-  // Alchemy EVM (`/v2/<key>`) and Starknet (`/rpc/v0_10/<key>`) paths.
   [/(\/v\d+\/)[A-Za-z0-9_-]{20,}/g, "$1<redacted>"],
   [/(\/rpc\/v\d+_\d+\/)[A-Za-z0-9_-]{20,}/g, "$1<redacted>"],
-  // Query-string credentials: dRPC `dkey`, and the common names for the rest.
   [
     /([?&](?:dkey|key|apikey|api_key|api-key|token|access_token|secret|password)=)[^&\s"'\\]+/gi,
     "$1<redacted>",

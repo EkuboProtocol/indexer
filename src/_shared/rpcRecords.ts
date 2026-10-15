@@ -1,4 +1,3 @@
-/** Reject ambiguous event identities before any processor can write them. */
 export function recordEventIdentity(
   seen: Map<string, string>,
   blockNumber: number,
@@ -34,7 +33,6 @@ export function requireBlockInRange(
   }
 }
 
-/** Tokens are opaque; repeated tokens or non-string values cannot advance. */
 export function checkContinuationToken(
   token: unknown,
   seen: Set<string>,

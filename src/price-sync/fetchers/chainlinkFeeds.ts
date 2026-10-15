@@ -17,18 +17,9 @@ const DEFAULT_MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11";
 // chain's batch rather than just skipping the bad feed.
 const MAX_CHAINLINK_HEARTBEAT_SECONDS = 7 * 24 * 60 * 60;
 
-// A daily heartbeat means an equity feed: it publishes only while its market is
-// open, so the longest gap between rounds is a market closure, not the
-// heartbeat. Doubling the heartbeat gives 48h, which a plain weekend already
-// outlives -- Friday's close is unreadable by Sunday evening while the market
-// does not reopen until Monday. Five days clears a holiday weekend (Friday
-// close to Tuesday open is about 89h) and still catches a genuinely dead feed
-// within the week. Sub-daily feeds are continuous, so they keep the tight
-// window that doubling gives them.
 const CONTINUOUS_FEED_MAX_HEARTBEAT_SECONDS = 24 * 60 * 60;
 const MARKET_CLOSURE_MAX_AGE_SECONDS = 5 * 24 * 60 * 60;
 
-// Exported for the tests that pin the weekend behaviour.
 export function chainlinkFeedMaxAgeSeconds(heartbeatSeconds: number): number {
   const doubled = heartbeatSeconds * 2;
   return heartbeatSeconds >= CONTINUOUS_FEED_MAX_HEARTBEAT_SECONDS
@@ -289,7 +280,6 @@ function groupTokensBySymbol(
   return bySymbol;
 }
 
-/** An unconstrained field carrying only the named rule it must satisfy. */
 function rule(name: string, holds: (value: unknown) => boolean) {
   return Schema.Unknown.pipe(
     Schema.refine((value): value is unknown => holds(value), {
@@ -298,21 +288,6 @@ function rule(name: string, holds: (value: unknown) => boolean) {
   );
 }
 
-// The catalog carries every Chainlink data product, most of which are not USD
-// spot price feeds we can read. This schema is the table of admissibility
-// rules, and decoding an entry against it is what applies them.
-//
-// It replaces a table that paired each rule with a name and then threw the
-// names away, so a feed that failed to appear could not be traced to the rule
-// that rejected it. Decoding reports one: a structural rule reports the field
-// and the value it wanted (`Expected "USD" at ["docs"]["quoteAsset"]`), which
-// is more specific than a name; the rules that are bare predicates carry the
-// name instead, since a path alone would say nothing.
-//
-// Decoding rather than validating is also what makes an accepted entry typed:
-// `proxyAddress` is an `Address` and `heartbeat` a bounded integer on the way
-// out, so building a feed from one needs no casts. The two `unknown`s that
-// forced those casts were the last type errors in this file.
 const UsableCatalogEntry = Schema.Struct({
   proxyAddress: Schema.String.pipe(
     Schema.refine((value): value is Address => isAddress(value), {
@@ -336,9 +311,6 @@ const UsableCatalogEntry = Schema.Struct({
     deliveryChannelCode: Schema.Literal("DF"),
     productType: Schema.Literal("Price"),
     productTypeCode: Schema.Literals(["RefPrice", "primaryTokenizedPrice"]),
-    // A fiat or commodity feed names a currency or a metal, not a token, so a
-    // token matching its symbol is a coincidence: mainnet's KRW is KROWN and
-    // its CAD is Caduceus, and both were priced as currencies.
     assetClass: Schema.optional(
       rule(
         "is not a fiat or commodity price",
@@ -350,9 +322,6 @@ const UsableCatalogEntry = Schema.Struct({
     hidden: Schema.optional(rule("is not hidden", (v) => v !== true)),
     shutdownDate: Schema.optional(rule("is not shut down", (v) => !v)),
   }).pipe(
-    // An exchange rate is quoted in its underlying asset whatever the quote
-    // field says. Optimism lists weETH's rate against ETH (about 1.1) as a
-    // RefPrice in USD, which would price weETH at $1.10.
     Schema.refine(
       (docs): docs is typeof docs =>
         !/-ExRate-/.test(String(docs.clicProductName ?? "")) ||
@@ -368,35 +337,20 @@ type UsableCatalogEntry = typeof UsableCatalogEntry.Type;
 
 const decodeCatalogEntry = Schema.decodeUnknownResult(UsableCatalogEntry);
 
-// Decode failures are multi-line, and these are counted as map keys and read
-// from a log line.
 function rejectionReason(error: { readonly message: string }): string {
   return error.message.replace(/\s+/g, " ").trim();
 }
 
-// Lower is better. A feed with no secondary proxy is the plain one and wins
-// outright; among the rest, the shared SVR path is preferred.
 function feedRank(value: UsableCatalogEntry): number {
   if (!value.secondaryProxyAddress) return 0;
   return value.path.includes("shared-svr") ? 1 : 2;
 }
 
-// Reasons a decodable entry still does not become a feed. Both are ordinary,
-// and both are otherwise invisible: a symbol the indexer does not carry, or
-// carries twice, and two equally ranked feeds for one symbol where picking
-// either would be a guess.
 const NO_UNIQUE_TOKEN = "matches exactly one indexed token";
 const NO_RANK_WINNER = "outranks the other feeds for its symbol";
 
 export interface ChainlinkFeedDiscovery {
   readonly feeds: ChainlinkFeedConfig[];
-  /**
-   * How many catalog entries each rule rejected.
-   *
-   * The catalog lists every Chainlink product, so rejecting most of it is the
-   * ordinary case and not a fault. This exists so that "why is this feed
-   * missing" is answerable from a log line rather than a debugger.
-   */
   readonly skipped: ReadonlyMap<string, number>;
 }
 
@@ -479,9 +433,6 @@ export async function fetchChainlinkFeedCatalog(
     );
   }
 
-  // Validate the shape here rather than at use, so a 200 response carrying an
-  // error object is treated as a failed fetch: callers fall back to the last
-  // good catalog instead of caching a body that throws on every read.
   const catalog = await response.json();
   if (!Array.isArray(catalog)) {
     throw new Error(`Chainlink catalog ${catalogUrl} did not return an array`);
@@ -598,20 +549,6 @@ export async function fetchChainlinkTokenPricesWithMulticall(
   return prices;
 }
 
-/**
- * Verified clients, keyed by the chain and the endpoints they talk to.
- *
- * Both halves of this are worth keeping across calls. Building the client
- * allocates a fresh transport, and the `eth_chainId` that verifies it is a
- * request: this function runs once a minute per configured chain, so re-doing
- * both meant four `eth_chainId` calls a minute answering a question whose
- * answer cannot change -- a chain ID is a property of the endpoint, and the
- * endpoint comes from configuration that is fixed for the life of the process.
- *
- * The check itself is worth keeping. It is the only thing standing between an
- * RPC URL pointed at the wrong chain and a table of confidently wrong prices.
- * Once is enough.
- */
 const verifiedClients = new Map<
   string,
   Promise<ChainlinkReader & ChainlinkMulticallReader>
@@ -649,10 +586,6 @@ export async function verifiedClient(
     return client;
   })();
 
-  // Cache the attempt so concurrent callers share one `eth_chainId`, but drop
-  // it again if it fails. A misconfigured URL will fail identically next minute;
-  // a network blip during the first check should not disable the chain for the
-  // life of the process.
   verifiedClients.set(key, pending);
   pending.catch(() => {
     if (verifiedClients.get(key) === pending) verifiedClients.delete(key);
@@ -661,7 +594,6 @@ export async function verifiedClient(
   return pending;
 }
 
-/** Test seam: forget every verified client. */
 export function resetVerifiedChainlinkClients(): void {
   verifiedClients.clear();
 }

@@ -13,8 +13,6 @@ import type { PriceSyncSql } from "./worker";
 
 const INTERVAL_MS = 2_000;
 
-// None of these tests reach the write path -- the batches are empty or the
-// cycle fails first -- so the driver is never called.
 const unusedSql = (() => Promise.resolve([])) as unknown as PriceSyncSql;
 
 type Behavior = "fail" | "die" | "succeed";
@@ -47,8 +45,6 @@ function countingJob(behavior: Behavior, probe: { attempts: number }) {
   return job;
 }
 
-// Errors are the point of these tests, so keep their log lines out of the
-// runner's output.
 const silenced = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.provideService(effect, References.MinimumLogLevel, "None");
 
@@ -67,7 +63,6 @@ function runLoop(behavior: Behavior, forMs: number) {
           const running = fiber.pollUnsafe() === undefined;
           yield* Fiber.interrupt(fiber);
 
-          // Nothing may run after the interrupt.
           const afterInterrupt = probe.attempts;
           yield* TestClock.adjust(Duration.millis(forMs));
 
@@ -84,9 +79,6 @@ function runLoop(behavior: Behavior, forMs: number) {
 }
 
 test("a cycle that fails every time does not retire the job", async () => {
-  // `Effect.repeat` stops on the first failure, so a job whose errors were not
-  // absorbed inside the cycle would run exactly once and then go quiet for the
-  // life of the process -- with nothing in the logs to say the source is gone.
   const result = await runLoop("fail", 10 * INTERVAL_MS);
 
   expect(result.attempts).toBe(11);
@@ -109,17 +101,6 @@ test("a healthy job recurs once per interval", async () => {
 });
 
 test("an overrunning cycle catches up instead of falling further behind", async () => {
-  // Bottleneck spaced launches rather than the gaps between them, and
-  // `Schedule.fixed` preserves that: a cycle longer than the interval must not
-  // push the schedule out by its own duration on every pass.
-  //
-  // The one difference from `{maxConcurrent: 1, minTime}` is the transition:
-  // `fixed` waits to the next interval boundary before it notices it is
-  // behind, so the first overrun costs up to one extra interval. Every cycle
-  // after that runs back to back, which is what Bottleneck did throughout.
-  // Cycles take 50-500ms against a 60s interval in production, so this branch
-  // is not reached there -- it is pinned here so a change to the schedule is
-  // visible rather than silent.
   const launches: number[] = [];
   const job: PriceSyncJob = {
     chainIds: [1n],
@@ -130,7 +111,6 @@ test("an overrunning cycle catches up instead of falling further behind", async 
         launches.push(
           yield* Effect.clockWith((clock) => clock.currentTimeMillis),
         );
-        // Three times the interval.
         yield* Effect.sleep(Duration.millis(3 * INTERVAL_MS));
         return Stream.fromArray([[] as readonly PriceUpdate[]]);
       }),
@@ -150,12 +130,9 @@ test("an overrunning cycle catches up instead of falling further behind", async 
     ),
   );
 
-  // Each cycle takes 6s against a 2s cadence, so the next launch is due the
-  // moment the previous one lands rather than 2s later.
   const cycleMs = 3 * INTERVAL_MS;
   const gaps = launches.slice(1).map((at, ix) => at - launches[ix]);
 
-  // One boundary wait, then back to back for the rest of the run.
   expect(gaps[0]).toBe(cycleMs + INTERVAL_MS);
   expect(gaps.slice(1)).toEqual(gaps.slice(1).map(() => cycleMs));
   expect(gaps.length).toBeGreaterThan(1);
@@ -183,16 +160,11 @@ test("the expiration loop keeps polling after a failed refresh", async () => {
     ),
   );
 
-  // Once immediately, then once per second.
   expect(result.calls).toBe(6);
   expect(result.running).toBe(true);
 });
 
 test("one failing job does not take the others down with it", async () => {
-  // The loops used to be independent promises under a `Promise.all`; they are
-  // now fibers under one `Effect.forEach`, which short-circuits on failure.
-  // Absorbing errors inside the cycle is what keeps that from turning a single
-  // bad source into a worker-wide outage.
   const failing = { attempts: 0 };
   const healthy = { attempts: 0 };
 
@@ -242,9 +214,6 @@ test("partitionEnabled drops jobs whose interval is zero", async () => {
   expect(kept.map((job) => job.source)).toEqual(["tst"]);
 });
 
-// A job that resumes from its last stored price, against a driver answering
-// the newest-price lookup with `lookup`. TestClock starts at 0, so a stored
-// timestamp of -500 means "500 ms ago".
 function launchTimes(
   lookup: () => Promise<unknown>,
   forMs: number,
@@ -343,6 +312,5 @@ test("firstLaunchDelayMs never waits longer than one interval", () => {
   expect(firstLaunchDelayMs(0, 1_000, 60_000)).toBe(59_000);
   expect(firstLaunchDelayMs(0, 60_000, 60_000)).toBe(0);
   expect(firstLaunchDelayMs(0, 120_000, 60_000)).toBe(0);
-  // A clock-skewed timestamp from the future.
   expect(firstLaunchDelayMs(1_000_000, 0, 60_000)).toBe(60_000);
 });

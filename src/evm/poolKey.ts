@@ -144,10 +144,6 @@ export function toPoolConfigV2({
   );
 }
 
-/**
- * This exactly matches the pool ID that is used in the mappings in core
- * @param poolKey the pool key that is encoded and then hashed
- */
 export function toPoolId(poolKey: EncodedPoolKey): `0x${string}` {
   return keccak256(
     encodeAbiParameters(

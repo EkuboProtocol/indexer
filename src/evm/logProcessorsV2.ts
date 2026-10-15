@@ -19,9 +19,6 @@ import {
   TWAMM_ABI,
 } from "./abis_v2";
 
-/**
- * Makes the V2 pool key match what we use for V3
- */
 export function normalizeV2PoolKey({
   token0,
   token1,

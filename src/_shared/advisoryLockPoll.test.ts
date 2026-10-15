@@ -25,8 +25,6 @@ describe("pollForAdvisoryLock", () => {
   });
 
   it("waits for the predecessor to exit, however long the handoff takes", async () => {
-    // The deploy handoff is deliberate, so there is no deadline to give up at:
-    // a newcomer keeps waiting until the outgoing instance releases the lock.
     const { tryAcquire, calls } = acquirerHeldFor(500);
 
     await pollForAdvisoryLock(tryAcquire, { pollIntervalMs: 0 });
@@ -45,7 +43,6 @@ describe("pollForAdvisoryLock", () => {
       onContended: (waitedMs) => waits.push(waitedMs),
     });
 
-    // Elapsed is measured from the first call, not from zero.
     expect(waits).toEqual([5_000, 10_000, 15_000]);
   });
 });

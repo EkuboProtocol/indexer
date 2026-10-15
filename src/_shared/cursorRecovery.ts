@@ -1,7 +1,6 @@
 import type { IndexerCursor } from "./dao";
 import type { ChainAdapter, ChainHead } from "./blockStream";
 
-/** Persisted blocks descending by height; a hashless final entry is the configured start boundary. */
 export type LoadPreviousCursor = (
   before: number,
 ) => Promise<IndexerCursor | null>;
@@ -29,7 +28,6 @@ export async function commonStoredCursor<T>(
   return { orderKey: 0n };
 }
 
-/** The candidate with its canonical hash, or null when it is no longer canonical. */
 async function verifyCandidate<T>(
   adapter: ChainAdapter<T>,
   candidate: IndexerCursor,
