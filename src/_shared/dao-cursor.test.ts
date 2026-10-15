@@ -15,7 +15,6 @@ it("rewinding clears orphaned finality and gas while recovery reads stay chain-s
       CREATE TABLE blocks (chain_id bigint, block_number bigint, block_hash numeric);
       INSERT INTO blocks VALUES (1, 50, 50), (1, 80, 80), (2, 99, 999);
     `);
-    // Execute the DAO's actual parameterized SQL against Postgres in PGlite.
     const sql = Object.assign(
       async (strings: TemplateStringsArray, ...values: unknown[]) => {
         const query = strings.reduce(

@@ -15,9 +15,6 @@ import { persistPriceUpdates } from "../persistPriceUpdates";
 import { bridgeMirrorPriceFetcher } from "./bridgeMirror";
 import type { PriceUpdate } from "./types";
 
-// The mirror is one query over three tables, so it is tested against the real
-// schema. CI provides a server; locally, point this at any Postgres you can
-// create databases on.
 const SERVER = process.env.TEST_PG_CONNECTION_STRING;
 
 const L1 = 1n;
@@ -130,9 +127,7 @@ describe.skipIf(!SERVER)("bridgeMirrorPriceFetcher against Postgres", () => {
     await token(L2, 0xbbbbn);
     await token(L1, 0xccccn);
     await token(L2, 0xddddn);
-    // Token lists record the L2 token as the source of the relationship...
     await bridge([L2, 0xbbbbn], [L1, 0xaaaan]);
-    // ...and StarkGate-style lists the L1 token.
     await bridge([L1, 0xccccn], [L2, 0xddddn]);
     await price("cg1", L1, 0xaaaan, 120);
     await price("ss1", L1, 0xccccn, 3);
@@ -153,7 +148,6 @@ describe.skipIf(!SERVER)("bridgeMirrorPriceFetcher against Postgres", () => {
     expect(await runMirror()).toEqual([]);
     expect(await latest(L2, 0xbbbbn)).toEqual({ source: "ss1", value: 119 });
 
-    // Once mirrored, a direct source arriving later outranks the mirror.
     await token(L2, 0xeeeen);
     await bridge([L2, 0xeeeen], [L1, 0xaaaan]);
     await runMirror();
@@ -174,8 +168,6 @@ describe.skipIf(!SERVER)("bridgeMirrorPriceFetcher against Postgres", () => {
     await runMirror();
     expect(await latest(L2, 0xbbbbn)).toEqual({ source: "bm1", value: 101 });
 
-    // L1 0x1234 is bridged to the now-mirrored L2 token only: its price would
-    // be a second hop, which the mirror does not take.
     await token(L1, 0x1234n);
     await bridge([L1, 0x1234n], [L2, 0xbbbbn]);
     const updates = await runMirror();

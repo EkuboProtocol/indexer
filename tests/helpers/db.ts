@@ -82,7 +82,6 @@ export async function runMigrations(
   const { files } = options;
   const selections = files ? [...files] : undefined;
 
-  // Include the num_events migration when the base chain tables are present.
   const hasBlocks =
     selections?.some(
       (name) => normalizeSelection(name) === "00001_chain_tables",

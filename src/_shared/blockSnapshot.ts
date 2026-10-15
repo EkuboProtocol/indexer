@@ -1,12 +1,6 @@
 import type { ChainAdapter, ChainHead, StreamBlock } from "./blockStream";
 import { requireBlockInRange } from "./rpcRecords";
 
-/**
- * The snapshot could not be read consistently, but the next one may be: the
- * anchor was reorged out, or the backend answering cannot yet resolve a block
- * another backend just advertised. Nothing has been emitted, so the stream
- * re-plans from a fresh head instead of exiting.
- */
 export class StaleSnapshotError extends Error {
   override readonly name = "StaleSnapshotError";
 }
@@ -32,12 +26,6 @@ export function sameHash(a: string, b: string): boolean {
   return BigInt(a) === BigInt(b);
 }
 
-/**
- * All calls use one consistent endpoint (see README.md). An unchanged end hash
- * must imply the intervening range read used that block's ancestry, including
- * blocks with no matching events. Separate header checks cannot prove this
- * contract: in particular an A -> B -> A view change can evade the fence.
- */
 export async function readSnapshot<T>(
   adapter: ChainAdapter<T>,
   plan: { from: number; to: number; head: ChainHead },
@@ -62,8 +50,6 @@ export async function readSnapshot<T>(
   );
   await adapter.completeFresh(fresh, anchor);
 
-  // Resolve the cursor first and the end last. A reorg between these checks
-  // also changes the end hash, so it cannot be committed as a single snapshot.
   const cursorBlock =
     cursor.hash === null
       ? null

@@ -111,9 +111,6 @@ describe("chainlinkFeedMaxAgeSeconds", () => {
   });
 
   test("carries a daily-heartbeat feed across a holiday weekend", () => {
-    // An equity feed publishes only while its market is open. Friday's close
-    // to Tuesday's open is about 89 hours, which doubling the heartbeat (48h)
-    // does not survive.
     const holidayWeekendSeconds = 89 * 60 * 60;
     expect(chainlinkFeedMaxAgeSeconds(86400)).toBeGreaterThan(
       holidayWeekendSeconds,
@@ -180,8 +177,6 @@ describe("discoverChainlinkFeeds", () => {
   });
 
   test("skips entries whose heartbeat is implausibly large", () => {
-    // A heartbeat this size would produce a validity horizon beyond the JS
-    // Date range, costing the chain's whole batch rather than one feed.
     expect(
       discoverChainlinkFeeds(
         [
@@ -269,7 +264,6 @@ describe("fetchChainlinkFeedCatalog", () => {
   }
 
   test("rejects a 200 response that is not an array", async () => {
-    // Otherwise the body is cached and throws on every read until it expires.
     await expect(
       fetchChainlinkFeedCatalog(
         "https://catalog.example/feeds.json",
@@ -407,9 +401,6 @@ describe("verifiedClient", () => {
     }) as never;
 
   test("asks the chain for its ID once, not once per price fetch", async () => {
-    // This runs on a timer, once a minute per configured chain. Re-verifying
-    // every time was four eth_chainId calls a minute answering a question whose
-    // answer is a property of the endpoint and cannot change.
     resetVerifiedChainlinkClients();
     const calls = { n: 0 };
     const create = () => fake(1, calls);
@@ -457,8 +448,6 @@ describe("verifiedClient", () => {
   });
 
   test("does not cache a failed check, so a blip cannot disable the chain", async () => {
-    // A misconfigured URL fails again next minute at no cost. A transient
-    // network error during the first check must not be remembered forever.
     resetVerifiedChainlinkClients();
     let attempt = 0;
     const create = () =>
@@ -497,9 +486,6 @@ describe("discoverChainlinkFeedsDetailed", () => {
   const ethToken: ChainlinkToken = { address: tokenAddress, symbol: "ETH" };
 
   test("names the rule that rejected an entry", () => {
-    // The rule table used to pair each rule with a name and then discard the
-    // names, so a feed that failed to appear could not be traced to the rule
-    // that rejected it.
     const { feeds, skipped } = discoverChainlinkFeedsDetailed(
       [
         { ...usable, feedCategory: "deprecating" },
@@ -517,8 +503,6 @@ describe("discoverChainlinkFeedsDetailed", () => {
   });
 
   test("reports the field a structural rule wanted", () => {
-    // Asserted on the parts this code chooses, not on Effect's exact wording:
-    // the schema formatter is free to reword between releases.
     const { skipped } = discoverChainlinkFeedsDetailed(
       [{ ...usable, docs: { ...usable.docs, quoteAsset: "EUR" } }],
       [ethToken],
@@ -529,8 +513,6 @@ describe("discoverChainlinkFeedsDetailed", () => {
   });
 
   test("counts entries that fail for the same reason", () => {
-    // A production catalog rejects most of what it carries, so the reasons are
-    // only readable as counts.
     const { skipped } = discoverChainlinkFeedsDetailed(
       [
         { ...usable, docs: { ...usable.docs, quoteAsset: "EUR" } },
@@ -547,9 +529,6 @@ describe("discoverChainlinkFeedsDetailed", () => {
   });
 
   test("reports the two silent drops that are not rule failures", () => {
-    // A symbol the indexer does not carry uniquely, and two feeds of equal
-    // rank where picking either would be a guess. Both are ordinary outcomes,
-    // and both were previously invisible.
     const ambiguousSymbol = discoverChainlinkFeedsDetailed(
       [usable],
       [
@@ -580,8 +559,6 @@ describe("discoverChainlinkFeedsDetailed", () => {
   });
 
   test("skips fiat and commodity feeds whose symbol a token happens to share", () => {
-    // Mainnet's KRW is KROWN and its CAD is Caduceus; both were priced as the
-    // currencies their symbols name.
     const { feeds, skipped } = discoverChainlinkFeedsDetailed(
       [
         {
@@ -635,7 +612,6 @@ describe("discoverChainlinkFeedsDetailed", () => {
   });
 
   test("skips an exchange rate into another asset that is labelled as USD", () => {
-    // Optimism lists weETH's rate against ETH, about 1.1, as a USD RefPrice.
     const { feeds, skipped } = discoverChainlinkFeedsDetailed(
       [
         {

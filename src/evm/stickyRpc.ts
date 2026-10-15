@@ -39,7 +39,6 @@ export interface StickyEndpoint {
   /** Safe to log: the origin only, never the path or query that hold a key. */
   label: string;
   rpc: RpcLike;
-  /** This endpoint's `eth_getLogs` result cap; see SUSPECT_LOG_COUNT. */
   suspectLogCount: number;
 }
 
@@ -82,11 +81,6 @@ export class StickyRpc implements RpcLike, EndpointSelector {
   request: RpcLike["request"] = ((args: never) =>
     this.current.rpc.request(args)) as RpcLike["request"];
 
-  /**
-   * Picks the first endpoint that verifies its chain ID. Throws the last error
-   * when none answers, for the caller to back off and retry; throws
-   * `WrongChainIdError` at once when any endpoint names another chain.
-   */
   async start(): Promise<void> {
     let lastError: unknown = new Error("no RPC endpoint answered");
     for (let i = 0; i < this.endpoints.length; i++) {
@@ -112,14 +106,6 @@ export class StickyRpc implements RpcLike, EndpointSelector {
     throw lastError;
   }
 
-  /**
-   * `start`, retried with a doubling delay until an endpoint verifies or
-   * `budgetMs` has passed. A wrong chain ID is still fatal at once.
-   *
-   * Throwing on the first unanswered startup is what kept a total outage a
-   * restart loop even after the stream learnt to back off: `restart.sh`
-   * restarts at once, and every restart asks the same endpoints again.
-   */
   async startWithin(
     budgetMs: number,
     minDelayMs: number,
@@ -154,8 +140,6 @@ export class StickyRpc implements RpcLike, EndpointSelector {
 
     const reason = this.leaveReason(signal);
     if (reason === null) return false;
-    // Leaving a stale head needs a candidate that is ahead of it. Leaving a
-    // failed read only needs one that answers from at or above the cursor.
     const mustPass = reason === "stale head" ? signal.lastHead!.number : null;
     for (let i = 0; i < this.endpoints.length; i++) {
       if (i !== this.index && (await this.probe(i, signal, mustPass)))
@@ -164,7 +148,6 @@ export class StickyRpc implements RpcLike, EndpointSelector {
     return false;
   }
 
-  /** Off the primary for `failbackMs`, and the primary passes its probe. */
   private async failbackDue(signal: TickSignal): Promise<boolean> {
     if (this.index === 0 || this.now() - this.switchedAt < this.opts.failbackMs)
       return false;
@@ -210,7 +193,6 @@ export class StickyRpc implements RpcLike, EndpointSelector {
     this.verified[i] = true;
   }
 
-  /** True when endpoint `i` can take over; a wrong chain ID still throws. */
   private async probe(
     i: number,
     signal: TickSignal,

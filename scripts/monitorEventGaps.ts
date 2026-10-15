@@ -1,30 +1,3 @@
-/**
- * Periodic event-gap monitor: runs `auditEventGaps.ts` over each chain's most
- * recent finalized history and alerts when a block the chain has events for is
- * missing from `blocks`, or stored under another hash (EKU-272).
- *
- *   GAP_MONITOR_CHAINS="mainnet=https://...,starknet/mainnet=https://..." \
- *   PG_CONNECTION_STRING=<read-only url> \
- *   ALERT_WEBHOOK_URL=<paperclip routine webhook> ALERT_WEBHOOK_HMAC_SECRET=<secret> \
- *     bun scripts/monitorEventGaps.ts [--test-alert]
- *
- * A bare network name is EVM; prefix `starknet/` for Starknet, whose RPC must
- * speak JSON-RPC v0.10. Append `|<blocks>` to a URL to cap its read span.
- *
- * GAP_MONITOR_WINDOW_SECONDS (default 10800) is how much finalized history each
- * run re-checks; run it several times per window so a gap is seen more than
- * once before it scrolls out. Each chain runs in its own process because the
- * indexer's config loader writes the network's settings into the environment.
- *
- * A chain whose check itself fails (the RPC refused, the database was
- * unreachable) is retried once and then reported as a failed check, distinct
- * from a gap, so a monitoring outage is not mistaken for a clean bill.
- *
- * Alerts are POSTed signed with Paperclip's routine webhook scheme:
- * HMAC-SHA256 of `${timestamp}.${body}` in X-Paperclip-Signature and
- * X-Paperclip-Timestamp. `--test-alert` adds a synthetic failure to prove
- * delivery end to end.
- */
 import { createHmac } from "node:crypto";
 
 type Summary = {
@@ -59,12 +32,9 @@ const chains = (process.env.GAP_MONITOR_CHAINS ?? "")
         `GAP_MONITOR_CHAINS entry must be network=rpcUrl, got ${entry}`,
       );
     const name = entry.slice(0, at);
-    // "starknet/mainnet" names a Starknet network; a bare name is EVM.
     const [networkType, network] = name.startsWith("starknet/")
       ? ["starknet", name.slice(9)]
       : ["evm", name];
-    // An optional "|maxRange" caps the eth_getLogs span for an endpoint that
-    // refuses wide ones, instead of paying a refusal and a backoff per read.
     const [rpcUrl, maxRange] = entry.slice(at + 1).split("|");
     if (
       maxRange !== undefined &&

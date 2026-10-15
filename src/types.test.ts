@@ -33,9 +33,6 @@ describe("network entrypoint guards", () => {
       },
     });
 
-    // Both networks now deliver the same shape, because both are read by the
-    // shared block stream: `logs`, and a base fee already resolved to a bigint
-    // rather than an apibara `l2GasPrice.priceInFri`.
     expect(
       parseStarknetBlockHeader({
         logs: [],
@@ -55,7 +52,6 @@ describe("network entrypoint guards", () => {
       },
     });
 
-    // A block missing the events array, or the header, is not usable on either.
     expect(parseEvmBlockHeader({ events: [] })).toBeNull();
     expect(parseStarknetBlockHeader({ events: [] })).toBeNull();
     expect(parseStarknetBlockHeader({ logs: [] })).toBeNull();

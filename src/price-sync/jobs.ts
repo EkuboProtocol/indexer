@@ -16,7 +16,6 @@ import {
 } from "./fetchers/coingeckoQuota";
 import { quoterPriceFetcher } from "./fetchers/ekuboQuoter";
 import { nativeMirrorPriceFetcher } from "./fetchers/nativeMirror";
-// import { oracleV1PriceFetcher } from "./fetchers/oracleV1";
 import { sushiswapPriceFetcher } from "./fetchers/sushiswap";
 import type { PriceSyncJob } from "./fetchers/types";
 import type { LaunchSpacer } from "./launchSpacer";
@@ -25,18 +24,14 @@ interface CreatePriceSyncJobsOptions {
   sql: Sql<{ bigint: bigint }>;
   defaultIntervalMs: number;
   coingeckoIntervalMs: number;
-  // Defaults to `coingeckoIntervalMs`.
   coingeckoNativeIntervalMs?: number;
   chainlinkIntervalMs?: number;
   chainlinkConfig?: ChainlinkPriceConfig;
   chainlinkCatalogRefreshIntervalMs?: number;
   coingeckoApiKey?: string | undefined;
   quoterBaseUrl?: string;
-  // Shared across every quoter job so the request budget is the worker's.
   quoterSpacer?: LaunchSpacer;
-  // Shared across every Chainlink job so one catalog URL is fetched once.
   chainlinkCatalogCache?: ChainlinkCatalogCache;
-  // Shared across every CoinGecko job: the credit limit is the account's.
   coingeckoQuotaGate?: CoinGeckoQuotaGate;
 }
 
@@ -56,8 +51,6 @@ export function createPriceSyncJobs({
   chainlinkCatalogCache = makeChainlinkCatalogCache(),
   coingeckoQuotaGate = makeCoinGeckoQuotaGate(),
 }: CreatePriceSyncJobsOptions): PriceSyncJob[] {
-  // The dependencies every job of a kind shares, bound once so the list below
-  // stays a table of what is priced where rather than of how it is wired.
   const quoter = (
     options: Omit<
       Parameters<typeof quoterPriceFetcher>[0],
@@ -85,8 +78,6 @@ export function createPriceSyncJobs({
     });
 
   return [
-    // One job per chain configured with Chainlink feeds. Absent configuration
-    // yields no jobs at all, so Chainlink stays inert until it is set up.
     ...Object.entries(chainlinkConfig).map(([chainId, config]) =>
       chainlinkPriceFetcher({
         sql,
@@ -98,9 +89,6 @@ export function createPriceSyncJobs({
       }),
     ),
 
-    // Every chain whose native currency CoinGecko prices, in one request. Chains
-    // sharing a coin ID cost nothing extra, so add them here rather than giving
-    // each chain its own CoinGecko job.
     coingeckoNativePriceFetcher({
       intervalMs: coingeckoNativeIntervalMs,
       apiKey: coingeckoApiKey,
@@ -124,11 +112,6 @@ export function createPriceSyncJobs({
       },
     }),
 
-    // A second native price for ETH-gas chains that no other source here can
-    // price: Sushi has no price list for them and the quoter no stablecoin
-    // route. Ranked below cgn, so it serves only while CoinGecko is out. Keep
-    // it off any chain with a Sushi job: both sit at confidence 1, and ties at
-    // the top confidence are averaged rather than ranked.
     nativeMirrorPriceFetcher({
       sql,
       fromChainId: 1n,
@@ -140,10 +123,6 @@ export function createPriceSyncJobs({
       intervalMs: defaultIntervalMs,
     }),
 
-    // Fills tokens no source above prices directly with the price of the token
-    // they are bridged to or from: most of Unichain's and Arbitrum's listed
-    // tokens are canonical bridges of Ethereum tokens with no market of their
-    // own that CoinGecko or Sushi track. Ranked below every direct source.
     bridgeMirrorPriceFetcher({
       sql,
       chainIds: [
@@ -188,17 +167,6 @@ export function createPriceSyncJobs({
       minVisibilityPriority: 1,
       includeTokensWithEkuboLiquidity: true,
     }),
-    /*
-    oracleV1PriceFetcher({
-      sql,
-      chainId: 1n,
-      intervalMs: defaultIntervalMs,
-      usdProxyToken: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
-      oracleExtension: "0x51d02A5948496a67827242EaBc5725531342527C",
-      oracleToken: "0x0",
-      twapDurationSeconds: 60,
-    }),
-    */
     // base
     quoter({
       chainId: 8453n,
@@ -410,26 +378,11 @@ export function createPriceSyncJobs({
       decimals: 6,
       quoteAmount: 1000n,
     }),
-    // Prices tokens whose Ekubo pools are too thin to quote against USDC.
     coingecko({
       chainId: 23448594291968334n,
       intervalMs: coingeckoIntervalMs,
       platform: "starknet",
       addressHexDigits: 64,
     }),
-    /*
-    oracleV1PriceFetcher({
-      sql,
-      chainId: 23448594291968334n,
-      intervalMs: defaultIntervalMs,
-      usdProxyToken:
-        "0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8",
-      oracleExtension:
-        "0x005e470ff654d834983a46b8f29dfa99963d5044b993cb7b9c92243a69dab38f",
-      oracleToken:
-        "0x075afe6402ad5a5c20dd25e10ec3b3986acaa647b77e4ae24b0cbc9a54a27a87",
-      twapDurationSeconds: 60,
-    }),
-    */
   ];
 }

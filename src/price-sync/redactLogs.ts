@@ -26,7 +26,6 @@ const CONSOLE_METHODS = [
   "trace",
 ] as const;
 
-// A key shorter than this would be replaced inside ordinary words.
 const MIN_SECRET_LENGTH = 8;
 
 function chainlinkRpcUrls(rawConfig: string | undefined): string[] {
@@ -43,7 +42,6 @@ function chainlinkRpcUrls(rawConfig: string | undefined): string[] {
         : [];
     });
   } catch {
-    // An unparseable config fails startup; the key patterns still apply.
     return [];
   }
 }
@@ -69,7 +67,6 @@ export function redactPriceSyncLog(
   }
 
   let out = text;
-  // Longest first, so a secret that prefixes another cannot leave a tail behind.
   for (const [secret, replacement] of replacements.sort(
     (a, b) => b[0].length - a[0].length,
   )) {
@@ -78,10 +75,6 @@ export function redactPriceSyncLog(
   return redactSecrets(out, env);
 }
 
-/**
- * Routes every console method through the redaction. Returns a function that
- * restores the originals, for tests.
- */
 export function installLogRedaction(
   target: Console = globalThis.console,
   env: Record<string, string | undefined> = process.env,

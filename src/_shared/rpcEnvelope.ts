@@ -3,7 +3,6 @@ export type RpcEnvelope<T> = {
   error?: { code: number; message: string };
 };
 
-/** A successful HTTP response is not necessarily a successful JSON-RPC answer. */
 export function parseRpcEnvelope<T>(value: unknown): RpcEnvelope<T> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Invalid JSON-RPC envelope");

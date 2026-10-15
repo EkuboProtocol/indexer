@@ -30,7 +30,6 @@ test("an empty environment gets the documented defaults", async () => {
   expect(config).toEqual({
     pgConnectionString: PG,
     defaultIntervalMs: 60_000,
-    // Both optional sources are off unless an interval is set for them.
     coingeckoIntervalMs: 0,
     coingeckoNativeIntervalMs: 0,
     chainlinkIntervalMs: 0,
@@ -69,9 +68,6 @@ test("the native CoinGecko interval follows the token interval unless set", asyn
 });
 
 test("a zero catalog refresh interval disables refreshing rather than crashing", async () => {
-  // Zero disables, following the sibling *_SECONDS settings. Reading it as a
-  // strictly positive value would turn an operator's deliberate disable into a
-  // crash loop that takes every price source down, not just Chainlink.
   const config = await load({
     CHAINLINK_FEED_CATALOG_REFRESH_INTERVAL_SECONDS: "0",
   });
@@ -94,8 +90,6 @@ test("a trailing slash on the quoter URL is trimmed", async () => {
 });
 
 test("an unset CoinGecko key is absent rather than empty", async () => {
-  // The key is only required when CoinGecko syncing is actually enabled, so an
-  // operator who never turned it on must still be able to start the worker.
   expect((await load({})).coingeckoApiKey).toBeUndefined();
   expect(
     (await load({ COINGECKO_API_KEY: "" })).coingeckoApiKey,
@@ -161,8 +155,6 @@ for (const [name, env, message] of rejections) {
 }
 
 test("a missing connection string names the setting it could not read", async () => {
-  // Previously this was `process.env.PG_CONNECTION_STRING!`, so an unset value
-  // reached the driver as `undefined` instead of failing here.
   const exit = await loadExit({});
 
   expect(Exit.isFailure(exit)).toBe(true);

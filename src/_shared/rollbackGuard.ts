@@ -40,13 +40,10 @@ export type RollbackRefusalReason =
 
 export type RollbackRefusal = {
   reason: RollbackRefusalReason;
-  /** Persisted cursor block the rollback starts from. */
   fromBlock: number;
-  /** Rows above this block would be deleted; null while recovery is still walking. */
   toBlock: number | null;
   depth: number;
   finalizedBlock: number | null;
-  /** The stored block at or below finality that failed to verify. */
   failedFinalizedBlock: number | null;
   maxReorgDepth: number | null;
 };
@@ -65,7 +62,6 @@ export class RollbackRefusedError extends Error {
 
 export type RollbackGuardDao = Pick<DAO, "loadFinalizedCursor">;
 
-/** `MAX_REORG_DEPTH`: null when unset, otherwise a positive block count. */
 export function parseMaxReorgDepth(raw: string | undefined): number | null {
   if (raw === undefined || raw.trim() === "") return null;
   const parsed = Number(raw);
@@ -124,10 +120,8 @@ export async function assertRecoveryWalkAllowed(
   },
 ): Promise<void> {
   const fromBlock = Number(args.from.orderKey);
-  // The first lookup starts above the cursor; nothing has failed yet.
   if (args.before > fromBlock) return;
 
-  // Every block from `before` up is already known to be rolled back.
   const depth = fromBlock - args.before + 1;
   const finalized = await dao.loadFinalizedCursor();
   const finalizedBlock = finalized ? Number(finalized.orderKey) : null;

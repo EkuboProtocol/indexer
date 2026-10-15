@@ -8,7 +8,7 @@ export interface OracleEvent {
   tickCumulative: bigint;
 }
 
-const ORACLE_EVENT_LENGTH = 52; // bytes
+const ORACLE_EVENT_LENGTH = 52;
 
 function sliceHex(
   hex: string,

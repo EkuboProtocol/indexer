@@ -1,9 +1,3 @@
-/**
- * The EVM and Starknet streams deliver different block shapes, but the three
- * fields the runtime actually keys on — height, hash, timestamp — are validated
- * identically on both. That validation lives here so the two entrypoints cannot
- * drift apart on what counts as a usable header.
- */
 export interface CommonBlockHeader {
   number: number;
   hash: bigint;
@@ -32,8 +26,6 @@ export function parseCommonBlockHeader(header: {
     return null;
   }
 
-  // A stream can hand back a header whose hash is absent or malformed; treating
-  // that as an unusable block is safer than indexing under a zero hash.
   let hash: bigint;
   try {
     if (

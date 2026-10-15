@@ -9,8 +9,6 @@ import { installLogRedaction, redactPriceSyncLog } from "./redactLogs";
 
 const ALCHEMY_KEY = "FakeAlchemyKey0123456789abcdefXY";
 const COINGECKO_KEY = "CG-FakeCoinGeckoKey0123456";
-// Port 9 (discard) on loopback refuses the connection, so viem fails fast with
-// its real HttpRequestError, URL included.
 const rpcUrl = `http://127.0.0.1:9/v2/${ALCHEMY_KEY}`;
 const env = {
   CHAINLINK_TOKEN_PRICE_CONFIG: JSON.stringify({
@@ -85,16 +83,13 @@ describe("the price-sync console", () => {
 
       await Effect.runPromise(
         Effect.gen(function* () {
-          // worker.ts runCycle and chainlink.ts feed discovery.
           yield* Effect.logError(
             `Price sync job clk:1 failed: ${wrapped.message}`,
           );
           yield* Effect.logWarning(
             `Chainlink feed discovery failed for chain 1; using 0 configured feeds: ${wrapped.message}`,
           );
-          // ekuboQuoter.ts: the bare message.
           yield* Effect.logWarning(wrapped.message);
-          // A defect and a failure carried as the log's cause, as runMain reports them.
           yield* Effect.logError("crashed", failure);
           yield* Effect.logError(wrapped);
           yield* Effect.die(failure).pipe(
@@ -120,7 +115,6 @@ describe("the price-sync console", () => {
     const restore = installLogRedaction(target, env);
     try {
       const failure = await viemError(rpcUrl);
-      // chainlinkFeeds.ts
       target.warn(
         "Failed to fetch Chainlink price for 0xabc on chain 1",
         new Error("multicall failed", { cause: failure }),
@@ -149,8 +143,6 @@ async function run(
     cwd: repoRoot,
     env: {
       PATH: process.env.PATH ?? "",
-      // Every outbound HTTPS request (Sushi, the quoter) fails at a dead proxy,
-      // so nothing leaves the machine; the loopback RPC is reached directly.
       HTTPS_PROXY: "http://127.0.0.1:9",
       HTTP_PROXY: "http://127.0.0.1:9",
       NO_PROXY: "127.0.0.1,localhost",
@@ -182,7 +174,6 @@ describe("the price-sync worker process", () => {
         TOKEN_PRICE_SYNC_INTERVAL_MS: "60000",
         COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS: "0",
         CHAINLINK_TOKEN_PRICE_SYNC_INTERVAL_SECONDS: "1",
-        // An explicit feed, so the job reads the RPC without the database.
         CHAINLINK_TOKEN_PRICE_CONFIG: JSON.stringify({
           1: {
             rpcUrls: [rpcUrl],
@@ -199,7 +190,6 @@ describe("the price-sync worker process", () => {
       4_000,
     );
 
-    // The line that would carry the key: viem prints the endpoint it failed on.
     expect(output).toContain("Price sync job 1:cl1 failed");
     expect(output).toContain("URL: http://127.0.0.1:9/<redacted>");
     expect(output).not.toContain(ALCHEMY_KEY);

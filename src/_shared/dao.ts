@@ -447,15 +447,10 @@ type UnwrapPromiseArray<T> = T extends any[]
     }
   : T;
 
-// How often to report an ongoing wait for the per-chain indexer lock. The wait
-// itself is expected during a deploy handoff; the log line is what makes an
-// unusually long one visible.
 const LOCK_WAIT_LOG_INTERVAL_MS = 30_000;
 
-// Data access object that manages inserts/deletes
 export class DAO {
   private readonly chainId: bigint;
-  // Inside `begin`, the DAO wraps that transaction rather than the pool.
   private readonly sql:
     | Sql<{ numeric: bigint; bigint: bigint }>
     | TransactionSql<{ numeric: bigint; bigint: bigint }>;
@@ -471,7 +466,6 @@ export class DAO {
   }
 
   public static create(pgConnectionString: string, chainId: bigint): DAO {
-    // should be a single connection that never closes
     const sql = postgres(pgConnectionString, {
       connect_timeout: 5,
       idle_timeout: 0,
@@ -600,7 +594,6 @@ export class DAO {
     return rows.map((row) => String(row.pool_key_id));
   }
 
-  /** Every pool state on this chain, serialised for before/after comparison. */
   public async poolStatesSnapshot(): Promise<Map<string, string>> {
     const rows = await this.sql<{ pool_key_id: string; state: string }[]>`
       SELECT ps.pool_key_id,
@@ -612,7 +605,6 @@ export class DAO {
     return new Map(rows.map((row) => [String(row.pool_key_id), row.state]));
   }
 
-  /** Rows per table referencing the block, over every table that cascades from `blocks`. */
   public async rowsReferencingBlock(
     blockNumber: number,
   ): Promise<Record<string, number>> {
@@ -634,7 +626,6 @@ export class DAO {
     return counts;
   }
 
-  /** Stored block hashes in `[from, to]`, keyed by block number. */
   public async loadStoredBlockHashes(
     from: number,
     to: number,
@@ -687,19 +678,6 @@ export class DAO {
         ? null
         : BigInt(expectedCursor.uniqueKey);
 
-    // The chain head rides along on the cursor write rather than taking a
-    // write of its own: this row is already updated once per block, and
-    // indexer_cursor is the hottest small table on the instance. Empty blocks
-    // no longer get a blocks row, so this is the only record that they
-    // happened -- see migration 00122_indexer_cursor_head_block.
-    //
-    // A write without a head clears it. The only headless callers are the
-    // rewind paths -- cursor invalidated, or reset to the last finalized
-    // cursor -- and after either of those the previous head is a block on the
-    // discarded fork. Keeping it would leave readers reporting an orphaned
-    // height and hash until the next block landed. NULL is the honest state:
-    // get_chain_head_time falls through to blocks, and the API's latest-block
-    // lookup finds nothing, for the one block it takes to re-establish it.
     const [updatedCursor] = await this.sql<
       { order_key: string; unique_key: string | null }[]
     >`
@@ -1650,10 +1628,6 @@ export class DAO {
     `;
   }
 
-  /**
-   * Deletes all the blocks equal to or greater than the given block number, cascades to all the other tables.
-   * @param invalidatedBlockNumber the block number for which data in the database should be removed
-   */
   public async deleteOldBlockNumbers(invalidatedBlockNumber: number) {
     await this.sql`
       DELETE FROM blocks WHERE chain_id = ${this.chainId} AND block_number >= ${invalidatedBlockNumber};

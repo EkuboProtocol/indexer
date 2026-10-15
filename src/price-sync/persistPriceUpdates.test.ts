@@ -17,9 +17,6 @@ function update(overrides: Partial<PriceUpdate> = {}): PriceUpdate {
   };
 }
 
-// Enough of the driver for the insert: a tagged template that reports a row
-// count. The batch goes in as one array per column; they are zipped back into
-// rows here so the tests read a row at a time.
 function stubSql() {
   const inserted: unknown[][] = [];
   let statements = 0;
@@ -63,7 +60,6 @@ test("a row carries the chain, address, source and price", async () => {
   expect(count).toBe(1);
   expect(rows[0]).toEqual([
     "1",
-    // The address is stored numerically, not as hex.
     BigInt("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48").toString(),
     TIMESTAMP.toISOString(),
     "tst",
@@ -73,8 +69,6 @@ test("a row carries the chain, address, source and price", async () => {
 });
 
 test("validity is anchored at the observation, not at write time", async () => {
-  // A source reporting an already-old measurement must not have its age
-  // laundered away by being written now.
   const old = new Date(TIMESTAMP.getTime() - 3_600_000);
   const { rows } = await run([update({ timestamp: old })]);
 
@@ -91,7 +85,6 @@ test("a fetcher's own validity horizon wins over the job default", async () => {
 test("the default validity is three intervals, floored at a minute", async () => {
   expect(defaultPriceValidityMs(60_000)).toBe(180_000);
   expect(defaultPriceValidityMs(300_000)).toBe(900_000);
-  // A deliberately aggressive development cadence still gets a usable horizon.
   expect(defaultPriceValidityMs(1_000)).toBe(60_000);
 });
 
@@ -116,16 +109,12 @@ for (const [name, bad] of invalid) {
 }
 
 test("one bad row rejects its whole batch", async () => {
-  // The insert is one statement, so a batch either lands or does not; a row
-  // that cannot be built must not leave a partial write behind.
   const error = await rejects([update(), update({ usdPrice: -1 }), update()]);
 
   expect(error).toBeInstanceOf(PriceSyncError);
 });
 
 test("a batch of any size is written in one statement", async () => {
-  // Several statements per batch let the insert trigger lock the latest-price
-  // rows out of order, and concurrent jobs deadlocked on them (EKU-562).
   const { sql, statements } = stubSql();
   const updates = Array.from({ length: 5_000 }, (_, i) =>
     update({ tokenAddress: `0x${(i + 1).toString(16)}` }),

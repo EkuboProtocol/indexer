@@ -14,7 +14,7 @@ export function msToHumanShort(ms: number, numParts: number = 3): string {
       const count = Math.floor(ms / unitMs);
       ms %= unitMs;
       parts.push(`${count}${label}`);
-      if (parts.length === numParts) break; // Limit to three components
+      if (parts.length === numParts) break;
     }
   }
 

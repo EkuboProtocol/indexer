@@ -6,12 +6,6 @@ import { isProduction, requireDeployedRpcUrl } from "./config";
 
 const ROOT = join(import.meta.dir, "..");
 
-/**
- * A clean environment for a child process: nothing inherited from the shell
- * running the tests, so an `EVM_RPC_URL` exported there cannot mask the case.
- * The database is unreachable, so a worker that got past the check would fail
- * with a different error.
- */
 function childEnv(vars: Record<string, string>): Record<string, string> {
   return {
     PATH: process.env.PATH ?? "",
@@ -86,7 +80,6 @@ describe("worker startup without an RPC URL in the environment", () => {
         NETWORK: network,
       });
       expect(result.exitCode).not.toBe(0);
-      // The logger reports the uncaught error as JSON on stdout.
       expect(result.stdout + result.stderr).toContain(
         `Missing ${name}: in production`,
       );

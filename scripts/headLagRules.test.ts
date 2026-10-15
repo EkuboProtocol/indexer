@@ -30,7 +30,6 @@ const row = (
 
 const at = (minutes: number) => new Date(Date.UTC(2026, 8, 30, 13, minutes));
 
-/** Runs checks one minute apart, delivering every alert, and returns what each raised. */
 function replay(checks: CursorRow[][], start: HeadLagState = {}) {
   let state = start;
   return checks.map((rows, minute) => {
@@ -61,8 +60,6 @@ group("head-lag rules", () => {
     expect(replay([healthy, healthy, healthy])).toEqual([[], [], []]);
   });
 
-  // The 2026-09-30 Alchemy US-East incident: heads froze at 13:12 and the
-  // chains were back by 13:28. Unichain's worker saw no error at all.
   it("alerts once the stall is sustained, not on every minute of it", () => {
     const stalled = (minutes: number) => [
       row("1", 12),
@@ -74,7 +71,6 @@ group("head-lag rules", () => {
       ...Array.from({ length: 16 }, (_, m) => stalled(m + 1)),
       healthy,
     ]);
-    // Over five minutes from the 6th stalled minute, sustained on the 7th.
     expect(raised.findIndex((r) => r.length > 0)).toBe(7);
     expect(raised.flat()).toEqual(["unichain"]);
   });
@@ -165,7 +161,6 @@ group("head-lag rules", () => {
     ]);
     state = markAlerted(second.next, second.findings, at(1));
     expect(evaluateFailure("again", config, state, at(2)).findings).toEqual([]);
-    // One good check clears the failure streak.
     expect(
       evaluate(healthy, config, state, at(3)).next.checkFailures,
     ).toBeUndefined();

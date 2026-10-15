@@ -7,9 +7,6 @@ import shift from "postgres-shift";
 import type { PriceUpdate } from "./fetchers/types";
 import { persistPriceUpdates } from "./persistPriceUpdates";
 
-// Concurrent persists need a real server: PGlite has a single connection, so
-// it cannot hold two transactions' locks at once. CI provides one; locally,
-// point this at any Postgres you can create databases on.
 const SERVER = process.env.TEST_PG_CONNECTION_STRING;
 
 const CHAIN_ID = 1n;
@@ -74,12 +71,6 @@ describe.skipIf(!SERVER)("persistPriceUpdates against Postgres", () => {
     );
 
   test("concurrent jobs on one chain do not deadlock", async () => {
-    // Shaped on the production failures: a Sushi batch covering thousands of
-    // tokens, in the fetcher's order rather than sorted, persisting while the
-    // Chainlink and CoinGecko jobs on the same chain write a few tokens spread
-    // across the address range. Before EKU-562 the Sushi batch went in as
-    // 1,000-row statements inside one transaction, and these deadlocked within
-    // a round or two.
     const everyToken = Array.from({ length: TOKEN_COUNT }, (_, i) => i + 1);
     const descending = everyToken.toReversed();
     const sources = ["cl1", "cg1", "qp1"];

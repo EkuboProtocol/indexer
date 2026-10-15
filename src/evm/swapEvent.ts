@@ -78,7 +78,7 @@ export function parseSwapEvent(data: `0x${string}`): CoreSwapped {
   };
 }
 
-const LOG_DATA_LENGTH_V2 = 116; // bytes
+const LOG_DATA_LENGTH_V2 = 116;
 
 function sliceHex(
   hex: string,

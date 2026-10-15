@@ -9,9 +9,7 @@ import { PriceSyncError } from "./errors";
 export const REQUEST_TIMEOUT = Duration.seconds(30);
 
 interface JsonRequest {
-  // Names the failing job in the log line, e.g. "cg1".
   readonly source: string;
-  // Names the step, e.g. "token prices for chain 8453".
   readonly operation: string;
   readonly url: string;
   readonly headers?: Readonly<Record<string, string>>;
@@ -26,14 +24,6 @@ function readBody(response: Response): Effect.Effect<string> {
   }).pipe(Effect.orElseSucceed(() => ""));
 }
 
-/**
- * GET a JSON document, with the request tied to the fiber.
- *
- * `Effect.tryPromise` hands the callback an `AbortSignal`, so interrupting
- * this effect -- on timeout, or when the process is shutting down -- actually
- * cancels the in-flight request rather than leaving it running with nobody
- * waiting on it.
- */
 export function fetchJson<T>({
   source,
   operation,

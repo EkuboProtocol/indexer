@@ -43,9 +43,7 @@ describe("positions protocol fee helpers", () => {
 
     test("nonzero", () => {
       expect(computeFee(100n, EVM_POOL_FEE_DENOMINATOR >> 1n)).toEqual(50n);
-      // rounds up
       expect(computeFee(101n, EVM_POOL_FEE_DENOMINATOR >> 1n)).toEqual(51n);
-      // rounds up
       expect(computeFee(1n, EVM_POOL_FEE_DENOMINATOR >> 1n)).toEqual(1n);
     });
   });

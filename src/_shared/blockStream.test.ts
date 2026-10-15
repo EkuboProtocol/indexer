@@ -54,13 +54,11 @@ it("reconciles a reorg before accepting finality and preserves pending finality 
     },
     async fetchFinalized() {
       if (tick === 0) return head(90);
-      // The refresh after rollback may fail; the earlier observation survives.
       if (tick > 1) throw new Error("temporary finality outage");
       return head(101, "0xb101");
     },
     async readRange(from, to) {
       ranges.push([from, to]);
-      // Ensure the next poll is due to refresh finality (four poll intervals).
       await Bun.sleep(10);
       return from <= 100 && to >= 100
         ? [block(100, tick === 1 ? "0xaaa" : "0xbbb")]
@@ -70,8 +68,6 @@ it("reconciles a reorg before accepting finality and preserves pending finality 
   };
   const messages: StreamMessage<string>[] = [];
   try {
-    // A failed head read is backed off rather than thrown until the outage
-    // budget runs out, so a tiny budget is what ends the fixture.
     for await (const message of createBlockStream({
       adapter,
       startingCursor: { orderKey: 99n },
@@ -120,8 +116,6 @@ for (const failure of ["throw", "null"] as const) {
       },
       async completeFresh() {},
     };
-    // Startup reads are retried like any other until the outage budget runs
-    // out, and nothing is read past them in the meantime.
     const args = {
       adapter,
       startingCursor: { orderKey: 100n, uniqueKey: "0xaaa" as const },
@@ -131,8 +125,6 @@ for (const failure of ["throw", "null"] as const) {
     await expect(stream.next()).rejects.toThrow();
     expect(reads).toBe(0);
 
-    // A subsequent runtime restart verifies the same durable cursor and rolls
-    // back before it emits any replacement data or finality.
     unavailable = false;
     const retry = createBlockStream(args);
     expect((await retry.next()).value?._tag).toBe("invalidate");
@@ -231,10 +223,6 @@ describe("a stale snapshot", () => {
   });
 });
 
-// EKU-502: during the Alchemy US-East incident of 2026-09-30 the provider
-// advertised a head and then refused eth_getLogs up to it for sixteen minutes.
-// Each refusal exited the worker, and restart.sh brought it straight back to
-// ask for the same range: 89 to 315 restarts per chain.
 describe("a provider that refuses reads at the head", () => {
   const refusal = "Invalid parameters were provided to the RPC method";
   const run = async (opts: {
@@ -292,7 +280,6 @@ describe("a provider that refuses reads at the head", () => {
     expect(warnings.map((w) => w.message)).toEqual(
       Array(5).fill("provider read failed; backing off"),
     );
-    // Doubling from the poll floor, held at the configured ceiling.
     expect(warnings.map((w) => w.detail.retryInMs)).toEqual([1, 2, 4, 4, 4]);
     expect(warnings[0]!.detail).toMatchObject({
       read: "range",
@@ -323,11 +310,6 @@ describe("a provider that refuses reads at the head", () => {
   });
 });
 
-/**
- * The runtime's effect on the store, reduced to what the gap question needs:
- * a data message replaces everything from its block up and records the block
- * only if it carried events; an invalidate deletes everything above its cursor.
- */
 function createStore(startingCursor: number) {
   const blocks = new Map<number, string>();
   let cursor: { orderKey: bigint; uniqueKey?: `0x${string}` } = {
@@ -361,7 +343,6 @@ function createStore(startingCursor: number) {
 
 const eventBearing = (n: number) => n % 3 !== 0;
 
-/** A chain whose hashes never change, so every rollback below is a provider fault being repaired. */
 function faultyChain(opts: {
   tip: number;
   lagging: () => number;
@@ -380,7 +361,6 @@ function faultyChain(opts: {
       return null;
     },
     async readRange(from, to) {
-      // A log index lagging its head: the newest blocks read as empty.
       const indexedTo = to - opts.lagging();
       const blocks: StreamBlock<string>[] = [];
       for (let n = from; n <= indexedTo; n++)
@@ -420,10 +400,6 @@ const expectedBlocks = (from: number, to: number) => {
 
 for (const withStore of [true, false]) {
   it(`${withStore ? "re-indexes" : "(without the store check) permanently loses"} a block a lagging read skipped just before a restart`, async () => {
-    // EKU-272: a read whose log index lags the head reports the newest
-    // event-bearing block as empty, and the tail message moves the cursor past
-    // it. The next re-read would catch that -- unless the process restarts
-    // first, and the new stream seeds its window from the chain.
     let lag = 1;
     const chain = faultyChain({
       tip: 101,
@@ -464,7 +440,6 @@ for (const withStore of [true, false]) {
 }
 
 it("converges on every event-bearing block through lagging reads, head regressions and restarts", async () => {
-  // Deterministic, so a failure reproduces.
   let seed = 0x272;
   const random = () => {
     seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31;
@@ -495,7 +470,6 @@ it("converges on every event-bearing block through lagging reads, head regressio
     restarts++;
   }
 
-  // One healthy run to the tip, after which nothing may be missing.
   faulty = false;
   await runUntil(
     createBlockStream({

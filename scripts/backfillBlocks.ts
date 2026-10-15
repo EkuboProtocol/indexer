@@ -1,30 +1,3 @@
-/**
- * Indexes individual finalized blocks the stream skipped, without moving the
- * cursor. Found by `scripts/auditEventGaps.ts`; see EKU-272.
- *
- *   NETWORK=mainnet PG_CONNECTION_STRING=<url> AUDIT_RPC_URL=<url> \
- *     bun scripts/backfillBlocks.ts <block> [block...] [--apply]
- *
- * Dry run by default: everything happens inside a transaction that is then
- * rolled back, and the report says what would have been written. `--apply`
- * commits.
- *
- * Each block goes through the same processors and DAO the runtime uses, in one
- * transaction per block, and then repairs the one piece of derived state that
- * assumes events arrive in order: `on_insert_swap` overwrites `pool_states`
- * with the inserted swap's after-state, which for a block below the head is a
- * stale state. Touched pools are recomputed from full history, and the run
- * fails if any pool state differs from before -- unless the backfilled swap is
- * genuinely that pool's latest event, which is reported.
- *
- * Every other trigger on these tables is an order-independent upsert (hourly
- * volume, fees and TVL deltas, pool TVL) or a GREATEST (oracle), so the
- * aggregates correct themselves in the same transaction.
- *
- * Reversal is the path every reorg takes:
- *   DELETE FROM blocks WHERE chain_id = <chain> AND block_number = <block>;
- * cascades to every event row and runs the same triggers in reverse.
- */
 import { createPublicClient, http } from "viem";
 import { loadConfig } from "../src/config";
 import { DAO } from "../src/_shared/dao";

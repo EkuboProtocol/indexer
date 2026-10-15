@@ -6,42 +6,22 @@ export interface PriceUpdate {
   readonly tokenAddress: `0x${string}`;
   readonly timestamp: Date;
   readonly usdPrice: number;
-  // How long this observation may serve as a latest price. Fetchers with a
-  // source-native staleness contract (e.g. Chainlink heartbeats) set it
-  // per row; others leave it unset and get the job's default validity.
   readonly validUntil?: Date;
 }
 
-/**
- * A job's price source, as a stream of batches.
- *
- * This is a value rather than a function because a `Stream` is a description:
- * running it twice runs the work twice, which is exactly what the recurring
- * schedule needs, and it removes the "call this to get a fresh iterable"
- * convention the async-generator version relied on.
- */
 export type PriceFetcher = Stream.Stream<
   readonly PriceUpdate[],
   PriceSyncError
 >;
 
 export interface PriceSyncJob {
-  // Chains this job may yield updates for. Per-chain jobs list exactly one; a
-  // job that prices the same upstream asset on several chains lists each one so
-  // a single request can serve all of them.
   readonly chainIds: readonly bigint[];
   readonly source: string;
   readonly intervalMs: number;
   readonly fetch: PriceFetcher;
-  // On startup, wait out the rest of the interval since this source's newest
-  // stored price instead of launching at once. For metered sources, where
-  // every restart would otherwise buy an extra cycle.
   readonly resumeFromLastRun?: boolean;
 }
 
-// Default validity stamped on observations that carry no horizon of their own:
-// three sync intervals keeps a price usable across two missed runs, with a
-// one-minute floor for deliberately aggressive development cadences.
 export function defaultPriceValidityMs(intervalMs: number): number {
   return Math.max(intervalMs * 3, 60_000);
 }

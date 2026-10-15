@@ -6,9 +6,6 @@ export function priceSyncJobId(
   return `${job.chainIds.join("+")}:${job.source}`;
 }
 
-// Checks a single job in isolation. Split from validatePriceSyncJobs so that
-// function is only about the cross-job invariant -- no two jobs writing the
-// same source on the same chain -- and this one is only about field shape.
 function assertJobIsWellFormed(job: PriceSyncJob, jobId: string): void {
   if (job.source.length !== 3) {
     throw new Error(
@@ -36,8 +33,6 @@ function assertJobIsWellFormed(job: PriceSyncJob, jobId: string): void {
 }
 
 export function validatePriceSyncJobs(jobs: readonly PriceSyncJob[]): void {
-  // A source may price many chains and a chain may have many sources, but two
-  // jobs writing the same source on the same chain would race each other.
   const claimedChainSources = new Set<string>();
 
   for (const job of jobs) {

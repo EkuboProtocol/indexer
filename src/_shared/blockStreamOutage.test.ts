@@ -7,8 +7,6 @@ import {
   type StreamMessage,
 } from "./blockStream";
 
-// Outage-behaviour tests contributed in the CTO review of indexer#221 (EKU-515).
-
 const head = (
   number: number,
   hash = `0x${number.toString(16)}`,
@@ -53,7 +51,6 @@ it("does not spend the budget across failures separated by successes, and resets
       return head(90);
     },
     async readRange(from, to) {
-      // Every other read fails, each slow enough that the run outlasts the budget.
       await Bun.sleep(2);
       if (++reads % 2 === 1) throw new Error("refused");
       return Array.from({ length: to - from + 1 }, (_, i) =>

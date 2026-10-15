@@ -11,7 +11,6 @@ import {
 } from "./mevCaptureSeries";
 
 const ONE = 1n << 64n;
-// 0.02%, the Ethereum ETH/USDT MEVCapture pool's fee
 const FEE = 3689348814741910n;
 const POOL = { poolId: "0x01" as const, fee: FEE, tickSpacing: 100 };
 
@@ -82,7 +81,6 @@ describe("fee attribution", () => {
   });
 
   test("exact-out surcharge grosses up the net input", () => {
-    // input 10_100 incl. a 1% pool fee of 101 -> net 9_999; 1% on top -> 101
     expect(surchargeExactOut(10_100n, -9_000n, ONE / 100n, ONE / 100n)).toEqual(
       [101n, 0n],
     );
@@ -108,7 +106,7 @@ describe("MevCapturePoolTracker", () => {
 
   test("attributes a donation to the latest earlier swapping block", () => {
     const t = new MevCapturePoolTracker(POOL, { tick: 0, liquidity: 1000n });
-    t.apply(donation(9, 5n, 0n)); // accrued before the replay started
+    t.apply(donation(9, 5n, 0n));
     t.apply(swap(10, 1_000_000n, -1_000_000n, 200));
     t.apply(donation(14, 0n, 400n));
     t.apply(swap(14, -10n, 10n, 150));
@@ -148,7 +146,6 @@ describe("time-weighted liquidity", () => {
   ];
 
   test("weights each value by how long it was in force", () => {
-    // 100 for 10s, 300 for 40s, 0 for 50s
     expect(timeWeightedLiquidity(100n, points, 100, 200)).toBe(
       (100n * 10n + 300n * 40n) / 100n,
     );

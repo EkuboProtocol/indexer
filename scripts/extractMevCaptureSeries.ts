@@ -1,19 +1,3 @@
-/**
- * Frozen extract of MEVCapture pool series straight from chain logs, for
- * windows the database cannot serve (no public MEVCapture coverage exists).
- *
- *   RPC_URLS=https://a,https://b OUT_DIR=./out \
- *   POOLS_JSON=./mev_v3_1.json bun scripts/extractMevCaptureSeries.ts
- *
- * POOLS_JSON is the `pools` array from the API's
- * `/poolKeys/1/<core>?extension=<MEVCapture>`; every key is re-hashed and
- * checked against the extension's on-chain state, and every pool that swaps
- * in the scanned range is checked against the extension so a pool the API
- * missed fails the run instead of being silently dropped.
- *
- * Every getLogs chunk is fetched from each RPC in RPC_URLS and must match
- * byte-for-byte. Output is CSV plus manifest.json and SHA256SUMS.
- */
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -44,8 +28,6 @@ const RPC_URLS = (process.env.RPC_URLS ?? "").split(",").filter(Boolean);
 const OUT_DIR = process.env.OUT_DIR ?? "./mev-capture-extract";
 const POOLS_JSON = process.env.POOLS_JSON ?? "";
 const CHUNK = Number(process.env.GET_LOGS_RANGE ?? "10000");
-// Blocks scanned past the last window so the donation of the last in-window
-// accrual (made at the pool's next touch) is seen.
 const TAIL_BLOCKS = Number(process.env.TAIL_BLOCKS ?? "7200");
 const WINDOWS = [
   { name: "quiet", from: "2026-08-08T00:00:00Z", to: "2026-08-16T00:00:00Z" },
@@ -106,7 +88,6 @@ async function blockTimestamp(n: number): Promise<number> {
   return Number(block.timestamp);
 }
 
-// First block whose timestamp is >= ts.
 async function firstBlockAtOrAfter(
   ts: number,
   lo: number,
@@ -454,8 +435,6 @@ async function scanLogs(from: number, to: number) {
   return { logs, chunks };
 }
 
-// Pools that swapped in the scan and are MEVCapture pools on chain but are not
-// in the supplied list make the inventory incomplete; fail loudly.
 async function checkInventory(
   byPool: Map<Hex, MevCapturePoolEvent[]>,
   pools: PoolMeta[],

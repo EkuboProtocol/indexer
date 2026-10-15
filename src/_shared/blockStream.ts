@@ -1,31 +1,3 @@
-/**
- * A polling, range-read block stream, shared by every network we index.
- *
- * This is the EVM log stream generalised. Nothing in it is specific to a chain
- * family: it polls a head, re-reads a window below the cursor to notice reorgs,
- * backs off when the chain is doing nothing we index, and emits the same
- * messages the apibara streams did. What events *are*, how to ask a chain for a
- * range of them, and how to fill in whatever a range read does not carry, is
- * the `ChainAdapter`'s job.
- *
- * The reasoning that shaped each rule is kept with the rule, because most of it
- * was paid for with a bug. The concrete numbers in the comments are the EVM
- * measurements that produced them; they are illustrative here, not assumptions
- * the core makes.
- *
- * Correctness notes, since missing an event is the failure that matters:
- *
- * - A range query is self-describing in a way a subscription is not. It either
- *   answers for the blocks asked for or it errors; a dropped WebSocket frame
- *   looks like silence. That is why this polls.
- * - Cursor hashes and a re-read event window detect changed ancestry. Recovery
- *   uses verified stored history rather than assuming the fork fits the window.
- * - A range is fenced by its ending header and emitted only after validation.
- * - The adapter is responsible for refusing a range read it cannot vouch for.
- *   A provider that caps results and returns exactly the cap is
- *   indistinguishable from one that found exactly that many, and believing it
- *   means dropping every event past the cap with nothing to show for it.
- */
 import type { Hex } from "viem";
 import type { IndexerCursor } from "./dao";
 import {
@@ -36,7 +8,6 @@ import {
 } from "./blockSnapshot";
 import { commonStoredCursor, type LoadPreviousCursor } from "./cursorRecovery";
 
-/** Identity of a block, as far as this stream is concerned. */
 export type ChainHead = {
   number: number;
   hash: Hex;
@@ -44,16 +15,8 @@ export type ChainHead = {
   baseFeePerGas: bigint | null;
 };
 
-/** What the diff compares: a block's hash and how many events it carried. */
 export type BlockDigest = { hash: Hex; logCount: number };
 
-/**
- * A block as the runtime consumes it.
- *
- * `logs` rather than `events` because that is the name the EVM runtime, the DAO
- * and every processor already use, and renaming it would touch far more than
- * this change is about.
- */
 export interface StreamBlock<TEvent> {
   header: {
     blockNumber: bigint;
@@ -73,32 +36,13 @@ export type StreamMessage<TEvent> =
       data: { endCursor: IndexerCursor; data: StreamBlock<TEvent>[] };
     };
 
-/**
- * Everything chain-specific the loop needs, and nothing else.
- *
- * The split is drawn where cost is: `readRange` answers for a whole span in one
- * request and is called every poll, so it must carry enough to diff a window --
- * block number, block hash, and the events we matched. `completeFresh` is
- * called only for blocks *above the cursor*, so anything expensive per block
- * belongs there rather than in `readRange`. On Starknet that distinction is the
- * difference between ~6k and ~390k requests a day: the reorg window is re-read
- * every poll and would otherwise pay per-block costs for blocks it has already
- * indexed and is only re-checking.
- */
 export interface ChainAdapter<TEvent> {
-  /** Names the chain family in errors and warnings. */
   readonly label: string;
 
-  /** The head block, or null when it cannot be read this poll. */
   fetchHead(): Promise<ChainHead | null>;
 
-  /** One block's identity, or null when it cannot be read. */
   fetchBlock(blockNumber: number): Promise<ChainHead | null>;
 
-  /**
-   * The deepest block that can no longer reorg, or null when the endpoint
-   * cannot answer. Never fatal: the finalized block is an optimisation here.
-   */
   fetchFinalized(): Promise<ChainHead | null>;
 
   /**
@@ -127,62 +71,24 @@ export interface ChainAdapter<TEvent> {
   completeFresh(blocks: StreamBlock<TEvent>[], head: ChainHead): Promise<void>;
 }
 
-/**
- * What an endpoint selector is told at the top of each loop turn.
- *
- * `lastHead` is the head the current endpoint returned on the previous turn,
- * or null when there is none yet, or when the endpoint has just changed.
- */
 export interface TickSignal {
   cursorBlock: number;
-  /** Whether the previous turn's read failed on the current endpoint. */
   lastReadFailed: boolean;
   lastHead: ChainHead | null;
 }
 
-/**
- * Chooses which RPC endpoint the adapter reads from.
- *
- * `beforeTick` is the only place the endpoint may change. It runs at the top of
- * every loop turn, before the finalized refresh and the plan. Everything after
- * it in the turn -- plan, snapshot, reconciliation, stored-history recovery and
- * the finality announcement -- then reads from one endpoint. That is what keeps
- * a head from one provider from ever fencing logs from another (the README's
- * endpoint consistency contract). A switch between turns looks to the stream
- * like a reorg between turns, which the cursor check and the window diff
- * already handle.
- *
- * Resolves true when it switched.
- */
 export interface EndpointSelector {
   beforeTick(signal: TickSignal): Promise<boolean>;
 }
 
 export interface BlockStreamOptions {
-  /** How long to wait after catching up to the head before polling again. */
   pollIntervalMs?: number;
-  /** The longest this may back off to on a chain indexing nothing. */
   maxPollIntervalMs?: number;
-  /**
-   * Consecutive caught-up polls that index nothing before the interval starts
-   * doubling. Anything indexed within the last
-   * `pollIntervalMs * quietPollsBeforeBackoff` keeps polling at the floor.
-   */
   quietPollsBeforeBackoff?: number;
-  /** Widest block span to ask for in one range read. */
   maxLogRangeBlocks?: number;
-  /**
-   * How far back to re-read for inexpensive event comparisons. Cursor-hash
-   * verification and stored-history recovery also cover deeper reorgs.
-   */
   reorgWindowSeconds?: number;
-  /** How often to re-read the finalized block. */
   finalizedRefreshIntervalMs?: number;
   heartbeatIntervalMs?: number;
-  /**
-   * How long provider reads may keep failing back to back before the stream
-   * gives up and throws. Until then each failure is a warning and a backoff.
-   */
   providerOutageBudgetMs?: number;
   onWarning?: (message: string, detail: Record<string, unknown>) => void;
 }
@@ -201,7 +107,6 @@ export const BLOCK_STREAM_DEFAULTS = {
 export type Resolved = Required<Omit<BlockStreamOptions, "onWarning">> &
   Pick<BlockStreamOptions, "onWarning">;
 
-/** Everything the loop carries between iterations. */
 export interface StreamState {
   cursorBlock: number;
   cursorHash: string | null;
@@ -214,28 +119,14 @@ export interface StreamState {
    */
   emitted: Map<number, BlockDigest>;
   finalized: ChainHead | null;
-  /** Observed finality, held back until the old window has been reconciled. */
   pendingFinalized: ChainHead | null;
   lastFinalizedRefresh: number;
-  /** Highest finalized block already announced downstream, 0 before the first. */
   finalizedEmitted: number;
   lastHeartbeat: number;
-  /** Hash of the head as of the last completed read, "" before the first. */
   lastHeadHash: string;
-  /**
-   * Consecutive caught-up polls that indexed nothing, which is what the poll
-   * interval backs off on. Reset to 0 by anything worth being fast for.
-   */
   quietPolls: number;
-  /**
-   * Observed blocks per second, or null until enough of the chain has gone by
-   * to measure it. Every sizing decision that would otherwise be a block count
-   * goes through this.
-   */
   blockRate: number | null;
-  /** The older end of the interval `blockRate` is measured over. */
   rateSample: { number: number; timeSec: number } | null;
-  /** Effective window last warned about, so the cap is reported once. */
   warnedCapSeconds: number | null;
   /**
    * Lowest block `emitted` is authoritative for.
@@ -253,19 +144,13 @@ export interface StreamState {
    * cheaper and stronger: a block hash commits to its whole ancestry.
    */
   seeded: boolean;
-  /** Consecutive snapshots re-planned because they went stale mid-read. */
   staleSnapshots: number;
-  /** Consecutive provider reads that failed, which is what the backoff doubles on. */
   failedReads: number;
-  /** When the current run of failed reads began, or null while reads succeed. */
   failingSince: number | null;
-  /** Whether the last read failed, which is what an endpoint selector acts on. */
   lastReadFailed: boolean;
-  /** The last head read from the current endpoint, for its staleness check. */
   lastHead: ChainHead | null;
 }
 
-/** Packed into 16 bits by `compute_event_id`, so this is a hard ceiling. */
 export const MAX_EVENT_INDEX = 65_536;
 
 /**
@@ -298,7 +183,6 @@ export function requireRepresentableIndex(
   return eventIndex;
 }
 
-/** Which blocks in a range carry events, and under which hash. */
 export function digestBlocks<TEvent>(
   blocks: StreamBlock<TEvent>[],
 ): Map<number, BlockDigest> {
@@ -312,14 +196,6 @@ export function digestBlocks<TEvent>(
   return digests;
 }
 
-/**
- * The lowest block at which `next` disagrees with `previous`, or undefined when
- * they agree.
- *
- * Disagreement is a block that changed hash, a block that lost its events, or a
- * block that gained events it did not have. Only blocks inside `[from, to]` are
- * compared, because anything outside was not re-read.
- */
 export function firstDivergentBlock(
   previous: Map<number, BlockDigest>,
   next: Map<number, BlockDigest>,
@@ -349,23 +225,8 @@ export function firstDivergentBlock(
   return lowest;
 }
 
-/**
- * Chain time that must elapse before a block-rate sample is believed.
- *
- * Block timestamps have one-second resolution, and Robinhood produces eleven
- * blocks inside one of those, so a short baseline measures rounding rather than
- * the chain. Thirty seconds is long enough that the quantisation is noise on
- * every chain we index and short enough to be learnt within one backoff cycle.
- */
 export const MIN_RATE_SAMPLE_SECONDS = 30;
 
-/**
- * Updates the observed block rate from a head this poll already fetched.
- *
- * Free: the head read returns the number and the timestamp together, and the
- * stream reads it every poll anyway. No request is made for this, which is the
- * only reason it is worth measuring continuously rather than once at startup.
- */
 export function observeBlockRate(
   state: StreamState,
   head: Pick<ChainHead, "number" | "timestamp">,
@@ -448,20 +309,6 @@ export function reorgWindowBlocksFor(
   );
 }
 
-/**
- * Says once, not every poll, that the span is holding the window narrower than
- * `reorgWindowSeconds` asked for.
- *
- * Deliberately separate from `reorgWindowBlocksFor`, which several call sites
- * hit more than once per tick -- `windowFor`, `finishTick`, `pollIntervalFor`
- * and the finalized refresh all size themselves from it. A warning in there is
- * four identical lines per poll forever on any chain where the cap binds, which
- * is how a real signal becomes noise nobody reads.
- *
- * Not an error: the stream may need stored-history recovery more often. Worth saying at all because the remedy is one env var --
- * the range size bounds it, and raising it is free up to the provider's own
- * range limit.
- */
 function warnIfWindowCapped(state: StreamState, opts: Resolved): void {
   const rate = state.blockRate;
   if (rate === null) return;
@@ -470,8 +317,6 @@ function warnIfWindowCapped(state: StreamState, opts: Resolved): void {
   const wanted = Math.max(1, Math.ceil(rate * opts.reorgWindowSeconds));
   if (wanted <= cap) return;
 
-  // Re-warn only when the shortfall actually changes, so a chain whose rate
-  // drifts says so again while a steady one says it once.
   const effectiveSeconds = Math.round(cap / rate);
   if (state.warnedCapSeconds === effectiveSeconds) return;
   state.warnedCapSeconds = effectiveSeconds;
@@ -485,7 +330,6 @@ function warnIfWindowCapped(state: StreamState, opts: Resolved): void {
   });
 }
 
-/** The span to re-read: back into the reorg window, or forward when behind it. */
 function windowFor(
   state: StreamState,
   head: number,
@@ -537,13 +381,10 @@ function windowFor(
   return { from, to: Math.min(head, from + opts.maxLogRangeBlocks - 1) };
 }
 
-/** Drops window entries the re-read no longer covers. */
 function forgetBelow(state: StreamState, keepFrom: number): void {
   for (const key of [...state.emitted.keys()]) {
     if (key < keepFrom) state.emitted.delete(key);
   }
-  // Only ever rises. What was pruned cannot be un-pruned, so this is the record
-  // of how far down the map can still be trusted.
   state.retainedFrom = Math.max(state.retainedFrom, keepFrom);
 }
 
@@ -619,11 +460,6 @@ async function refreshFinalized<TEvent>(
   }
   state.lastFinalizedRefresh = now;
 
-  // Tolerated, not fatal. The finalized block is an optimisation here -- a floor
-  // on the re-read and a cursor to announce -- so a node that cannot answer for
-  // it should cost us that optimisation, not the worker. Without this catch the
-  // `withNullBlockRetry` wrapper turns a null answer into a throw that escapes
-  // the generator every thirty seconds and exits the process.
   const finalized = await adapter.fetchFinalized().catch((error: unknown) => {
     opts.onWarning?.("could not read the finalized block", {
       error: String(error).slice(0, 200),
@@ -719,28 +555,6 @@ function* heartbeatIfDue<TEvent>(
   yield { _tag: "heartbeat" };
 }
 
-/**
- * How long to sleep before the next poll, given how long the chain has been
- * quiet.
- *
- * The cost of this stream is polls times the per-request price, and it does not
- * care whether a poll found anything: a range read is billed per request, so a
- * chain that has never emitted an event costs exactly what the busiest one
- * does. That is the whole bill on a deployment like ours, where most chains are
- * indexed for completeness rather than volume.
- *
- * So the interval tracks whether the chain is doing anything we index. It holds
- * at the floor for `quietPollsBeforeBackoff` consecutive empty polls -- the
- * latency guarantee, and the reason a busy chain never notices this exists --
- * then doubles per empty poll up to `maxPollIntervalMs`. Anything worth being
- * fast for puts it straight back to the floor.
- *
- * Backing off is only ever a delay, never a miss: a range read answers for a
- * block range, so a wider gap between polls means a wider range, not a gap in
- * what is read. The worst case is noticing the first event on a dormant chain
- * up to `maxPollIntervalMs` late, after which the chain is at the floor again
- * for at least `quietPollsBeforeBackoff` polls.
- */
 export function pollIntervalFor(
   state: Pick<StreamState, "quietPolls" | "blockRate">,
   opts: Pick<
@@ -785,14 +599,6 @@ export function pollIntervalFor(
   return Math.min(ceiling, doubled);
 }
 
-/**
- * True when this poll's head is the one the last read already covered.
- *
- * An identical head means an identical chain, so the window cannot have changed
- * and re-reading it would buy nothing. This is where the cost stops scaling with
- * block time: on a 12 s chain polled every 2 s it skips five reads in six, and
- * the range read is the larger part of what a poll costs.
- */
 function headUnchanged(state: StreamState, head: ChainHead): boolean {
   return (
     state.seeded &&
@@ -801,7 +607,6 @@ function headUnchanged(state: StreamState, head: ChainHead): boolean {
   );
 }
 
-/** The span to read this tick, or null when there is nothing to do yet. */
 async function planRead<TEvent>(
   adapter: ChainAdapter<TEvent>,
   state: StreamState,
@@ -810,19 +615,12 @@ async function planRead<TEvent>(
   const head = await adapter.fetchHead();
   if (!head) return null;
   state.lastHead = head;
-  // Before `windowFor`, which sizes itself from the rate this updates.
   observeBlockRate(state, head);
   warnIfWindowCapped(state, opts);
   const { from, to } = windowFor(state, head.number, opts);
   return from > to ? null : { from, to, head };
 }
 
-/**
- * A rollback message when the re-read disagrees with what was already emitted.
- *
- * Divergence above the cursor is just a block being seen for the first time,
- * so only a disagreement at or below it is a reorg that needs undoing.
- */
 function maybeRollback<TEvent>(
   state: StreamState,
   digests: Map<number, BlockDigest>,
@@ -858,12 +656,6 @@ function maybeRollback<TEvent>(
   return rollbackTo<TEvent>(state, divergent);
 }
 
-/**
- * Reconciles a freshly read window against what was already emitted.
- *
- * The first read is adopted as the baseline; every read after it is a diff, and
- * a disagreement at or below the cursor is a reorg to undo.
- */
 async function reconcileWindow<TEvent>(
   state: StreamState,
   digests: Map<number, BlockDigest>,
@@ -967,14 +759,6 @@ async function verifySeedAgainstStore<TEvent>(
   return rollbackTo<TEvent>(state, missing);
 }
 
-/**
- * Adopts the first window read as the baseline rather than diffing against it.
- *
- * Only blocks at or below the cursor are taken; anything above is new and is
- * recorded as it is emitted. Without this, a restart within the reorg window
- * would find every event-bearing block in it "missing" from an empty map and
- * roll the chain back on every deploy.
- */
 function seedWindow(
   state: StreamState,
   digests: Map<number, BlockDigest>,
@@ -984,19 +768,10 @@ function seedWindow(
     if (blockNumber <= state.cursorBlock)
       state.emitted.set(blockNumber, digest);
   }
-  // The seed read is the first thing `emitted` knows anything about, so it is
-  // where the authoritative range begins.
   state.retainedFrom = from;
   state.seeded = true;
 }
 
-/**
- * The trailing block that moves the cursor to the end of the span.
- *
- * Without it a quiet chain would re-read the same blocks forever, since the
- * runtime only advances its cursor on a data message. The head's own header is
- * already in hand; any other endpoint costs one read.
- */
 function tailMessage<TEvent>(
   state: StreamState,
   fresh: StreamBlock<TEvent>[],
@@ -1033,12 +808,6 @@ export function initStreamState(
     throw new Error("Starting cursor must be a non-negative safe integer");
   }
 
-  // The window used to be a block count that could be configured wider than the
-  // span that has to contain it, which spins the loop -- so the constructor
-  // refused it. `reorgWindowBlocksFor` now caps the window at half the span, so
-  // there is no such configuration to refuse: forward progress is at least half
-  // of `maxLogRangeBlocks` whatever the chain's block rate turns out to be.
-  // What remains is the degenerate span, which no cap can rescue.
   if (opts.maxLogRangeBlocks < 2) {
     throw new Error(
       `GET_LOGS_RANGE_SIZE (${opts.maxLogRangeBlocks}) must be at least 2, otherwise a poll cannot both re-read a block and read a new one.`,
@@ -1075,14 +844,10 @@ export function initStreamState(
   };
 }
 
-/** Records each block in the reorg window and yields it downstream. */
 async function* emitFresh<TEvent>(
   state: StreamState,
   fresh: StreamBlock<TEvent>[],
 ): AsyncGenerator<StreamMessage<TEvent>> {
-  // Any matched event means the chain is in use, so drop straight back to the
-  // floor. `readRange` keeps only blocks carrying an event one of our filters
-  // matched, so a non-empty `fresh` is exactly "we indexed something".
   if (fresh.length > 0) state.quietPolls = 0;
 
   for (const block of fresh) {
@@ -1095,7 +860,6 @@ async function* emitFresh<TEvent>(
   }
 }
 
-/** Advances the cursor and forgets what the reorg window no longer covers. */
 function finishTick(
   state: StreamState,
   plan: { to: number; head: ChainHead },
@@ -1133,16 +897,6 @@ function finishTick(
   );
 }
 
-/**
- * Rolls back when the block the stored cursor names is no longer canonical.
- *
- * The stream this replaces checked this on every start, and the runtime's
- * reorg-retry loop exists to catch its failure. An event diff cannot replace
- * it: a reorg during downtime leaves nothing to disagree with, since the window
- * is seeded from whatever the chain says now. One block read at startup settles
- * it for the whole ancestry, because a block hash commits to every block
- * beneath it.
- */
 async function checkStartingCursor<TEvent>(
   adapter: ChainAdapter<TEvent>,
   state: StreamState,
@@ -1224,7 +978,6 @@ async function reconcileSnapshot<T>(
   return { _tag: "invalidate", invalidate: { cursor } };
 }
 
-/** Consecutive stale snapshots tolerated before the stream gives up. */
 export const MAX_STALE_SNAPSHOTS = 30;
 
 /**
@@ -1263,31 +1016,6 @@ async function readFreshSnapshot<TEvent>(
   }
 }
 
-/**
- * How long to wait before re-reading after a failed provider read, or throws
- * once reads have been failing for longer than `providerOutageBudgetMs`.
- *
- * Exiting on the first failure used to be the policy: viem has already retried
- * whatever it considers retryable, and `restart.sh` would bring the worker back.
- * But a restart does not change what the provider answers. In the Alchemy
- * US-East incident of 2026-09-30 the provider advertised a head and then
- * refused `eth_getLogs` up to it for sixteen minutes, and the workers restarted
- * 89 to 315 times each, re-requesting the same refused range every time and
- * re-verifying the cursor on every start. Nothing had been emitted from any of
- * those reads, so staying up and asking again later loses nothing that exiting
- * kept.
- *
- * No error is classified, for the reason `fetchLogsChecked` gives: a match on a
- * provider's wording rots silently. Every failed read is retried the same way,
- * doubling from the poll floor to `maxPollIntervalMs`, and every one is logged
- * with its cause, so a span the provider will never accept -- the case that
- * wants GET_LOGS_RANGE_SIZE lowered -- still says so on each attempt and still
- * exits once the budget runs out. That bound is also what hands a genuinely
- * stuck process back to the restart loop.
- *
- * A stale snapshot is not handled here: it has its own streak limit, and a
- * streak that long is not something the provider will fix by waiting.
- */
 function backOffAfterReadFailure(
   state: StreamState,
   opts: Resolved,
@@ -1320,7 +1048,6 @@ function backOffAfterReadFailure(
   return delay;
 }
 
-/** A tick got an answer it could act on, so the provider is not failing. */
 function clearReadFailures(state: StreamState): void {
   state.failedReads = 0;
   state.failingSince = null;
@@ -1329,7 +1056,6 @@ function clearReadFailures(state: StreamState): void {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** `planRead`, or null once the wait before the next poll has been slept. */
 async function planOrWait<TEvent>(
   adapter: ChainAdapter<TEvent>,
   state: StreamState,
@@ -1354,7 +1080,6 @@ async function planOrWait<TEvent>(
   }
 }
 
-/** `readFreshSnapshot`, or null once the wait before re-planning has been slept. */
 async function snapshotOrWait<TEvent>(
   adapter: ChainAdapter<TEvent>,
   state: StreamState,
@@ -1402,14 +1127,6 @@ async function selectEndpoint<TEvent>(
   }
 }
 
-/**
- * `checkStartingCursor`, retried like any other read until the outage budget
- * runs out. Nothing is emitted until it succeeds.
- *
- * Exiting here instead is what turned a total outage into a restart loop even
- * after the stream itself learnt to back off: `restart.sh` restarts at once,
- * and every restart re-verifies the cursor against the same failing endpoint.
- */
 async function verifiedStart<TEvent>(
   args: CreateBlockStreamArgs<TEvent>,
   state: StreamState,
@@ -1440,7 +1157,6 @@ async function verifiedStart<TEvent>(
 
 export interface CreateBlockStreamArgs<TEvent> {
   adapter: ChainAdapter<TEvent>;
-  /** Picks the endpoint for each loop turn; absent for a single endpoint. */
   endpoints?: EndpointSelector;
   startingCursor: IndexerCursor;
   loadPreviousCursor?: LoadPreviousCursor;
@@ -1448,10 +1164,6 @@ export interface CreateBlockStreamArgs<TEvent> {
   options?: BlockStreamOptions;
 }
 
-/**
- * Yields the same messages the apibara streams did, so the runtime, the DAO and
- * every processor are untouched.
- */
 export async function* createBlockStream<TEvent>(
   args: CreateBlockStreamArgs<TEvent>,
 ): AsyncGenerator<StreamMessage<TEvent>> {
@@ -1490,8 +1202,6 @@ export async function* createBlockStream<TEvent>(
     const rollback = await reconcileSnapshot(args, state, snapshot, plan, opts);
     if (rollback) {
       yield rollback;
-      // A reorg is the last moment to be slow: the blocks being rolled back
-      // have to be re-read and re-emitted before the chain is correct again.
       state.quietPolls = 0;
       // An endpoint serving two views alternately would otherwise rollback,
       // re-read and rollback again with no pause between, one DB transaction per
@@ -1508,13 +1218,8 @@ export async function* createBlockStream<TEvent>(
 
     finishTick(state, completedPlan, opts);
 
-    // Now that the cursor has moved, the finalized block may be behind it.
     yield* announceFinalized<TEvent>(adapter, state, plan.to);
 
-    // Only a caught-up poll can be a quiet one. While catching up the loop does
-    // not sleep at all, and counting those polls would let a long backfill --
-    // which is all empty ranges until it reaches the interesting blocks -- back
-    // the stream off just as it arrives at the head.
     if (plan.to >= plan.head.number) {
       if (fresh.length === 0) state.quietPolls++;
       await sleep(pollIntervalFor(state, opts));

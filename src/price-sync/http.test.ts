@@ -29,9 +29,6 @@ const request = <T>() =>
     headers: { "x-api-key": "secret" },
   });
 
-// Runs a request expected to fail, resolving with the typed error. `flip`
-// rather than a catch so an unexpected success fails the test instead of
-// widening the assertion to `unknown`.
 const failure = (): Promise<PriceSyncError> =>
   Effect.runPromise(Effect.flip(request<unknown>()));
 
@@ -61,8 +58,6 @@ test("a non-2xx response carries the status and body into the error", async () =
   expect(error).toBeInstanceOf(PriceSyncError);
   expect(error.message).toContain("503");
   expect(error.message).toContain("upstream is down");
-  // The job and the step both name themselves, so a log line is actionable
-  // without the caller having to add context at every call site.
   expect(error.message).toContain("tst");
   expect(error.message).toContain("fetch prices");
 });
@@ -79,9 +74,6 @@ test("a transport failure becomes a typed error rather than a rejection", async 
 });
 
 test("a response that never arrives times out and aborts the request", async () => {
-  // Nothing under the previous `fetch` calls had a deadline, and a job runs one
-  // cycle at a time, so a connection that never answered stalled that source
-  // for the life of the process.
   let signal: AbortSignal | undefined;
   stubFetch(
     (_url, init) =>
@@ -104,6 +96,5 @@ test("a response that never arrives times out and aborts the request", async () 
 
   expect(error).toBeInstanceOf(PriceSyncError);
   expect(error.message).toContain("timed out");
-  // Not merely abandoned: the socket is closed rather than left to drain.
   expect(signal?.aborted).toBe(true);
 });

@@ -1,14 +1,3 @@
-/**
- * Verdict rules for the RPC parity check (`rpcParity.ts`, EKU-527), kept free
- * of I/O so they can be tested.
- *
- * The parity check decides whether a candidate endpoint may sit in a chain's
- * `EVM_RPC_URL` list behind the primary. The failure that matters is the
- * silent one: a log query answered by a node that is behind, which returns
- * fewer events and no error. So every comparison here is exact, and a
- * difference that a reorg cannot explain fails the chain.
- */
-
 export interface RawLog {
   address: string;
   blockHash: string;
@@ -30,7 +19,6 @@ export interface LogDiff {
 const logKey = (log: RawLog) =>
   `${BigInt(log.blockNumber)}:${BigInt(log.logIndex)}`;
 
-/** Every field the indexer reads, normalised so hex case and padding do not count. */
 function fingerprint(log: RawLog): string {
   return JSON.stringify([
     log.address.toLowerCase(),
@@ -52,7 +40,6 @@ export function diffLogs(primary: RawLog[], candidate: RawLog[]): LogDiff {
     else if (b.get(key) !== print) diff.changed.push(key);
   }
   for (const key of b.keys()) if (!a.has(key)) diff.onlyCandidate.push(key);
-  // Duplicates inside one response collapse in the map; count them as a change.
   if (a.size !== primary.length || b.size !== candidate.length)
     diff.changed.push("duplicate log keys");
   return diff;
@@ -62,12 +49,6 @@ export const isEmptyDiff = (diff: LogDiff) =>
   diff.onlyPrimary.length + diff.onlyCandidate.length + diff.changed.length ===
   0;
 
-/**
- * A near-head read taken from the candidate, checked again once final.
- * `headHash` is what the candidate called block `head` when it answered;
- * `servedHash` is what it returned for that number straight after (null when it
- * did not have the block its own `latest` had just named).
- */
 export interface HeadSample {
   head: number;
   headHash: string;
@@ -78,20 +59,11 @@ export interface HeadSample {
 
 export type HeadOutcome = "match" | "reorg" | "mismatch";
 
-/**
- * A head block that is not the final one was reorged out, and its logs may
- * differ legitimately. A head block that is final makes every block below it
- * final too (hash chain), so its logs must match exactly: a difference there
- * means the logs came from a different view of the chain than the head did.
- */
 export function classifyHeadSample(
   sample: HeadSample,
   finalHash: string,
   finalLogs: RawLog[],
 ): { outcome: HeadOutcome; diff?: LogDiff } {
-  // First: a reorg replaces a block, it does not remove it, so a candidate that
-  // had nothing at the height its own `latest` had just named is the routing
-  // failure whatever finality later did (CTO, EKU-528).
   if (sample.servedHash === null) return { outcome: "mismatch" };
   if (sample.headHash.toLowerCase() !== finalHash.toLowerCase())
     return { outcome: "reorg" };
@@ -103,7 +75,6 @@ export function classifyHeadSample(
     : { outcome: "mismatch", diff };
 }
 
-/** Nearest-rank percentile of absolute values. */
 export function percentile(values: number[], p: number): number {
   if (values.length === 0) return 0;
   const sorted = values.map(Math.abs).sort((x, y) => x - y);
@@ -113,17 +84,10 @@ export function percentile(values: number[], p: number): number {
 }
 
 export interface DriftSample {
-  /** primary latest - candidate latest */
   blocks: number;
-  /** primary latest timestamp - candidate latest timestamp */
   seconds: number;
 }
 
-/**
- * `latest` read from both at once. Blocks alone cannot be the limit on chains
- * with sub-second blocks, so a p95 inside either bound passes. The maximum is
- * reported, not gated: one slow response is not a lagging provider.
- */
 export function evaluateDrift(
   samples: DriftSample[],
   limits: { maxBlocks: number; maxSeconds: number },
@@ -154,20 +118,12 @@ export function evaluateDrift(
   };
 }
 
-/** One step of the result-cap probe: the same wide query to both endpoints. */
 export interface CapProbe {
   blocks: number;
   primary: number | "error";
   candidate: number | "error";
 }
 
-/**
- * What `SUSPECT_LOG_COUNT` should be for the candidate. A count below the
- * primary's with no error, or a plateau, is silent truncation: that count is
- * the cap the stream must refuse at, and `verdict` fails the chain on it.
- * Without one, the largest count the candidate returned intact is only a lower
- * bound, so the documented cap stands.
- */
 export interface CapRecommendation {
   suspectLogCount: number;
   silentTruncation: "shortfall" | "plateau" | null;
@@ -184,8 +140,6 @@ export function recommendSuspectLogCount(
       typeof p.candidate === "number" &&
       p.candidate < p.primary,
   );
-  // Once the primary refuses the span: the same count for a doubled span,
-  // which transfer volume never produces.
   const plateau = probes.find(
     (p, i) =>
       typeof p.candidate === "number" &&
@@ -224,11 +178,6 @@ export interface ParityReport {
   cap: CapRecommendation;
 }
 
-/**
- * An error is loud, so it is not the dangerous failure, but a secondary that
- * errors on most head polls cannot carry the indexer: the free tier answers
- * "Unknown block" for logs up to the head its own `latest` just named.
- */
 export function verdict(
   report: ParityReport,
   maxHeadErrorPct = 5,
@@ -261,9 +210,6 @@ export function verdict(
       head.errors * 100 > head.reads * maxHeadErrorPct,
       `${head.errors} of ${head.reads} near-head reads errored (limit ${maxHeadErrorPct}%)`,
     ],
-    // dRPC documents an error at its cap, so a silent one is a surprise to
-    // investigate. A stable plateau may still be admitted with its measured
-    // SUSPECT_LOG_COUNT, but by review, not by this verdict (CTO, EKU-528).
     [
       cap.silentTruncation !== null,
       `silent eth_getLogs truncation (${cap.silentTruncation}) at ${cap.suspectLogCount} logs`,

@@ -4,18 +4,6 @@ export interface LaunchSpacer {
   <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>;
 }
 
-/**
- * Spaces the *start* of each wrapped effect by at least `minTimeMs`.
- *
- * This is the Bottleneck `minTime` contract the quoter ran on, and the
- * distinction matters: it caps the request rate, not the number of requests in
- * flight. A concurrency limit would serialize quotes behind the slowest one
- * and stretch a cycle out; spacing launches keeps the same request budget with
- * the same overlap the quoter always had.
- *
- * Only the wait itself holds the permit, so callers queue for their slot and
- * then run concurrently.
- */
 export function makeLaunchSpacer(
   minTimeMs: number,
 ): Effect.Effect<LaunchSpacer> {

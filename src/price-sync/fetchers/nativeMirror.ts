@@ -13,20 +13,11 @@ type MirroredRow = {
 
 interface NativeMirrorFetcherOptions {
   sql: Sql<{ bigint: bigint }>;
-  // The chain whose native price is copied, and the chains that pay gas in the
-  // same asset bridged 1:1 from it.
   fromChainId: bigint;
   toChainIds: bigint[];
   intervalMs: number;
 }
 
-// The best current native price on the source chain from anything but
-// CoinGecko. The mirror exists to price these chains while CoinGecko is out,
-// so copying `cg1`/`cgn` would fail along with the source it backs up. The
-// source list is a constant, so it is written into the statement.
-//
-// Ordered by confidence, then source, so a tie at the top resolves the same
-// way every cycle.
 function readSourceChainNativePrice(
   sql: Sql<{ bigint: bigint }>,
   chainId: bigint,
@@ -73,9 +64,6 @@ export function nativeMirrorPriceFetcher({
     }
 
     const timestamp = new Date(yield* Clock.currentTimeMillis);
-    // The query filters on the database clock and this compares against the
-    // worker's, which can disagree by a few milliseconds; persisting a row
-    // whose validity ends at or before its timestamp fails the whole batch.
     if (row.valid_until <= timestamp) return [];
     if (!Number.isFinite(row.value) || row.value <= 0) return [];
 

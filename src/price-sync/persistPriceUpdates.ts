@@ -24,8 +24,6 @@ function toPriceRow(
     throw new Error("Invalid price update timestamp");
   }
 
-  // Validity is anchored at the observation timestamp so a source reporting an
-  // already-old measurement does not have its age laundered away.
   const validUntil =
     update.validUntil ??
     new Date(update.timestamp.getTime() + defaultValidityMs);
@@ -43,21 +41,6 @@ function toPriceRow(
   ];
 }
 
-/**
- * Writes one batch in a single statement.
- *
- * It has to be one statement, not one transaction of several. The insert
- * trigger on erc20_tokens_usd_prices locks each affected token's row in
- * erc20_tokens_latest_price in (chain_id, token_address) order, and those locks
- * are held until commit. Every concurrent job on the same chain takes them in
- * that order, which is what keeps the jobs from deadlocking. Splitting a batch
- * into several INSERTs would sort each chunk on its own, while the chunks run in
- * the fetcher's order. A Sushi batch of thousands of tokens would then lock in
- * an order no other job uses, and the smaller Chainlink and CoinGecko persists
- * on that chain deadlocked against it (EKU-562). Passing each column as one
- * array parameter keeps a batch of any size to six bind parameters, so nothing
- * forces the batch to be split.
- */
 export function persistPriceUpdates(
   sql: Sql<{ bigint: bigint }>,
   source: string,

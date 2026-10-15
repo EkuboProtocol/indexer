@@ -24,11 +24,7 @@ interface QuoterPriceFetcherOptions extends PriceSyncJobOptions {
   address: `0x${string}`;
   decimals: number;
   quoteAmount: bigint;
-  // The quoter folds pool fees into price_impact, so a chain whose pools carry
-  // an unusually high fee needs a looser cap than the default to report at all.
   maxImpact?: number;
-  // Shared by every quoter job in the process, so the request budget is the
-  // whole worker's, not one chain's.
   spacer: LaunchSpacer;
   baseUrl: string;
 }
@@ -64,8 +60,6 @@ function fetchTokensWithTvl(
   });
 }
 
-// Turns a quote into a price, or explains why it is unusable. Separated from
-// the request so the "is this quote good enough" rule reads on its own.
 function priceFromQuote(
   quote: EkuboQuoteResponse,
   token: TokenRow,
@@ -100,10 +94,6 @@ export function quoterPriceFetcher({
 }: QuoterPriceFetcherOptions): PriceSyncJob {
   const amountOut = quoteAmount * 10n ** BigInt(decimals);
 
-  // One bad token must not cost the whole cycle: a failed request, or a quote
-  // the impact cap rejects, drops that token and leaves the rest of the batch
-  // intact -- which is what the try/catch-to-null did, minus swallowing
-  // programmer errors along with request failures.
   const quoteToken = Effect.fn("quoter.quoteToken")(
     function* (token: TokenRow) {
       const url = `${baseUrl}/${chainId}/${-amountOut}/${address}/${toHexAddress(
@@ -150,9 +140,6 @@ export function quoterPriceFetcher({
         .join(", ")}`,
     );
 
-    // Unbounded, as before: the shared spacer is what caps the request rate,
-    // and bounding concurrency here would instead stretch each cycle out to
-    // the sum of the slowest quotes.
     const quoted = yield* Effect.forEach(tokens, quoteToken, {
       concurrency: "unbounded",
     });

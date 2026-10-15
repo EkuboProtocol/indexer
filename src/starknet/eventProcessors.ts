@@ -136,10 +136,6 @@ export function createEventProcessors({
 
   let pendingPositionFeesCollected: PendingPositionFeesCollected | undefined;
 
-  // A SavedBalance only records withheld protocol fees when it is the one the
-  // Positions contract emitted in the same transaction as the preceding
-  // PositionFeesCollected, under the protocol-fee salt. Anything else is an
-  // unrelated saved balance that happens to be passing through.
   function isProtocolFeeWithholding(
     pending: PendingPositionFeesCollected | undefined,
     parsed: SavedBalanceEvent,
@@ -178,7 +174,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: nftAddress,
         keys: [
-          // Transfer
           "0x99cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9",
         ],
       },
@@ -199,7 +194,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: coreAddress,
         keys: [
-          // PositionUpdated
           "0x03a7adca3546c213ce791fabf3b04090c163e419c808c9830fb343a4a395946e",
         ],
       },
@@ -229,7 +223,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: coreAddress,
         keys: [
-          // PositionFeesCollected
           "0x96982abd597114bdaa4a60612f87fabfcc7206aa12d61c50e7ba1e6c291100",
         ],
       },
@@ -247,7 +240,6 @@ export function createEventProcessors({
                 upper: Number(parsed.position_key.bounds.upper),
               },
             },
-            // we pass the amount of fees collected (positive). the event emits the pool balance delta
             amount0: -parsed.delta.amount0,
             amount1: -parsed.delta.amount1,
           },
@@ -265,7 +257,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: coreAddress,
         keys: [
-          // Swapped
           "0x157717768aca88da4ac4279765f09f4d0151823d573537fbbeb950cdbd9a870",
         ],
       },
@@ -290,7 +281,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: coreAddress,
         keys: [
-          // PoolInitialized
           "0x025ccf80ee62b2ca9b97c76ccea317c7f450fd6efb6ed6ea56da21d7bb9da5f1",
         ],
       },
@@ -319,7 +309,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: coreAddress,
         keys: [
-          // ProtocolFeesWithdrawn
           "0x291697c8230383d5c3cc8dc39443356a7da6b0735605fb0ee0f7bfbb7b824a",
         ],
       },
@@ -340,7 +329,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: coreAddress,
         keys: [
-          // ProtocolFeesPaid
           "0x5dacf59794364ad1555bb3c9b2346afa81e57e5c19bb6bae0d22721c96c4e5",
         ],
       },
@@ -367,7 +355,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: coreAddress,
         keys: [
-          // SavedBalance
           "0x0048796a25e5ceac9caf95a4618ebfd1516b51e5d994a49d28e22f09c64ad2ee",
         ],
       },
@@ -401,7 +388,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: coreAddress,
         keys: [
-          // FeesAccumulated
           "0x0237e5e0677822acfc9117ed0f7ba4810b2c6b539a2359e8d73f9025d56957aa",
         ],
       },
@@ -422,7 +408,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: tokenRegistryAddress,
         keys: [
-          // Registration
           "0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74",
         ],
       },
@@ -445,7 +430,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: tokenRegistryV2Address,
         keys: [
-          // Registration
           "0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74",
         ],
       },
@@ -471,7 +455,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: tokenRegistryV3Address,
         keys: [
-          // Registration
           "0x3ea44da5af08f985c5ac763fa2573381d77aeee47d9a845f0c6764cb805d74",
         ],
       },
@@ -494,7 +477,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: twammAddress,
         keys: [
-          // OrderUpdated
           "0xb670ed7b7ee8ccb350963a7dea39493daff6e7a43ab021a0e4ac2d652d359e",
         ],
       },
@@ -538,7 +520,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: twammAddress,
         keys: [
-          // OrderProceedsWithdrawn
           "0x3e074150c5906b2e323cea942b41f67f3639fcae5dc1fe4cf19c6801dff89b5",
         ],
       },
@@ -580,7 +561,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: twammAddress,
         keys: [
-          // VirtualOrdersExecuted
           "0x29416aa69fb4a5270dd3c2b3e6d05f457dc0dbf96f423db1f86c5b7b2e6840f",
         ],
       },
@@ -609,7 +589,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: stakerAddress,
         keys: [
-          // Staked
           "0x024fdaadc324c3bb8e59febfb2e8a399331e58193489e54ac40fec46745a9ebe",
         ],
       },
@@ -630,7 +609,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: stakerAddress,
         keys: [
-          // Withdrawn
           "0x036a4d15ab9e146faab90d4abc1c0cad17c4ded24551c781ba100392b5a70248",
         ],
       },
@@ -652,7 +630,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: governorAddress,
         keys: [
-          // Proposed
           "0x02a98c37f5b13fe14803e72b284c81be9ebbedc6cf74ed8d1489ed74951cba3f",
         ],
       },
@@ -680,7 +657,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: governorAddress,
         keys: [
-          // Canceled
           "0xad1f80a0e6ac2d42f6ce99670de84817aef2368cd22a19f85fcb721f689192",
         ],
       },
@@ -699,14 +675,12 @@ export function createEventProcessors({
       filter: {
         fromAddress: governorAddress,
         keys: [
-          // CreationThresholdBreached
           "0xda0eb1cb71bdbfac21648d8b87024714f7eb6207978c7eb359a20144a99baf",
         ],
       },
       parser: parseGovernorCreationThresholdBreached,
       async handle(dao, { parsed, key }): Promise<void> {
         logger.debug("GovernorCreationThresholdBreached", { parsed, key });
-        // just use the canceled table
         await dao.insertGovernorCanceledEvent(
           {
             proposal_id: parsed.id,
@@ -719,7 +693,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: governorAddress,
         keys: [
-          // Voted
           "0x5c9afac1c510b50d3e0004024ba7b8e190864f1543dd8025d08f88410fb162",
         ],
       },
@@ -741,7 +714,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: governorAddress,
         keys: [
-          // Executed
           "0x01f4317aae43f6c24b2b85c6d8b21d5fa0a28cee0476cd52ca5d60d4787aab78",
         ],
       },
@@ -761,7 +733,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: governorAddress,
         keys: [
-          // Described
           "0x8643a1c8a461189d5b77de7576b06aa9148c9127101228f02816d13768e7a9",
         ],
       },
@@ -781,7 +752,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: governorAddress,
         keys: [
-          // Reconfigured
           "0x02b9973fd701ab68169e139e241db74576eca4e885bad73d016982a59f1ac9fb",
         ],
       },
@@ -809,7 +779,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: oracleAddress,
         keys: [
-          // SnapshotEvent
           "0x0385e1b60fdfb8aeee9212a69cdb72415cef7b24ec07a60cdd65b65d0582238b",
         ],
       },
@@ -832,7 +801,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: limitOrdersAddress,
         keys: [
-          // OrderPlaced
           "0x03b935dbbdb7f463a394fc8729e7e26e30edebbc3bd5617bf1d7cf9e1ce6f7cb",
         ],
       },
@@ -865,7 +833,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: limitOrdersAddress,
         keys: [
-          // OrderClosed
           "0x0196e77c6eab92283e3fc303198bb0a523c0c7d93b4de1d8bf636eab7517c4ae",
         ],
       },
@@ -898,7 +865,6 @@ export function createEventProcessors({
       filter: {
         fromAddress: splineLiquidityProviderAddress,
         keys: [
-          // LiquidityUpdated
           "0x0203c047cc01ab425e271dd20fc0651f0e3ed06fb6545850508001db3c822b5d",
         ],
       },

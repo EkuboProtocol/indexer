@@ -33,7 +33,6 @@ const adapter = (
 let db: PGlite;
 let dao: DAO;
 
-// Stored event-bearing blocks 100, 200, ..., 1000 with their canonical hashes.
 const STORED = Array.from({ length: 10 }, (_, i) => (i + 1) * 100);
 const CURSOR = { orderKey: 1000n, uniqueKey: hex(1000) };
 
@@ -50,7 +49,6 @@ beforeEach(async () => {
     INSERT INTO blocks SELECT 1, n, n FROM unnest(ARRAY[${STORED.join(",")}]) AS n;
     INSERT INTO blocks VALUES (2, 50, 50);
   `);
-  // Execute the DAO's actual parameterized SQL against Postgres in PGlite.
   const sql = Object.assign(
     async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const query = strings.reduce(
@@ -93,7 +91,6 @@ const refusalOf = async (promise: Promise<unknown>) => {
   throw new Error("expected the rollback to be refused");
 };
 
-/** The runtime's `loadPreviousCursor`, with the walk guard in front of it. */
 const guardedLoadPrevious =
   (maxReorgDepth: number | null) => async (before: number) => {
     await assertRecoveryWalkAllowed(dao, {
@@ -105,7 +102,6 @@ const guardedLoadPrevious =
     return dao.loadPreviousBlockCursor(before);
   };
 
-// A provider answering for another chain, or with corrupt hashes: nothing stored verifies.
 const wrongChain = (requested: number[]) =>
   adapter(async (n) => {
     requested.push(n);
@@ -117,7 +113,6 @@ it("reproduces the unbounded walk: a wrong-chain provider rolls recovery back to
   const target = await commonStoredCursor(wrongChain(requested), 1001, (n) =>
     dao.loadPreviousBlockCursor(n),
   );
-  // Rolling back to zero is what the runtime turns into DELETE ... WHERE block_number >= 1.
   expect(target).toEqual({ orderKey: 0n });
   expect(requested).toEqual([...STORED].reverse());
 });
@@ -155,7 +150,6 @@ it("stops the walk once it is deeper than MAX_REORG_DEPTH when no finality is pe
 
 it("keeps the existing walk to verified history for a real reorg above finality", async () => {
   await finalize(800);
-  // Blocks above 800 were reorged; 800 and below are canonical.
   const rpc = adapter(async (n) => header(n, n > 800 ? "0xf0f0" : hex(n)));
   const target = await commonStoredCursor(rpc, 1001, guardedLoadPrevious(null));
   expect(target).toEqual({ orderKey: 800n, uniqueKey: hex(800) });
@@ -168,9 +162,6 @@ it("keeps the existing walk to verified history for a real reorg above finality"
 });
 
 it("still lets a window rollback re-index canonical finalized blocks", () => {
-  // A block the store missed, or events a newly added filter address now
-  // matches: the stream rolls back below them even under finality, and only
-  // the operator's depth limit applies to that delete.
   assertRollbackDepthAllowed({
     chainId,
     from: CURSOR,

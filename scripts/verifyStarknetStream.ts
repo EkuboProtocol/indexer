@@ -61,13 +61,10 @@ const adapter = createStarknetAdapter({ rpc, filters });
 
 const head = await adapter.fetchHead();
 if (!head) throw new Error("could not read the head");
-// Stay well behind the head so the range is settled and the comparison is fair.
 const to = head.number - 500;
 const from = to - SPAN + 1;
 console.log(`verifying blocks ${from}..${to} against the database`);
 
-// The Swapped event on Core, which is what the `swaps` table holds. Comparing
-// against one table keeps this an exact set equality rather than a sampling.
 const SWAPPED = BigInt(
   "0x157717768aca88da4ac4279765f09f4d0151823d573537fbbeb950cdbd9a870",
 );

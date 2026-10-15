@@ -16,14 +16,6 @@ interface CachedCatalog {
   lastAttemptAt: number;
 }
 
-/**
- * Catalogs are shared between chains only by URL, so this caches on that. The
- * last successful response stays usable during a catalog outage.
- *
- * One cache is built for the whole worker and handed to every Chainlink job,
- * which is what the module-level `Map` did implicitly -- except that this one
- * is reachable from a test without reloading the module.
- */
 export function makeChainlinkCatalogCache(): ChainlinkCatalogCache {
   const entries = Ref.makeUnsafe(new Map<string, CachedCatalog>());
 

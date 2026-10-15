@@ -13,16 +13,11 @@ import postgres, { type Sql } from "postgres";
 import shift from "postgres-shift";
 import { coingeckoPriceFetcher } from "./coingecko";
 
-// The token read is plain SQL against the real schema, so check it against a
-// real server. CI provides one; locally, point this at any Postgres you can
-// create databases on.
 const SERVER = process.env.TEST_PG_CONNECTION_STRING;
 
 const CHAIN_ID = 1n;
 const realFetch = globalThis.fetch;
 
-// Visibility priority, and the pool balances the token sits in (none for no
-// pool at all).
 const TOKENS = {
   prominent: { address: 0x10n, visibility: 1, pool: null },
   liquid: { address: 0x20n, visibility: 0, pool: [5n, 0n] },
@@ -138,8 +133,6 @@ describe.skipIf(!SERVER)("coingecko token read against Postgres", () => {
   });
 
   test("selectable tokens with Ekubo liquidity join the prominent ones", async () => {
-    // Not the drained pool's token, the pool-less one, or a hidden token
-    // however liquid.
     expect(await requestedAddresses(true)).toEqual([
       padded(TOKENS.prominent.address),
       padded(TOKENS.liquid.address),

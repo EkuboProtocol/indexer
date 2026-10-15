@@ -44,9 +44,6 @@ test("Chainlink jobs are only created for configured chains", () => {
 });
 
 test("no chain has both the ETH mirror and a Sushi job", () => {
-  // Both write at confidence 1, and the latest-price recompute averages every
-  // fresh row at the top confidence: on a shared chain the fallback would be a
-  // blend labelled AVG instead of either source.
   const jobs = createPriceSyncJobs({
     sql: {} as Sql<{ bigint: bigint }>,
     defaultIntervalMs: 60_000,

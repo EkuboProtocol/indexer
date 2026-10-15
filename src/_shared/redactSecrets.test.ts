@@ -8,8 +8,6 @@ import { redactSecrets } from "./redactSecrets";
 
 const ALCHEMY_KEY = "AbCdEfGhIjKlMnOpQrStUvWxYz012345";
 const DRPC_KEY = "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Ji1Hg0Fe";
-// Port 9 (discard) on loopback refuses the connection, so viem fails fast with
-// its real HttpRequestError, URL included.
 const alchemyUrl = `http://127.0.0.1:9/v2/${ALCHEMY_KEY}`;
 const drpcUrl = `http://127.0.0.1:9/ogrpc?network=ink&dkey=${DRPC_KEY}`;
 
@@ -102,8 +100,6 @@ describe("the indexer logger", () => {
 
       const text = output();
       expect(text).toContain("<redacted>");
-      // The dRPC URL is not configured here, so only the pattern layer stands
-      // between its key and the log.
       expect(text).toContain("network=ink&dkey=<redacted>");
       expect(text).not.toContain(ALCHEMY_KEY);
       expect(text).not.toContain(DRPC_KEY);

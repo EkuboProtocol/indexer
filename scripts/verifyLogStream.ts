@@ -40,13 +40,11 @@ const ADDRS = (
 
 const client = createPublicClient({ transport: http(url!, { retryCount: 2 }) });
 const head = Number(await client.getBlockNumber());
-// Stay well behind the head so the range is settled and the comparison is fair.
 const to = head - 200;
 const from = to - SPAN + 1;
 
 const key = (b: number | bigint, i: number) => `${Number(b)}:${i}`;
 
-// Ground truth, in one direct call per 1000 blocks.
 const truth = new Set<string>();
 for (let lo = from; lo <= to; lo += CHUNK) {
   const hi = Math.min(to, lo + CHUNK - 1);
@@ -82,7 +80,6 @@ const stream = createLogStream({
   startingCursor: { orderKey: BigInt(from - 1) },
   options: {
     pollIntervalMs: 50,
-    // No backoff: this script wants every poll it can get inside its run.
     maxPollIntervalMs: 50,
     maxLogRangeBlocks: CHUNK,
     reorgWindowSeconds: 120,

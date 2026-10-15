@@ -1,7 +1,6 @@
 import { config } from "dotenv";
 import type { NetworkType } from "./types";
 
-/** The variable each worker reads its RPC endpoint from. */
 export const RPC_URL_VARIABLES: Record<NetworkType, string> = {
   evm: "EVM_RPC_URL",
   starknet: "STARKNET_RPC_URL",

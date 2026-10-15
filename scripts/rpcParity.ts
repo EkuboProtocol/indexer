@@ -65,9 +65,6 @@ loadConfig("evm");
 const PRIMARY_URL = required("PARITY_PRIMARY_URL");
 const CANDIDATE_URL = required("PARITY_CANDIDATE_URL");
 const secrets = { EVM_RPC_URL: `${PRIMARY_URL},${CANDIDATE_URL}` };
-// The shared logger's crash handler redacts against process.env, so a throw
-// this script does not catch -- a primary outage mid-run -- would otherwise be
-// covered only by the key patterns (CSO, EKU-529).
 process.env.EVM_RPC_URL = secrets.EVM_RPC_URL;
 const CHAIN_ID = BigInt(required("CHAIN_ID"));
 const RANGE = int("GET_LOGS_RANGE_SIZE", 1_000);
@@ -80,7 +77,6 @@ const FINALITY_TIMEOUT_MS = int("PARITY_FINALITY_TIMEOUT_MINUTES", 90) * 60_000;
 const MAX_DRIFT_BLOCKS = int("PARITY_MAX_DRIFT_BLOCKS", 3);
 const MAX_DRIFT_SECONDS = int("PARITY_MAX_DRIFT_SECONDS", 3);
 const MAX_HEAD_ERROR_PCT = int("PARITY_MAX_HEAD_ERROR_PCT", 5);
-// dRPC's documented eth_getLogs result cap.
 const DOCUMENTED_CAP = int("PARITY_DOCUMENTED_LOG_CAP", 10_000);
 const TRANSFER_TOPIC =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
@@ -117,7 +113,6 @@ function client(url: string): PublicClient {
 }
 
 const redact = (text: string) => redactSecrets(text, secrets);
-/** viem's short message and the provider's own words, without the request dump. */
 function errorText(error: unknown): string {
   const e = error as {
     shortMessage?: string;
@@ -174,8 +169,6 @@ async function block(
   );
 }
 
-// --- 0. chain id --------------------------------------------------------------
-
 const [primaryChainId, candidateChainId] = await Promise.all([
   primary.getChainId(),
   candidate.getChainId(),
@@ -189,8 +182,6 @@ emit({
   candidate: candidateChainId,
   ok: chainIdOk,
 });
-
-// --- 3. finalized tag -----------------------------------------------------------
 
 async function checkFinalized(): Promise<
   ParityReport["finalized"] & { number: number }
@@ -222,13 +213,6 @@ const finalized = await checkFinalized();
 emit({ kind: "finalized", ...finalized });
 const settled = finalized.number;
 
-// --- 1. getLogs windows ---------------------------------------------------------
-
-/**
- * The most recent event in [lo, hi], found on the primary by growing the span
- * backwards from `hi`: a chain that is busy answers in one call, and one with
- * a few dozen events in its history takes a few dozen at most.
- */
 async function latestEventIn(lo: number, hi: number): Promise<number | null> {
   let span = RANGE;
   while (hi >= lo) {
@@ -249,7 +233,6 @@ async function latestEventIn(lo: number, hi: number): Promise<number | null> {
   return null;
 }
 
-/** The stream's own alignment: ranges of GET_LOGS_RANGE_SIZE from the start block. */
 const windowOf = (blockNumber: number): [number, number] => {
   const from = START + Math.floor((blockNumber - START) / RANGE) * RANGE;
   return [from, Math.min(settled, from + RANGE - 1)];
@@ -303,8 +286,6 @@ for (const [from, to] of [...windows].sort(([a], [b]) => a - b)) {
   });
 }
 
-// --- 5. range and result caps ---------------------------------------------------
-
 let largestRangeOk = 0;
 let rangeError: string | null = null;
 for (const blocks of [
@@ -327,8 +308,6 @@ for (const blocks of [
 }
 emit({ kind: "range_cap", largestRangeOk, firstFailure: rangeError });
 
-// Token transfers are the densest log stream on any chain; double the span until
-// the candidate refuses or returns well past its documented cap.
 const capProbes: CapProbe[] = [];
 for (let blocks = 1; blocks <= 100_000; blocks *= 2) {
   const count = (rpc: PublicClient) =>
@@ -352,12 +331,8 @@ for (let blocks = 1; blocks <= 100_000; blocks *= 2) {
 const cap = recommendSuspectLogCount(capProbes, DOCUMENTED_CAP);
 emit({ kind: "result_cap", ...cap });
 
-// --- 2 and 4. near-head reads and drift ------------------------------------------
-
 const samples: HeadSample[] = [];
 const drift: DriftSample[] = [];
-// Only the candidate's errors count against it; the primary's are reported apart
-// and cost that iteration its drift sample, nothing more (CTO, EKU-528).
 const headErrors = new Map<string, number>();
 const primaryErrors = new Map<string, number>();
 const tally = (errors: Map<string, number>, error: unknown) => {
@@ -381,7 +356,6 @@ for (let i = 0; i < HEAD_READS; i++) {
         blocks: ours.number - theirs.number,
         seconds: ours.timestamp - theirs.timestamp,
       });
-    // In the stream's order: the head, the logs up to it, then its blocks.
     const from = Math.max(START, theirs.number - HEAD_SPAN + 1);
     const logs = await getLogs(candidate, from, theirs.number);
     const served = await block(candidate, theirs.number);
@@ -458,8 +432,6 @@ if (!head.timedOut && samples.length) {
   }
 }
 emit({ kind: "head_reads", ...head });
-
-// --- verdict --------------------------------------------------------------------
 
 const report: ParityReport = {
   chainIdOk,

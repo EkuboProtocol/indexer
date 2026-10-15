@@ -5,8 +5,6 @@ import { makeLaunchSpacer } from "./launchSpacer";
 
 const MIN_TIME_MS = 1_000;
 
-// Records when the wrapped effect actually starts, which is the only thing the
-// spacer controls -- it deliberately does not bound how many run at once.
 const launchAt = (launches: number[]) =>
   Effect.gen(function* () {
     launches.push(yield* Effect.clockWith((clock) => clock.currentTimeMillis));
@@ -34,9 +32,6 @@ test("concurrent callers launch one per minTime", async () => {
 });
 
 test("a caller arriving after an idle gap does not wait", async () => {
-  // The budget is a rate, not a queue: once the spacing has elapsed with
-  // nobody asking, the next request goes out immediately rather than being
-  // held to a stale slot.
   const launches: number[] = [];
 
   const program = Effect.gen(function* () {
@@ -57,9 +52,6 @@ test("a caller arriving after an idle gap does not wait", async () => {
 });
 
 test("the spacer caps the rate without capping concurrency", async () => {
-  // The quoter fans out over every token with TVL and relies on the requests
-  // overlapping; a semaphore would instead serialize them and stretch a cycle
-  // to the sum of its quotes.
   let inFlight = 0;
   let maxInFlight = 0;
 

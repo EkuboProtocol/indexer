@@ -1,7 +1,6 @@
 import { createLogger, format, transports } from "winston";
 import { redactSecrets } from "./redactSecrets";
 
-// winston's serialized output lives under this symbol (triple-beam's MESSAGE).
 const MESSAGE = Symbol.for("message");
 
 /**
@@ -33,10 +32,10 @@ export const logger = createLogger({
 
 process.on("uncaughtException", function (err) {
   logger.error("Uncaught exception", err);
-  process.exit(1); // Exit the process with failure
+  process.exit(1);
 });
 
 process.on("unhandledRejection", function (err) {
   logger.error("Unhandled promise rejection", err);
-  process.exit(1); // Exit the process with failure
+  process.exit(1);
 });
