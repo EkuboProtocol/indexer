@@ -24,7 +24,7 @@ import { parseV2PoolKeyConfig } from "./poolKey";
 
 // Replays logs that a local anvil chain actually emitted (see
 // scripts/zeroSeedLaunchFixture.ts) through the indexer's own stream grouping,
-// processors, DAO and the 00134 triggers on a real Postgres, and checks the
+// processors, DAO and the 00139 triggers on a real Postgres, and checks the
 // indexed state against the chain state recorded after every block.
 const SERVER = process.env.TEST_PG_CONNECTION_STRING;
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");

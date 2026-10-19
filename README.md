@@ -421,9 +421,9 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
-### Unreleased: zero-seed launches (00134, additive)
+### Unreleased: zero-seed launches (00139, additive)
 
-Migration 00134 indexes `ZeroSeedLaunch` (freeze v2, evm-contracts `d6aeb58`, ABI
+Migration 00139 indexes `ZeroSeedLaunch` (freeze v2, evm-contracts `d6aeb58`, ABI
 sha256 `189ff93c…ed215`) into `zero_seed_launch_pool_keys`, `_created`, `_swapped`,
 `_fees_claimed` and `zero_seed_launch_states` (one row per launch: the creator
 fee ledger, kept apart from the Core pool reserves). It appends nine
@@ -432,7 +432,9 @@ fee ledger, kept apart from the Core pool reserves). It appends nine
 `pool_last_event_id`. It parks the workers by locking `blocks` first, as 00123
 does. The schema must precede any later authorized quoter-service or API
 deployment selecting the new columns. This draft authorizes no deployment or
-live database write; its SQL remains byte-identical to the frozen schema.
+live database write; its SQL remains byte-identical to the frozen schema. It was
+drafted as 00134 and renumbered to follow 00138 on `main`; only the directory
+number changed.
 
 Launch indexing is off unless `ZERO_SEED_LAUNCH_ADDRESS` and
 `ZERO_SEED_LAUNCH_RUNTIME_CODEHASH` both match an entry in
