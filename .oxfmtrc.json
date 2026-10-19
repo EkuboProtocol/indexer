@@ -3,5 +3,9 @@
   "trailingComma": "all",
   "printWidth": 80,
   "sortPackageJson": false,
-  "ignorePatterns": ["migrations/**", "scripts/fixtures/**"]
+  "ignorePatterns": [
+    "migrations/**",
+    "scripts/fixtures/**",
+    "tests/fixtures/**"
+  ]
 }

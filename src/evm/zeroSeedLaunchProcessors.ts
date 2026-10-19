@@ -38,15 +38,39 @@ export function launchCreatedProblems(
     : [-parameters.upperTick, -parameters.askTick];
 
   return [
-    [!!quoteToken && same(parameters.quoteToken, quoteToken), "quoteToken is not the constructor-pinned quote"],
-    [new TextEncoder().encode(parameters.name).length <= 31 && new TextEncoder().encode(parameters.symbol).length <= 31, "metadata exceeds 31 UTF-8 bytes"],
-    [parameters.liquidity === event.liquidity, "parameters.liquidity != liquidity"],
+    [
+      !!quoteToken && same(parameters.quoteToken, quoteToken),
+      "quoteToken is not the constructor-pinned quote",
+    ],
+    [
+      new TextEncoder().encode(parameters.name).length <= 31 &&
+        new TextEncoder().encode(parameters.symbol).length <= 31,
+      "metadata exceeds 31 UTF-8 bytes",
+    ],
+    [
+      parameters.liquidity === event.liquidity,
+      "parameters.liquidity != liquidity",
+    ],
     [same(config.extension, key.emitter), "pool extension is not the emitter"],
-    [toPoolId(poolKey) === event.poolId.toLowerCase(), "poolId != id of poolKey"],
-    [same(poolKey.token0, token0) && same(poolKey.token1, token1), "pool tokens are not (token, quoteToken) in order"],
+    [
+      toPoolId(poolKey) === event.poolId.toLowerCase(),
+      "poolId != id of poolKey",
+    ],
+    [
+      same(poolKey.token0, token0) && same(poolKey.token1, token1),
+      "pool tokens are not (token, quoteToken) in order",
+    ],
     [config.fee === 0n, "Core fee is not 0"],
-    ["tickSpacing" in config && config.tickSpacing === parameters.tickSpacing, "tick spacing differs"],
-    [position.salt === 0n && position.lower === lower && position.upper === upper, "position is not (salt 0, tick_lower, tick_upper)"],
+    [
+      "tickSpacing" in config && config.tickSpacing === parameters.tickSpacing,
+      "tick spacing differs",
+    ],
+    [
+      position.salt === 0n &&
+        position.lower === lower &&
+        position.upper === upper,
+      "position is not (salt 0, tick_lower, tick_upper)",
+    ],
   ]
     .filter(([ok]) => !ok)
     .map(([, problem]) => problem as string);
@@ -63,7 +87,9 @@ export function createZeroSeedLaunchProcessors({
   if (!zeroSeedLaunchAddress) return [];
   const pin = zeroSeedLaunchPinForAddress(zeroSeedLaunchAddress);
   if (!pin || !same(pin.core, coreAddress))
-    throw new Error("ZeroSeedLaunch event processor lacks reviewed instance/Core/quote provenance");
+    throw new Error(
+      "ZeroSeedLaunch event processor lacks reviewed instance/Core/quote provenance",
+    );
 
   return createProcessorsFromHandlers({
     ZeroSeedLaunch: {

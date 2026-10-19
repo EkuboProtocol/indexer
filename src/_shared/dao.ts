@@ -319,8 +319,7 @@ export interface ZeroSeedLaunchEventDescriptor {
   poolId: `0x${string}`;
 }
 
-export interface ZeroSeedLaunchCreatedInsert
-  extends ZeroSeedLaunchEventDescriptor {
+export interface ZeroSeedLaunchCreatedInsert extends ZeroSeedLaunchEventDescriptor {
   token: AddressValue;
   creator: AddressValue;
   quoteToken: AddressValue;
@@ -340,8 +339,7 @@ export interface ZeroSeedLaunchCreatedInsert
   salt: `0x${string}`;
 }
 
-export interface ZeroSeedLaunchSwappedInsert
-  extends ZeroSeedLaunchEventDescriptor {
+export interface ZeroSeedLaunchSwappedInsert extends ZeroSeedLaunchEventDescriptor {
   locker: AddressValue;
   delta0: NumericValue;
   delta1: NumericValue;
@@ -350,8 +348,7 @@ export interface ZeroSeedLaunchSwappedInsert
   feeIsToken1: boolean;
 }
 
-export interface ZeroSeedLaunchFeesClaimedInsert
-  extends ZeroSeedLaunchEventDescriptor {
+export interface ZeroSeedLaunchFeesClaimedInsert extends ZeroSeedLaunchEventDescriptor {
   creator: AddressValue;
   recipient: AddressValue;
   amount0: NumericValue;
@@ -1304,14 +1301,24 @@ export class DAO {
     key: EventKey,
     parsed: ZeroSeedLaunchFeesClaimedInsert,
   ) {
-    const [row] = await this.sql<{ creator: bigint; token0: bigint; token1: bigint }[]>`
+    const [row] = await this.sql<
+      { creator: bigint; token0: bigint; token1: bigint }[]
+    >`
       SELECT c.creator, pk.token0, pk.token1
       FROM zero_seed_launch_created c JOIN pool_keys pk USING (pool_key_id)
       WHERE c.pool_key_id = ${poolKeyId}`;
     if (!row) throw new Error("Zero-seed launch claim without LaunchCreated");
     const recipient = BigInt(parsed.recipient);
-    if (BigInt(parsed.creator) !== row.creator ||
-        [0n, BigInt(parsed.coreAddress), BigInt(key.emitter), row.token0, row.token1].includes(recipient))
+    if (
+      BigInt(parsed.creator) !== row.creator ||
+      [
+        0n,
+        BigInt(parsed.coreAddress),
+        BigInt(key.emitter),
+        row.token0,
+        row.token1,
+      ].includes(recipient)
+    )
       throw new Error("Refusing zero-seed claim creator or sink recipient");
   }
 
