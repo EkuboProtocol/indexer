@@ -88,6 +88,8 @@ CREATE TABLE zero_seed_launch_created
     -- Q0.64 fractions (2^64 = 100%)
     initial_fee          NUMERIC NOT NULL,
     final_fee            NUMERIC NOT NULL,
+    -- Q0.64 per-second multiplier of the unscaled exponential, in (0, 2^64); not a half-life
+    decay_factor         NUMERIC NOT NULL,
     salt                 NUMERIC NOT NULL,
     token_is_token1      bool GENERATED ALWAYS AS (token > quote_token) STORED,
     -- pool-tick bounds of the position
@@ -314,18 +316,49 @@ CREATE TRIGGER trg_zero_seed_launch_fees_claimed_ledger
     FOR EACH ROW
 EXECUTE FUNCTION trg_zero_seed_launch_ledger();
 
--- The fee in effect at p_time (unix seconds), as feeAt in the contract.
+-- powQ64 of the contract (math/feeDecay.sol): p_factor ** p_exponent in Q0.64 by square-and-multiply,
+-- flooring after every multiply. The operation order is normative: multiply the result for a set bit, shift,
+-- and square the factor only while bits remain. DIV is exact integer division on NUMERIC.
+CREATE FUNCTION zero_seed_launch_pow_q64(p_factor NUMERIC, p_exponent int8)
+    RETURNS NUMERIC
+    LANGUAGE plpgsql
+    IMMUTABLE STRICT PARALLEL SAFE AS
+$$
+DECLARE
+    q        CONSTANT NUMERIC := 18446744073709551616;
+    result   NUMERIC := q;
+    base     NUMERIC := p_factor;
+    exponent int8    := p_exponent;
+BEGIN
+    WHILE exponent <> 0
+        LOOP
+            IF exponent % 2 = 1 THEN
+                result := DIV(result * base, q);
+            END IF;
+            exponent := exponent / 2;
+            IF exponent <> 0 THEN
+                base := DIV(base * base, q);
+            END IF;
+        END LOOP;
+    RETURN result;
+END
+$$;
+
+-- The fee in effect at p_time (unix seconds), as feeAt in the contract: initial until the start, then
+-- final + floor((initial - final) * (b^t - b^D) / (2^64 - b^D)) for elapsed t below duration D, then final.
 CREATE FUNCTION zero_seed_launch_fee_at(p_trading_start int8, p_fee_duration int8, p_initial NUMERIC,
-                                        p_final NUMERIC, p_time int8)
+                                        p_final NUMERIC, p_decay_factor NUMERIC, p_time int8)
     RETURNS NUMERIC
     LANGUAGE sql
     IMMUTABLE PARALLEL SAFE AS
 $$
 SELECT CASE
            WHEN p_time <= p_trading_start THEN p_initial
-           WHEN p_time >= p_trading_start + p_fee_duration THEN p_final
-           -- DIV is exact integer division; '/' on NUMERIC rounds to a finite scale first
-           ELSE p_initial - DIV((p_initial - p_final) * (p_time - p_trading_start), p_fee_duration)
+           WHEN p_time - p_trading_start >= p_fee_duration THEN p_final
+           ELSE p_final + DIV((p_initial - p_final) *
+                              (zero_seed_launch_pow_q64(p_decay_factor, p_time - p_trading_start) -
+                               zero_seed_launch_pow_q64(p_decay_factor, p_fee_duration)),
+                              18446744073709551616 - zero_seed_launch_pow_q64(p_decay_factor, p_fee_duration))
            END
 $$;
 
@@ -471,6 +504,7 @@ SELECT pk.pool_key_id,
        zslc.fee_duration                                         AS zero_seed_launch_fee_duration,
        zslc.initial_fee                                          AS zero_seed_launch_initial_fee,
        zslc.final_fee                                            AS zero_seed_launch_final_fee,
+       zslc.decay_factor                                         AS zero_seed_launch_decay_factor,
        (zslpk.pool_key_id IS NOT NULL OR zslc.pool_key_id IS NOT NULL)
                                                                   AS is_zero_seed_launch_pool
 FROM pool_keys pk

@@ -336,6 +336,7 @@ export interface ZeroSeedLaunchCreatedInsert extends ZeroSeedLaunchEventDescript
   feeDuration: number;
   initialFee: NumericValue;
   finalFee: NumericValue;
+  decayFactor: NumericValue;
   salt: `0x${string}`;
 }
 
@@ -1214,7 +1215,7 @@ export class DAO {
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
          pool_key_id, pool_id, token, creator, quote_token, position_id, liquidity, supply,
          name, symbol, decimals, ask_tick, upper_tick, tick_spacing, trading_start,
-         fee_duration, initial_fee, final_fee, salt)
+         fee_duration, initial_fee, final_fee, decay_factor, salt)
       VALUES (
         ${this.eventKeyValues(key)},
         ${poolKeyId},
@@ -1235,6 +1236,7 @@ export class DAO {
         ${parsed.feeDuration},
         ${this.numeric(parsed.initialFee)},
         ${this.numeric(parsed.finalFee)},
+        ${this.numeric(parsed.decayFactor)},
         ${this.numeric(parsed.salt)}
       )
       ON CONFLICT (chain_id, event_id) DO NOTHING;

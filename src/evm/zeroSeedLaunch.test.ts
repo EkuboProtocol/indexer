@@ -41,18 +41,18 @@ const fixture = JSON.parse(
 const LAUNCH = fixture.addresses.launch as `0x${string}`;
 const CODEHASH = fixture.provenance.launchRuntimeKeccak as `0x${string}`;
 
-// The CTO interface freeze (EKU-822 v2) pins.
+// Draft exponential creator-fee decay interface (evm-contracts b1cbb1c1) pins.
 const FROZEN = {
-  abiSha256: "189ff93c0f6fb64f6e7dd0675872bf6686692f8303e6218b8c2521bfa5ced215",
-  evmContractsHead: "d6aeb58d845aa29454f3ed8df15e84a306a6f26d",
-  evmContractsTree: "28946ed5a980df9cd030931e365741fe6b971b50",
+  abiSha256: "bc51b39284a5a2a0970d3a804420762ce291dc01f9c21ddf31840e354a3792bb",
+  evmContractsHead: "b1cbb1c1a9a00de62072a63a8f4aab4d97065573",
+  evmContractsTree: "3f9196ebe47ebbff04459d08d645f8ca3168244a",
   coreRuntimeKeccak:
     "0xc5f90c9d0dbc5037f8f9e248f4bb292e7c1824f584eb6550cb4cad525b38c71a",
   routerRuntimeKeccak:
     "0x32ba8475c95ee5d9f7807f4ad9dce849929c992df9c68e9030e986d1854e726f",
   topics: {
     LaunchCreated:
-      "0xfe2a763a22e674e13e94ee2f603a671afd54b304fd050776ee150e36370e5dc4",
+      "0x9658a825b186d32fc3d164a53e6387b7f6d5e317e624faeac98a5d5ad84c3301",
     LaunchSwapped:
       "0x3e58795f52a8e88efdec2da89ea3798175f8764145ccd7bf5e40633a7d571f6d",
     CreatorFeesClaimed:
@@ -276,6 +276,14 @@ describe("launch support configuration", () => {
         ...base,
         runtimeCodehash:
           "0xa85c864302696dce32b5e2452508219bb08323c142b40fb7c487540db3f75d89",
+      }),
+    ).toThrow(/not a deployed runtime/);
+    // The zero-filled template of the draft exponential-decay build.
+    expect(() =>
+      resolveZeroSeedLaunchAddress({
+        ...base,
+        runtimeCodehash:
+          "0x4d44a77f7e4fcc5f7a321475c1dbfd1e0812ebbe8fc46a5e1973373fb6a9bf87",
       }),
     ).toThrow(/not a deployed runtime/);
     expect(() =>

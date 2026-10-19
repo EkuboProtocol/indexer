@@ -423,18 +423,26 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ### Unreleased: zero-seed launches (00139, additive)
 
-Migration 00139 indexes `ZeroSeedLaunch` (freeze v2, evm-contracts `d6aeb58`, ABI
-sha256 `189ff93c…ed215`) into `zero_seed_launch_pool_keys`, `_created`, `_swapped`,
+Migration 00139 indexes `ZeroSeedLaunch` (draft exponential creator-fee decay,
+evm-contracts `b1cbb1c`, ABI sha256 `bc51b392…792bb`) into
+`zero_seed_launch_pool_keys`, `_created`, `_swapped`,
 `_fees_claimed` and `zero_seed_launch_states` (one row per launch: the creator
-fee ledger, kept apart from the Core pool reserves). It appends nine
+fee ledger, kept apart from the Core pool reserves). It appends ten
 `zero_seed_launch_*`/`is_zero_seed_launch_pool` columns to
 `all_pool_states_view`, and the launch's creation event becomes a source for
 `pool_last_event_id`. It parks the workers by locking `blocks` first, as 00123
 does. The schema must precede any later authorized quoter-service or API
 deployment selecting the new columns. This draft authorizes no deployment or
-live database write; its SQL remains byte-identical to the frozen schema. It was
-drafted as 00134 and renumbered to follow 00138 on `main`; only the directory
-number changed.
+live database write. It was drafted as 00134 and renumbered to follow 00138 on
+`main`. Before any application it was revised in place for the draft fee curve:
+`zero_seed_launch_created.decay_factor` (Q0.64 per-second multiplier, the new
+`LaunchParameters.decayFactor`), the view column `zero_seed_launch_decay_factor`,
+`zero_seed_launch_pow_q64`, and a six-argument `zero_seed_launch_fee_at` that
+mirrors the contract's normalized exponential (floor after every Q64 multiply).
+`LaunchCreated` has a new topic (`0x9658a825…`); logs of the linear-fee build do
+not decode. A database that already applied the earlier 00139 must be rebuilt
+from scratch locally; there is no in-place upgrade path and none is needed while
+no launch is live.
 
 Launch indexing is off unless `ZERO_SEED_LAUNCH_ADDRESS` and
 `ZERO_SEED_LAUNCH_RUNTIME_CODEHASH` both match an entry in
@@ -460,8 +468,9 @@ immutable principal.
 `bun scripts/zeroSeedLaunchFixture.ts <evm-contracts checkout>` (local anvil,
 no fork); `src/evm/zeroSeedLaunchReplay.postgres.test.ts` replays it against
 `TEST_PG_CONNECTION_STRING`.
-The generator requires the exact clean frozen source and checks both executed
-WETH runtime hashes. Synthetic 6-decimal quote coverage runs only through an
+The generator requires the exact clean pinned source and checks both executed
+WETH runtime hashes, which equal the instances the SDK's independent Foundry
+parity generator deploys. Synthetic 6-decimal quote coverage runs only through an
 explicit arithmetic test harness; the service factory refuses that instance.
 Replay compares indexed Core event-accounted reserves (including rounding
 dust) and the separate creator-fee ledger with chain custody. Upper-bound

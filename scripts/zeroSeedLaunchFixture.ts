@@ -59,6 +59,11 @@ const FEE_RECIPIENT: Address = "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc";
 
 const FEE_5 = 922337203685477580n;
 const FEE_03 = 55340232221128654n;
+// Study per-second decay factors (Q0.64) for the two fixture durations, not selected parameters.
+const DECAY_FACTORS: Record<number, bigint> = {
+  600: 18319323104848571946n,
+  3600: 18425445863997925462n,
+};
 const SPACING = 100;
 const WIDTH = 4605200;
 const ASK_18_18 = -13815500;
@@ -67,10 +72,10 @@ const REQUESTED_SUPPLY = 1_000_000_000n * 10n ** 18n;
 const GAS = 6_000_000n;
 const QUOTE_18: Address = "0xffffffffffffffffffffffffffffffffffffffff";
 const QUOTE_18_LOW: Address = "0x0000000000000000000000000000000000010000";
-const PINNED_HEAD = "d6aeb58d845aa29454f3ed8df15e84a306a6f26d";
-const PINNED_TREE = "28946ed5a980df9cd030931e365741fe6b971b50";
+const PINNED_HEAD = "b1cbb1c1a9a00de62072a63a8f4aab4d97065573";
+const PINNED_TREE = "3f9196ebe47ebbff04459d08d645f8ca3168244a";
 const PINNED_ABI =
-  "189ff93c0f6fb64f6e7dd0675872bf6686692f8303e6218b8c2521bfa5ced215";
+  "bc51b39284a5a2a0970d3a804420762ce291dc01f9c21ddf31840e354a3792bb";
 const WETH_RUNTIME: Hex = `0x${readFileSync(
   resolve(evmContracts, "test/fixtures/weth9-0x4200-base-52449112.hex"),
   "utf8",
@@ -398,6 +403,7 @@ async function prepareLaunch(spec: Spec) {
       feeDuration: spec.duration,
       initialFee: FEE_5,
       finalFee: FEE_03,
+      decayFactor: DECAY_FACTORS[spec.duration],
       salt: pad(toHex(salt), { size: 32 }),
     };
     const preview = (await pub.readContract({
@@ -662,9 +668,9 @@ function validateFixtureBuild() {
       "--ignore-submodules=all",
     ) !== ""
   )
-    throw new Error("fixture requires the clean freeze-v2 source");
+    throw new Error("fixture requires the clean pinned draft source");
   if (sha256(`${canonicalJson(LAUNCH.abi)}\n`) !== PINNED_ABI)
-    throw new Error("build ABI differs from freeze v2");
+    throw new Error("build ABI differs from the pinned draft");
   if (
     keccak256(WETH_RUNTIME) !==
     "0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c"
@@ -742,16 +748,14 @@ async function main() {
   }
   if (
     instances.get(quote18)!.runtimeKeccak !==
-    "0x8d8839b97583f275a84aaf26cd6a5fa3ba21a7be04731a65f6140fc5040477c4"
+    "0x8fb360bb48006819049e6b9a53679ccaa01264e61465ce8e8cd2e8b185d3a8d1"
   )
-    throw new Error("executed WETH instance runtime differs from freeze v2");
+    throw new Error("executed WETH instance runtime differs from the pin");
   if (
     instances.get(QUOTE_18_LOW)!.runtimeKeccak !==
-    "0x8751bab213ba226c4e45f6441b9df2db1f9c8ee9e9335320e180f3b348646014"
+    "0xa951db07ad354ea45df3ff1b720b69c7cc588c4feb44aaea79cd79639da61f6e"
   )
-    throw new Error(
-      "executed low WETH instance runtime differs from freeze v2",
-    );
+    throw new Error("executed low WETH instance runtime differs from the pin");
   await prefix(quote18, quote6);
   await collectLogs(1);
   const forkPoint = Number(await pub.getBlockNumber());

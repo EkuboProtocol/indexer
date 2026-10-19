@@ -135,6 +135,7 @@ export function zeroSeedLaunchHandlers(
           feeDuration: parameters.feeDuration,
           initialFee: parameters.initialFee,
           finalFee: parameters.finalFee,
+          decayFactor: parameters.decayFactor,
           salt: parameters.salt,
         });
       },

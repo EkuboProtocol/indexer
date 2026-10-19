@@ -26,9 +26,9 @@ export interface ZeroSeedLaunchPin {
 export const ZERO_SEED_LAUNCH_PINS: readonly ZeroSeedLaunchPin[] = [
   {
     chainId: 31337n,
-    address: "0x510d7c117adeeb89bb33b9acb53995f3280eaa3a",
+    address: "0x5142e167b32877ca3cf3060010a0a1418e3ef1b9",
     runtimeCodehash:
-      "0x8d8839b97583f275a84aaf26cd6a5fa3ba21a7be04731a65f6140fc5040477c4",
+      "0x8fb360bb48006819049e6b9a53679ccaa01264e61465ce8e8cd2e8b185d3a8d1",
     abiSha256: ZERO_SEED_LAUNCH_ABI_SHA256,
     core: "0x00000000000014aa86c5d3c41765bb24e11bd701",
     quoteToken: "0xffffffffffffffffffffffffffffffffffffffff",
@@ -36,13 +36,13 @@ export const ZERO_SEED_LAUNCH_PINS: readonly ZeroSeedLaunchPin[] = [
       "0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c",
     local: true,
     source:
-      "tests/fixtures/zero-seed-launch/local-chain.json: anvil, evm-contracts d6aeb58d, constructor (Core, high WETH), no fork",
+      "tests/fixtures/zero-seed-launch/local-chain.json: anvil, evm-contracts b1cbb1c1 (draft exponential fee decay), constructor (Core, high WETH), no fork",
   },
   {
     chainId: 31337n,
-    address: "0x5195c03d30c11be73485ab76a35eb6f59fc52072",
+    address: "0x51174b5db84c81a906ec55445070fd84c8c8e655",
     runtimeCodehash:
-      "0x8751bab213ba226c4e45f6441b9df2db1f9c8ee9e9335320e180f3b348646014",
+      "0xa951db07ad354ea45df3ff1b720b69c7cc588c4feb44aaea79cd79639da61f6e",
     abiSha256: ZERO_SEED_LAUNCH_ABI_SHA256,
     core: "0x00000000000014aa86c5d3c41765bb24e11bd701",
     quoteToken: "0x0000000000000000000000000000000000010000",
@@ -50,7 +50,7 @@ export const ZERO_SEED_LAUNCH_PINS: readonly ZeroSeedLaunchPin[] = [
       "0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c",
     local: true,
     source:
-      "tests/fixtures/zero-seed-launch/local-chain.json: anvil, evm-contracts d6aeb58d, constructor (Core, low WETH), no fork",
+      "tests/fixtures/zero-seed-launch/local-chain.json: anvil, evm-contracts b1cbb1c1 (draft exponential fee decay), constructor (Core, low WETH), no fork",
   },
 ];
 
@@ -62,6 +62,7 @@ const INVALID_CODEHASHES = new Set([
   "0x0000000000000000000000000000000000000000000000000000000000000000",
   "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
   "0xa85c864302696dce32b5e2452508219bb08323c142b40fb7c487540db3f75d89",
+  "0x4d44a77f7e4fcc5f7a321475c1dbfd1e0812ebbe8fc46a5e1973373fb6a9bf87",
 ]);
 
 export interface ZeroSeedLaunchEnv {

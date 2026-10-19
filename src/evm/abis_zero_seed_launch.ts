@@ -1,9 +1,9 @@
-// ZeroSeedLaunch ABI, frozen with EkuboProtocol/evm-contracts d6aeb58d845aa29454f3ed8df15e84a306a6f26d
-// (tree 28946ed5). Verbatim from the frozen ZeroSeedLaunch.abi.json, whose
-// `jq -cS . | sha256sum` is ZERO_SEED_LAUNCH_ABI_SHA256; a test recomputes it.
+// ZeroSeedLaunch ABI, draft exponential creator-fee decay: EkuboProtocol/evm-contracts
+// b1cbb1c1a9a00de62072a63a8f4aab4d97065573 (tree 3f9196eb). Verbatim from the pinned ZeroSeedLaunch.abi.json,
+// whose `jq -cS . | sha256sum` is ZERO_SEED_LAUNCH_ABI_SHA256; a test recomputes it.
 // Any change here is an interface change and needs a new CTO freeze.
 export const ZERO_SEED_LAUNCH_ABI_SHA256 =
-  "189ff93c0f6fb64f6e7dd0675872bf6686692f8303e6218b8c2521bfa5ced215";
+  "bc51b39284a5a2a0970d3a804420762ce291dc01f9c21ddf31840e354a3792bb";
 
 export const ZERO_SEED_LAUNCH_ABI = [
   {
@@ -503,6 +503,11 @@ export const ZERO_SEED_LAUNCH_ABI = [
             type: "uint64",
           },
           {
+            internalType: "uint64",
+            name: "decayFactor",
+            type: "uint64",
+          },
+          {
             internalType: "bytes32",
             name: "salt",
             type: "bytes32",
@@ -698,6 +703,11 @@ export const ZERO_SEED_LAUNCH_ABI = [
             name: "tickUpper",
             type: "int32",
           },
+          {
+            internalType: "uint64",
+            name: "decayFactor",
+            type: "uint64",
+          },
         ],
         internalType: "struct IZeroSeedLaunch.Launch",
         name: "",
@@ -792,6 +802,11 @@ export const ZERO_SEED_LAUNCH_ABI = [
           {
             internalType: "uint64",
             name: "finalFee",
+            type: "uint64",
+          },
+          {
+            internalType: "uint64",
+            name: "decayFactor",
             type: "uint64",
           },
           {
@@ -1033,6 +1048,11 @@ export const ZERO_SEED_LAUNCH_ABI = [
             type: "uint64",
           },
           {
+            internalType: "uint64",
+            name: "decayFactor",
+            type: "uint64",
+          },
+          {
             internalType: "bytes32",
             name: "salt",
             type: "bytes32",
@@ -1178,7 +1198,13 @@ export const ZERO_SEED_LAUNCH_ABI = [
     type: "error",
   },
   {
-    inputs: [{ internalType: "address", name: "token", type: "address" }],
+    inputs: [
+      {
+        internalType: "address",
+        name: "token",
+        type: "address",
+      },
+    ],
     name: "LaunchTokenExists",
     type: "error",
   },

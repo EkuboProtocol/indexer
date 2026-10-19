@@ -439,7 +439,7 @@ describe.skipIf(!SERVER)(
         view: await q(`SELECT pool_id, sqrt_ratio, tick, liquidity, last_event_id, ticks, zero_seed_launch_token_is_token1,
                        zero_seed_launch_tick_lower, zero_seed_launch_tick_upper, zero_seed_launch_liquidity,
                        zero_seed_launch_trading_start, zero_seed_launch_fee_duration, zero_seed_launch_initial_fee,
-                       zero_seed_launch_final_fee, is_zero_seed_launch_pool
+                       zero_seed_launch_final_fee, zero_seed_launch_decay_factor, is_zero_seed_launch_pool
                      FROM all_pool_states_view v JOIN pool_keys USING (pool_key_id) ORDER BY pool_id`),
       };
     }
@@ -585,7 +585,7 @@ describe.skipIf(!SERVER)(
         }[]
       >`
       SELECT w.fee_rate = zero_seed_launch_fee_at(c.trading_start, c.fee_duration, c.initial_fee, c.final_fee,
-                                                   EXTRACT(EPOCH FROM b.block_time)::int8) AS ok_rate,
+                                                   c.decay_factor, EXTRACT(EPOCH FROM b.block_time)::int8) AS ok_rate,
              (CASE WHEN w.fee_is_token1 THEN w.delta1 - s.delta1 ELSE w.delta0 - s.delta0 END) = w.fee_amount AS ok_fee_side,
              (CASE WHEN w.fee_is_token1 THEN w.delta0 = s.delta0 ELSE w.delta1 = s.delta1 END) AS ok_other,
              s.event_id IS NOT NULL AS core_found,
@@ -614,6 +614,117 @@ describe.skipIf(!SERVER)(
       await db.sql.end();
     }, 120_000);
 
+    test("fee_at reproduces the contract's exponential schedule bit for bit", async () => {
+      const db = await freshDb();
+      // SHA-256 chains h = sha256(h || fee as 8-byte big-endian) over every second t = 0..D, pinned in
+      // evm-contracts b1cbb1c1 test/vectors/zero-seed-launch.json (fee_curve.all_second_digests_sha256).
+      const rates: Record<string, bigint> = {
+        "5": 922337203685477580n,
+        "50": 9223372036854775808n,
+        "75": 13835058055282163712n,
+        "90": 16602069666338596454n,
+        "99": 18262276632972456099n,
+        max: 18446744073709551615n,
+      };
+      const digests: Record<number, [bigint, Record<string, string>]> = {
+        600: [
+          18319323104848571946n,
+          {
+            "5": "6346e95d7a66797ce3270ff25d5fc19e64c2e9ccabf1c2dbc03a946276fe64b5",
+            "50": "73b08ebf1a8d045805ec42c84200bbd841e25e515a1aef7f7fb6d246c6b6027a",
+            "75": "ac34495b80e94c660319b488c697f7ecf05af9eeb3f4a03c27c1b7bc79d4e5f4",
+            "90": "87c5e5119e29faddc71e59753cca77fea297b4d76419fd0b66a78a340c4b7cef",
+            "99": "af32943cbe63a0991532e385ad42960e1ce4040d59981ca6d4a4d4b86dc20cb0",
+            max: "dce005ce818ddc4248d259c7a6e2b9c0652cb4b4705b70cf9f4f04f1270023af",
+          },
+        ],
+        3600: [
+          18425445863997925462n,
+          {
+            "5": "306aaf4b3acfabe5ba98a1ee86cf91ba6564e010f806d1f592f3a403620bfd77",
+            "50": "ac4fa207bb2beec03e9a122e5839482d14abb55c72a4b65c155da02ea15baf51",
+            "75": "c7eaeb00462cc16f7ce3684309604d97a9a22a1eaec15a1b8862bbfd68705771",
+            "90": "fb0df6da40ddcacfe08f4a599b3078a1e6dbe0017b97e73b6b4e384563247354",
+            "99": "ee35ebedb9d7c09c69675d9517cdc1dc26e177eb61e0aa76fd13eb63dee8cba8",
+            max: "82e00f48c0d5dc03d757e417a60a410a8ee9cfd0d41c12cfb72547bfc73ac4f7",
+          },
+        ],
+      };
+      const finalFee = 55340232221128654n;
+      let checked = 0;
+      for (const [duration, [factor, byRate]] of Object.entries(digests)) {
+        for (const [label, rate] of Object.entries(rates)) {
+          const rows = await db.sql<{ fee: bigint }[]>`
+            SELECT zero_seed_launch_fee_at(1000, ${duration}::int8, ${rate.toString()}::numeric,
+                                           ${finalFee.toString()}::numeric, ${factor.toString()}::numeric,
+                                           1000 + t) AS fee
+            FROM generate_series(0, ${duration}::int8) t ORDER BY t`;
+          let chain = new Uint8Array(32);
+          for (const { fee } of rows) {
+            const word = new Uint8Array(40);
+            word.set(chain);
+            new DataView(word.buffer).setBigUint64(32, BigInt(fee));
+            chain = new Uint8Array(
+              new Bun.CryptoHasher("sha256").update(word).digest(),
+            );
+            checked++;
+          }
+          expect(Buffer.from(chain).toString("hex")).toBe(byRate[label]);
+        }
+      }
+      expect(checked).toBe(25_212);
+      // Documented nearly flat factors that lie above the integer linear chord: reproduced, not corrected.
+      const exceptions = [
+        [
+          "18446744073692774400",
+          600,
+          561,
+          "6145946118234823704",
+          "3773859608321006899",
+          "3928045231480721956",
+        ],
+        [
+          "18446744073675997184",
+          600,
+          596,
+          "18262276632972456099",
+          "16093730704593406921",
+          "16108187677454293848",
+        ],
+        [
+          "18446744073709551608",
+          4294967295,
+          4197406844,
+          "18446744073709551615",
+          "18012629042273719369",
+          "18022489992398216608",
+        ],
+        [
+          "18446744073709551608",
+          4294967295,
+          4028198074,
+          "18446744073709551615",
+          "14193599660735192734",
+          "14457771176879541746",
+        ],
+        [
+          "18446744073709551608",
+          4294967295,
+          4074259523,
+          "18446744073709551615",
+          "11939927239388337278",
+          "12274296501798491214",
+        ],
+      ] as const;
+      for (const [factor, duration, t, initial, final, fee] of exceptions) {
+        const [row] = await db.sql<{ fee: bigint }[]>`
+          SELECT zero_seed_launch_fee_at(0, ${duration}::int8, ${initial}::numeric, ${final}::numeric,
+                                         ${factor}::numeric, ${t}::int8) AS fee`;
+        expect(String(row.fee)).toBe(fee);
+      }
+      await db.sql.end();
+    }, 300_000);
+
     test("orders and decimals: generated pool ticks, view columns and the two tick entries", async () => {
       const db = await freshDb();
       await replay(db, prefix, LAUNCH_ON());
@@ -628,6 +739,7 @@ describe.skipIf(!SERVER)(
                AND v.zero_seed_launch_liquidity = c.liquidity AND v.zero_seed_launch_token_is_token1 = c.token_is_token1
                AND v.zero_seed_launch_trading_start = c.trading_start AND v.zero_seed_launch_fee_duration = c.fee_duration
                AND v.zero_seed_launch_initial_fee = c.initial_fee AND v.zero_seed_launch_final_fee = c.final_fee
+               AND v.zero_seed_launch_decay_factor = c.decay_factor
                AND v.ticks = JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT('t', c.tick_lower, 'd', c.liquidity::TEXT),
                                                JSONB_BUILD_OBJECT('t', c.tick_upper, 'd', (-c.liquidity)::TEXT))
                AND DIV(c.position_id, 18446744073709551616) = 0
