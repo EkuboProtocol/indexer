@@ -1,8 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "dotenv";
 import { isProduction, requireDeployedRpcUrl } from "./config";
+import {
+  requireEvmRpcUrls,
+  requireStarknetRpcUrl,
+} from "./_shared/streamEndpoints";
 
 const ROOT = join(import.meta.dir, "..");
 
@@ -103,4 +107,31 @@ describe("worker startup without an RPC URL in the environment", () => {
       fileDefault,
     );
   });
+});
+
+describe("committed .env RPC defaults", () => {
+  const files = readdirSync(ROOT).filter(
+    (file) =>
+      /^\.env\.(evm|starknet)\.[^.]+$/.test(file) && !file.endsWith(".local"),
+  );
+
+  it("finds the committed network files", () => {
+    expect(files).toContain(".env.evm.base-mainnet");
+  });
+
+  for (const file of files) {
+    const values = parse(readFileSync(join(ROOT, file)));
+    const evm = values.EVM_RPC_URL;
+    const starknet = values.STARKNET_RPC_URL;
+    if (evm !== undefined) {
+      it(`${file} has a usable EVM_RPC_URL`, () => {
+        expect(() => requireEvmRpcUrls(evm)).not.toThrow();
+      });
+    }
+    if (starknet !== undefined) {
+      it(`${file} has a usable STARKNET_RPC_URL`, () => {
+        expect(() => requireStarknetRpcUrl(starknet)).not.toThrow();
+      });
+    }
+  }
 });
