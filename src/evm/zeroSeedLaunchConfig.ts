@@ -1,68 +1,110 @@
-import { ZERO_SEED_LAUNCH_ABI_SHA256 } from "./abis_zero_seed_launch";
+import {
+  ZERO_SEED_LAUNCH_ABI_SHA256,
+  ZERO_SEED_LAUNCH_PERIPHERY_ABI_SHA256,
+} from "./abis_zero_seed_launch";
+
+/** Plain WETH9 runtime (Base 0x4200…0006); the only accepted ERC-20 quote runtime. */
+export const PLAIN_WETH_RUNTIME_CODEHASH =
+  "0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c";
 
 /**
- * A ZeroSeedLaunch deployment the indexer may decode. The indexer makes no
- * provider call to check a deployment: the operator's address and runtime
- * codehash must equal an entry here, which is reviewed with the code.
+ * The quote of an instance. Native ETH is `address(0)`, always token0, 18
+ * decimals, and has no code: nothing about it is read or hashed. An ERC-20
+ * quote is bound to its runtime codehash.
+ */
+export type ZeroSeedLaunchQuote =
+  | { kind: "native"; address: "0x0000000000000000000000000000000000000000" }
+  | {
+      kind: "erc20";
+      address: `0x${string}`;
+      runtimeCodehash: `0x${string}`;
+    };
+
+/**
+ * A ZeroSeedLaunch deployment the indexer may decode: the extension and the
+ * periphery that forwards creations and claims to it (the launch controller
+ * that records transferable owners). The indexer makes no provider call to
+ * check a deployment: the operator's extension address and runtime codehash
+ * must equal an entry here, which is reviewed with the code, and the periphery
+ * comes from the same entry, never from configuration.
  */
 export interface ZeroSeedLaunchPin {
   chainId: bigint;
   address: `0x${string}`;
   runtimeCodehash: `0x${string}`;
   abiSha256: string;
+  periphery: `0x${string}`;
+  peripheryRuntimeCodehash: `0x${string}`;
+  peripheryAbiSha256: string;
   core: `0x${string}`;
-  quoteToken: `0x${string}`;
-  quoteRuntimeCodehash: `0x${string}`;
+  quote: ZeroSeedLaunchQuote;
+  /** First block to index, inclusive: the block that deployed the extension. */
+  deploymentBlock: number;
   /** A local fixture chain; never accepted in production. */
   local: boolean;
   source: string;
 }
 
+const LOCAL_CORE = "0x00000000000014aa86c5d3c41765bb24e11bd701";
+const LOCAL_SOURCE =
+  "tests/fixtures/zero-seed-launch/local-chain.json: anvil, evm-contracts 4f1a3060, constructor-executed, no fork";
+
 /**
- * No live deployment is pinned. Only the constructor-executed, relocated
- * plain-WETH instances are supported locally. Synthetic 6-decimal arithmetic
- * fixtures are deliberately absent. Production refuses both local entries.
+ * No live deployment is pinned. Only the two constructor-executed local
+ * instances of the replay fixture exist: native ETH (launch token is token1)
+ * and relocated plain WETH (launch token is token0). Production refuses both.
  */
 export const ZERO_SEED_LAUNCH_PINS: readonly ZeroSeedLaunchPin[] = [
   {
     chainId: 31337n,
-    address: "0x5142e167b32877ca3cf3060010a0a1418e3ef1b9",
+    address: "0x5114703a4cf4256f0acb68f992c861d8c4d1b173",
     runtimeCodehash:
-      "0x8fb360bb48006819049e6b9a53679ccaa01264e61465ce8e8cd2e8b185d3a8d1",
+      "0x846786a63ba1a2c976f748fdc94b8cbc8f76dc64f07452333d36ff564f281bf7",
     abiSha256: ZERO_SEED_LAUNCH_ABI_SHA256,
-    core: "0x00000000000014aa86c5d3c41765bb24e11bd701",
-    quoteToken: "0xffffffffffffffffffffffffffffffffffffffff",
-    quoteRuntimeCodehash:
-      "0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c",
+    periphery: "0xb27e16c3d01850191c1e027f7a3372cd2e1fb324",
+    peripheryRuntimeCodehash:
+      "0x57d0ee27c634ac08d08b60bf8e6c2f185c7e9444613ccfde5ac9bbb5e3f84f2a",
+    peripheryAbiSha256: ZERO_SEED_LAUNCH_PERIPHERY_ABI_SHA256,
+    core: LOCAL_CORE,
+    quote: {
+      kind: "native",
+      address: "0x0000000000000000000000000000000000000000",
+    },
+    deploymentBlock: 2,
     local: true,
-    source:
-      "tests/fixtures/zero-seed-launch/local-chain.json: anvil, evm-contracts b1cbb1c1 (draft exponential fee decay), constructor (Core, high WETH), no fork",
+    source: `${LOCAL_SOURCE}, native quote`,
   },
   {
     chainId: 31337n,
-    address: "0x51174b5db84c81a906ec55445070fd84c8c8e655",
+    address: "0x519435a42752da78e395999218d0ecc4fdcbcf4b",
     runtimeCodehash:
-      "0xa951db07ad354ea45df3ff1b720b69c7cc588c4feb44aaea79cd79639da61f6e",
+      "0x56e32aeac03464c3babd754fc21e0594c42d82db9d9c0cc3dd1ce1ec20273750",
     abiSha256: ZERO_SEED_LAUNCH_ABI_SHA256,
-    core: "0x00000000000014aa86c5d3c41765bb24e11bd701",
-    quoteToken: "0x0000000000000000000000000000000000010000",
-    quoteRuntimeCodehash:
-      "0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c",
+    periphery: "0x94e1b338def908449e6ea7c7d254630b45d27562",
+    peripheryRuntimeCodehash:
+      "0xb78ea649f2e1817c851f7417a604d1565a346c6bec022abc821e3f1110739ac8",
+    peripheryAbiSha256: ZERO_SEED_LAUNCH_PERIPHERY_ABI_SHA256,
+    core: LOCAL_CORE,
+    quote: {
+      kind: "erc20",
+      address: "0xffffffffffffffffffffffffffffffffffffffff",
+      runtimeCodehash: PLAIN_WETH_RUNTIME_CODEHASH,
+    },
+    deploymentBlock: 2,
     local: true,
-    source:
-      "tests/fixtures/zero-seed-launch/local-chain.json: anvil, evm-contracts b1cbb1c1 (draft exponential fee decay), constructor (Core, low WETH), no fork",
+    source: `${LOCAL_SOURCE}, relocated plain WETH quote`,
   },
 ];
 
 /**
  * Codehashes that cannot identify a deployment: empty code, and the build's
- * runtime with its immutables (Core and quote) zero-filled.
+ * runtimes with their immutables zero-filled (extension and periphery).
  */
 const INVALID_CODEHASHES = new Set([
   "0x0000000000000000000000000000000000000000000000000000000000000000",
   "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
-  "0xa85c864302696dce32b5e2452508219bb08323c142b40fb7c487540db3f75d89",
-  "0x4d44a77f7e4fcc5f7a321475c1dbfd1e0812ebbe8fc46a5e1973373fb6a9bf87",
+  "0x25637ad2d1071b641f275d3b1037616b8836d2445501c05d38618764fa924167",
+  "0x271683d2c3cf5e518fc5aa531f8568191b166a262a43e05d13325f0630dd5d7a",
 ]);
 
 export interface ZeroSeedLaunchEnv {
@@ -78,31 +120,58 @@ export interface ZeroSeedLaunchEnv {
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
+function quoteProblem(quote: ZeroSeedLaunchQuote): string | undefined {
+  if (quote.kind === "native")
+    return BigInt(quote.address) === 0n
+      ? undefined
+      : "a native quote must be address(0)";
+  if (BigInt(quote.address) === 0n)
+    return "an ERC-20 quote cannot be address(0)";
+  return quote.runtimeCodehash === PLAIN_WETH_RUNTIME_CODEHASH
+    ? undefined
+    : "the ERC-20 quote lacks plain-WETH runtime provenance";
+}
+
 function checkPin(pin: ZeroSeedLaunchPin, env: ZeroSeedLaunchEnv) {
   if (!env.coreAddress || !same(pin.core, env.coreAddress))
     throw new Error(
       "ZeroSeedLaunch Core does not match constructor provenance",
     );
-  if (
-    !pin.quoteToken ||
-    BigInt(pin.quoteToken) === 0n ||
-    pin.quoteRuntimeCodehash !==
-      "0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c"
-  )
-    throw new Error("ZeroSeedLaunch quote lacks plain-WETH runtime provenance");
+  const problem = quoteProblem(pin.quote);
+  if (problem) throw new Error(`ZeroSeedLaunch quote: ${problem}`);
   if (!same(pin.runtimeCodehash, env.runtimeCodehash!))
     throw new Error(
       `ZERO_SEED_LAUNCH_RUNTIME_CODEHASH does not match the pin for ${pin.address} on chain ${pin.chainId}`,
     );
-  if (pin.abiSha256 !== ZERO_SEED_LAUNCH_ABI_SHA256)
-    throw new Error(
-      `The pin for ${pin.address} is for ABI ${pin.abiSha256}, not the compiled ${ZERO_SEED_LAUNCH_ABI_SHA256}`,
-    );
+  checkPinArtifacts(pin);
   checkConstructorProvenance(pin);
   if (pin.local && env.production)
     throw new Error(
       `The pin for ${pin.address} is a local fixture and cannot be used in production`,
     );
+}
+
+function checkPinArtifacts(pin: ZeroSeedLaunchPin) {
+  if (
+    pin.abiSha256 !== ZERO_SEED_LAUNCH_ABI_SHA256 ||
+    pin.peripheryAbiSha256 !== ZERO_SEED_LAUNCH_PERIPHERY_ABI_SHA256
+  )
+    throw new Error(
+      `The pin for ${pin.address} is for another ABI than the compiled extension and periphery`,
+    );
+  if (
+    BigInt(pin.periphery) === 0n ||
+    INVALID_CODEHASHES.has(pin.peripheryRuntimeCodehash.toLowerCase())
+  )
+    throw new Error(`The pin for ${pin.address} has no deployed periphery`);
+}
+
+function sameQuote(a: ZeroSeedLaunchQuote, b: ZeroSeedLaunchQuote) {
+  if (a.kind !== b.kind || !same(a.address, b.address)) return false;
+  return (
+    a.kind === "native" ||
+    (b.kind === "erc20" && same(a.runtimeCodehash, b.runtimeCodehash))
+  );
 }
 
 function checkConstructorProvenance(pin: ZeroSeedLaunchPin) {
@@ -111,13 +180,16 @@ function checkConstructorProvenance(pin: ZeroSeedLaunchPin) {
   );
   if (
     !reviewed ||
-    !same(reviewed.quoteToken, pin.quoteToken) ||
+    !sameQuote(reviewed.quote, pin.quote) ||
     !same(reviewed.core, pin.core) ||
     !same(reviewed.runtimeCodehash, pin.runtimeCodehash) ||
+    !same(reviewed.periphery, pin.periphery) ||
+    !same(reviewed.peripheryRuntimeCodehash, pin.peripheryRuntimeCodehash) ||
+    reviewed.deploymentBlock !== pin.deploymentBlock ||
     reviewed.local !== pin.local
   )
     throw new Error(
-      "ZeroSeedLaunch instance/constructor quote/runtime provenance is not reviewed",
+      "ZeroSeedLaunch instance/periphery/constructor quote/runtime provenance is not reviewed",
     );
 }
 
@@ -129,16 +201,16 @@ export function zeroSeedLaunchPinForAddress(
 }
 
 /**
- * The launch address to index, or undefined to leave launch support off.
+ * The launch deployment to index, or undefined to leave launch support off.
  *
  * Off when the address or codehash is missing, or the chain has no pin. A
  * mismatch against a pin for the chain, an invalid codehash, or a local pin in
  * production refuses to start: the operator asked for something the reviewed
  * pins do not allow.
  */
-export function resolveZeroSeedLaunchAddress(
+export function resolveZeroSeedLaunchPin(
   env: ZeroSeedLaunchEnv,
-): `0x${string}` | undefined {
+): ZeroSeedLaunchPin | undefined {
   const { address, runtimeCodehash, chainId } = env;
   const pins = env.pins ?? ZERO_SEED_LAUNCH_PINS;
   const warn = env.warn ?? (() => {});
@@ -159,11 +231,18 @@ export function resolveZeroSeedLaunchAddress(
   if (!pin) {
     if (chainPins.length > 0)
       throw new Error(
-        `ZERO_SEED_LAUNCH_ADDRESS ${address} is not the pinned launch for chain ${chainId}`,
+        `ZERO_SEED_LAUNCH_ADDRESS ${address} is not a pinned launch for chain ${chainId}`,
       );
     warn(`No ZeroSeedLaunch pin for chain ${chainId}; launch indexing is off`);
     return undefined;
   }
   checkPin(pin, env);
-  return pin.address;
+  return pin;
+}
+
+/** The extension address of {@link resolveZeroSeedLaunchPin}. */
+export function resolveZeroSeedLaunchAddress(
+  env: ZeroSeedLaunchEnv,
+): `0x${string}` | undefined {
+  return resolveZeroSeedLaunchPin(env)?.address;
 }

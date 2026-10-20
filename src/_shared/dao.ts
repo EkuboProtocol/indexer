@@ -321,7 +321,8 @@ export interface ZeroSeedLaunchEventDescriptor {
 
 export interface ZeroSeedLaunchCreatedInsert extends ZeroSeedLaunchEventDescriptor {
   token: AddressValue;
-  creator: AddressValue;
+  controller: AddressValue;
+  /** The extension's constructor quote; 0 is native ETH. */
   quoteToken: AddressValue;
   positionId: `0x${string}`;
   liquidity: NumericValue;
@@ -336,7 +337,6 @@ export interface ZeroSeedLaunchCreatedInsert extends ZeroSeedLaunchEventDescript
   feeDuration: number;
   initialFee: NumericValue;
   finalFee: NumericValue;
-  decayFactor: NumericValue;
   salt: `0x${string}`;
 }
 
@@ -350,7 +350,23 @@ export interface ZeroSeedLaunchSwappedInsert extends ZeroSeedLaunchEventDescript
 }
 
 export interface ZeroSeedLaunchFeesClaimedInsert extends ZeroSeedLaunchEventDescriptor {
-  creator: AddressValue;
+  controller: AddressValue;
+  amount0: NumericValue;
+  amount1: NumericValue;
+}
+
+/** Periphery events name the pool only; the extension comes from the pin. */
+export interface ZeroSeedLaunchPeripheryEventDescriptor extends ZeroSeedLaunchEventDescriptor {
+  extension: `0x${string}`;
+}
+
+export interface ZeroSeedLaunchOwnerChangedInsert extends ZeroSeedLaunchPeripheryEventDescriptor {
+  previousOwner: AddressValue;
+  newOwner: AddressValue;
+}
+
+export interface ZeroSeedLaunchFeesPaidInsert extends ZeroSeedLaunchPeripheryEventDescriptor {
+  owner: AddressValue;
   recipient: AddressValue;
   amount0: NumericValue;
   amount1: NumericValue;
@@ -1169,16 +1185,16 @@ export class DAO {
   private async zeroSeedLaunchPoolKeyId(
     coreAddress: `0x${string}`,
     poolId: `0x${string}`,
-    emitter: `0x${string}`,
+    extension: `0x${string}`,
   ): Promise<bigint> {
     const [row] = await this.sql<{ pool_key_id: bigint }[]>`
       SELECT zslpk.pool_key_id
       FROM pool_keys pk
                JOIN zero_seed_launch_pool_keys zslpk USING (pool_key_id)
       WHERE pk.chain_id = ${this.chainId}
-         AND pk.core_address = ${this.numeric(coreAddress)}
+        AND pk.core_address = ${this.numeric(coreAddress)}
         AND pk.pool_id = ${this.numeric(poolId)}
-        AND pk.pool_extension = ${this.numeric(emitter)};
+        AND pk.pool_extension = ${this.numeric(extension)};
     `;
     if (!row)
       throw new Error(
@@ -1199,8 +1215,8 @@ export class DAO {
   }
 
   // Launch writers insert with ON CONFLICT DO NOTHING so that a redelivered
-  // log fires no ledger trigger. Swaps and claims without their LaunchCreated
-  // are refused by the ledger trigger.
+  // log fires no ledger trigger. Swaps, claims, owner changes and payouts
+  // without their LaunchCreated are refused by the state triggers.
   async insertZeroSeedLaunchCreatedEvent(
     key: EventKey,
     parsed: ZeroSeedLaunchCreatedInsert,
@@ -1213,15 +1229,15 @@ export class DAO {
     await this.sql`
       INSERT INTO zero_seed_launch_created
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-         pool_key_id, pool_id, token, creator, quote_token, position_id, liquidity, supply,
+         pool_key_id, pool_id, token, controller, quote_token, position_id, liquidity, supply,
          name, symbol, decimals, ask_tick, upper_tick, tick_spacing, trading_start,
-         fee_duration, initial_fee, final_fee, decay_factor, salt)
+         fee_duration, initial_fee, final_fee, salt)
       VALUES (
         ${this.eventKeyValues(key)},
         ${poolKeyId},
         ${this.numeric(parsed.poolId)},
         ${this.numeric(parsed.token)},
-        ${this.numeric(parsed.creator)},
+        ${this.numeric(parsed.controller)},
         ${this.numeric(parsed.quoteToken)},
         ${this.numeric(parsed.positionId)},
         ${this.numeric(parsed.liquidity)},
@@ -1236,7 +1252,6 @@ export class DAO {
         ${parsed.feeDuration},
         ${this.numeric(parsed.initialFee)},
         ${this.numeric(parsed.finalFee)},
-        ${this.numeric(parsed.decayFactor)},
         ${this.numeric(parsed.salt)}
       )
       ON CONFLICT (chain_id, event_id) DO NOTHING;
@@ -1280,17 +1295,18 @@ export class DAO {
       parsed.poolId,
       key.emitter,
     );
-    await this.assertZeroSeedLaunchClaim(poolKeyId, key, parsed);
+    const launch = await this.zeroSeedLaunch(poolKeyId);
+    if (BigInt(parsed.controller) !== launch.controller)
+      throw new Error("Refusing zero-seed claim by another controller");
     await this.sql`
       INSERT INTO zero_seed_launch_fees_claimed
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-         pool_key_id, pool_id, creator, recipient, amount0, amount1)
+         pool_key_id, pool_id, controller, amount0, amount1)
       VALUES (
         ${this.eventKeyValues(key)},
         ${poolKeyId},
         ${this.numeric(parsed.poolId)},
-        ${this.numeric(parsed.creator)},
-        ${this.numeric(parsed.recipient)},
+        ${this.numeric(parsed.controller)},
         ${this.numeric(parsed.amount0)},
         ${this.numeric(parsed.amount1)}
       )
@@ -1298,30 +1314,177 @@ export class DAO {
     `;
   }
 
-  private async assertZeroSeedLaunchClaim(
-    poolKeyId: bigint,
-    key: EventKey,
-    parsed: ZeroSeedLaunchFeesClaimedInsert,
-  ) {
+  private async zeroSeedLaunch(poolKeyId: bigint) {
     const [row] = await this.sql<
-      { creator: bigint; token0: bigint; token1: bigint }[]
+      {
+        controller: bigint;
+        token0: bigint;
+        token1: bigint;
+        current_owner: bigint | null;
+      }[]
     >`
-      SELECT c.creator, pk.token0, pk.token1
-      FROM zero_seed_launch_created c JOIN pool_keys pk USING (pool_key_id)
+      SELECT c.controller, pk.token0, pk.token1, s.current_owner
+      FROM zero_seed_launch_created c
+               JOIN pool_keys pk USING (pool_key_id)
+               JOIN zero_seed_launch_states s USING (pool_key_id)
       WHERE c.pool_key_id = ${poolKeyId}`;
-    if (!row) throw new Error("Zero-seed launch claim without LaunchCreated");
+    if (!row) throw new Error("Zero-seed launch event without LaunchCreated");
+    return row;
+  }
+
+  /**
+   * Periphery LaunchOwnerChanged. Only the launch's own controller can record
+   * owners, the first change comes from the zero address, and every later one
+   * from the current owner; anything else is a decoder or pin bug.
+   */
+  async insertZeroSeedLaunchOwnerChangedEvent(
+    key: EventKey,
+    parsed: ZeroSeedLaunchOwnerChangedInsert,
+  ) {
+    const poolKeyId = await this.zeroSeedLaunchPoolKeyId(
+      parsed.coreAddress,
+      parsed.poolId,
+      parsed.extension,
+    );
+    const launch = await this.zeroSeedLaunch(poolKeyId);
+    const previous = BigInt(parsed.previousOwner);
+    if (
+      launch.controller !== BigInt(key.emitter) ||
+      BigInt(parsed.newOwner) === 0n ||
+      previous !== (launch.current_owner ?? 0n)
+    ) {
+      if (await this.zeroSeedLaunchEventExists("owner_changed", key)) return;
+      throw new Error(
+        `Refusing LaunchOwnerChanged for pool ${parsed.poolId}: not the controller or not from the current owner`,
+      );
+    }
+    await this.sql`
+      INSERT INTO zero_seed_launch_owner_changed
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, previous_owner, new_owner)
+      VALUES (
+        ${this.eventKeyValues(key)},
+        ${poolKeyId},
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.previousOwner)},
+        ${this.numeric(parsed.newOwner)}
+      )
+      ON CONFLICT (chain_id, event_id) DO NOTHING;
+    `;
+  }
+
+  /**
+   * Periphery LaunchFeesClaimed: the payout of the extension claim earlier in
+   * the same transaction. It is linked to that claim and never moves the
+   * ledger again.
+   */
+  async insertZeroSeedLaunchFeesPaidEvent(
+    key: EventKey,
+    parsed: ZeroSeedLaunchFeesPaidInsert,
+  ) {
+    const poolKeyId = await this.zeroSeedLaunchPoolKeyId(
+      parsed.coreAddress,
+      parsed.poolId,
+      parsed.extension,
+    );
+    if (await this.zeroSeedLaunchEventExists("fees_paid", key)) return;
+    const launch = await this.zeroSeedLaunch(poolKeyId);
     const recipient = BigInt(parsed.recipient);
     if (
-      BigInt(parsed.creator) !== row.creator ||
+      launch.controller !== BigInt(key.emitter) ||
+      BigInt(parsed.owner) !== launch.current_owner ||
       [
         0n,
         BigInt(parsed.coreAddress),
+        BigInt(parsed.extension),
         BigInt(key.emitter),
-        row.token0,
-        row.token1,
+        launch.token0,
+        launch.token1,
       ].includes(recipient)
     )
-      throw new Error("Refusing zero-seed claim creator or sink recipient");
+      throw new Error(
+        "Refusing zero-seed payout by another owner or to a sink recipient",
+      );
+    const [claim] = await this.sql<{ event_id: bigint }[]>`
+      SELECT c.event_id
+      FROM zero_seed_launch_fees_claimed c
+      WHERE c.chain_id = ${this.chainId}
+        AND c.pool_key_id = ${poolKeyId}
+        AND c.block_number = ${key.blockNumber}
+        AND c.transaction_index = ${key.transactionIndex}
+        AND c.event_index < ${key.eventIndex}
+        AND c.controller = ${this.numeric(key.emitter)}
+        AND c.amount0 = ${this.numeric(parsed.amount0)}
+        AND c.amount1 = ${this.numeric(parsed.amount1)}
+        AND NOT EXISTS (SELECT 1 FROM zero_seed_launch_fees_paid p
+                        WHERE p.chain_id = c.chain_id AND p.claimed_event_id = c.event_id)
+      ORDER BY c.event_id DESC
+      LIMIT 1`;
+    if (!claim)
+      throw new Error(
+        `Zero-seed payout for pool ${parsed.poolId} without its extension claim`,
+      );
+    await this.sql`
+      INSERT INTO zero_seed_launch_fees_paid
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         pool_key_id, pool_id, owner, recipient, amount0, amount1, claimed_event_id)
+      VALUES (
+        ${this.eventKeyValues(key)},
+        ${poolKeyId},
+        ${this.numeric(parsed.poolId)},
+        ${this.numeric(parsed.owner)},
+        ${this.numeric(parsed.recipient)},
+        ${this.numeric(parsed.amount0)},
+        ${this.numeric(parsed.amount1)},
+        ${claim.event_id}
+      )
+      ON CONFLICT (chain_id, event_id) DO NOTHING;
+    `;
+  }
+
+  /**
+   * Why indexing a launch instance from `firstBlock` would miss events, or
+   * undefined. Every extension event concerns a pool Core initialized with the
+   * extension, so nothing is missed when the stream includes the deployment
+   * block, or when this database indexed the deployment's ExtensionRegistered
+   * and registered every launch pool Core initialized since.
+   */
+  async zeroSeedLaunchCatchUpProblem(
+    coreAddress: `0x${string}`,
+    extension: `0x${string}`,
+    deploymentBlock: number,
+    firstBlock: number,
+  ): Promise<string | undefined> {
+    if (firstBlock <= deploymentBlock) return undefined;
+    const [row] = await this.sql<{ registered: boolean; missing: bigint }[]>`
+      SELECT EXISTS (SELECT 1 FROM extension_registrations
+                     WHERE chain_id = ${this.chainId}
+                       AND emitter = ${this.numeric(coreAddress)}
+                       AND pool_extension = ${this.numeric(extension)}) AS registered,
+             (SELECT COUNT(*) FROM pool_keys pk
+              WHERE pk.chain_id = ${this.chainId}
+                AND pk.core_address = ${this.numeric(coreAddress)}
+                AND pk.pool_extension = ${this.numeric(extension)}
+                AND NOT EXISTS (SELECT 1 FROM zero_seed_launch_pool_keys z
+                                WHERE z.pool_key_id = pk.pool_key_id)) AS missing`;
+    if (row.registered && BigInt(row.missing) === 0n) return undefined;
+    return `ZeroSeedLaunch ${extension} was deployed at block ${deploymentBlock} but indexing starts at block ${firstBlock} ${row.registered ? `with ${row.missing} launch pools initialized while launch support was off` : "without this database having indexed the deployment"}; roll the indexer back to block ${deploymentBlock - 1} and replay from the deployment block`;
+  }
+
+  /** A redelivered periphery log was already stored; its checks ran then. */
+  private async zeroSeedLaunchEventExists(
+    table: "owner_changed" | "fees_paid",
+    key: EventKey,
+  ): Promise<boolean> {
+    const [row] = await this.sql<{ found: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM ${this.sql(`zero_seed_launch_${table}`)}
+        WHERE chain_id = ${this.chainId}
+          AND block_number = ${key.blockNumber}
+          AND transaction_index = ${key.transactionIndex}
+          AND event_index = ${key.eventIndex}
+      ) AS found`;
+    return row.found;
   }
 
   public async insertProtocolFeesWithdrawn(

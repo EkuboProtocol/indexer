@@ -423,61 +423,79 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ### Unreleased: zero-seed launches (00139, additive)
 
-Migration 00139 indexes `ZeroSeedLaunch` (draft exponential creator-fee decay,
-evm-contracts `b1cbb1c`, ABI sha256 `bc51b392…792bb`) into
-`zero_seed_launch_pool_keys`, `_created`, `_swapped`,
-`_fees_claimed` and `zero_seed_launch_states` (one row per launch: the creator
-fee ledger, kept apart from the Core pool reserves). It appends ten
+Migration 00139 (schema `zero-seed-launch-index/v2`) indexes the forward-only
+`ZeroSeedLaunch` extension and its `ZeroSeedLaunchPeriphery` (evm-contracts
+`4f1a306`; ABI sha256 `21f9e2c0…254e` and `5c563488…8a75`, `jq -cS .abi`
+without a trailing newline) into `zero_seed_launch_pool_keys`, `_created`,
+`_swapped`, `_fees_claimed`, `_owner_changed`, `_fees_paid` and
+`zero_seed_launch_states` (one row per launch: the creator fee ledger, kept
+apart from the Core pool reserves, and the periphery owner). It appends nine
 `zero_seed_launch_*`/`is_zero_seed_launch_pool` columns to
 `all_pool_states_view`, and the launch's creation event becomes a source for
 `pool_last_event_id`. It parks the workers by locking `blocks` first, as 00123
-does. The schema must precede any later authorized quoter-service or API
-deployment selecting the new columns. This draft authorizes no deployment or
-live database write. It was drafted as 00134 and renumbered to follow 00138 on
-`main`. Before any application it was revised in place for the draft fee curve:
-`zero_seed_launch_created.decay_factor` (Q0.64 per-second multiplier, the new
-`LaunchParameters.decayFactor`), the view column `zero_seed_launch_decay_factor`,
-`zero_seed_launch_pow_q64`, and a six-argument `zero_seed_launch_fee_at` that
-mirrors the contract's normalized exponential (floor after every Q64 multiply).
-`LaunchCreated` has a new topic (`0x9658a825…`); logs of the linear-fee build do
-not decode. A database that already applied the earlier 00139 must be rebuilt
-from scratch locally; there is no in-place upgrade path and none is needed while
-no launch is live.
+does. The schema must precede any later quoter-service or API deployment
+selecting the new columns. This draft authorizes no deployment or live
+database write. It was drafted as 00134, renumbered to follow 00138 on `main`,
+and revised in place before any application, last for the native-ETH,
+fixed-base fee table and periphery interface:
+
+- `LaunchParameters` no longer carries `quoteToken` or `decayFactor`. The quote
+  is the instance's constructor quote; native ETH is `address(0)`, always
+  token0, and `zero_seed_launch_created.quote_kind` records `native` or
+  `erc20` provenance. `decay_factor`, `zero_seed_launch_pow_q64` and the view
+  column `zero_seed_launch_decay_factor` are gone; `zero_seed_launch_decay_q128`
+  and a five-argument `zero_seed_launch_fee_at` mirror the contract's
+  fixed-base Q128 table (600 s half-life, floor after every multiply).
+- `LaunchCreated` names the `controller` (the forwarding locker, normally the
+  periphery) instead of a creator, and `CreatorFeesClaimed` lost its recipient.
+  The periphery's `LaunchOwnerChanged(poolId, 0, owner)` gives the launch's
+  initial owner; later ones move `current_owner`, which holds the unclaimed and
+  future fee rights. `LaunchFeesClaimed` is the payout of the same claim and is
+  linked to the extension's `CreatorFeesClaimed` in the same transaction: it
+  moves `paid{0,1}` only and never the claimed ledger.
+
+A database that applied an earlier 00139 must be rebuilt from scratch locally;
+there is no in-place upgrade path and none is needed while no launch is live.
 
 Launch indexing is off unless `ZERO_SEED_LAUNCH_ADDRESS` and
 `ZERO_SEED_LAUNCH_RUNTIME_CODEHASH` both match an entry in
 `src/evm/zeroSeedLaunchConfig.ts`. No live deployment is pinned; the manifest
-contains only two constructor-executed, relocated plain-WETH local instances,
-both refused in production. Each binds chain, extension, Core, constructor
-quote, executed runtime and ABI. A set address or Core that disagrees with
-the pin stops the worker. Missing runtime/chain pins leave support off.
-Creation decoding also checks quote identity and 31 UTF-8 byte metadata;
-DAO claims refuse `{zero, Core, extension, token0, token1}` recipients and
-wrong creators. Cross-instance events cannot write another pool's ledger.
+contains only the native-ETH and relocated plain-WETH local instances of the
+replay fixture, both refused in production. Each binds chain, extension and
+runtime, periphery and runtime (taken from the pin, never configured), Core,
+constructor quote and its kind (an ERC-20 also its runtime) and the
+deployment block. A set address or Core that disagrees with the pin stops the
+worker. Missing runtime/chain pins leave support off.
+
+Catch-up is deployment-block inclusive. Before its first block the worker
+refuses to index a pinned instance from a block after the instance's
+deployment unless this database indexed the deployment's
+`ExtensionRegistered` and registered every launch pool Core initialized since;
+otherwise launch events could be missing. Recovery is to roll the indexer back
+to the block before the deployment (delete blocks at or above it) and restart:
+replay is idempotent and the ledgers and owners are exact under reorgs.
 
 Rollback before any launch exists: in one transaction that locks `blocks`
 first, recreate `all_pool_states_view` and `recompute_pool_last_event_id` from
 00123 and drop the `zero_seed_launch_*` tables and functions. Once launches
 exist on chain, rolling back only stops indexing them; their pools and locked
 principal are unaffected. Stop supported creation/handoff by leaving launch
-support off. Do not roll back to the old arbitrary-quote extension or revive
-obsolete ABI/policy. Apps cannot refund, withdraw, rebalance or migrate the
-immutable principal.
+support off. Apps cannot refund, withdraw, rebalance or migrate the immutable
+principal.
 
 `tests/fixtures/zero-seed-launch/local-chain.json` is regenerated with
 `bun scripts/zeroSeedLaunchFixture.ts <evm-contracts checkout>` (local anvil,
-no fork); `src/evm/zeroSeedLaunchReplay.postgres.test.ts` replays it against
-`TEST_PG_CONNECTION_STRING`.
-The generator requires the exact clean pinned source and checks both executed
-WETH runtime hashes, which equal the instances the SDK's independent Foundry
-parity generator deploys. Synthetic 6-decimal quote coverage runs only through an
-explicit arithmetic test harness; the service factory refuses that instance.
-Replay compares indexed Core event-accounted reserves (including rounding
-dust) and the separate creator-fee ledger with chain custody. Upper-bound
-unspent token residue and Core unowned per-asset dust are different metrics;
-neither becomes claimable fees or principal, and there is no shared <=90 bound.
-Contract-event replay does not enforce producer build-time/start/expiry rules:
-those require fresh-time producer/owner validation and whole-stack review.
+no fork, deterministic); `src/evm/zeroSeedLaunchReplay.postgres.test.ts`
+replays it against `TEST_PG_CONNECTION_STRING`. The generator requires the
+exact clean pinned source and checks both ABIs and creation codes. The replay
+compares, after every block, indexed Core state and custody (native ETH and
+ERC-20), the creator fee ledger, the current and initial owner and the
+contract's `feeAt` with the chain, and covers a reorg across transfers, claims
+and a creation, redelivery, deletion orders, orphans and the catch-up guard.
+`fee-curve-all-seconds.json.gz` and `fee-decay-vectors.json` are the protocol's
+independent fee vectors (25,212 rows); the SQL fee function reproduces every
+row. Contract-event replay does not enforce producer build-time/start/expiry
+rules: those require fresh-time producer/owner validation.
 
 ### 2026-10-14: Exact division for TWAMM hourly volume (00138)
 

@@ -19,7 +19,8 @@ import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
 import { StickyRpc } from "./evm/stickyRpc";
 import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
 import { parsePositionsProtocolFeeConfigs } from "./evm/positionsProtocolFeeConfig";
-import { resolveZeroSeedLaunchAddress } from "./evm/zeroSeedLaunchConfig";
+import { resolveZeroSeedLaunchPin } from "./evm/zeroSeedLaunchConfig";
+import { zeroSeedLaunchCatchUpGuard } from "./evm/zeroSeedLaunchProcessors";
 import type { EvmLogProcessor } from "./evm/logProcessorsShared";
 import type { DAO } from "./_shared/dao";
 import { isProduction } from "./config";
@@ -96,6 +97,27 @@ function logIndexedContracts({
 }
 
 export function createEvmProcessors() {
+  return createEvmProcessorsAndLaunchPin().processors;
+}
+
+/** The pinned launch instance named by the environment, if launch support is on. */
+function resolveConfiguredZeroSeedLaunchPin(
+  coreAddress: `0x${string}` | undefined,
+) {
+  return resolveZeroSeedLaunchPin({
+    coreAddress,
+    chainId: process.env.CHAIN_ID ? BigInt(process.env.CHAIN_ID) : undefined,
+    address: loadOptionalHexAddress("ZERO_SEED_LAUNCH_ADDRESS"),
+    runtimeCodehash: process.env.ZERO_SEED_LAUNCH_RUNTIME_CODEHASH as
+      | `0x${string}`
+      | undefined,
+    production: isProduction(),
+    warn: (message) => logger.warn(message),
+  });
+}
+
+/** The processors and the launch instance they index, if launch support is on. */
+export function createEvmProcessorsAndLaunchPin() {
   const evmV2AddressConfig = loadHexAddresses({
     mevCaptureAddress: "MEV_CAPTURE_ADDRESS",
     coreAddress: "CORE_ADDRESS",
@@ -128,16 +150,10 @@ export function createEvmProcessors() {
     ve33PositionsAddress: loadOptionalHexAddress("VE33_POSITIONS_V3_ADDRESS"),
   };
 
-  const zeroSeedLaunchAddress = resolveZeroSeedLaunchAddress({
-    coreAddress: evmV3AddressConfig?.coreAddress,
-    chainId: process.env.CHAIN_ID ? BigInt(process.env.CHAIN_ID) : undefined,
-    address: loadOptionalHexAddress("ZERO_SEED_LAUNCH_ADDRESS"),
-    runtimeCodehash: process.env.ZERO_SEED_LAUNCH_RUNTIME_CODEHASH as
-      | `0x${string}`
-      | undefined,
-    production: isProduction(),
-    warn: (message) => logger.warn(message),
-  });
+  const zeroSeedLaunchPin = resolveConfiguredZeroSeedLaunchPin(
+    evmV3AddressConfig?.coreAddress,
+  );
+  const zeroSeedLaunchAddress = zeroSeedLaunchPin?.address;
 
   if (!evmV2AddressConfig && !evmV3AddressConfig) {
     throw new Error("No config for either V2 or V3 contracts");
@@ -152,7 +168,7 @@ export function createEvmProcessors() {
   if (zeroSeedLaunchAddress)
     logger.info(`Indexing ZeroSeedLaunch`, { zeroSeedLaunchAddress });
 
-  return [
+  const processors = [
     ...(evmV2AddressConfig ? createLogProcessorsV2(evmV2AddressConfig) : []),
     ...(evmV3AddressConfig
       ? createLogProcessorsV3({
@@ -167,11 +183,14 @@ export function createEvmProcessors() {
             "RECOMPILED_ORDERS_V3_ADDRESS",
           ]),
           ...evmV3Ve33AddressConfig,
-          zeroSeedLaunchAddress,
+          zeroSeedLaunchAddresses: zeroSeedLaunchAddress
+            ? [zeroSeedLaunchAddress]
+            : [],
           positionsContracts: positionsV3ProtocolFeeConfigs ?? [],
         })
       : []),
   ];
+  return { processors, zeroSeedLaunchPin };
 }
 
 function positiveInt(name: string, fallbackValue: number): number {
@@ -228,7 +247,10 @@ function createStickyRpc(chainId: bigint): StickyRpc {
 export async function createEvmEntrypoint(
   chainId: bigint,
 ): Promise<NetworkEntrypoint<EvmBlock>> {
-  const processors = createEvmProcessors();
+  const { processors, zeroSeedLaunchPin } = createEvmProcessorsAndLaunchPin();
+  const launchCatchUp = zeroSeedLaunchCatchUpGuard(
+    zeroSeedLaunchPin ? [zeroSeedLaunchPin] : [],
+  );
 
   const rpc = createStickyRpc(chainId);
   await rpc.startWithin(
@@ -273,7 +295,8 @@ export async function createEvmEntrypoint(
     getPlannedEvents(block: EvmBlock) {
       return block.logs.reduce((total, log) => total + log.filterIds.length, 0);
     },
-    processBlock({ block, blockNumber, dao }) {
+    async processBlock({ block, blockNumber, dao }) {
+      await launchCatchUp(dao, blockNumber);
       return processEvmBlock(processors, block, blockNumber, dao);
     },
   };

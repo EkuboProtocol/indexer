@@ -1,5 +1,9 @@
+import type { DAO } from "../_shared/dao";
 import type { EventKey } from "../_shared/eventKey";
-import { ZERO_SEED_LAUNCH_ABI } from "./abis_zero_seed_launch";
+import {
+  ZERO_SEED_LAUNCH_ABI,
+  ZERO_SEED_LAUNCH_PERIPHERY_ABI,
+} from "./abis_zero_seed_launch";
 import {
   createProcessorsFromHandlers,
   type ContractEvent,
@@ -7,7 +11,10 @@ import {
   type EvmLogProcessor,
 } from "./logProcessorsShared";
 import { parsePositionId, parseV2PoolKeyConfig, toPoolId } from "./poolKey";
-import { zeroSeedLaunchPinForAddress } from "./zeroSeedLaunchConfig";
+import {
+  zeroSeedLaunchPinForAddress,
+  type ZeroSeedLaunchPin,
+} from "./zeroSeedLaunchConfig";
 
 type LaunchCreated = ContractEvent<
   typeof ZERO_SEED_LAUNCH_ABI,
@@ -15,36 +22,35 @@ type LaunchCreated = ContractEvent<
 >;
 
 const same = (a: string, b: string) => BigInt(a) === BigInt(b);
+const utf8Length = (value: string) => new TextEncoder().encode(value).length;
 
 /**
- * Reasons a LaunchCreated log disagrees with itself or its emitter. The stored
- * row derives the position's pool ticks from the economic ticks and the token
- * order, so the log's own pool key and position id must say the same thing.
+ * Reasons a LaunchCreated log disagrees with itself or its emitter. The quote
+ * is the instance's constructor quote (address 0 for native ETH, which is
+ * then always token0), not a log field. The stored row derives the position's
+ * pool ticks from the economic ticks and the token order, so the log's own
+ * pool key and position id must say the same thing.
  */
 export function launchCreatedProblems(
   key: Pick<EventKey, "emitter">,
   event: LaunchCreated,
-  quoteToken?: `0x${string}`,
+  quoteToken: `0x${string}`,
 ): string[] {
   const { poolKey, parameters, positionId } = event;
   const config = parseV2PoolKeyConfig(poolKey.config);
-  const tokenIs0 = BigInt(event.token) < BigInt(parameters.quoteToken);
+  const tokenIs0 = BigInt(event.token) < BigInt(quoteToken);
   const [token0, token1] = tokenIs0
-    ? [event.token, parameters.quoteToken]
-    : [parameters.quoteToken, event.token];
+    ? [event.token, quoteToken]
+    : [quoteToken, event.token];
   const position = parsePositionId(positionId);
   const [lower, upper] = tokenIs0
     ? [parameters.askTick, parameters.upperTick]
     : [-parameters.upperTick, -parameters.askTick];
 
   return [
+    [!same(event.token, quoteToken), "launch token is the quote"],
     [
-      !!quoteToken && same(parameters.quoteToken, quoteToken),
-      "quoteToken is not the constructor-pinned quote",
-    ],
-    [
-      new TextEncoder().encode(parameters.name).length <= 31 &&
-        new TextEncoder().encode(parameters.symbol).length <= 31,
+      utf8Length(parameters.name) <= 31 && utf8Length(parameters.symbol) <= 31,
       "metadata exceeds 31 UTF-8 bytes",
     ],
     [
@@ -58,7 +64,7 @@ export function launchCreatedProblems(
     ],
     [
       same(poolKey.token0, token0) && same(poolKey.token1, token1),
-      "pool tokens are not (token, quoteToken) in order",
+      "pool tokens are not (token, constructor quote) in order",
     ],
     [config.fee === 0n, "Core fee is not 0"],
     [
@@ -76,30 +82,37 @@ export function launchCreatedProblems(
     .map(([, problem]) => problem as string);
 }
 
-/** ZeroSeedLaunch's three events, decoded with the frozen ABI. */
+/**
+ * The events of each pinned instance: the extension's three and its
+ * periphery's two, decoded with the frozen ABIs.
+ */
 export function createZeroSeedLaunchProcessors({
   coreAddress,
-  zeroSeedLaunchAddress,
+  zeroSeedLaunchAddresses,
 }: {
   coreAddress: `0x${string}`;
-  zeroSeedLaunchAddress?: `0x${string}`;
+  zeroSeedLaunchAddresses?: readonly `0x${string}`[];
 }): EvmLogProcessor[] {
-  if (!zeroSeedLaunchAddress) return [];
-  const pin = zeroSeedLaunchPinForAddress(zeroSeedLaunchAddress);
-  if (!pin || !same(pin.core, coreAddress))
-    throw new Error(
-      "ZeroSeedLaunch event processor lacks reviewed instance/Core/quote provenance",
-    );
-
-  return createProcessorsFromHandlers({
-    ZeroSeedLaunch: {
-      address: zeroSeedLaunchAddress,
-      ...zeroSeedLaunchHandlers(coreAddress, pin.quoteToken),
-    },
+  return (zeroSeedLaunchAddresses ?? []).flatMap((address) => {
+    const pin = zeroSeedLaunchPinForAddress(address);
+    if (!pin || !same(pin.core, coreAddress))
+      throw new Error(
+        "ZeroSeedLaunch event processor lacks reviewed instance/Core/quote provenance",
+      );
+    return createProcessorsFromHandlers({
+      ZeroSeedLaunch: {
+        address: pin.address,
+        ...zeroSeedLaunchHandlers(coreAddress, pin.quote.address),
+      },
+      ZeroSeedLaunchPeriphery: {
+        address: pin.periphery,
+        ...zeroSeedLaunchPeripheryHandlers(coreAddress, pin),
+      },
+    });
   });
 }
 
-/** Pure event decoding, also used by isolated arithmetic replay tests.
+/** Pure event decoding, also used by isolated replay tests.
  * Service entrypoints MUST use createZeroSeedLaunchProcessors above.
  */
 export function zeroSeedLaunchHandlers(
@@ -120,8 +133,8 @@ export function zeroSeedLaunchHandlers(
           coreAddress,
           poolId: event.poolId,
           token: event.token,
-          creator: event.creator,
-          quoteToken: parameters.quoteToken,
+          controller: event.controller,
+          quoteToken,
           positionId: event.positionId,
           liquidity: event.liquidity,
           supply: parameters.supply,
@@ -135,7 +148,6 @@ export function zeroSeedLaunchHandlers(
           feeDuration: parameters.feeDuration,
           initialFee: parameters.initialFee,
           finalFee: parameters.finalFee,
-          decayFactor: parameters.decayFactor,
           salt: parameters.salt,
         });
       },
@@ -152,5 +164,59 @@ export function zeroSeedLaunchHandlers(
         });
       },
     },
+  };
+}
+
+/** The periphery's owner and payout events, attributed to its pinned extension. */
+export function zeroSeedLaunchPeripheryHandlers(
+  coreAddress: `0x${string}`,
+  pin: Pick<ZeroSeedLaunchPin, "address">,
+): Omit<ContractHandlers<typeof ZERO_SEED_LAUNCH_PERIPHERY_ABI>, "address"> {
+  return {
+    abi: ZERO_SEED_LAUNCH_PERIPHERY_ABI,
+    handlers: {
+      async LaunchOwnerChanged(dao, key, event) {
+        await dao.insertZeroSeedLaunchOwnerChangedEvent(key, {
+          coreAddress,
+          extension: pin.address,
+          ...event,
+        });
+      },
+      async LaunchFeesClaimed(dao, key, event) {
+        await dao.insertZeroSeedLaunchFeesPaidEvent(key, {
+          coreAddress,
+          extension: pin.address,
+          ...event,
+        });
+      },
+    },
+  };
+}
+
+/**
+ * Refuses, once, before the first indexed block, to index a pinned instance
+ * from a block after its deployment unless no launch event can have been
+ * missed (see DAO.zeroSeedLaunchCatchUpProblem). The recovery is to roll back
+ * to the block before the deployment and replay it inclusively.
+ */
+export function zeroSeedLaunchCatchUpGuard(
+  pins: readonly Pick<
+    ZeroSeedLaunchPin,
+    "address" | "core" | "deploymentBlock"
+  >[],
+) {
+  let checked = pins.length === 0;
+  return async (dao: DAO, firstBlock: number) => {
+    if (checked) return;
+    for (const pin of pins) {
+      const problem = await dao.zeroSeedLaunchCatchUpProblem(
+        pin.core,
+        pin.address,
+        pin.deploymentBlock,
+        firstBlock,
+      );
+      if (problem) throw new Error(problem);
+    }
+    checked = true;
   };
 }

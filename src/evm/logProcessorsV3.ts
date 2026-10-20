@@ -48,8 +48,11 @@ export interface LogProcessorConfigV3 {
   ve33Address?: `0x${string}`;
   veTokenAddress?: `0x${string}`;
   ve33PositionsAddress?: `0x${string}`;
-  /** Resolved through zeroSeedLaunchConfig.ts; unset leaves launches off. */
-  zeroSeedLaunchAddress?: `0x${string}`;
+  /**
+   * Extension addresses resolved through zeroSeedLaunchConfig.ts (the
+   * service resolves at most one); empty or unset leaves launches off.
+   */
+  zeroSeedLaunchAddresses?: readonly `0x${string}`[];
   positionsContracts: PositionsContractProtocolFeeConfig[];
 }
 
@@ -90,7 +93,7 @@ export function createLogProcessorsV3({
   ve33Address,
   veTokenAddress,
   ve33PositionsAddress,
-  zeroSeedLaunchAddress,
+  zeroSeedLaunchAddresses,
   positionsContracts,
 }: LogProcessorConfigV3): EvmLogProcessor[] {
   const mevCaptureAddressBigInt = BigInt(mevCaptureAddress);
@@ -281,8 +284,7 @@ export function createLogProcessorsV3({
           if (extension === mevCaptureAddressBigInt) {
             await dao.insertMEVCapturePoolKey(key.emitter, parsed.poolId);
           } else if (
-            zeroSeedLaunchAddress &&
-            extension === BigInt(zeroSeedLaunchAddress)
+            zeroSeedLaunchAddresses?.some((a) => BigInt(a) === extension)
           ) {
             await dao.insertZeroSeedLaunchPoolKey(key.emitter, parsed.poolId);
           }
@@ -602,6 +604,6 @@ export function createLogProcessorsV3({
     twammProcessors,
     ordersProcessors,
     positionsProcessors,
-    createZeroSeedLaunchProcessors({ coreAddress, zeroSeedLaunchAddress }),
+    createZeroSeedLaunchProcessors({ coreAddress, zeroSeedLaunchAddresses }),
   );
 }

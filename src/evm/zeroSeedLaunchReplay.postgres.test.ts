@@ -1,19 +1,19 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { gunzipSync } from "node:zlib";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres, { type Sql } from "postgres";
-import { decodeEventLog, encodeEventTopics } from "viem";
-import { CORE_ABI } from "./abis_v3";
-import { ZERO_SEED_LAUNCH_ABI } from "./abis_zero_seed_launch";
+import { decodeEventLog, encodeEventTopics, type Abi } from "viem";
+import {
+  ZERO_SEED_LAUNCH_ABI,
+  ZERO_SEED_LAUNCH_PERIPHERY_ABI,
+} from "./abis_zero_seed_launch";
 import shift from "postgres-shift";
 import { DAO, NumericIntegerType } from "../_shared/dao";
 import { parseEvmBlockHeader, processEvmBlock } from "../evm";
 import { createLogProcessorsV3 } from "./logProcessorsV3";
-import {
-  createProcessorsFromHandlers,
-  type EvmLogProcessor,
-} from "./logProcessorsShared";
+import type { EvmLogProcessor } from "./logProcessorsShared";
 import {
   groupLogsByBlock,
   type LogStreamFilter,
@@ -21,17 +21,18 @@ import {
   type StreamBlock,
 } from "./logStream";
 import { floatSqrtRatioToFixed } from "./swapEvent";
-import { resolveZeroSeedLaunchAddress } from "./zeroSeedLaunchConfig";
+import { resolveZeroSeedLaunchPin } from "./zeroSeedLaunchConfig";
 import {
   createZeroSeedLaunchProcessors,
-  zeroSeedLaunchHandlers,
+  zeroSeedLaunchCatchUpGuard,
 } from "./zeroSeedLaunchProcessors";
-import { parseV2PoolKeyConfig } from "./poolKey";
 
 // Replays logs that a local anvil chain actually emitted (see
 // scripts/zeroSeedLaunchFixture.ts) through the indexer's own stream grouping,
 // processors, DAO and the 00139 triggers on a real Postgres, and checks the
-// indexed state against the chain state recorded after every block.
+// indexed state against the chain state recorded after every block: Core
+// pool state and custody (native ETH and ERC-20), the creator fee ledger,
+// the periphery owner of every launch and the contract's feeAt.
 /** Awaits `expect(promise).rejects.toThrow(error)`: bun-types declares the
  * matcher as returning void, but it returns a promise that must be awaited. */
 const expectRejects = (promise: Promise<unknown>, error: RegExp) =>
@@ -40,20 +41,33 @@ const expectRejects = (promise: Promise<unknown>, error: RegExp) =>
 const SERVER = process.env.TEST_PG_CONNECTION_STRING;
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
+type FixturePool = {
+  label: string;
+  poolId: `0x${string}`;
+  poolStateWord: `0x${string}`;
+  creatorFees: [string, string];
+  launchOwner: `0x${string}`;
+  controller: `0x${string}`;
+  feeAtBlockTime: string;
+};
 type FixtureState = {
   blockNumber: number;
-  pools: {
-    label: string;
-    poolId: `0x${string}`;
-    poolStateWord: `0x${string}`;
-    creatorFees: [string, string];
-  }[];
+  pools: FixturePool[];
   coreBalances: Record<string, string>;
 };
 type Branch = {
   blocks: { number: number; timestamp: number; actions: string[] }[];
   logs: RawLog[];
   states: FixtureState[];
+};
+type Instance = {
+  label: string;
+  quote: `0x${string}`;
+  quoteKind: "native" | "erc20";
+  extension: `0x${string}`;
+  periphery: `0x${string}`;
+  extensionRuntimeKeccak: `0x${string}`;
+  deploymentBlock: number;
 };
 const fixture = JSON.parse(
   readFileSync(
@@ -62,44 +76,69 @@ const fixture = JSON.parse(
   ),
 ) as {
   chainId: number;
-  provenance: { launchRuntimeKeccak: `0x${string}` };
   addresses: Record<string, `0x${string}`>;
-  instances: { address: `0x${string}`; quote: `0x${string}`; scope: string }[];
+  instances: Instance[];
   launches: Record<
     string,
     {
       token: string;
       quote: string;
       extension: `0x${string}`;
+      periphery: `0x${string}`;
       poolId: `0x${string}`;
     }
   >;
+  installations: Record<string, { owner: `0x${string}` }>;
   forkPoint: number;
   branches: { prefix: Branch; alternate: Branch; canonical: Branch };
 };
 const CHAIN_ID = BigInt(fixture.chainId);
 const { prefix, alternate, canonical } = fixture.branches;
+const CORE = fixture.addresses.core;
 
-const POOL_INITIALIZED = encodeEventTopics({
-  abi: CORE_ABI,
-  eventName: "PoolInitialized",
-})[0];
-const LAUNCH_CREATED = encodeEventTopics({
-  abi: ZERO_SEED_LAUNCH_ABI,
-  eventName: "LaunchCreated",
-})[0];
+const topic = (abi: Abi, eventName: string) =>
+  encodeEventTopics({ abi, eventName })[0] as `0x${string}`;
+/** Strictly decoded args of a launch log, every field present. */
+const decodeArgs = <T>(abi: Abi, eventName: string, log: RawLog): T =>
+  decodeEventLog({
+    abi,
+    eventName,
+    topics: log.topics as [`0x${string}`],
+    data: log.data,
+    strict: true,
+  }).args as T;
+type Hex = `0x${string}`;
+const LAUNCH_CREATED = topic(ZERO_SEED_LAUNCH_ABI, "LaunchCreated");
+const CREATOR_FEES_CLAIMED = topic(ZERO_SEED_LAUNCH_ABI, "CreatorFeesClaimed");
+const OWNER_CHANGED = topic(
+  ZERO_SEED_LAUNCH_PERIPHERY_ABI,
+  "LaunchOwnerChanged",
+);
+const FEES_PAID = topic(ZERO_SEED_LAUNCH_PERIPHERY_ABI, "LaunchFeesClaimed");
 
 const unused = (n: number): `0x${string}` =>
   `0x${n.toString(16).padStart(40, "0")}`;
 
+// Both instances resolve through the production configuration path.
+const PINS = fixture.instances.map((i) =>
+  resolveZeroSeedLaunchPin({
+    coreAddress: CORE,
+    chainId: CHAIN_ID,
+    address: i.extension,
+    runtimeCodehash: i.extensionRuntimeKeccak,
+    production: false,
+  })!,
+);
+const ALL = PINS.map((p) => p.address);
+
 function processorsFor(
-  zeroSeedLaunchAddress?: `0x${string}`,
+  zeroSeedLaunchAddresses: readonly `0x${string}`[],
 ): EvmLogProcessor[] {
   return createLogProcessorsV3({
     mevCaptureAddress: unused(1),
     boostedFeesConcentratedAddress: unused(2),
     boostedFeesStableswapAddress: unused(3),
-    coreAddress: fixture.addresses.core,
+    coreAddress: CORE,
     oracleAddress: unused(4),
     incentivesAddress: unused(5),
     tokenWrapperFactoryAddress: unused(6),
@@ -107,62 +146,8 @@ function processorsFor(
     twammAddresses: [],
     ordersAddresses: [],
     positionsContracts: [],
-    zeroSeedLaunchAddress,
+    zeroSeedLaunchAddresses,
   });
-}
-
-const LAUNCH = resolveZeroSeedLaunchAddress({
-  coreAddress: fixture.addresses.core,
-  chainId: CHAIN_ID,
-  address: fixture.addresses.launch,
-  runtimeCodehash: fixture.provenance.launchRuntimeKeccak,
-  production: false,
-});
-
-/** Explicit test-only arithmetic harness. The service factory refuses the
- * synthetic instance; only this harness bypasses asset screening for math.
- * Core logs still run once, so principal/fees and event identity are unchanged.
- */
-function arithmeticReplayProcessors(): EvmLogProcessor[] {
-  const processors = processorsFor(LAUNCH);
-  const extras = fixture.instances.filter(
-    (i) => i.address.toLowerCase() !== LAUNCH,
-  );
-  const coreInit = processors.find(
-    (p) =>
-      p.address === fixture.addresses.core &&
-      p.filter.topics[0] === POOL_INITIALIZED,
-  )!;
-  const handler = coreInit.handler;
-  coreInit.handler = async (dao, key, log) => {
-    await handler(dao, key, log);
-    const event = decodeEventLog({
-      abi: CORE_ABI,
-      eventName: "PoolInitialized",
-      data: log.data,
-      topics: log.topics as [`0x${string}`],
-      strict: true,
-    }).args;
-    if (!event) throw new Error("PoolInitialized log decoded without args");
-    const extension = parseV2PoolKeyConfig(event.poolKey.config).extension;
-    if (extras.some((i) => BigInt(i.address) === BigInt(extension)))
-      await dao.insertZeroSeedLaunchPoolKey(key.emitter, event.poolId);
-  };
-  for (const instance of extras) {
-    const extra = instance.scope.startsWith("synthetic")
-      ? createProcessorsFromHandlers({
-          ArithmeticOnly: {
-            address: instance.address,
-            ...zeroSeedLaunchHandlers(fixture.addresses.core, instance.quote),
-          },
-        })
-      : createZeroSeedLaunchProcessors({
-          coreAddress: fixture.addresses.core,
-          zeroSeedLaunchAddress: instance.address,
-        });
-    processors.push(...extra);
-  }
-  return processors;
 }
 
 const filtersOf = (processors: EvmLogProcessor[]): LogStreamFilter[] =>
@@ -173,11 +158,14 @@ const filtersOf = (processors: EvmLogProcessor[]): LogStreamFilter[] =>
     strict: p.filter.strict,
   }));
 
+type Guard = ReturnType<typeof zeroSeedLaunchCatchUpGuard>;
+
 /** The runtime's per-block transaction: drop anything at or above the block, then write it. */
 async function applyBlock(
   dao: DAO,
   processors: EvmLogProcessor[],
   block: StreamBlock,
+  guard?: Guard,
 ) {
   const parsed = parseEvmBlockHeader(block)!;
   await dao.begin(async (tx) => {
@@ -189,6 +177,7 @@ async function applyBlock(
       baseFeePerGas: null,
       numEvents: block.logs.reduce((n, log) => n + log.filterIds.length, 0),
     });
+    if (guard) await guard(tx, parsed.header.number);
     await processEvmBlock(processors, parsed.block, parsed.header.number, tx);
   });
 }
@@ -213,6 +202,8 @@ function decodePoolState(word: `0x${string}`) {
   };
 }
 
+const num = (hex: string) => BigInt(hex).toString();
+
 describe.skipIf(!SERVER)(
   "zero-seed launch replay of local chain logs on Postgres",
   () => {
@@ -233,7 +224,7 @@ describe.skipIf(!SERVER)(
       for (const name of [...created, template])
         await admin?.unsafe(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
       await admin?.end();
-    });
+    }, 60_000);
 
     function urlFor(database: string) {
       const url = new URL(SERVER!);
@@ -265,13 +256,14 @@ describe.skipIf(!SERVER)(
         state: FixtureState,
         block: Branch["blocks"][number],
       ) => Promise<void>,
+      guard?: Guard,
     ) {
       const blocks = groupLogsByBlock(branch.logs, filtersOf(processors));
       for (const fixtureBlock of branch.blocks) {
         const block = blocks.find(
           (b) => Number(b.header.blockNumber) === fixtureBlock.number,
         );
-        if (block) await applyBlock(db.dao, processors, block);
+        if (block) await applyBlock(db.dao, processors, block, guard);
         const state = branch.states.find(
           (s) => s.blockNumber === fixtureBlock.number,
         )!;
@@ -289,14 +281,21 @@ describe.skipIf(!SERVER)(
           accrued1: bigint;
           claimed0: bigint;
           claimed1: bigint;
+          paid0: bigint;
+          paid1: bigint;
           swap_count: bigint;
           claim_count: bigint;
           created_event_id: bigint;
           last_event_id: bigint;
+          initial_owner: bigint | null;
+          current_owner: bigint | null;
+          owner_event_id: bigint | null;
+          owner_change_count: bigint;
         }[]
       >`
-      SELECT pk.pool_id, s.accrued0, s.accrued1, s.claimed0, s.claimed1, s.swap_count, s.claim_count,
-             s.created_event_id, s.last_event_id
+      SELECT pk.pool_id, s.accrued0, s.accrued1, s.claimed0, s.claimed1, s.paid0, s.paid1, s.swap_count,
+             s.claim_count, s.created_event_id, s.last_event_id, s.initial_owner, s.current_owner,
+             s.owner_event_id, s.owner_change_count
       FROM zero_seed_launch_states s JOIN pool_keys pk USING (pool_key_id)
       ORDER BY pk.pool_id`;
     }
@@ -309,12 +308,20 @@ describe.skipIf(!SERVER)(
              COALESCE((SELECT SUM(fee_amount) FROM zero_seed_launch_swapped w WHERE w.pool_key_id = c.pool_key_id AND fee_is_token1), 0) AS accrued1,
              COALESCE((SELECT SUM(amount0) FROM zero_seed_launch_fees_claimed f WHERE f.pool_key_id = c.pool_key_id), 0) AS claimed0,
              COALESCE((SELECT SUM(amount1) FROM zero_seed_launch_fees_claimed f WHERE f.pool_key_id = c.pool_key_id), 0) AS claimed1,
+             COALESCE((SELECT SUM(amount0) FROM zero_seed_launch_fees_paid f WHERE f.pool_key_id = c.pool_key_id), 0) AS paid0,
+             COALESCE((SELECT SUM(amount1) FROM zero_seed_launch_fees_paid f WHERE f.pool_key_id = c.pool_key_id), 0) AS paid1,
              (SELECT COUNT(*) FROM zero_seed_launch_swapped w WHERE w.pool_key_id = c.pool_key_id)::int8 AS swap_count,
              (SELECT COUNT(*) FROM zero_seed_launch_fees_claimed f WHERE f.pool_key_id = c.pool_key_id)::int8 AS claim_count,
              c.event_id AS created_event_id,
              GREATEST(c.event_id,
                       (SELECT MAX(event_id) FROM zero_seed_launch_swapped w WHERE w.pool_key_id = c.pool_key_id),
-                      (SELECT MAX(event_id) FROM zero_seed_launch_fees_claimed f WHERE f.pool_key_id = c.pool_key_id)) AS last_event_id
+                      (SELECT MAX(event_id) FROM zero_seed_launch_fees_claimed f WHERE f.pool_key_id = c.pool_key_id),
+                      (SELECT MAX(event_id) FROM zero_seed_launch_fees_paid f WHERE f.pool_key_id = c.pool_key_id),
+                      (SELECT MAX(event_id) FROM zero_seed_launch_owner_changed o WHERE o.pool_key_id = c.pool_key_id)) AS last_event_id,
+             (SELECT new_owner FROM zero_seed_launch_owner_changed o WHERE o.pool_key_id = c.pool_key_id ORDER BY event_id LIMIT 1) AS initial_owner,
+             (SELECT new_owner FROM zero_seed_launch_owner_changed o WHERE o.pool_key_id = c.pool_key_id ORDER BY event_id DESC LIMIT 1) AS current_owner,
+             (SELECT MAX(event_id) FROM zero_seed_launch_owner_changed o WHERE o.pool_key_id = c.pool_key_id) AS owner_event_id,
+             (SELECT COUNT(*) FROM zero_seed_launch_owner_changed o WHERE o.pool_key_id = c.pool_key_id)::int8 AS owner_change_count
       FROM zero_seed_launch_created c JOIN pool_keys pk USING (pool_key_id)
       ORDER BY pk.pool_id`;
     }
@@ -328,6 +335,9 @@ describe.skipIf(!SERVER)(
         for (const v of [r.accrued0, r.accrued1, r.claimed0, r.claimed1])
           expect(v >= 0n).toBe(true);
         expect(r.claimed0 <= r.accrued0 && r.claimed1 <= r.accrued1).toBe(true);
+        // every claim here goes through the periphery: the payout equals the
+        // ledger movement once, and is never counted on top of it
+        expect([r.paid0, r.paid1]).toEqual([r.claimed0, r.claimed1]);
       }
     }
 
@@ -345,19 +355,26 @@ describe.skipIf(!SERVER)(
           balance1: bigint;
           token0: bigint;
           token1: bigint;
+          current_owner: bigint | null;
+          initial_owner: bigint | null;
+          controller: bigint;
+          fee_at: bigint;
         }[]
       >`
       SELECT ps.sqrt_ratio, ps.tick, ps.liquidity, s.accrued0, s.accrued1, s.claimed0, s.claimed1,
-             pt.balance0, pt.balance1, pk.token0, pk.token1
+             pt.balance0, pt.balance1, pk.token0, pk.token1, s.current_owner, s.initial_owner, c.controller,
+             zero_seed_launch_fee_at(c.trading_start, c.fee_duration, c.initial_fee, c.final_fee,
+                                     (SELECT EXTRACT(EPOCH FROM MAX(block_time))::int8 FROM blocks)) AS fee_at
       FROM pool_keys pk
                JOIN pool_states ps USING (pool_key_id)
                JOIN zero_seed_launch_states s USING (pool_key_id)
+               JOIN zero_seed_launch_created c USING (pool_key_id)
                JOIN pool_tvl pt USING (pool_key_id)
-      WHERE pk.chain_id = ${CHAIN_ID} AND pk.pool_id = ${BigInt(poolId).toString()}::numeric`;
+      WHERE pk.chain_id = ${CHAIN_ID} AND pk.pool_id = ${num(poolId)}::numeric`;
       return row;
     }
 
-    /** Indexed Core state, fee ledger and Core token custody equal the chain at this block. */
+    /** Indexed Core state, fee ledger, owner, fee rate and Core custody equal the chain at this block. */
     async function expectChainParity(db: Db, state: FixtureState) {
       const custody = new Map<bigint, bigint>();
       const add = (token: bigint, amount: bigint) =>
@@ -375,6 +392,14 @@ describe.skipIf(!SERVER)(
           row.accrued1 - row.claimed1,
         ];
         expect(unclaimed.map(String)).toEqual(pool.creatorFees);
+        expect([row.current_owner, row.controller]).toEqual([
+          BigInt(pool.launchOwner),
+          BigInt(pool.controller),
+        ]);
+        expect(row.initial_owner).toBe(
+          BigInt(fixture.installations[pool.label].owner),
+        );
+        expect(String(row.fee_at)).toBe(pool.feeAtBlockTime);
         // Core holds each pool's reserves (Core events only) plus the
         // extension's saved fee balance; the two ledgers never mix.
         add(row.token0, row.balance0 + unclaimed[0]);
@@ -429,6 +454,12 @@ describe.skipIf(!SERVER)(
         claimed: await q(
           `SELECT f.*, NULL AS pool_key_id FROM zero_seed_launch_fees_claimed f ORDER BY event_id`,
         ),
+        owners: await q(
+          `SELECT o.*, NULL AS pool_key_id FROM zero_seed_launch_owner_changed o ORDER BY event_id`,
+        ),
+        paid: await q(
+          `SELECT p.*, NULL AS pool_key_id FROM zero_seed_launch_fees_paid p ORDER BY event_id`,
+        ),
         states: await ledgerRows(db).then((rows) =>
           rows.map((r) => ({ ...r })),
         ),
@@ -439,125 +470,30 @@ describe.skipIf(!SERVER)(
         view: await q(`SELECT pool_id, sqrt_ratio, tick, liquidity, last_event_id, ticks, zero_seed_launch_token_is_token1,
                        zero_seed_launch_tick_lower, zero_seed_launch_tick_upper, zero_seed_launch_liquidity,
                        zero_seed_launch_trading_start, zero_seed_launch_fee_duration, zero_seed_launch_initial_fee,
-                       zero_seed_launch_final_fee, zero_seed_launch_decay_factor, is_zero_seed_launch_pool
+                       zero_seed_launch_final_fee, is_zero_seed_launch_pool
                      FROM all_pool_states_view v JOIN pool_keys USING (pool_key_id) ORDER BY pool_id`),
       };
     }
 
-    const LAUNCH_ON = arithmeticReplayProcessors;
+    const LAUNCH_ON = () => processorsFor(ALL);
+
+    async function canonicalReplay() {
+      const db = await freshDb();
+      await replay(db, prefix, LAUNCH_ON());
+      await replay(db, canonical, LAUNCH_ON());
+      return db;
+    }
 
     // ----- scenarios ---------------------------------------------------------
 
     let canonicalDump: Awaited<ReturnType<typeof dump>>;
 
-    test("the pinned fixture launch resolves", () => {
-      expect(LAUNCH).toBe(
-        fixture.addresses.launch.toLowerCase() as `0x${string}`,
-      );
-    });
-
-    test("service entrypoint indexes only its constructor-bound WETH instance, never synthetic quotes", async () => {
-      const db = await freshDb();
-      const processors = processorsFor(LAUNCH);
-      expect(() => processorsFor(fixture.launches.l2.extension)).toThrow(
-        /provenance/,
-      );
-      await replay(db, prefix, processors);
-      await replay(db, canonical, processors);
-      const rows = await db.sql<{ quote_token: bigint; emitter: bigint }[]>`
-      SELECT quote_token, emitter FROM zero_seed_launch_created`;
-      expect(rows).toHaveLength(1);
-      expect([rows[0].quote_token, rows[0].emitter]).toEqual([
-        BigInt(fixture.addresses.quote18),
-        BigInt(LAUNCH!),
+    test("both fixture instances resolve through the pins, native and ERC-20", () => {
+      expect(PINS.map((p) => [p.quote.kind, p.deploymentBlock])).toEqual([
+        ["native", 2],
+        ["erc20", 2],
       ]);
-      const [{ flagged }] = await db.sql<{ flagged: number }[]>`
-      SELECT COUNT(*)::int AS flagged FROM all_pool_states_view v JOIN pool_keys pk USING (pool_key_id)
-      WHERE is_zero_seed_launch_pool AND pk.pool_extension <> ${BigInt(LAUNCH!).toString()}::numeric`;
-      expect(flagged).toBe(0);
-      await db.sql.end();
-    }, 120_000);
-
-    test("DAO refuses claim sinks, wrong creator and cross-instance emitter, leaving committed state unchanged", async () => {
-      const db = await freshDb();
-      await replay(db, prefix, LAUNCH_ON());
-      await replay(db, canonical, LAUNCH_ON());
-      const log = canonical.logs.find(
-        (l) =>
-          l.topics[0] ===
-          encodeEventTopics({
-            abi: ZERO_SEED_LAUNCH_ABI,
-            eventName: "CreatorFeesClaimed",
-          })[0],
-      )!;
-      const event = decodeEventLog({
-        abi: ZERO_SEED_LAUNCH_ABI,
-        eventName: "CreatorFeesClaimed",
-        topics: log.topics as [`0x${string}`],
-        data: log.data,
-        strict: true,
-      }).args;
-      if (!event)
-        throw new Error("CreatorFeesClaimed log decoded without args");
-      const key = {
-        blockNumber: Number(log.blockNumber),
-        transactionIndex: Number(log.transactionIndex),
-        eventIndex: Number(log.logIndex),
-        emitter: log.address,
-        transactionHash: log.transactionHash,
-      };
-      const launch = Object.values(fixture.launches).find(
-        (l) => l.poolId === event.poolId,
-      )!;
-      const before = await dump(db);
-      for (const recipient of [
-        unused(0),
-        fixture.addresses.core,
-        key.emitter,
-        launch.token,
-        launch.quote,
-      ]) {
-        await expectRejects(
-          db.dao.begin((tx) =>
-            tx.insertZeroSeedLaunchFeesClaimedEvent(key, {
-              coreAddress: fixture.addresses.core,
-              ...event,
-              recipient: recipient as `0x${string}`,
-            }),
-          ),
-          /sink recipient/,
-        );
-      }
-      await expectRejects(
-        db.dao.begin((tx) =>
-          tx.insertZeroSeedLaunchFeesClaimedEvent(key, {
-            coreAddress: fixture.addresses.core,
-            ...event,
-            creator: unused(99),
-          }),
-        ),
-        /creator/,
-      );
-      await expectRejects(
-        db.dao.begin((tx) =>
-          tx.insertZeroSeedLaunchFeesClaimedEvent(
-            { ...key, emitter: unused(99) },
-            { coreAddress: fixture.addresses.core, ...event },
-          ),
-        ),
-        /not a registered launch pool/,
-      );
-      expect(await dump(db)).toEqual(before);
-      // Valid atomic two-asset claim redelivery is still an idempotent retry.
-      await db.dao.begin((tx) =>
-        tx.insertZeroSeedLaunchFeesClaimedEvent(key, {
-          coreAddress: fixture.addresses.core,
-          ...event,
-        }),
-      );
-      expect(await dump(db)).toEqual(before);
-      await db.sql.end();
-    }, 120_000);
+    });
 
     test("canonical replay equals chain state after every block", async () => {
       const db = await freshDb();
@@ -566,15 +502,209 @@ describe.skipIf(!SERVER)(
       await replay(db, canonical, processors, (state) => check(db, state));
       canonicalDump = await dump(db);
       expect(canonicalDump.created.length).toBe(3);
-      expect(canonicalDump.swapped.length).toBeGreaterThan(10);
-      expect(canonicalDump.claimed.length).toBe(5);
+      expect(canonicalDump.swapped.length).toBeGreaterThan(15);
+      expect(canonicalDump.claimed.length).toBe(6);
+      expect(canonicalDump.paid.length).toBe(6);
+      // three creations and three transfers
+      expect(canonicalDump.owners.length).toBe(6);
+      const quotes = canonicalDump.created.map((c) => [
+        String(c.quote_token),
+        c.quote_kind,
+        c.token_is_token1,
+      ]);
+      expect(quotes).toEqual([
+        ["0", "native", true],
+        [BigInt(fixture.launches.l2.quote).toString(), "erc20", false],
+        [BigInt(fixture.launches.l4.quote).toString(), "erc20", false],
+      ]);
+      await db.sql.end();
+    }, 120_000);
+
+    test("ownership: creator from the creation transfer, current owner from the latest, payouts only by the current owner", async () => {
+      const db = await canonicalReplay();
+      const rows = await db.sql<
+        {
+          pool_id: bigint;
+          initial_owner: bigint;
+          current_owner: bigint;
+          owner_change_count: bigint;
+        }[]
+      >`
+      SELECT pk.pool_id, s.initial_owner, s.current_owner, s.owner_change_count
+      FROM zero_seed_launch_states s JOIN pool_keys pk USING (pool_key_id) ORDER BY s.created_event_id`;
+      const { creator, newOwner, feeRecipient, trader } = fixture.addresses;
+      expect(
+        rows.map((r) => [
+          r.initial_owner,
+          r.current_owner,
+          Number(r.owner_change_count),
+        ]),
+      ).toEqual([
+        [BigInt(creator), BigInt(feeRecipient), 3], // l1: creator -> new -> recipient
+        [BigInt(creator), BigInt(newOwner), 2], // l2: creator -> new
+        [BigInt(trader), BigInt(trader), 1], // l4
+      ]);
+      // The creation transfer comes from zero right after LaunchCreated, in the same transaction.
+      const [{ ok }] = await db.sql<{ ok: boolean }[]>`
+      SELECT bool_and(o.previous_owner = 0 AND o.transaction_hash = c.transaction_hash AND o.event_id > c.event_id) AS ok
+      FROM zero_seed_launch_created c
+               JOIN LATERAL (SELECT * FROM zero_seed_launch_owner_changed o
+                             WHERE o.pool_key_id = c.pool_key_id ORDER BY event_id LIMIT 1) o ON TRUE`;
+      expect(ok).toBe(true);
+      // Every payout names the owner at that time and links its own extension claim.
+      const payouts = await db.sql<{ ok: boolean }[]>`
+      SELECT p.owner = (SELECT new_owner FROM zero_seed_launch_owner_changed o
+                        WHERE o.pool_key_id = p.pool_key_id AND o.event_id < p.event_id
+                        ORDER BY o.event_id DESC LIMIT 1)
+               AND f.transaction_hash = p.transaction_hash AND f.event_id < p.event_id
+               AND (f.amount0, f.amount1) = (p.amount0, p.amount1) AND f.controller = p.emitter AS ok
+      FROM zero_seed_launch_fees_paid p
+               JOIN zero_seed_launch_fees_claimed f ON f.chain_id = p.chain_id AND f.event_id = p.claimed_event_id`;
+      expect(payouts.length).toBe(6);
+      expect(payouts.every((r) => r.ok)).toBe(true);
+      await db.sql.end();
+    }, 120_000);
+
+    test("DAO refuses foreign owners, sink recipients, unmatched payouts and another controller, leaving committed state unchanged", async () => {
+      const db = await canonicalReplay();
+      const logOf = (topic0: `0x${string}`) =>
+        canonical.logs.find((l) => l.topics[0] === topic0)!;
+      const keyOf = (log: RawLog) => ({
+        blockNumber: Number(log.blockNumber),
+        transactionIndex: Number(log.transactionIndex),
+        eventIndex: Number(log.logIndex),
+        emitter: log.address,
+        transactionHash: log.transactionHash,
+      });
+      const paidLog = logOf(FEES_PAID);
+      const paid = decodeArgs<{
+        poolId: Hex;
+        owner: Hex;
+        recipient: Hex;
+        amount0: bigint;
+        amount1: bigint;
+      }>(ZERO_SEED_LAUNCH_PERIPHERY_ABI, "LaunchFeesClaimed", paidLog);
+      const launch = Object.values(fixture.launches).find(
+        (l) => l.poolId === paid.poolId,
+      )!;
+      const base = {
+        coreAddress: CORE,
+        extension: launch.extension,
+        ...paid,
+      };
+      // A fresh event position in the same block: not a redelivery.
+      const freshKey = { ...keyOf(paidLog), eventIndex: 999 };
+      const before = await dump(db);
+      for (const recipient of [
+        unused(0),
+        CORE,
+        launch.extension,
+        launch.periphery,
+        launch.token,
+        launch.quote,
+      ]) {
+        await expectRejects(
+          db.dao.begin((tx) =>
+            tx.insertZeroSeedLaunchFeesPaidEvent(freshKey, {
+              ...base,
+              recipient: recipient as `0x${string}`,
+            }),
+          ),
+          /sink recipient/,
+        );
+      }
+      await expectRejects(
+        db.dao.begin((tx) =>
+          tx.insertZeroSeedLaunchFeesPaidEvent(freshKey, {
+            ...base,
+            owner: unused(99),
+          }),
+        ),
+        /another owner/,
+      );
+      // the same payout again at another position has no unlinked claim left
+      await expectRejects(
+        db.dao.begin((tx) =>
+          tx.insertZeroSeedLaunchFeesPaidEvent(freshKey, base),
+        ),
+        /without its extension claim/,
+      );
+      // an owner change not from the current owner, to zero, or from a non-controller
+      const ownerLog = logOf(OWNER_CHANGED);
+      const owner = decodeArgs<{
+        poolId: Hex;
+        previousOwner: Hex;
+        newOwner: Hex;
+      }>(ZERO_SEED_LAUNCH_PERIPHERY_ABI, "LaunchOwnerChanged", ownerLog);
+      const ownerLaunch = Object.values(fixture.launches).find(
+        (l) => l.poolId === owner.poolId,
+      )!;
+      const ownerKey = { ...keyOf(ownerLog), eventIndex: 999 };
+      for (const [key, change] of [
+        [ownerKey, { previousOwner: unused(98), newOwner: unused(97) }],
+        [ownerKey, { previousOwner: unused(0), newOwner: unused(97) }],
+        [
+          { ...ownerKey, emitter: unused(96) },
+          { previousOwner: owner.newOwner, newOwner: unused(97) },
+        ],
+      ] as const)
+        await expectRejects(
+          db.dao.begin((tx) =>
+            tx.insertZeroSeedLaunchOwnerChangedEvent(key, {
+              coreAddress: CORE,
+              extension: ownerLaunch.extension,
+              poolId: owner.poolId,
+              ...change,
+            }),
+          ),
+          /Refusing LaunchOwnerChanged/,
+        );
+      // an extension claim by a controller other than the launch's
+      const claimLog = logOf(CREATOR_FEES_CLAIMED);
+      const claim = decodeArgs<{
+        poolId: Hex;
+        controller: Hex;
+        amount0: bigint;
+        amount1: bigint;
+      }>(ZERO_SEED_LAUNCH_ABI, "CreatorFeesClaimed", claimLog);
+      await expectRejects(
+        db.dao.begin((tx) =>
+          tx.insertZeroSeedLaunchFeesClaimedEvent(
+            { ...keyOf(claimLog), eventIndex: 999 },
+            { coreAddress: CORE, ...claim, controller: unused(95) },
+          ),
+        ),
+        /another controller/,
+      );
+      // cross-instance: a periphery event attributed to the other extension
+      const other = PINS.find(
+        (p) => p.address !== launch.extension.toLowerCase(),
+      )!;
+      await expectRejects(
+        db.dao.begin((tx) =>
+          tx.insertZeroSeedLaunchFeesPaidEvent(freshKey, {
+            ...base,
+            extension: other.address,
+          }),
+        ),
+        /not a registered launch pool/,
+      );
+      expect(await dump(db)).toEqual(before);
+      // Valid redelivery of each stored periphery log is an idempotent retry.
+      await db.dao.begin(async (tx) => {
+        await tx.insertZeroSeedLaunchFeesPaidEvent(keyOf(paidLog), base);
+        await tx.insertZeroSeedLaunchOwnerChangedEvent(keyOf(ownerLog), {
+          coreAddress: CORE,
+          extension: ownerLaunch.extension,
+          ...owner,
+        });
+      });
+      expect(await dump(db)).toEqual(before);
       await db.sql.end();
     }, 120_000);
 
     test("every swap: fee rate is feeAt at the block, and launch delta = Core delta + fee on one side", async () => {
-      const db = await freshDb();
-      await replay(db, prefix, LAUNCH_ON());
-      await replay(db, canonical, LAUNCH_ON());
+      const db = await canonicalReplay();
       const rows = await db.sql<
         {
           ok_rate: boolean;
@@ -582,14 +712,16 @@ describe.skipIf(!SERVER)(
           ok_other: boolean;
           core_found: boolean;
           zero_fill: boolean;
+          native: boolean;
         }[]
       >`
       SELECT w.fee_rate = zero_seed_launch_fee_at(c.trading_start, c.fee_duration, c.initial_fee, c.final_fee,
-                                                   c.decay_factor, EXTRACT(EPOCH FROM b.block_time)::int8) AS ok_rate,
+                                                   EXTRACT(EPOCH FROM b.block_time)::int8) AS ok_rate,
              (CASE WHEN w.fee_is_token1 THEN w.delta1 - s.delta1 ELSE w.delta0 - s.delta0 END) = w.fee_amount AS ok_fee_side,
              (CASE WHEN w.fee_is_token1 THEN w.delta0 = s.delta0 ELSE w.delta1 = s.delta1 END) AS ok_other,
              s.event_id IS NOT NULL AS core_found,
-             w.delta0 = 0 AND w.delta1 = 0 AND w.fee_amount = 0 AS zero_fill
+             w.delta0 = 0 AND w.delta1 = 0 AND w.fee_amount = 0 AS zero_fill,
+             c.quote_kind = 'native' AS native
       FROM zero_seed_launch_swapped w
                JOIN zero_seed_launch_created c USING (pool_key_id)
                JOIN blocks b ON b.chain_id = w.chain_id AND b.block_number = w.block_number
@@ -597,7 +729,10 @@ describe.skipIf(!SERVER)(
                                   WHERE s.chain_id = w.chain_id AND s.pool_key_id = w.pool_key_id
                                     AND s.transaction_hash = w.transaction_hash AND s.event_id < w.event_id
                                   ORDER BY s.event_id DESC LIMIT 1) s ON TRUE`;
-      expect(rows.length).toBeGreaterThan(10);
+      expect(rows.length).toBeGreaterThan(15);
+      expect(rows.some((r) => r.native) && rows.some((r) => !r.native)).toBe(
+        true,
+      );
       // A zero fill (the two deliberate no-bid sells) moves nothing, and Core
       // emits no swap log for it; every other launch swap has its Core swap.
       expect(rows.filter((r) => r.zero_fill).map((r) => r.core_found)).toEqual([
@@ -614,226 +749,268 @@ describe.skipIf(!SERVER)(
       await db.sql.end();
     }, 120_000);
 
-    test("fee_at reproduces the contract's exponential schedule bit for bit", async () => {
+    test("fee_at and decay_q128 reproduce the independent all-second vectors bit for bit", async () => {
       const db = await freshDb();
-      // SHA-256 chains h = sha256(h || fee as 8-byte big-endian) over every second t = 0..D, pinned in
-      // evm-contracts b1cbb1c1 test/vectors/zero-seed-launch.json (fee_curve.all_second_digests_sha256).
-      const rates: Record<string, bigint> = {
-        "5": 922337203685477580n,
-        "50": 9223372036854775808n,
-        "75": 13835058055282163712n,
-        "90": 16602069666338596454n,
-        "99": 18262276632972456099n,
-        max: 18446744073709551615n,
+      // [initial, final, duration, elapsed, fee] for every second of 12 curves,
+      // from the protocol's 250-digit Decimal generator, not from this code.
+      const rows = JSON.parse(
+        gunzipSync(
+          readFileSync(
+            resolve(
+              ROOT,
+              "tests/fixtures/zero-seed-launch/fee-curve-all-seconds.json.gz",
+            ),
+          ),
+        ).toString("utf8"),
+      ) as [string, string, string, string, string][];
+      expect(rows.length).toBe(25_212);
+      const mismatches = await db.sql<{ n: number }[]>`
+        WITH v AS (
+          SELECT (r ->> 0)::numeric AS initial, (r ->> 1)::numeric AS final, (r ->> 2)::int8 AS duration,
+                 (r ->> 3)::int8 AS elapsed, (r ->> 4)::numeric AS fee
+          FROM jsonb_array_elements((${JSON.stringify(rows)}::text)::jsonb) r
+        )
+        SELECT COUNT(*) FILTER (WHERE zero_seed_launch_fee_at(1000, duration, initial, final, 1000 + elapsed) <> fee)::int AS n,
+               COUNT(*)::int AS total
+        FROM v`;
+      expect(mismatches[0]).toEqual({ n: 0, total: 25_212 } as never);
+      // Before the start the fee is initial.
+      const [{ before }] = await db.sql<{ before: bigint }[]>`
+        SELECT zero_seed_launch_fee_at(1000, 600, 9223372036854775808, 55340232221128654, 1) AS before`;
+      expect(before).toBe(9223372036854775808n);
+      const vectors = JSON.parse(
+        readFileSync(
+          resolve(
+            ROOT,
+            "tests/fixtures/zero-seed-launch/fee-decay-vectors.json",
+          ),
+          "utf8",
+        ),
+      ) as {
+        zero_at_or_above: number;
+        decay_samples: { t: number; decay_q128: string }[];
+        fee_rows: {
+          initial: string;
+          final: string;
+          duration: number;
+          elapsed: number;
+          fee: string;
+        }[];
       };
-      const digests: Record<number, [bigint, Record<string, string>]> = {
-        600: [
-          18319323104848571946n,
-          {
-            "5": "6346e95d7a66797ce3270ff25d5fc19e64c2e9ccabf1c2dbc03a946276fe64b5",
-            "50": "73b08ebf1a8d045805ec42c84200bbd841e25e515a1aef7f7fb6d246c6b6027a",
-            "75": "ac34495b80e94c660319b488c697f7ecf05af9eeb3f4a03c27c1b7bc79d4e5f4",
-            "90": "87c5e5119e29faddc71e59753cca77fea297b4d76419fd0b66a78a340c4b7cef",
-            "99": "af32943cbe63a0991532e385ad42960e1ce4040d59981ca6d4a4d4b86dc20cb0",
-            max: "dce005ce818ddc4248d259c7a6e2b9c0652cb4b4705b70cf9f4f04f1270023af",
-          },
-        ],
-        3600: [
-          18425445863997925462n,
-          {
-            "5": "306aaf4b3acfabe5ba98a1ee86cf91ba6564e010f806d1f592f3a403620bfd77",
-            "50": "ac4fa207bb2beec03e9a122e5839482d14abb55c72a4b65c155da02ea15baf51",
-            "75": "c7eaeb00462cc16f7ce3684309604d97a9a22a1eaec15a1b8862bbfd68705771",
-            "90": "fb0df6da40ddcacfe08f4a599b3078a1e6dbe0017b97e73b6b4e384563247354",
-            "99": "ee35ebedb9d7c09c69675d9517cdc1dc26e177eb61e0aa76fd13eb63dee8cba8",
-            max: "82e00f48c0d5dc03d757e417a60a410a8ee9cfd0d41c12cfb72547bfc73ac4f7",
-          },
-        ],
-      };
-      const finalFee = 55340232221128654n;
-      let checked = 0;
-      for (const [duration, [factor, byRate]] of Object.entries(digests)) {
-        for (const [label, rate] of Object.entries(rates)) {
-          const rows = await db.sql<{ fee: bigint }[]>`
-            SELECT zero_seed_launch_fee_at(1000, ${duration}::int8, ${rate.toString()}::numeric,
-                                           ${finalFee.toString()}::numeric, ${factor.toString()}::numeric,
-                                           1000 + t) AS fee
-            FROM generate_series(0, ${duration}::int8) t ORDER BY t`;
-          let chain = new Uint8Array(32);
-          for (const { fee } of rows) {
-            const word = new Uint8Array(40);
-            word.set(chain);
-            new DataView(word.buffer).setBigUint64(32, BigInt(fee));
-            chain = new Uint8Array(
-              new Bun.CryptoHasher("sha256").update(word).digest(),
-            );
-            checked++;
-          }
-          expect(Buffer.from(chain).toString("hex")).toBe(byRate[label]);
-        }
+      for (const { t, decay_q128 } of vectors.decay_samples) {
+        const [{ d }] = await db.sql<{ d: bigint }[]>`
+          SELECT zero_seed_launch_decay_q128(${t}::int8) AS d`;
+        expect(String(d)).toBe(decay_q128);
       }
-      expect(checked).toBe(25_212);
-      // Documented nearly flat factors that lie above the integer linear chord: reproduced, not corrected.
-      const exceptions = [
-        [
-          "18446744073692774400",
-          600,
-          561,
-          "6145946118234823704",
-          "3773859608321006899",
-          "3928045231480721956",
-        ],
-        [
-          "18446744073675997184",
-          600,
-          596,
-          "18262276632972456099",
-          "16093730704593406921",
-          "16108187677454293848",
-        ],
-        [
-          "18446744073709551608",
-          4294967295,
-          4197406844,
-          "18446744073709551615",
-          "18012629042273719369",
-          "18022489992398216608",
-        ],
-        [
-          "18446744073709551608",
-          4294967295,
-          4028198074,
-          "18446744073709551615",
-          "14193599660735192734",
-          "14457771176879541746",
-        ],
-        [
-          "18446744073709551608",
-          4294967295,
-          4074259523,
-          "18446744073709551615",
-          "11939927239388337278",
-          "12274296501798491214",
-        ],
-      ] as const;
-      for (const [factor, duration, t, initial, final, fee] of exceptions) {
-        const [row] = await db.sql<{ fee: bigint }[]>`
-          SELECT zero_seed_launch_fee_at(0, ${duration}::int8, ${initial}::numeric, ${final}::numeric,
-                                         ${factor}::numeric, ${t}::int8) AS fee`;
-        expect(String(row.fee)).toBe(fee);
+      for (const t of [vectors.zero_at_or_above - 1, vectors.zero_at_or_above])
+        await db.sql`SELECT zero_seed_launch_decay_q128(${t}::int8)`;
+      const [{ zero }] = await db.sql<{ zero: bigint }[]>`
+        SELECT zero_seed_launch_decay_q128(${vectors.zero_at_or_above}::int8) AS zero`;
+      expect(zero).toBe(0n);
+      for (const r of vectors.fee_rows) {
+        const [{ fee }] = await db.sql<{ fee: bigint }[]>`
+          SELECT zero_seed_launch_fee_at(0, ${r.duration}::int8, ${r.initial}::numeric, ${r.final}::numeric,
+                                         ${r.elapsed}::int8) AS fee`;
+        expect(String(fee)).toBe(r.fee);
       }
       await db.sql.end();
     }, 300_000);
 
-    test("orders and decimals: generated pool ticks, view columns and the two tick entries", async () => {
-      const db = await freshDb();
-      await replay(db, prefix, LAUNCH_ON());
-      await replay(db, canonical, LAUNCH_ON());
+    test("orders: generated pool ticks, view columns and the two tick entries for native token1 and ERC-20 token0 launches", async () => {
+      const db = await canonicalReplay();
       const rows = await db.sql<
-        { token_is_token1: boolean; quote_decimals_6: boolean; ok: boolean }[]
+        { token_is_token1: boolean; native: boolean; ok: boolean }[]
       >`
       SELECT c.token_is_token1,
-             c.quote_token = ${BigInt(fixture.addresses.quote6).toString()}::numeric AS quote_decimals_6,
+             c.quote_kind = 'native' AND c.quote_token = 0 AND pk.token0 = 0 AS native,
              v.is_zero_seed_launch_pool
                AND v.zero_seed_launch_tick_lower = c.tick_lower AND v.zero_seed_launch_tick_upper = c.tick_upper
                AND v.zero_seed_launch_liquidity = c.liquidity AND v.zero_seed_launch_token_is_token1 = c.token_is_token1
                AND v.zero_seed_launch_trading_start = c.trading_start AND v.zero_seed_launch_fee_duration = c.fee_duration
                AND v.zero_seed_launch_initial_fee = c.initial_fee AND v.zero_seed_launch_final_fee = c.final_fee
-               AND v.zero_seed_launch_decay_factor = c.decay_factor
                AND v.ticks = JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT('t', c.tick_lower, 'd', c.liquidity::TEXT),
                                                JSONB_BUILD_OBJECT('t', c.tick_upper, 'd', (-c.liquidity)::TEXT))
                AND DIV(c.position_id, 18446744073709551616) = 0
                AND MOD(DIV(c.position_id, 4294967296), 4294967296) = MOD(c.tick_lower::int8 + 4294967296, 4294967296)
                AND MOD(c.position_id, 4294967296) = MOD(c.tick_upper::int8 + 4294967296, 4294967296) AS ok
-      FROM zero_seed_launch_created c JOIN all_pool_states_view v USING (pool_key_id)
+      FROM zero_seed_launch_created c JOIN all_pool_states_view v USING (pool_key_id) JOIN pool_keys pk USING (pool_key_id)
       ORDER BY c.event_id`;
-      expect(rows.map((r) => [r.token_is_token1, r.quote_decimals_6])).toEqual([
-        [false, false], // l1: token0, 18/18
-        [true, true], // l2: token1, 18/6
-        [false, true], // l4: token0, 18/6
+      expect(rows.map((r) => [r.token_is_token1, r.native])).toEqual([
+        [true, true], // l1: native quote, launch token1
+        [false, false], // l2: WETH quote, launch token0
+        [false, false], // l4
       ]);
       expect(rows.every((r) => r.ok)).toBe(true);
       await db.sql.end();
     }, 120_000);
 
-    test("reorg: an alternate fork across a creation, then the canonical branch, equals a straight replay", async () => {
+    test("deployment-block-inclusive catch-up: a start after the deployment block is refused unless nothing was missed", async () => {
+      const deployment = PINS[0].deploymentBlock;
+      const deploymentBlock = prefix.blocks.find(
+        (b) => b.number === deployment,
+      )!;
+      expect(deploymentBlock.actions).toContain("create l1");
+      const guard = () => zeroSeedLaunchCatchUpGuard(PINS);
+
+      // (1) Inclusive from genesis through the guard: identical to the canonical replay.
+      const inclusive = await freshDb();
+      await replay(inclusive, prefix, LAUNCH_ON(), undefined, guard());
+      await replay(inclusive, canonical, LAUNCH_ON(), undefined, guard());
+      expect(await dump(inclusive)).toEqual(canonicalDump);
+      await inclusive.sql.end();
+
+      // (2) Support was off through the deployment block, then turned on: refused,
+      // because l1's pool was initialized while launches were not indexed.
+      const late = await freshDb();
+      const upTo = (b: Branch, last: number) => ({
+        ...b,
+        blocks: b.blocks.filter((x) => x.number <= last),
+      });
+      const from = (b: Branch, first: number) => ({
+        ...b,
+        blocks: b.blocks.filter((x) => x.number >= first),
+      });
+      await replay(late, upTo(prefix, deployment), processorsFor([]));
+      await expectRejects(
+        replay(
+          late,
+          from(prefix, deployment + 1),
+          LAUNCH_ON(),
+          undefined,
+          guard(),
+        ),
+        /launch pools initialized while launch support was off; roll the indexer back to block 1/,
+      );
+      // Recovery: roll back to the block before the deployment and replay inclusively.
+      await invalidateFrom(late.dao, deployment);
+      await replay(
+        late,
+        from(prefix, deployment),
+        LAUNCH_ON(),
+        undefined,
+        guard(),
+      );
+      await replay(late, canonical, LAUNCH_ON(), undefined, guard());
+      expect(await dump(late)).toEqual(canonicalDump);
+      await late.sql.end();
+
+      // (3) A database that never indexed the deployment block: refused.
+      const skipped = await freshDb();
+      await expectRejects(
+        replay(
+          skipped,
+          from(prefix, deployment + 1),
+          LAUNCH_ON(),
+          undefined,
+          guard(),
+        ),
+        /without this database having indexed the deployment/,
+      );
+      // Without the guard, starting one block late loses l1's creation: the
+      // worker indexes l2 and then stops at l1's first swap.
+      await expectRejects(
+        replay(skipped, from(prefix, deployment + 1), LAUNCH_ON()),
+        /not a registered launch pool/,
+      );
+      const [{ n }] = await skipped.sql<{ n: number }[]>`
+        SELECT COUNT(*)::int AS n FROM zero_seed_launch_created`;
+      expect(n).toBe(1);
+      await skipped.sql.end();
+
+      // (4) The WETH instance turned on one block after its deployment,
+      // before its first launch pool: nothing can have been missed (its
+      // ExtensionRegistered is indexed and no pool of it lacks registration),
+      // so the guard accepts and the result equals the canonical replay.
+      const db = await freshDb();
+      await replay(
+        db,
+        upTo(prefix, deployment),
+        processorsFor([PINS[0].address]),
+      );
+      await replay(
+        db,
+        from(prefix, deployment + 1),
+        LAUNCH_ON(),
+        undefined,
+        guard(),
+      );
+      await replay(db, canonical, LAUNCH_ON(), undefined, guard());
+      expect(await dump(db)).toEqual(canonicalDump);
+      await db.sql.end();
+    }, 300_000);
+
+    test("reorg: an alternate fork with other transfers, claims and a creation, then the canonical branch, equals a straight replay", async () => {
       const db = await freshDb();
       const processors = LAUNCH_ON();
       await replay(db, prefix, processors);
       await replay(db, alternate, processors, (state) => check(db, state));
-      // The alternate fork created l3, which the canonical chain never did.
-      const [{ l3 }] = await db.sql<{ l3: number }[]>`
-      SELECT COUNT(*)::int AS l3 FROM zero_seed_launch_created WHERE pool_id = ${BigInt(fixture.launches.l3.poolId).toString()}::numeric`;
-      expect(l3).toBe(1);
+      // On the alternate fork l1 moved to the new owner, who claimed; l3 existed.
+      const [{ l3, l1Owner }] = await db.sql<{ l3: number; l1Owner: bigint }[]>`
+      SELECT (SELECT COUNT(*)::int FROM zero_seed_launch_created WHERE pool_id = ${num(fixture.launches.l3.poolId)}::numeric) AS l3,
+             (SELECT s.current_owner FROM zero_seed_launch_states s JOIN pool_keys pk USING (pool_key_id)
+              WHERE pk.pool_id = ${num(fixture.launches.l1.poolId)}::numeric) AS "l1Owner"`;
+      expect([l3, l1Owner]).toEqual([1, BigInt(fixture.addresses.newOwner)]);
       await invalidateFrom(db.dao, fixture.forkPoint + 1);
       await expectLedgerConsistent(db);
+      // the reorg restores the owner of the fork point
+      await check(db, prefix.states.at(-1)!);
       await replay(db, canonical, processors, (state) => check(db, state));
       expect(await dump(db)).toEqual(canonicalDump);
       // l3's pool key outlives the fork, as every Core pool key does, but it has
       // no state, no launch row and is not in the view.
       const [{ visible }] = await db.sql<{ visible: number }[]>`
       SELECT COUNT(*)::int AS visible FROM all_pool_states_view v JOIN pool_keys pk USING (pool_key_id)
-      WHERE pk.pool_id = ${BigInt(fixture.launches.l3.poolId).toString()}::numeric`;
+      WHERE pk.pool_id = ${num(fixture.launches.l3.poolId)}::numeric`;
       expect(visible).toBe(0);
       await db.sql.end();
     }, 120_000);
 
-    test("reorg from the first creation block empties every launch table, and replay restores it", async () => {
-      const db = await freshDb();
-      const processors = LAUNCH_ON();
-      await replay(db, prefix, processors);
-      await replay(db, canonical, processors);
-      const creationBlock = prefix.blocks.find((b) =>
-        b.actions.includes("create l1"),
-      )!.number;
-      await invalidateFrom(db.dao, creationBlock);
-      const counts = await db.sql<{ n: number }[]>`
-      SELECT (SELECT COUNT(*) FROM zero_seed_launch_created) + (SELECT COUNT(*) FROM zero_seed_launch_swapped)
-           + (SELECT COUNT(*) FROM zero_seed_launch_fees_claimed) + (SELECT COUNT(*) FROM zero_seed_launch_states) AS n`;
-      expect(Number(counts[0].n)).toBe(0);
+    test("reorg from the deployment block empties every launch table, and replay restores it", async () => {
+      const db = await canonicalReplay();
+      const deployment = PINS[0].deploymentBlock;
+      await invalidateFrom(db.dao, deployment);
       const [{ n }] = await db.sql<{ n: number }[]>`
-      SELECT COUNT(*)::int AS n FROM all_pool_states_view WHERE is_zero_seed_launch_pool`;
+      SELECT ((SELECT COUNT(*) FROM zero_seed_launch_created) + (SELECT COUNT(*) FROM zero_seed_launch_swapped)
+           + (SELECT COUNT(*) FROM zero_seed_launch_fees_claimed) + (SELECT COUNT(*) FROM zero_seed_launch_states)
+           + (SELECT COUNT(*) FROM zero_seed_launch_owner_changed) + (SELECT COUNT(*) FROM zero_seed_launch_fees_paid))::int AS n`;
       expect(n).toBe(0);
+      const [{ flagged }] = await db.sql<{ flagged: number }[]>`
+      SELECT COUNT(*)::int AS flagged FROM all_pool_states_view WHERE is_zero_seed_launch_pool`;
+      expect(flagged).toBe(0);
       await replay(
         db,
         {
           ...prefix,
-          blocks: prefix.blocks.filter((b) => b.number >= creationBlock),
+          blocks: prefix.blocks.filter((b) => b.number >= deployment),
         },
-        processors,
+        LAUNCH_ON(),
       );
-      await replay(db, canonical, processors);
+      await replay(db, canonical, LAUNCH_ON());
       expect(await dump(db)).toEqual(canonicalDump);
       await db.sql.end();
     }, 120_000);
 
-    test("deleting swaps before claims, claims before swaps, or whole blocks: committed ledgers never go negative", async () => {
-      const db = await freshDb();
-      const processors = LAUNCH_ON();
-      await replay(db, prefix, processors);
-      await replay(db, canonical, processors);
-      for (const first of [
+    test("deleting launch event tables in any order, or whole blocks: committed ledgers and owners stay exact", async () => {
+      const db = await canonicalReplay();
+      const tables = [
         "zero_seed_launch_swapped",
+        "zero_seed_launch_fees_paid",
         "zero_seed_launch_fees_claimed",
-      ]) {
-        const second =
-          first === "zero_seed_launch_swapped"
-            ? "zero_seed_launch_fees_claimed"
-            : "zero_seed_launch_swapped";
+        "zero_seed_launch_owner_changed",
+      ];
+      for (const order of [tables, [...tables].reverse()]) {
         await db.sql.begin(async (tx) => {
-          await tx.unsafe(
-            `DELETE FROM ${first} WHERE block_number > ${fixture.forkPoint}`,
-          );
-          await tx.unsafe(
-            `DELETE FROM ${second} WHERE block_number > ${fixture.forkPoint}`,
-          );
+          for (const table of order)
+            await tx.unsafe(
+              `DELETE FROM ${table} WHERE block_number > ${fixture.forkPoint}`,
+            );
           await tx.unsafe(
             `DELETE FROM blocks WHERE block_number > ${fixture.forkPoint}`,
           );
         });
         await expectLedgerConsistent(db);
         await check(db, prefix.states.at(-1)!);
-        await replay(db, canonical, processors);
+        await replay(db, canonical, LAUNCH_ON());
         expect(await dump(db)).toEqual(canonicalDump);
       }
       // Each canonical block alone, newest first: every intermediate commit is consistent.
@@ -848,130 +1025,115 @@ describe.skipIf(!SERVER)(
       await db.sql.end();
     }, 120_000);
 
-    test("redelivery: re-processing a block, or re-sending its launch logs, changes nothing", async () => {
-      const db = await freshDb();
+    test("redelivery: re-processing blocks, or re-sending every launch log, changes nothing and never double counts", async () => {
+      const db = await canonicalReplay();
       const processors = LAUNCH_ON();
-      await replay(db, prefix, processors);
-      await replay(db, canonical, processors);
       const blocks = groupLogsByBlock(
         [...prefix.logs, ...canonical.logs],
         filtersOf(processors),
       );
       // the runtime's path: a block arriving again is deleted and rewritten
-      for (const block of blocks.slice(-4))
+      for (const block of blocks.slice(-5))
         await applyBlock(db.dao, processors, block);
       expect(await dump(db)).toEqual(canonicalDump);
-      // a duplicate launch log inside the same transaction is ignored
-      const launchOnly = processors.filter((p) =>
-        fixture.instances.some(
-          (i) => i.address.toLowerCase() === p.address.toLowerCase(),
-        ),
-      );
-      const launchFilters = filtersOf(launchOnly);
-      for (const block of groupLogsByBlock(
-        [...prefix.logs, ...canonical.logs],
-        launchFilters,
-      )) {
-        await db.dao.begin((tx) =>
-          processEvmBlock(
-            launchOnly,
-            block,
-            Number(block.header.blockNumber),
-            tx,
-          ),
-        );
-      }
+      // duplicate extension and periphery logs inside later transactions are ignored
+      const launchOnly = createZeroSeedLaunchProcessors({
+        coreAddress: CORE,
+        zeroSeedLaunchAddresses: ALL,
+      });
+      for (let pass = 0; pass < 2; pass++)
+        for (const block of groupLogsByBlock(
+          [...prefix.logs, ...canonical.logs],
+          filtersOf(launchOnly),
+        ))
+          await db.dao.begin((tx) =>
+            processEvmBlock(
+              launchOnly,
+              block,
+              Number(block.header.blockNumber),
+              tx,
+            ),
+          );
       expect(await dump(db)).toEqual(canonicalDump);
       await db.sql.end();
     }, 120_000);
 
-    test("orphans are refused: a launch swap whose creation is absent, or a launch on an unregistered pool", async () => {
+    test("orphans are refused: a swap or owner change whose creation is absent, or a launch on an unregistered pool", async () => {
       const db = await freshDb();
       const processors = LAUNCH_ON();
       await replay(db, prefix, processors);
       const blocks = groupLogsByBlock(canonical.logs, filtersOf(processors));
-      // Drop l4's LaunchCreated from the block that created it: its later swaps are orphans.
+      // Drop l4's LaunchCreated from the block that created it: its owner
+      // change in the same transaction is an orphan.
       const l4Pool = fixture.launches.l4.poolId;
-      const created = blocks[0];
+      const createdBlock = blocks[0];
       const withoutCreation = {
-        ...created,
-        logs: created.logs.filter(
+        ...createdBlock,
+        logs: createdBlock.logs.filter(
           (l) => !(l.topics[0] === LAUNCH_CREATED && l.topics[1] === l4Pool),
         ),
       };
-      expect(withoutCreation.logs.length).toBe(created.logs.length - 1);
-      await applyBlock(db.dao, processors, withoutCreation);
+      expect(withoutCreation.logs.length).toBe(createdBlock.logs.length - 1);
       await expectRejects(
-        applyBlock(db.dao, processors, blocks[1]),
+        applyBlock(db.dao, processors, withoutCreation),
         /without LaunchCreated/,
       );
       // The refused block left nothing behind.
       const [{ n }] = await db.sql<
         { n: number }[]
-      >`SELECT COUNT(*)::int AS n FROM blocks WHERE block_number = ${Number(blocks[1].header.blockNumber)}`;
+      >`SELECT COUNT(*)::int AS n FROM blocks WHERE block_number = ${Number(createdBlock.header.blockNumber)}`;
       expect(n).toBe(0);
       await expectLedgerConsistent(db);
 
       // A launch processor without Core's pool registration (a config bug): LaunchCreated is refused.
       const db2 = await freshDb();
-      const unregistered = processorsFor(undefined).concat(
+      const unregistered = processorsFor([]).concat(
         createZeroSeedLaunchProcessors({
-          coreAddress: fixture.addresses.core,
-          zeroSeedLaunchAddress: LAUNCH,
+          coreAddress: CORE,
+          zeroSeedLaunchAddresses: ALL,
         }),
       );
-      for (const block of groupLogsByBlock(
-        prefix.logs,
-        filtersOf(unregistered),
-      )) {
-        if (block.logs.some((l) => l.topics[0] === LAUNCH_CREATED)) {
-          await expectRejects(
-            applyBlock(db2.dao, unregistered, block),
-            /not a registered launch pool/,
-          );
-          break;
-        }
-        await applyBlock(db2.dao, unregistered, block);
-      }
+      await expectRejects(
+        replay(db2, prefix, unregistered),
+        /not a registered launch pool/,
+      );
       await db.sql.end();
       await db2.sql.end();
     }, 120_000);
 
-    test("repair: recompute_zero_seed_launch_state restores a corrupted ledger exactly", async () => {
-      const db = await freshDb();
-      await replay(db, prefix, LAUNCH_ON());
-      await replay(db, canonical, LAUNCH_ON());
+    test("repair: recompute_zero_seed_launch_state restores a corrupted ledger and owner exactly", async () => {
+      const db = await canonicalReplay();
       const before = await ledgerRows(db);
-      await db.sql`UPDATE zero_seed_launch_states SET accrued0 = accrued0 + 7, claim_count = 99, last_event_id = 0`;
+      await db.sql`UPDATE zero_seed_launch_states
+                   SET accrued0 = accrued0 + 7, claim_count = 99, last_event_id = 0, paid1 = paid1 + 1,
+                       current_owner = 1, initial_owner = NULL, owner_change_count = 0`;
       await db.sql`SELECT recompute_zero_seed_launch_state(pool_key_id) FROM zero_seed_launch_created`;
       expect(await ledgerRows(db)).toEqual(before);
       await db.sql.end();
     }, 120_000);
 
-    test("claims do not move pool_last_event_id; creation and swaps do", async () => {
+    test("claims and transfers do not move pool_last_event_id; creation and swaps do", async () => {
       const db = await freshDb();
       const processors = LAUNCH_ON();
       await replay(db, prefix, processors);
-      await replay(
-        db,
-        { ...alternate, blocks: alternate.blocks.slice(0, 2) },
-        processors,
-      );
       const read = () => db.sql<{ pool_id: bigint; plei: bigint }[]>`
       SELECT pk.pool_id, plei.last_event_id AS plei FROM pool_last_event_id plei JOIN pool_keys pk USING (pool_key_id) ORDER BY 1`;
       const before = await read();
-      // alternate's last block holds only claims
-      expect(
-        alternate.blocks.at(-1)!.actions.every((a) => a.startsWith("claim")),
-      ).toBe(true);
-      await replay(
-        db,
-        { ...alternate, blocks: alternate.blocks.slice(2) },
-        processors,
+      // the alternate fork's first block, without its creation: a transfer and a claim of l1
+      const claimsAndTransfers = alternate.logs.filter(
+        (l) =>
+          Number(l.blockNumber) === alternate.blocks[0].number &&
+          [OWNER_CHANGED, FEES_PAID, CREATOR_FEES_CLAIMED].includes(
+            l.topics[0],
+          ) &&
+          l.topics[1] !== fixture.launches.l3.poolId,
       );
-      const [{ claims }] = await db.sql<{ claims: number }[]>`
-      SELECT COUNT(*)::int AS claims FROM zero_seed_launch_fees_claimed WHERE block_number = ${alternate.blocks.at(-1)!.number}`;
-      expect(claims).toBe(2);
+      expect(claimsAndTransfers.length).toBe(3);
+      const block = groupLogsByBlock(
+        alternate.logs.filter((l) => claimsAndTransfers.includes(l)),
+        filtersOf(processors),
+      )[0];
+      await applyBlock(db.dao, processors, block);
       expect(await read()).toEqual(before);
       await expectPoolLastEventId(db);
       await db.sql.end();
@@ -979,11 +1141,14 @@ describe.skipIf(!SERVER)(
 
     test("with no launch address, launch support is off: Core pools index, launch tables stay empty", async () => {
       const db = await freshDb();
-      const processors = processorsFor(undefined);
+      const processors = processorsFor([]);
       expect(
-        processors.some(
-          (p) =>
-            p.address.toLowerCase() === fixture.addresses.launch.toLowerCase(),
+        processors.some((p) =>
+          fixture.instances.some((i) =>
+            [i.extension, i.periphery].some(
+              (a) => a.toLowerCase() === p.address.toLowerCase(),
+            ),
+          ),
         ),
       ).toBe(false);
       await replay(db, prefix, processors);
@@ -993,7 +1158,8 @@ describe.skipIf(!SERVER)(
       >`
       SELECT (SELECT COUNT(*)::int FROM all_pool_states_view) AS pools,
              (SELECT COUNT(*)::int FROM zero_seed_launch_pool_keys) + (SELECT COUNT(*)::int FROM zero_seed_launch_created)
-               + (SELECT COUNT(*)::int FROM zero_seed_launch_swapped) + (SELECT COUNT(*)::int FROM zero_seed_launch_states) AS launch_rows,
+               + (SELECT COUNT(*)::int FROM zero_seed_launch_swapped) + (SELECT COUNT(*)::int FROM zero_seed_launch_states)
+               + (SELECT COUNT(*)::int FROM zero_seed_launch_owner_changed) + (SELECT COUNT(*)::int FROM zero_seed_launch_fees_paid) AS launch_rows,
              (SELECT COUNT(*)::int FROM all_pool_states_view WHERE is_zero_seed_launch_pool) AS flagged`;
       expect(row).toEqual({ pools: 3, launch_rows: 0, flagged: 0 });
       await db.sql.end();

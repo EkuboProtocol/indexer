@@ -1,7 +1,9 @@
 -- DRAFT for the contract freeze. Not deployed.
--- Schema version: zero-seed-launch-index/v1
--- Source ABI: EkuboProtocol/evm-contracts b1cbb1c1a9a00de62072a63a8f4aab4d97065573
---             (tree 3f9196eb), ZeroSeedLaunch.abi.json sha256 bc51b392...92bb.
+-- Schema version: zero-seed-launch-index/v2
+-- Source ABIs: EkuboProtocol/evm-contracts 4f1a3060b099e8a50469848118f44c0c65cfab9a
+--              ZeroSeedLaunch abi sha256 21f9e2c0...254e,
+--              ZeroSeedLaunchPeriphery abi sha256 5c563488...8a75
+--              (sha256 of `jq -cS .abi`, no trailing newline).
 --
 -- Replaces the unshipped draft 00134_scheduled_launch_pool_states of
 -- indexer PR #246 (ScheduledLaunch, LockedLaunchLiquidity, LaunchRouter).
@@ -9,14 +11,27 @@
 -- is a replacement of a development format, not a data migration. Nothing of
 -- the staged/advance/migrate/terminal/seed design survives here.
 --
---   zero_seed_launch_pool_keys      pools whose extension is the configured
+-- v2 revises this unshipped migration in place for the forward-only extension
+-- with a native ETH quote, the fixed-base creator-fee table and the separate
+-- periphery: LaunchParameters lost quoteToken and decayFactor, LaunchCreated
+-- names the controller (the forwarding locker, normally the periphery) instead
+-- of a creator, CreatorFeesClaimed lost its recipient, and the periphery's
+-- LaunchOwnerChanged and LaunchFeesClaimed are indexed. A database that
+-- applied an earlier 00139 must be rebuilt; none exists outside local tests.
+--
+--   zero_seed_launch_pool_keys      pools whose extension is a configured
 --                                   ZeroSeedLaunch, filled at PoolInitialized
 --   zero_seed_launch_created        ZeroSeedLaunch.LaunchCreated
 --   zero_seed_launch_swapped        ZeroSeedLaunch.LaunchSwapped
---   zero_seed_launch_fees_claimed   ZeroSeedLaunch.CreatorFeesClaimed
+--   zero_seed_launch_fees_claimed   ZeroSeedLaunch.CreatorFeesClaimed: the
+--                                   controller moving the fee ledger onto its
+--                                   lock
+--   zero_seed_launch_owner_changed  ZeroSeedLaunchPeriphery.LaunchOwnerChanged
+--   zero_seed_launch_fees_paid      ZeroSeedLaunchPeriphery.LaunchFeesClaimed:
+--                                   the payout of that same claim
 --   zero_seed_launch_states         one row per launch: immutable config,
---                                   immutable principal (liquidity, supply)
---                                   and the creator fee ledger
+--                                   immutable principal (liquidity, supply),
+--                                   the creator fee ledger and the owner
 --
 -- Principal and fees are separate ledgers by construction:
 --   * Principal is the single position (salt 0, tick_lower, tick_upper) with
@@ -25,18 +40,33 @@
 --     the creator fee.
 --   * The creator fee ledger is saved by the extension under salt = pool id.
 --     accrued{0,1} sums LaunchSwapped.fee_amount by side, claimed{0,1} sums
---     CreatorFeesClaimed. Balance = accrued - claimed. It never includes
---     principal.
+--     the extension's CreatorFeesClaimed only. Balance = accrued - claimed. It
+--     never includes principal.
+--   * A periphery claim emits both CreatorFeesClaimed (extension, ledger) and
+--     LaunchFeesClaimed (periphery, payout) with the same amounts in the same
+--     transaction. Only the first moves the ledger; paid{0,1} sums the second
+--     for reconciliation and is never added to claimed.
+--
+-- Ownership: the extension knows only the controller. For launches whose
+-- controller is the pinned periphery, the initial creator is the new owner of
+-- LaunchOwnerChanged(poolId, 0, owner), emitted after LaunchCreated in the
+-- creation transaction, and never changes. Every later LaunchOwnerChanged
+-- moves current_owner, which holds the unclaimed and future fee rights.
+-- Launches created by another controller have no owner here.
+--
+-- Native ETH is quote address 0: always token0, 18 decimals, no token
+-- contract. quote_kind records native versus ERC-20 provenance explicitly.
 --
 -- The fee phase is derived from a block timestamp and the immutable schedule;
 -- nothing is stored for it, and there is no completed/migrated state.
 --
 -- Reorgs: every event table cascades from blocks. Ledger columns are maintained
 -- by AFTER INSERT/DELETE row triggers that add or subtract exactly the row's
--- amounts, so deleting blocks >= n and replaying them restores the same state.
--- Writers insert with ON CONFLICT (chain_id, event_id) DO NOTHING so a
--- redelivered log fires no trigger. recompute_zero_seed_launch_state is the
--- exact repair function.
+-- amounts, and owner columns are recomputed from the remaining transfers, so
+-- deleting blocks >= n and replaying them restores the same state. Writers
+-- insert with ON CONFLICT (chain_id, event_id) DO NOTHING so a redelivered log
+-- fires no trigger. recompute_zero_seed_launch_state is the exact repair
+-- function.
 --
 -- No column stores a transaction sender. LaunchSwapped.locker is the contract
 -- that forwarded the swap (normally a router); it is not a user.
@@ -67,9 +97,13 @@ CREATE TABLE zero_seed_launch_created
     pool_key_id          int8 REFERENCES pool_keys (pool_key_id),
     pool_id              NUMERIC NOT NULL,
     token                NUMERIC NOT NULL,
-    -- msg.sender of create; the only account that may claim fees; not transferable
-    creator              NUMERIC NOT NULL,
+    -- the locker that forwarded the creation (normally the periphery); the
+    -- only locker that may claim the fee ledger; not a user
+    controller           NUMERIC NOT NULL,
+    -- the extension's constructor quote, the other token of the pool key;
+    -- 0 is native ETH
     quote_token          NUMERIC NOT NULL,
+    quote_kind           TEXT GENERATED ALWAYS AS (CASE WHEN quote_token = 0 THEN 'native' ELSE 'erc20' END) STORED,
     position_id          NUMERIC NOT NULL,
     -- installed principal, immutable
     liquidity            NUMERIC NOT NULL,
@@ -88,8 +122,8 @@ CREATE TABLE zero_seed_launch_created
     -- Q0.64 fractions (2^64 = 100%)
     initial_fee          NUMERIC NOT NULL,
     final_fee            NUMERIC NOT NULL,
-    -- Q0.64 per-second multiplier of the unscaled exponential, in (0, 2^64); not a half-life
-    decay_factor         NUMERIC NOT NULL,
+    -- the salt the extension received; a periphery passes
+    -- keccak256(abi.encode(owner, userSalt))
     salt                 NUMERIC NOT NULL,
     token_is_token1      bool GENERATED ALWAYS AS (token > quote_token) STORED,
     -- pool-tick bounds of the position
@@ -103,7 +137,6 @@ CREATE TABLE zero_seed_launch_created
 CREATE INDEX ON zero_seed_launch_created (chain_id, block_number);
 CREATE UNIQUE INDEX ON zero_seed_launch_created (pool_key_id);
 CREATE INDEX ON zero_seed_launch_created (chain_id, token);
-CREATE INDEX ON zero_seed_launch_created (chain_id, creator, event_id DESC);
 
 CREATE TABLE zero_seed_launch_swapped
 (
@@ -143,8 +176,7 @@ CREATE TABLE zero_seed_launch_fees_claimed
     event_id          int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
     pool_key_id       int8 REFERENCES pool_keys (pool_key_id),
     pool_id           NUMERIC NOT NULL,
-    creator           NUMERIC NOT NULL,
-    recipient         NUMERIC NOT NULL,
+    controller        NUMERIC NOT NULL,
     amount0           NUMERIC NOT NULL,
     amount1           NUMERIC NOT NULL,
     PRIMARY KEY (chain_id, event_id),
@@ -154,6 +186,56 @@ CREATE TABLE zero_seed_launch_fees_claimed
 CREATE INDEX ON zero_seed_launch_fees_claimed (chain_id, block_number);
 CREATE INDEX ON zero_seed_launch_fees_claimed (pool_key_id, event_id DESC);
 
+CREATE TABLE zero_seed_launch_owner_changed
+(
+    chain_id          int8    NOT NULL,
+    block_number      int8    NOT NULL,
+    transaction_index int4    NOT NULL,
+    event_index       int4    NOT NULL,
+    transaction_hash  NUMERIC NOT NULL,
+    -- the periphery
+    emitter           NUMERIC NOT NULL,
+    event_id          int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
+    pool_key_id       int8 REFERENCES pool_keys (pool_key_id),
+    pool_id           NUMERIC NOT NULL,
+    -- 0 at creation
+    previous_owner    NUMERIC NOT NULL,
+    new_owner         NUMERIC NOT NULL,
+    PRIMARY KEY (chain_id, event_id),
+    FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
+);
+
+CREATE INDEX ON zero_seed_launch_owner_changed (chain_id, block_number);
+CREATE INDEX ON zero_seed_launch_owner_changed (pool_key_id, event_id DESC);
+CREATE INDEX ON zero_seed_launch_owner_changed (chain_id, new_owner, event_id DESC);
+
+CREATE TABLE zero_seed_launch_fees_paid
+(
+    chain_id          int8    NOT NULL,
+    block_number      int8    NOT NULL,
+    transaction_index int4    NOT NULL,
+    event_index       int4    NOT NULL,
+    transaction_hash  NUMERIC NOT NULL,
+    -- the periphery
+    emitter           NUMERIC NOT NULL,
+    event_id          int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
+    pool_key_id       int8 REFERENCES pool_keys (pool_key_id),
+    pool_id           NUMERIC NOT NULL,
+    owner             NUMERIC NOT NULL,
+    recipient         NUMERIC NOT NULL,
+    amount0           NUMERIC NOT NULL,
+    amount1           NUMERIC NOT NULL,
+    -- the extension CreatorFeesClaimed of the same claim (same transaction)
+    claimed_event_id  int8    NOT NULL,
+    PRIMARY KEY (chain_id, event_id),
+    FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE,
+    FOREIGN KEY (chain_id, claimed_event_id) REFERENCES zero_seed_launch_fees_claimed (chain_id, event_id) ON DELETE CASCADE
+);
+
+CREATE INDEX ON zero_seed_launch_fees_paid (chain_id, block_number);
+CREATE INDEX ON zero_seed_launch_fees_paid (pool_key_id, event_id DESC);
+CREATE UNIQUE INDEX ON zero_seed_launch_fees_paid (chain_id, claimed_event_id);
+
 DO
 $$
     DECLARE
@@ -162,7 +244,9 @@ $$
         FOREACH event_table IN ARRAY ARRAY [
             'zero_seed_launch_created',
             'zero_seed_launch_swapped',
-            'zero_seed_launch_fees_claimed'
+            'zero_seed_launch_fees_claimed',
+            'zero_seed_launch_owner_changed',
+            'zero_seed_launch_fees_paid'
             ]
             LOOP
                 EXECUTE FORMAT(
@@ -177,20 +261,54 @@ $$;
 
 CREATE TABLE zero_seed_launch_states
 (
-    pool_key_id      int8 PRIMARY KEY REFERENCES pool_keys (pool_key_id),
-    created_event_id int8    NOT NULL,
+    pool_key_id        int8 PRIMARY KEY REFERENCES pool_keys (pool_key_id),
+    created_event_id   int8    NOT NULL,
     -- creator fee ledger, raw units of token0/token1
-    accrued0         NUMERIC NOT NULL DEFAULT 0,
-    accrued1         NUMERIC NOT NULL DEFAULT 0,
-    claimed0         NUMERIC NOT NULL DEFAULT 0,
-    claimed1         NUMERIC NOT NULL DEFAULT 0,
-    swap_count       int8    NOT NULL DEFAULT 0,
-    claim_count      int8    NOT NULL DEFAULT 0,
+    accrued0           NUMERIC NOT NULL DEFAULT 0,
+    accrued1           NUMERIC NOT NULL DEFAULT 0,
+    claimed0           NUMERIC NOT NULL DEFAULT 0,
+    claimed1           NUMERIC NOT NULL DEFAULT 0,
+    -- periphery payouts of those claims; reconciliation only, never ledger
+    paid0              NUMERIC NOT NULL DEFAULT 0,
+    paid1              NUMERIC NOT NULL DEFAULT 0,
+    swap_count         int8    NOT NULL DEFAULT 0,
+    claim_count        int8    NOT NULL DEFAULT 0,
     -- claimed <= accrued holds between transactions but not mid-cascade (a
     -- reorg may delete a swap before the claim that followed it), so it is
     -- asserted by tests and the repair check, not a CHECK constraint
-    last_event_id    int8    NOT NULL
+    last_event_id      int8    NOT NULL,
+    -- periphery owner; NULL until LaunchOwnerChanged(poolId, 0, owner) and for
+    -- launches of any other controller
+    initial_owner      NUMERIC,
+    current_owner      NUMERIC,
+    owner_event_id     int8,
+    owner_change_count int8    NOT NULL DEFAULT 0
 ) WITH (autovacuum_vacuum_scale_factor = 0.01, fillfactor = 70);
+
+CREATE INDEX ON zero_seed_launch_states (current_owner) WHERE current_owner IS NOT NULL;
+CREATE INDEX ON zero_seed_launch_states (initial_owner) WHERE initial_owner IS NOT NULL;
+
+-- Owner columns from the remaining transfers: the first transfer's new owner
+-- is the creator, the last one's is the current owner.
+CREATE FUNCTION recompute_zero_seed_launch_owner(p_pool_key_id int8)
+    RETURNS VOID
+    LANGUAGE sql AS
+$$
+UPDATE zero_seed_launch_states s
+SET initial_owner      = o.initial_owner,
+    current_owner      = o.current_owner,
+    owner_event_id     = o.owner_event_id,
+    owner_change_count = o.n
+FROM (SELECT (SELECT new_owner FROM zero_seed_launch_owner_changed
+              WHERE pool_key_id = p_pool_key_id ORDER BY event_id LIMIT 1)      AS initial_owner,
+             (SELECT new_owner FROM zero_seed_launch_owner_changed
+              WHERE pool_key_id = p_pool_key_id ORDER BY event_id DESC LIMIT 1) AS current_owner,
+             (SELECT MAX(event_id) FROM zero_seed_launch_owner_changed
+              WHERE pool_key_id = p_pool_key_id)                               AS owner_event_id,
+             (SELECT COUNT(*) FROM zero_seed_launch_owner_changed
+              WHERE pool_key_id = p_pool_key_id)                               AS n) o
+WHERE s.pool_key_id = p_pool_key_id;
+$$;
 
 -- Exact recompute from the event tables; also the repair tool.
 CREATE FUNCTION recompute_zero_seed_launch_state(p_pool_key_id int8)
@@ -207,25 +325,33 @@ BEGIN
     END IF;
 
     INSERT INTO zero_seed_launch_states AS s
-    (pool_key_id, created_event_id, accrued0, accrued1, claimed0, claimed1, swap_count, claim_count, last_event_id)
+    (pool_key_id, created_event_id, accrued0, accrued1, claimed0, claimed1, paid0, paid1, swap_count,
+     claim_count, last_event_id)
     SELECT p_pool_key_id,
            c_event_id,
            COALESCE(sw.a0, 0), COALESCE(sw.a1, 0),
            COALESCE(cl.c0, 0), COALESCE(cl.c1, 0),
+           COALESCE(pd.p0, 0), COALESCE(pd.p1, 0),
            COALESCE(sw.n, 0), COALESCE(cl.n, 0),
-           GREATEST(c_event_id, sw.last, cl.last)
+           GREATEST(c_event_id, sw.last, cl.last, oc.last, pd.last)
     FROM (SELECT SUM(fee_amount) FILTER (WHERE NOT fee_is_token1) AS a0,
                  SUM(fee_amount) FILTER (WHERE fee_is_token1)     AS a1,
                  COUNT(*) AS n, MAX(event_id) AS last
           FROM zero_seed_launch_swapped WHERE pool_key_id = p_pool_key_id) sw,
          (SELECT SUM(amount0) AS c0, SUM(amount1) AS c1, COUNT(*) AS n, MAX(event_id) AS last
-          FROM zero_seed_launch_fees_claimed WHERE pool_key_id = p_pool_key_id) cl
+          FROM zero_seed_launch_fees_claimed WHERE pool_key_id = p_pool_key_id) cl,
+         (SELECT SUM(amount0) AS p0, SUM(amount1) AS p1, MAX(event_id) AS last
+          FROM zero_seed_launch_fees_paid WHERE pool_key_id = p_pool_key_id) pd,
+         (SELECT MAX(event_id) AS last
+          FROM zero_seed_launch_owner_changed WHERE pool_key_id = p_pool_key_id) oc
     ON CONFLICT (pool_key_id) DO UPDATE
         SET created_event_id = EXCLUDED.created_event_id,
             accrued0 = EXCLUDED.accrued0, accrued1 = EXCLUDED.accrued1,
             claimed0 = EXCLUDED.claimed0, claimed1 = EXCLUDED.claimed1,
+            paid0 = EXCLUDED.paid0, paid1 = EXCLUDED.paid1,
             swap_count = EXCLUDED.swap_count, claim_count = EXCLUDED.claim_count,
             last_event_id = EXCLUDED.last_event_id;
+    PERFORM recompute_zero_seed_launch_owner(p_pool_key_id);
 END
 $$;
 
@@ -246,8 +372,9 @@ CREATE TRIGGER trg_zero_seed_launch_created_state
     FOR EACH ROW
 EXECUTE FUNCTION trg_zero_seed_launch_created_state();
 
--- Incremental, O(1) per row. A swap or claim must follow its LaunchCreated
--- (same pool); one without a state row is a decoder bug and is refused.
+-- Incremental, O(1) per row. A swap, claim or payout must follow its
+-- LaunchCreated (same pool); one without a state row is a decoder bug and is
+-- refused. Payouts move paid{0,1} only, never the claimed ledger.
 CREATE FUNCTION trg_zero_seed_launch_ledger()
     RETURNS TRIGGER
     LANGUAGE plpgsql AS
@@ -259,6 +386,8 @@ DECLARE
     d1   NUMERIC := 0;
     c0   NUMERIC := 0;
     c1   NUMERIC := 0;
+    p0   NUMERIC := 0;
+    p1   NUMERIC := 0;
     dsw  int8 := 0;
     dcl  int8 := 0;
 BEGIN
@@ -266,10 +395,13 @@ BEGIN
     IF TG_TABLE_NAME = 'zero_seed_launch_swapped' THEN
         IF r.fee_is_token1 THEN d1 := r.fee_amount; ELSE d0 := r.fee_amount; END IF;
         dsw := 1;
-    ELSE
+    ELSIF TG_TABLE_NAME = 'zero_seed_launch_fees_claimed' THEN
         c0 := r.amount0;
         c1 := r.amount1;
         dcl := 1;
+    ELSE
+        p0 := r.amount0;
+        p1 := r.amount1;
     END IF;
 
     UPDATE zero_seed_launch_states
@@ -277,6 +409,8 @@ BEGIN
         accrued1    = accrued1 + sgn * d1,
         claimed0    = claimed0 + sgn * c0,
         claimed1    = claimed1 + sgn * c1,
+        paid0       = paid0 + sgn * p0,
+        paid1       = paid1 + sgn * p1,
         swap_count  = swap_count + sgn * dsw,
         claim_count = claim_count + sgn * dcl,
         last_event_id = CASE
@@ -294,14 +428,23 @@ BEGIN
 
     -- a delete can lower the last event id; recompute that one field exactly
     IF TG_OP = 'DELETE' AND r.event_id >= (SELECT last_event_id FROM zero_seed_launch_states WHERE pool_key_id = r.pool_key_id) THEN
-        UPDATE zero_seed_launch_states s
-        SET last_event_id = GREATEST(s.created_event_id,
-                                     (SELECT MAX(event_id) FROM zero_seed_launch_swapped WHERE pool_key_id = r.pool_key_id),
-                                     (SELECT MAX(event_id) FROM zero_seed_launch_fees_claimed WHERE pool_key_id = r.pool_key_id))
-        WHERE s.pool_key_id = r.pool_key_id;
+        PERFORM zero_seed_launch_recompute_last_event_id(r.pool_key_id);
     END IF;
     RETURN NULL;
 END
+$$;
+
+CREATE FUNCTION zero_seed_launch_recompute_last_event_id(p_pool_key_id int8)
+    RETURNS VOID
+    LANGUAGE sql AS
+$$
+UPDATE zero_seed_launch_states s
+SET last_event_id = GREATEST(s.created_event_id,
+                             (SELECT MAX(event_id) FROM zero_seed_launch_swapped WHERE pool_key_id = p_pool_key_id),
+                             (SELECT MAX(event_id) FROM zero_seed_launch_fees_claimed WHERE pool_key_id = p_pool_key_id),
+                             (SELECT MAX(event_id) FROM zero_seed_launch_fees_paid WHERE pool_key_id = p_pool_key_id),
+                             (SELECT MAX(event_id) FROM zero_seed_launch_owner_changed WHERE pool_key_id = p_pool_key_id))
+WHERE s.pool_key_id = p_pool_key_id;
 $$;
 
 CREATE TRIGGER trg_zero_seed_launch_swapped_ledger
@@ -316,38 +459,100 @@ CREATE TRIGGER trg_zero_seed_launch_fees_claimed_ledger
     FOR EACH ROW
 EXECUTE FUNCTION trg_zero_seed_launch_ledger();
 
--- powQ64 of the contract (math/feeDecay.sol): p_factor ** p_exponent in Q0.64 by square-and-multiply,
--- flooring after every multiply. The operation order is normative: multiply the result for a set bit, shift,
--- and square the factor only while bits remain. DIV is exact integer division on NUMERIC.
-CREATE FUNCTION zero_seed_launch_pow_q64(p_factor NUMERIC, p_exponent int8)
+CREATE TRIGGER trg_zero_seed_launch_fees_paid_ledger
+    AFTER INSERT OR DELETE
+    ON zero_seed_launch_fees_paid
+    FOR EACH ROW
+EXECUTE FUNCTION trg_zero_seed_launch_ledger();
+
+-- Ownership: recomputed from the remaining transfers on every insert and
+-- delete, a handful of rows per launch.
+CREATE FUNCTION trg_zero_seed_launch_owner()
+    RETURNS TRIGGER
+    LANGUAGE plpgsql AS
+$$
+DECLARE
+    r RECORD;
+BEGIN
+    r := CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+    IF NOT EXISTS (SELECT 1 FROM zero_seed_launch_states WHERE pool_key_id = r.pool_key_id) THEN
+        IF TG_OP = 'INSERT' THEN
+            RAISE EXCEPTION 'zero-seed launch owner change for pool_key_id % without LaunchCreated', r.pool_key_id;
+        END IF;
+        RETURN NULL;
+    END IF;
+    PERFORM recompute_zero_seed_launch_owner(r.pool_key_id);
+    IF TG_OP = 'INSERT' THEN
+        UPDATE zero_seed_launch_states
+        SET last_event_id = GREATEST(last_event_id, r.event_id)
+        WHERE pool_key_id = r.pool_key_id;
+    ELSE
+        PERFORM zero_seed_launch_recompute_last_event_id(r.pool_key_id);
+    END IF;
+    RETURN NULL;
+END
+$$;
+
+CREATE TRIGGER trg_zero_seed_launch_owner_changed_owner
+    AFTER INSERT OR DELETE
+    ON zero_seed_launch_owner_changed
+    FOR EACH ROW
+EXECUTE FUNCTION trg_zero_seed_launch_owner();
+
+-- decayQ128 of the contract (math/feeDecay.sol): 2^(-elapsed/600) in Q128.
+-- Starting at 2^128, multiply by the constant of every set bit of p_elapsed in
+-- ascending bit order and floor to Q128 after each multiply; exactly zero from
+-- 2^17 seconds on. The constants and the operation order are normative. DIV is
+-- exact integer division on NUMERIC.
+CREATE FUNCTION zero_seed_launch_decay_q128(p_elapsed int8)
     RETURNS NUMERIC
     LANGUAGE plpgsql
     IMMUTABLE STRICT PARALLEL SAFE AS
 $$
 DECLARE
-    q        CONSTANT NUMERIC := 18446744073709551616;
-    result   NUMERIC := q;
-    base     NUMERIC := p_factor;
-    exponent int8    := p_exponent;
+    q      CONSTANT NUMERIC   := 340282366920938463463374607431768211456;
+    t      CONSTANT NUMERIC[] := ARRAY [
+        339889484297159900493648602831395569057,
+        339497055287118257930533248299650400736,
+        338713556013920184336129943844147573651,
+        337151977828609613753562640265082287810,
+        334050386396171404885545237344599070716,
+        327932539264834336949184815807600758235,
+        316030922441737935988095136387330274498,
+        293507844215098455952964317090465751204,
+        253162852354938356992240649094357060196,
+        188347784201757897225807540435664088841,
+        104251325552682051605813724741512712010,
+        31939177389160626453527783486618815759,
+        2997836947964109484105344435429137776,
+        26410496811510722015611852309540293,
+        2049810421099131403277778219901,
+        12347753427443481862030,
+        448060
+        ];
+    result NUMERIC            := q;
 BEGIN
-    WHILE exponent <> 0
+    IF p_elapsed < 0 THEN
+        RAISE EXCEPTION 'negative elapsed time %', p_elapsed;
+    END IF;
+    IF p_elapsed >= 131072 THEN
+        RETURN 0;
+    END IF;
+    FOR i IN 0..16
         LOOP
-            IF exponent % 2 = 1 THEN
-                result := DIV(result * base, q);
-            END IF;
-            exponent := exponent / 2;
-            IF exponent <> 0 THEN
-                base := DIV(base * base, q);
+            IF (p_elapsed >> i) & 1 = 1 THEN
+                result := DIV(result * t[i + 1], q);
             END IF;
         END LOOP;
     RETURN result;
 END
 $$;
 
--- The fee in effect at p_time (unix seconds), as feeAt in the contract: initial until the start, then
--- final + floor((initial - final) * (b^t - b^D) / (2^64 - b^D)) for elapsed t below duration D, then final.
+-- The fee in effect at p_time (unix seconds), as feeAt in the contract: initial
+-- until the start, then final + floor((initial - final) * (decay(t) - decay(D))
+-- / (2^128 - decay(D))) for elapsed t below duration D, then final.
 CREATE FUNCTION zero_seed_launch_fee_at(p_trading_start int8, p_fee_duration int8, p_initial NUMERIC,
-                                        p_final NUMERIC, p_decay_factor NUMERIC, p_time int8)
+                                        p_final NUMERIC, p_time int8)
     RETURNS NUMERIC
     LANGUAGE sql
     IMMUTABLE PARALLEL SAFE AS
@@ -356,9 +561,9 @@ SELECT CASE
            WHEN p_time <= p_trading_start THEN p_initial
            WHEN p_time - p_trading_start >= p_fee_duration THEN p_final
            ELSE p_final + DIV((p_initial - p_final) *
-                              (zero_seed_launch_pow_q64(p_decay_factor, p_time - p_trading_start) -
-                               zero_seed_launch_pow_q64(p_decay_factor, p_fee_duration)),
-                              18446744073709551616 - zero_seed_launch_pow_q64(p_decay_factor, p_fee_duration))
+                              (zero_seed_launch_decay_q128(p_time - p_trading_start) -
+                               zero_seed_launch_decay_q128(p_fee_duration)),
+                              340282366920938463463374607431768211456 - zero_seed_launch_decay_q128(p_fee_duration))
            END
 $$;
 
@@ -504,7 +709,6 @@ SELECT pk.pool_key_id,
        zslc.fee_duration                                         AS zero_seed_launch_fee_duration,
        zslc.initial_fee                                          AS zero_seed_launch_initial_fee,
        zslc.final_fee                                            AS zero_seed_launch_final_fee,
-       zslc.decay_factor                                         AS zero_seed_launch_decay_factor,
        (zslpk.pool_key_id IS NOT NULL OR zslc.pool_key_id IS NOT NULL)
                                                                   AS is_zero_seed_launch_pool
 FROM pool_keys pk
