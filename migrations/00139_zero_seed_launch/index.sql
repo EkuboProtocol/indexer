@@ -1,11 +1,11 @@
--- DRAFT for the EKU-1513 contract freeze packet. Not a PR, not deployed.
+-- DRAFT for the contract freeze. Not deployed.
 -- Schema version: zero-seed-launch-index/v1
--- Source ABI: EkuboProtocol/evm-contracts 39ca1918e4d16b1c9fd4db5ed70761ef7b12c6ae
---             (tree b95e7484), ZeroSeedLaunch.abi.json sha256 28d05c07...f23d.
+-- Source ABI: EkuboProtocol/evm-contracts b1cbb1c1a9a00de62072a63a8f4aab4d97065573
+--             (tree 3f9196eb), ZeroSeedLaunch.abi.json sha256 bc51b392...92bb.
 --
 -- Replaces the unshipped draft 00134_scheduled_launch_pool_states of
 -- indexer PR #246 (ScheduledLaunch, LockedLaunchLiquidity, LaunchRouter).
--- That migration never ran in production (origin/main stops at 00133), so this
+-- That migration never ran in production (main stops at 00138), so this
 -- is a replacement of a development format, not a data migration. Nothing of
 -- the staged/advance/migrate/terminal/seed design survives here.
 --
@@ -44,7 +44,7 @@
 -- Rollback before issuance: in one transaction that locks blocks first,
 -- DROP VIEW all_pool_states_view and recreate it from 00123; restore
 -- recompute_pool_last_event_id from 00123; DROP the zero_seed_launch_* tables
--- and functions. This returns to the 00133 schema, never to the #246 draft.
+-- and functions. This returns to the 00138 schema, never to the #246 draft.
 
 SET LOCAL lock_timeout = '15min';
 
