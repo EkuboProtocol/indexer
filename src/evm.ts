@@ -305,6 +305,8 @@ export async function createEvmEntrypoint(
 /**
  * Runs a block's logs through the processors their filters matched, in log
  * order. Exported so tests replay recorded chain logs through the same code.
+ * Logs must stay sequential: a zero-seed LaunchCreated reads the Core
+ * PositionUpdated written for an earlier log of its transaction.
  */
 export async function processEvmBlock(
   processors: EvmLogProcessor[],

@@ -423,10 +423,11 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ### Unreleased: zero-seed launches (00139, additive)
 
-Migration 00139 (schema `zero-seed-launch-index/v2`) indexes the forward-only
+Migration 00139 (schema `zero-seed-launch-index/v3`) indexes the forward-only
 `ZeroSeedLaunch` extension and its `ZeroSeedLaunchPeriphery` (evm-contracts
-`4f1a306`; ABI sha256 `21f9e2c0…254e` and `5c563488…8a75`, `jq -cS .abi`
-without a trailing newline) into `zero_seed_launch_pool_keys`, `_created`,
+`40af6cb`; ABI sha256 `999068f8…d4bf` and `df24d9f0…7305`, `jq -cS .abi`
+without a trailing newline; the protocol's interface manifest is vendored as
+`tests/fixtures/zero-seed-launch/zero-seed-interface-40af6cb.json`) into `zero_seed_launch_pool_keys`, `_created`,
 `_swapped`, `_fees_claimed`, `_owner_changed`, `_fees_paid` and
 `zero_seed_launch_states` (one row per launch: the creator fee ledger, kept
 apart from the Core pool reserves, and the periphery owner). It appends nine
@@ -436,16 +437,38 @@ apart from the Core pool reserves, and the periphery owner). It appends nine
 does. The schema must precede any later quoter-service or API deployment
 selecting the new columns. This draft authorizes no deployment or live
 database write. It was drafted as 00134, renumbered to follow 00138 on `main`,
-and revised in place before any application, last for the native-ETH,
-fixed-base fee table and periphery interface:
+and revised in place before any application, last for the per-launch quote
+and requested supply:
 
-- `LaunchParameters` no longer carries `quoteToken` or `decayFactor`. The quote
-  is the instance's constructor quote; native ETH is `address(0)`, always
-  token0, and `zero_seed_launch_created.quote_kind` records `native` or
-  `erc20` provenance. `decay_factor`, `zero_seed_launch_pow_q64` and the view
-  column `zero_seed_launch_decay_factor` are gone; `zero_seed_launch_decay_q128`
-  and a five-argument `zero_seed_launch_fee_at` mirror the contract's
-  fixed-base Q128 table (600 s half-life, floor after every multiply).
+- The quote is per launch: `LaunchParameters.quoteToken` (replacing the
+  extension's constructor quote and its `quoteToken()` getter) is the other
+  token of the launch's pool key, so one extension and periphery serve every
+  quote. Native ETH is `address(0)`, always token0; an ERC-20 quote above the
+  launch token makes the launch token token0. The decoder refuses a
+  `LaunchCreated` whose pool key is not (token, quoteToken) in order, whose
+  token is its quote, or whose liquidity is zero.
+  `zero_seed_launch_created.quote_token`/`quote_kind` (`native` or `erc20`)
+  record every launch of an indexed extension; whether a quote is supported is
+  the reader's policy.
+- `LaunchParameters.supply` is the requested supply (the token's
+  `totalSupply`); liquidity is no longer an input. The extension computes the
+  installed liquidity, puts `installedSupply <= supply` into the position and
+  mints the remainder directly to `address(0)`. `supply` became
+  `requested_supply`, `installed_supply` and the generated `sink_supply =
+  requested_supply - installed_supply` (`CHECK 0 < installed <= requested`).
+  `LaunchCreated` does not carry the installed amount: the writer takes the
+  launch-token delta of Core's `PositionUpdated` of the creation (same
+  transaction and pool, locker the extension, salt 0, the launch bounds,
+  liquidity delta equal to `LaunchCreated.liquidity`, no quote) and refuses the
+  launch if there is not exactly one such update or it is inconsistent. Core
+  emits it inside `updatePosition`, before the extension emits
+  `LaunchCreated`, and a block's logs are written in order in one transaction,
+  so the row is always present and reorgs remove both together.
+- Earlier revisions: `decayFactor`, `decay_factor`, `zero_seed_launch_pow_q64`
+  and the view column `zero_seed_launch_decay_factor` are gone;
+  `zero_seed_launch_decay_q128` and a five-argument `zero_seed_launch_fee_at`
+  mirror the contract's fixed-base Q128 table (600 s half-life, floor after
+  every multiply).
 - `LaunchCreated` names the `controller` (the forwarding locker, normally the
   periphery) instead of a creator, and `CreatorFeesClaimed` lost its recipient.
   The periphery's `LaunchOwnerChanged(poolId, 0, owner)` gives the launch's
@@ -459,12 +482,11 @@ there is no in-place upgrade path and none is needed while no launch is live.
 
 Launch indexing is off unless `ZERO_SEED_LAUNCH_ADDRESS` and
 `ZERO_SEED_LAUNCH_RUNTIME_CODEHASH` both match an entry in
-`src/evm/zeroSeedLaunchConfig.ts`. No live deployment is pinned; the manifest
-contains only the native-ETH and relocated plain-WETH local instances of the
-replay fixture, both refused in production. Each binds chain, extension and
-runtime, periphery and runtime (taken from the pin, never configured), Core,
-constructor quote and its kind (an ERC-20 also its runtime) and the
-deployment block. A set address or Core that disagrees with the pin stops the
+`src/evm/zeroSeedLaunchConfig.ts`. No live deployment is pinned; the only pin
+is the local instance of the replay fixture, refused in production. A pin
+binds chain, extension and runtime, periphery and runtime (taken from the pin,
+never configured), Core and the deployment block; it has no quote. The
+zero-filled template runtimes of the build are refused as codehashes. A set address or Core that disagrees with the pin stops the
 worker. Missing runtime/chain pins leave support off.
 
 Catch-up is deployment-block inclusive. Before its first block the worker
@@ -486,12 +508,24 @@ principal.
 `tests/fixtures/zero-seed-launch/local-chain.json` is regenerated with
 `bun scripts/zeroSeedLaunchFixture.ts <evm-contracts checkout>` (local anvil,
 no fork, deterministic); `src/evm/zeroSeedLaunchReplay.postgres.test.ts`
-replays it against `TEST_PG_CONNECTION_STRING`. The generator requires the
-exact clean pinned source and checks both ABIs and creation codes. The replay
-compares, after every block, indexed Core state and custody (native ETH and
-ERC-20), the creator fee ledger, the current and initial owner and the
-contract's `feeAt` with the chain, and covers a reorg across transfers, claims
-and a creation, redelivery, deletion orders, orphans and the catch-up guard.
+replays it against `TEST_PG_CONNECTION_STRING` (any disposable server, for
+example `docker run --rm -d -p 127.0.0.1:55432:5432 -e
+POSTGRES_PASSWORD=postgres postgres:18` and
+`TEST_PG_CONNECTION_STRING=postgres://postgres:postgres@127.0.0.1:55432/postgres`;
+the test creates and drops its own databases). The generator only reads the
+checkout, requires the exact clean pinned source and checks both ABIs,
+creation codes and runtime templates. Its chain has one extension and
+periphery with native-ETH and ERC-20 quote launches (the checkout's plain
+`test/TestToken.sol` relocated to `0xff…ff`) and swaps through the compiled
+`test/LaunchTestRouter.sol`; every launch requests `1e27` and the generator
+checks the `Installation` that `create` returns, Core's `PositionUpdated`
+delta, `totalSupply` and `balanceOf(address(0))` against the requested,
+installed and sink supply it records. The replay compares, after every block,
+indexed Core state and custody (native ETH and ERC-20), the creator fee
+ledger, the current and initial owner, the supply and the contract's `feeAt`
+with the chain, and covers a reorg across transfers, claims and a creation,
+redelivery, deletion orders, orphans, missing or inconsistent Core position
+updates and the catch-up guard.
 `fee-curve-all-seconds.json.gz` and `fee-decay-vectors.json` are the protocol's
 independent fee vectors (25,212 rows); the SQL fee function reproduces every
 row. Contract-event replay does not enforce producer build-time/start/expiry
