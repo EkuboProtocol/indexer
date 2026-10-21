@@ -1,8 +1,8 @@
 -- DRAFT for the contract freeze. Not deployed.
--- Schema version: zero-seed-launch-index/v2
--- Source ABIs: EkuboProtocol/evm-contracts 4f1a3060b099e8a50469848118f44c0c65cfab9a
---              ZeroSeedLaunch abi sha256 21f9e2c0...254e,
---              ZeroSeedLaunchPeriphery abi sha256 5c563488...8a75
+-- Schema version: zero-seed-launch-index/v3
+-- Source ABIs: EkuboProtocol/evm-contracts 40af6cb359b0de2f61f15e47b6622a00c48b5b08
+--              ZeroSeedLaunch abi sha256 999068f8...d4bf,
+--              ZeroSeedLaunchPeriphery abi sha256 df24d9f0...7305
 --              (sha256 of `jq -cS .abi`, no trailing newline).
 --
 -- Replaces the unshipped draft 00134_scheduled_launch_pool_states of
@@ -16,8 +16,20 @@
 -- periphery: LaunchParameters lost quoteToken and decayFactor, LaunchCreated
 -- names the controller (the forwarding locker, normally the periphery) instead
 -- of a creator, CreatorFeesClaimed lost its recipient, and the periphery's
--- LaunchOwnerChanged and LaunchFeesClaimed are indexed. A database that
--- applied an earlier 00139 must be rebuilt; none exists outside local tests.
+-- LaunchOwnerChanged and LaunchFeesClaimed are indexed.
+--
+-- v3 revises it again for the per-launch quote and the requested supply:
+-- LaunchParameters.quoteToken replaced LaunchParameters.liquidity and the
+-- extension's constructor quote, so one extension and periphery serve every
+-- quote and quote_token is the launch's own. The extension now computes the
+-- installed liquidity from the requested supply (LaunchParameters.supply, the
+-- token's totalSupply), puts installed_supply <= requested_supply into the
+-- position and mints the remainder, sink_supply, to address(0). `supply` is
+-- replaced by requested_supply, installed_supply and the generated
+-- sink_supply. LaunchCreated does not carry the installed amount: it is the
+-- launch-token delta of Core's PositionUpdated of the creation, which the
+-- writer requires in the same transaction. A database that applied an earlier
+-- 00139 must be rebuilt; none exists outside local tests.
 --
 --   zero_seed_launch_pool_keys      pools whose extension is a configured
 --                                   ZeroSeedLaunch, filled at PoolInitialized
@@ -29,9 +41,10 @@
 --   zero_seed_launch_owner_changed  ZeroSeedLaunchPeriphery.LaunchOwnerChanged
 --   zero_seed_launch_fees_paid      ZeroSeedLaunchPeriphery.LaunchFeesClaimed:
 --                                   the payout of that same claim
---   zero_seed_launch_states         one row per launch: immutable config,
---                                   immutable principal (liquidity, supply),
---                                   the creator fee ledger and the owner
+--   zero_seed_launch_states         one row per launch: the creator fee
+--                                   ledger and the owner (the immutable
+--                                   config, principal and supply are in
+--                                   zero_seed_launch_created)
 --
 -- Principal and fees are separate ledgers by construction:
 --   * Principal is the single position (salt 0, tick_lower, tick_upper) with
@@ -55,7 +68,15 @@
 -- Launches created by another controller have no owner here.
 --
 -- Native ETH is quote address 0: always token0, 18 decimals, no token
--- contract. quote_kind records native versus ERC-20 provenance explicitly.
+-- contract. quote_kind records native versus ERC-20 explicitly. Every launch
+-- of an indexed extension is recorded whatever its quote; whether a quote is
+-- supported is the reader's policy.
+--
+-- Supply, raw launch-token units: requested_supply is LaunchParameters.supply
+-- and the token's totalSupply; installed_supply is what Core took into the
+-- position (Core PositionUpdated of the creation), all of the circulating
+-- inventory; sink_supply = requested - installed was minted to address(0) and
+-- can never move. It is not a burn: totalSupply stays requested_supply.
 --
 -- The fee phase is derived from a block timestamp and the immutable schedule;
 -- nothing is stored for it, and there is no completed/migrated state.
@@ -100,14 +121,19 @@ CREATE TABLE zero_seed_launch_created
     -- the locker that forwarded the creation (normally the periphery); the
     -- only locker that may claim the fee ledger; not a user
     controller           NUMERIC NOT NULL,
-    -- the extension's constructor quote, the other token of the pool key;
-    -- 0 is native ETH
+    -- LaunchParameters.quoteToken, the other token of the pool key; 0 is
+    -- native ETH
     quote_token          NUMERIC NOT NULL,
     quote_kind           TEXT GENERATED ALWAYS AS (CASE WHEN quote_token = 0 THEN 'native' ELSE 'erc20' END) STORED,
     position_id          NUMERIC NOT NULL,
-    -- installed principal, immutable
+    -- installed principal, immutable: the liquidity the extension computed
     liquidity            NUMERIC NOT NULL,
-    supply               NUMERIC NOT NULL,
+    -- LaunchParameters.supply, the token's totalSupply
+    requested_supply     NUMERIC NOT NULL,
+    -- launch-token delta of Core's PositionUpdated of the creation
+    installed_supply     NUMERIC NOT NULL,
+    -- minted to address(0) at creation; never spendable, not a burn
+    sink_supply          NUMERIC GENERATED ALWAYS AS (requested_supply - installed_supply) STORED,
     -- NUL characters are stripped; Postgres text cannot hold them
     name                 TEXT    NOT NULL,
     symbol               TEXT    NOT NULL,
@@ -130,6 +156,7 @@ CREATE TABLE zero_seed_launch_created
     tick_lower           int4 GENERATED ALWAYS AS (CASE WHEN token > quote_token THEN -upper_tick ELSE ask_tick END) STORED,
     tick_upper           int4 GENERATED ALWAYS AS (CASE WHEN token > quote_token THEN -ask_tick ELSE upper_tick END) STORED,
     fee_end              int8 GENERATED ALWAYS AS (trading_start + fee_duration) STORED,
+    CHECK (0 < installed_supply AND installed_supply <= requested_supply),
     PRIMARY KEY (chain_id, event_id),
     FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );

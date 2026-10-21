@@ -5,13 +5,15 @@ import { resolve } from "node:path";
 import {
   decodeEventLog,
   encodeEventTopics,
+  toEventSignature,
   toFunctionSelector,
+  toFunctionSignature,
   toHex,
   zeroAddress,
-  type AbiFunction,
   type AbiEvent,
+  type AbiFunction,
 } from "viem";
-import type { DAO } from "../_shared/dao";
+import type { DAO, ZeroSeedLaunchCreatedInsert } from "../_shared/dao";
 import { CORE_ABI } from "./abis_v3";
 import {
   ZERO_SEED_LAUNCH_ABI,
@@ -41,43 +43,56 @@ import {
 const expectRejects = (promise: Promise<unknown>, error: RegExp) =>
   expect(promise).rejects.toThrow(error) as unknown as Promise<void>;
 
+const FIXTURES = resolve(
+  import.meta.dir,
+  "../../tests/fixtures/zero-seed-launch",
+);
+const readJson = (name: string): unknown =>
+  JSON.parse(readFileSync(resolve(FIXTURES, name), "utf8"));
+
 type FixtureInstance = {
   label: string;
-  quote: `0x${string}`;
-  quoteKind: "native" | "erc20";
   extension: `0x${string}`;
   periphery: `0x${string}`;
   extensionRuntimeKeccak: `0x${string}`;
   peripheryRuntimeKeccak: `0x${string}`;
-  quoteRuntimeKeccak: `0x${string}` | null;
+  extensionRuntimeTemplateKeccak: `0x${string}`;
+  peripheryRuntimeTemplateKeccak: `0x${string}`;
   deploymentBlock: number;
 };
-const fixture = JSON.parse(
-  readFileSync(
-    resolve(
-      import.meta.dir,
-      "../../tests/fixtures/zero-seed-launch/local-chain.json",
-    ),
-    "utf8",
-  ),
-) as {
+type FixtureLaunch = {
+  label: string;
+  instance: string;
+  poolId: `0x${string}`;
+  token: `0x${string}`;
+  quote: `0x${string}`;
+  quoteKind: "native" | "erc20";
+  tokenIsToken1: boolean;
+  requestedSupply: string;
+  installedSupply: string;
+  sinkSupply: string;
+  liquidity: string;
+};
+const fixture = readJson("local-chain.json") as {
   provenance: Record<string, string | boolean>;
   addresses: Record<string, `0x${string}`>;
   instances: FixtureInstance[];
-  launches: Record<
-    string,
-    { label: string; instance: string; poolId: string; token: string }
-  >;
+  launches: Record<string, FixtureLaunch>;
   installations: Record<
     string,
     {
-      actualInstalledSupply: string;
-      actualLiquidity: string;
-      tradingStart: number;
       requestedSupply: string;
+      installedSupply: string;
+      sinkSupply: string;
+      liquidity: string;
+      coreInstalledDelta: string;
+      totalSupply: string;
+      sinkBalance: string;
+      tradingStart: number;
       owner: string;
       extensionSalt: string;
       predictedToken: string;
+      installation: { installedSupply: string; liquidity: string };
     }
   >;
   forkPoint: number;
@@ -86,28 +101,62 @@ const fixture = JSON.parse(
     { logs: RawLog[]; blocks: { number: number }[] }
   >;
 };
-const NATIVE = fixture.instances.find((i) => i.label === "native")!;
-const WETH = fixture.instances.find((i) => i.label === "weth")!;
+const [INSTANCE] = fixture.instances;
 
-// The interface accepted for implementation: evm-contracts 4f1a3060, whose
-// protocol manifest lists these hashes, topics and selectors.
+// The protocol's interface manifest of evm-contracts 40af6cb, vendored
+// verbatim: generated from the build artifacts, not from this code.
+const manifest = readJson("zero-seed-interface-40af6cb.json") as {
+  manifest_sha256: string;
+  frozen_commit: string;
+  frozen_tree: string;
+  artifacts: Record<
+    "ZeroSeedLaunch" | "ZeroSeedLaunchPeriphery",
+    {
+      abi_sha256_canonical_json: string;
+      runtime_template_keccak256_immutables_zero: string;
+      creation_code_keccak256_no_constructor_args: string;
+    }
+  >;
+  abi: Record<
+    "ZeroSeedLaunch" | "ZeroSeedLaunchPeriphery",
+    {
+      functions: Record<string, `0x${string}`>;
+      events: Record<string, `0x${string}`>;
+      errors?: Record<string, `0x${string}`>;
+    }
+  >;
+  supply: {
+    examples: {
+      order: "t0" | "t1";
+      dec: string;
+      requested: string;
+      installed: string;
+      liquidity: string;
+      sink: string;
+    }[];
+  };
+};
+
+// The interface accepted for implementation: evm-contracts 40af6cb.
 const FROZEN = {
-  abiSha256: "21f9e2c0166ab28ce8573c481de5b0fc2f37dd7595d496d326f0a2d1a544254e",
+  abiSha256: "999068f8e41867e972f4485c0105f584a2c10d7537615e6b4517807548fcd4bf",
   peripheryAbiSha256:
-    "5c563488b843aee923d0d819a66489eeee543dd20d1582de1f5df643f5d08a75",
-  evmContractsHead: "4f1a3060b099e8a50469848118f44c0c65cfab9a",
-  evmContractsTree: "64649a281f113674584f192ff11b642071fdeac3",
+    "df24d9f07d45323da7e46c0f6e64ce24f8f522442d60cb07880ddf742ebe7305",
+  evmContractsHead: "40af6cb359b0de2f61f15e47b6622a00c48b5b08",
+  evmContractsTree: "f9925da3e2047b5ab5e45729056a3595043aa804",
   coreRuntimeKeccak:
     "0xc5f90c9d0dbc5037f8f9e248f4bb292e7c1824f584eb6550cb4cad525b38c71a",
-  routerRuntimeKeccak:
-    "0x32ba8475c95ee5d9f7807f4ad9dce849929c992df9c68e9030e986d1854e726f",
   launchCreationKeccak:
-    "0x50dc9c4148f4c81f8f689a2b62ed70c9590366fdb963072b4f2b89361f1dcd7c",
+    "0x78906a80dd0e4aeb1b7c94698a1e7917c20dc7b031a4513759ea12495f374384",
   peripheryCreationKeccak:
-    "0x79a8ef83d84f8110f6fec96a2d964a39913f81ab23a304fb19fb577fe29ef56c",
+    "0xb36a0535c61c790f3600a0c45dd92763a1934652de322ddd1c175f3cda2dc046",
+  launchRuntimeTemplate:
+    "0x39a99e30dfff34873b7a820416ae4bc33a337612c644c45e68c51ac6564a9f4d",
+  peripheryRuntimeTemplate:
+    "0x08216f696368b4398afb8c43ca3eff0cccdcea00e71397178b78b2b94f957dbb",
   topics: {
     LaunchCreated:
-      "0x085ada2e6f98dc43ec420caff7f39c25cbc16c81595684b19c4fca014dae5f2d",
+      "0x3a4e811187f4a8c0b72396e9d7ca13aeed62eb97a599a24af1ed99066041098f",
     LaunchSwapped:
       "0x3e58795f52a8e88efdec2da89ea3798175f8764145ccd7bf5e40633a7d571f6d",
     CreatorFeesClaimed:
@@ -120,15 +169,15 @@ const FROZEN = {
       "0x908c6b2c19765fe47aef218b4f71ea1a10a9e156d9d5c3500c3a298e01428805",
   },
   selectors: {
-    create: "0x687ba810",
-    previewInstallation: "0x42b9fe08",
+    create: "0x662af306",
+    previewInstallation: "0x917c1163",
     claimFees: "0x6906b4c0",
     transferLaunch: "0x8b1cb36f",
     launchOwner: "0x60ac0b66",
+    LAUNCH: "0x096e3c3e",
     feeAt: "0xe81084ec",
     getLaunch: "0x7d1d589c",
     creatorFees: "0xb4ce9a2e",
-    quoteToken: "0x217a4b70",
   },
 };
 
@@ -186,10 +235,16 @@ const decodeCreated = (log: RawLog) => {
   if (!args) throw new Error("LaunchCreated log decoded without args");
   return args;
 };
-const instanceOf = (emitter: string) =>
-  fixture.instances.find(
-    (i) => i.extension.toLowerCase() === emitter.toLowerCase(),
-  )!;
+const launchOf = (poolId: string) =>
+  Object.values(fixture.launches).find((l) => l.poolId === poolId)!;
+const same = (a: string, b: string) => BigInt(a) === BigInt(b);
+
+const abiItems = (abi: readonly unknown[]) =>
+  abi as unknown as (
+    | AbiFunction
+    | AbiEvent
+    | { type: string; name?: string }
+  )[];
 
 describe("frozen interface", () => {
   it("the compiled ABIs are the frozen ones, byte for byte", () => {
@@ -215,10 +270,10 @@ describe("frozen interface", () => {
           eventName: eventName as "LaunchOwnerChanged",
         })[0],
       ).toBe(topic as `0x${string}`);
-    const items = [
+    const items = abiItems([
       ...ZERO_SEED_LAUNCH_ABI,
       ...ZERO_SEED_LAUNCH_PERIPHERY_ABI,
-    ] as unknown as (AbiFunction | AbiEvent | { type: string })[];
+    ]);
     const functions = items.filter(
       (item): item is AbiFunction => item.type === "function",
     );
@@ -228,32 +283,97 @@ describe("frozen interface", () => {
           .filter((f) => f.name === name)
           .map((f) => toFunctionSelector(f) as string),
       ).toContain(selector);
-    // LaunchParameters lost quoteToken and decayFactor.
+    // The constructor quote, its getter and the exact-supply error are gone.
+    expect(functions.some((f) => f.name === "quoteToken")).toBe(false);
+    expect(
+      items.some(
+        (i) => i.type === "error" && i.name === "SupplyNotExactlyInstallable",
+      ),
+    ).toBe(false);
+    const constructor = items.find(
+      (i) => i.type === "constructor",
+    ) as unknown as {
+      inputs: { name: string }[];
+    };
+    expect(constructor.inputs.map((i) => i.name)).toEqual(["core"]);
+    // LaunchParameters: quoteToken replaced liquidity.
     const created = items.find(
       (item): item is AbiEvent =>
-        item.type === "event" && (item as AbiEvent).name === "LaunchCreated",
+        item.type === "event" && item.name === "LaunchCreated",
     )!;
     const parameters = created.inputs.find(
       (i) => i.name === "parameters",
-    ) as unknown as { components: { name: string }[] };
-    expect(parameters.components.map((c) => c.name)).toEqual([
-      "name",
-      "symbol",
-      "decimals",
-      "supply",
-      "liquidity",
-      "askTick",
-      "upperTick",
-      "tickSpacing",
-      "tradingStart",
-      "feeDuration",
-      "initialFee",
-      "finalFee",
-      "salt",
+    ) as unknown as { components: { name: string; type: string }[] };
+    expect(parameters.components.map((c) => `${c.type} ${c.name}`)).toEqual([
+      "string name",
+      "string symbol",
+      "uint8 decimals",
+      "uint128 supply",
+      "address quoteToken",
+      "int32 askTick",
+      "int32 upperTick",
+      "uint32 tickSpacing",
+      "uint64 tradingStart",
+      "uint32 feeDuration",
+      "uint64 initialFee",
+      "uint64 finalFee",
+      "bytes32 salt",
     ]);
   });
 
-  it("the replay fixture came from the frozen contracts head over the pinned Core and router runtimes", () => {
+  it("every function, event and error equals the vendored protocol manifest", () => {
+    expect([manifest.frozen_commit, manifest.frozen_tree]).toEqual([
+      FROZEN.evmContractsHead,
+      FROZEN.evmContractsTree,
+    ]);
+    for (const [name, abi, hash] of [
+      ["ZeroSeedLaunch", ZERO_SEED_LAUNCH_ABI, FROZEN.abiSha256],
+      [
+        "ZeroSeedLaunchPeriphery",
+        ZERO_SEED_LAUNCH_PERIPHERY_ABI,
+        FROZEN.peripheryAbiSha256,
+      ],
+    ] as const) {
+      const artifact = manifest.artifacts[name];
+      expect(artifact.abi_sha256_canonical_json).toBe(hash);
+      const items = abiItems(abi);
+      const functions = Object.fromEntries(
+        items
+          .filter((i): i is AbiFunction => i.type === "function")
+          .map((f) => [
+            toFunctionSignature(f).replaceAll(" ", ""),
+            toFunctionSelector(f),
+          ]),
+      );
+      const events = Object.fromEntries(
+        items
+          .filter((i): i is AbiEvent => i.type === "event")
+          .map((e) => [
+            toEventSignature(e).replaceAll(" ", ""),
+            encodeEventTopics({ abi: [e] })[0],
+          ]),
+      );
+      expect(functions).toEqual(manifest.abi[name].functions);
+      expect(events).toEqual(manifest.abi[name].events);
+    }
+    expect([
+      manifest.artifacts.ZeroSeedLaunch
+        .creation_code_keccak256_no_constructor_args,
+      manifest.artifacts.ZeroSeedLaunchPeriphery
+        .creation_code_keccak256_no_constructor_args,
+      manifest.artifacts.ZeroSeedLaunch
+        .runtime_template_keccak256_immutables_zero,
+      manifest.artifacts.ZeroSeedLaunchPeriphery
+        .runtime_template_keccak256_immutables_zero,
+    ]).toEqual([
+      FROZEN.launchCreationKeccak,
+      FROZEN.peripheryCreationKeccak,
+      FROZEN.launchRuntimeTemplate,
+      FROZEN.peripheryRuntimeTemplate,
+    ]);
+  });
+
+  it("the replay fixture came from the frozen contracts head over the pinned Core runtime", () => {
     const p = fixture.provenance;
     expect([
       p.evmContractsHead,
@@ -262,19 +382,26 @@ describe("frozen interface", () => {
     ]).toEqual([FROZEN.evmContractsHead, FROZEN.evmContractsTree, false]);
     expect([
       p.coreRuntimeKeccak,
-      p.routerRuntimeKeccak,
       p.launchAbiSha256,
       p.peripheryAbiSha256,
       p.launchCreationKeccak,
       p.peripheryCreationKeccak,
+      p.launchRuntimeTemplateKeccak,
+      p.peripheryRuntimeTemplateKeccak,
+      INSTANCE.extensionRuntimeTemplateKeccak,
+      INSTANCE.peripheryRuntimeTemplateKeccak,
     ]).toEqual([
       FROZEN.coreRuntimeKeccak,
-      FROZEN.routerRuntimeKeccak,
       FROZEN.abiSha256,
       FROZEN.peripheryAbiSha256,
       FROZEN.launchCreationKeccak,
       FROZEN.peripheryCreationKeccak,
+      FROZEN.launchRuntimeTemplate,
+      FROZEN.peripheryRuntimeTemplate,
+      FROZEN.launchRuntimeTemplate,
+      FROZEN.peripheryRuntimeTemplate,
     ]);
+    expect(fixture.instances).toHaveLength(1);
     expect(createdLogs.length).toBe(4);
     expect(fixture.forkPoint).toBe(
       Math.max(...fixture.branches.prefix.blocks.map((b) => b.number)),
@@ -286,105 +413,132 @@ describe("frozen interface", () => {
       expect(
         branch.logs.every((l) => Number(l.blockNumber) > fixture.forkPoint),
       ).toBe(true);
+    // The instance and its first launch share the deployment block.
+    const l1 = createdLogs.find(
+      (l) => decodeCreated(l).poolId === fixture.launches.l1.poolId,
+    )!;
+    expect(Number(l1.blockNumber)).toBe(INSTANCE.deploymentBlock);
+  });
+
+  it("every launch submitted the requested supply and recorded installed and sink supply exactly", () => {
+    const kinds = new Set<string>();
     for (const log of createdLogs) {
       const event = decodeCreated(log);
-      const launch = Object.values(fixture.launches).find(
-        (l) => l.poolId === event.poolId,
-      )!;
+      const launch = launchOf(event.poolId);
       const installation = fixture.installations[launch.label];
-      const instance = instanceOf(log.address);
+      kinds.add(launch.quoteKind);
+      // one extension serves every quote
+      expect(log.address.toLowerCase()).toBe(INSTANCE.extension.toLowerCase());
       expect([
         String(event.parameters.supply),
+        event.parameters.quoteToken.toLowerCase(),
         String(event.liquidity),
         Number(event.parameters.tradingStart),
         event.parameters.salt,
         event.token,
         event.controller.toLowerCase(),
       ]).toEqual([
-        installation.actualInstalledSupply,
-        installation.actualLiquidity,
+        launch.requestedSupply,
+        launch.quote.toLowerCase(),
+        launch.liquidity,
         installation.tradingStart,
         installation.extensionSalt as `0x${string}`,
         installation.predictedToken as `0x${string}`,
-        instance.periphery.toLowerCase() as `0x${string}`,
+        INSTANCE.periphery.toLowerCase(),
       ]);
-      expect(
-        BigInt(installation.requestedSupply) >= event.parameters.supply,
-      ).toBe(true);
+      const requested = BigInt(launch.requestedSupply);
+      const installed = BigInt(launch.installedSupply);
+      expect(requested).toBe(10n ** 27n);
+      expect(installed > 0n && installed <= requested).toBe(true);
+      expect(BigInt(launch.sinkSupply)).toBe(requested - installed);
+      // the chain's own evidence, recorded by the generator
+      expect([
+        installation.coreInstalledDelta,
+        installation.installation.installedSupply,
+        installation.installation.liquidity,
+        installation.totalSupply,
+        installation.sinkBalance,
+      ]).toEqual([
+        launch.installedSupply,
+        launch.installedSupply,
+        launch.liquidity,
+        launch.requestedSupply,
+        launch.sinkSupply,
+      ]);
+      // the protocol's independent 18/18 vectors for this token order
+      const vector = manifest.supply.examples.find(
+        (e) =>
+          e.dec === "18/18" && e.order === (launch.tokenIsToken1 ? "t1" : "t0"),
+      )!;
+      expect([
+        launch.requestedSupply,
+        launch.installedSupply,
+        launch.liquidity,
+        launch.sinkSupply,
+      ]).toEqual([
+        vector.requested,
+        vector.installed,
+        vector.liquidity,
+        vector.sink,
+      ]);
     }
-    // The native instance and its first launch share the deployment block.
-    const l1 = createdLogs.find(
-      (l) => decodeCreated(l).poolId === fixture.launches.l1.poolId,
-    )!;
-    expect(Number(l1.blockNumber)).toBe(NATIVE.deploymentBlock);
+    expect([...kinds].sort()).toEqual(["erc20", "native"]);
   });
 });
 
 describe("launch support configuration", () => {
   const base = {
     chainId: 31337n,
-    address: NATIVE.extension,
-    runtimeCodehash: NATIVE.extensionRuntimeKeccak,
+    address: INSTANCE.extension,
+    runtimeCodehash: INSTANCE.extensionRuntimeKeccak,
     coreAddress: fixture.addresses.core,
     production: false,
   };
+  const [PIN] = ZERO_SEED_LAUNCH_PINS;
   const otherChainPin: ZeroSeedLaunchPin = {
-    ...ZERO_SEED_LAUNCH_PINS[0],
+    ...PIN,
     chainId: 8453n,
     local: false,
   };
 
-  it("only the native and plain-WETH local fixture instances are pinned; no live pin exists", () => {
-    expect(ZERO_SEED_LAUNCH_PINS).toHaveLength(2);
-    for (const pin of ZERO_SEED_LAUNCH_PINS) {
-      const instance = instanceOf(pin.address);
-      expect({
-        quote: pin.quote.address,
-        kind: pin.quote.kind,
-        quoteRuntime:
-          pin.quote.kind === "erc20" ? pin.quote.runtimeCodehash : null,
-        runtime: pin.runtimeCodehash,
-        periphery: pin.periphery,
-        peripheryRuntime: pin.peripheryRuntimeCodehash,
-        deploymentBlock: pin.deploymentBlock,
-        chainId: pin.chainId,
-        local: pin.local,
-      }).toEqual({
-        quote: instance.quote.toLowerCase() as `0x${string}`,
-        kind: instance.quoteKind,
-        quoteRuntime: instance.quoteRuntimeKeccak,
-        runtime: instance.extensionRuntimeKeccak,
-        periphery: instance.periphery.toLowerCase() as `0x${string}`,
-        peripheryRuntime: instance.peripheryRuntimeKeccak,
-        deploymentBlock: instance.deploymentBlock,
-        chainId: 31337n,
-        local: true,
-      });
-    }
-    expect(NATIVE.quote).toBe(zeroAddress);
-    expect(NATIVE.quoteRuntimeKeccak).toBeNull();
+  it("only the local fixture instance is pinned, with no quote; no live pin exists", () => {
+    expect(ZERO_SEED_LAUNCH_PINS).toHaveLength(1);
+    expect({
+      address: PIN.address,
+      runtime: PIN.runtimeCodehash,
+      periphery: PIN.periphery,
+      peripheryRuntime: PIN.peripheryRuntimeCodehash,
+      core: PIN.core,
+      deploymentBlock: PIN.deploymentBlock,
+      chainId: PIN.chainId,
+      local: PIN.local,
+    }).toEqual({
+      address: INSTANCE.extension.toLowerCase() as `0x${string}`,
+      runtime: INSTANCE.extensionRuntimeKeccak,
+      periphery: INSTANCE.periphery.toLowerCase() as `0x${string}`,
+      peripheryRuntime: INSTANCE.peripheryRuntimeKeccak,
+      core: fixture.addresses.core.toLowerCase() as `0x${string}`,
+      deploymentBlock: INSTANCE.deploymentBlock,
+      chainId: 31337n,
+      local: true,
+    });
+    expect("quote" in PIN).toBe(false);
     expect(() =>
       createZeroSeedLaunchProcessors({
         coreAddress: fixture.addresses.core,
-        zeroSeedLaunchAddresses: [NATIVE.periphery],
+        zeroSeedLaunchAddresses: [INSTANCE.periphery],
       }),
     ).toThrow(/provenance/);
   });
 
   it("is on only for a pinned address and codehash, and resolves its periphery from the pin", () => {
-    for (const instance of [NATIVE, WETH]) {
-      const pin = resolveZeroSeedLaunchPin({
-        ...base,
-        address: instance.extension,
-        runtimeCodehash: instance.extensionRuntimeKeccak,
-      })!;
-      expect([pin.address, pin.periphery]).toEqual([
-        instance.extension.toLowerCase() as `0x${string}`,
-        instance.periphery.toLowerCase() as `0x${string}`,
-      ]);
-    }
+    const pin = resolveZeroSeedLaunchPin(base)!;
+    expect([pin.address, pin.periphery]).toEqual([
+      INSTANCE.extension.toLowerCase() as `0x${string}`,
+      INSTANCE.periphery.toLowerCase() as `0x${string}`,
+    ]);
     expect(resolveZeroSeedLaunchAddress(base)).toBe(
-      NATIVE.extension.toLowerCase() as `0x${string}`,
+      INSTANCE.extension.toLowerCase() as `0x${string}`,
     );
   });
 
@@ -420,16 +574,19 @@ describe("launch support configuration", () => {
     expect(() =>
       resolveZeroSeedLaunchAddress({
         ...base,
-        runtimeCodehash: WETH.extensionRuntimeKeccak,
+        runtimeCodehash: INSTANCE.peripheryRuntimeKeccak,
       }),
     ).toThrow(/does not match the pin/);
     // The zero-filled templates of the extension and periphery builds.
     for (const template of [
-      "0x25637ad2d1071b641f275d3b1037616b8836d2445501c05d38618764fa924167",
-      "0x271683d2c3cf5e518fc5aa531f8568191b166a262a43e05d13325f0630dd5d7a",
+      FROZEN.launchRuntimeTemplate,
+      FROZEN.peripheryRuntimeTemplate,
     ] as const)
       expect(() =>
-        resolveZeroSeedLaunchAddress({ ...base, runtimeCodehash: template }),
+        resolveZeroSeedLaunchAddress({
+          ...base,
+          runtimeCodehash: template as `0x${string}`,
+        }),
       ).toThrow(/not a deployed runtime/);
     expect(() =>
       resolveZeroSeedLaunchAddress({
@@ -455,6 +612,18 @@ describe("launch support configuration", () => {
       }),
     ).toThrow(/ABI/);
     expect(() =>
+      resolveZeroSeedLaunchAddress({
+        ...base,
+        pins: [
+          {
+            ...PIN,
+            peripheryRuntimeCodehash:
+              FROZEN.peripheryRuntimeTemplate as `0x${string}`,
+          },
+        ],
+      }),
+    ).toThrow(/no deployed periphery/);
+    expect(() =>
       resolveZeroSeedLaunchAddress({ ...base, coreAddress: undefined }),
     ).toThrow(/Core/);
     expect(() =>
@@ -465,63 +634,22 @@ describe("launch support configuration", () => {
     ).toThrow(/Core/);
   });
 
-  it("keeps native and ERC-20 quote provenance distinct", () => {
-    const native = ZERO_SEED_LAUNCH_PINS[0];
-    const weth = ZERO_SEED_LAUNCH_PINS[1];
-    const reject = (pin: ZeroSeedLaunchPin, error: RegExp) =>
+  it("refuses a reviewed address with another periphery, runtime, Core or deployment block", () => {
+    for (const changed of [
+      { periphery: "0x5eed00000000000000000000000000000000ab02" },
+      { peripheryRuntimeCodehash: toHex(1n, { size: 32 }) },
+      { deploymentBlock: 1 },
+      { core: "0x0000000000000000000000000000000000000001", local: true },
+    ] as Partial<ZeroSeedLaunchPin>[]) {
+      const pin = { ...PIN, ...changed };
       expect(() =>
         resolveZeroSeedLaunchAddress({
           ...base,
-          address: pin.address,
-          runtimeCodehash: pin.runtimeCodehash,
+          coreAddress: pin.core,
           pins: [pin],
         }),
-      ).toThrow(error);
-    // a native quote is address(0), with no runtime to bind
-    reject(
-      {
-        ...native,
-        quote: {
-          kind: "native",
-          address: weth.quote
-            .address as "0x0000000000000000000000000000000000000000",
-        },
-      },
-      /native quote must be address\(0\)/,
-    );
-    // address(0) relabelled as an ERC-20, or an ERC-20 of another runtime
-    reject(
-      {
-        ...native,
-        quote: {
-          kind: "erc20",
-          address: zeroAddress,
-          runtimeCodehash: FROZEN.coreRuntimeKeccak as `0x${string}`,
-        },
-      },
-      /ERC-20 quote cannot be address\(0\)/,
-    );
-    reject(
-      {
-        ...native,
-        address: weth.address,
-        runtimeCodehash: weth.runtimeCodehash,
-        quote: {
-          kind: "erc20",
-          address: weth.quote.address,
-          runtimeCodehash: toHex(1n, { size: 32 }),
-        },
-      },
-      /plain-WETH runtime/,
-    );
-    // a reviewed address with another periphery, quote or deployment block
-    for (const changed of [
-      { periphery: weth.periphery },
-      { peripheryRuntimeCodehash: weth.peripheryRuntimeCodehash },
-      { quote: weth.quote },
-      { deploymentBlock: 1 },
-    ])
-      reject({ ...native, ...changed }, /not reviewed/);
+      ).toThrow(/not reviewed/);
+    }
   });
 });
 
@@ -529,21 +657,21 @@ describe("processors", () => {
   const launchTopics = (addresses: readonly `0x${string}`[] | undefined) =>
     createLogProcessorsV3({ ...config, zeroSeedLaunchAddresses: addresses })
       .filter((p) =>
-        [NATIVE.extension, NATIVE.periphery].some(
+        [INSTANCE.extension, INSTANCE.periphery].some(
           (a) => a.toLowerCase() === p.address.toLowerCase(),
         ),
       )
       .map((p) => [p.address.toLowerCase(), p.filter.topics[0]]);
 
   it("decode exactly the five frozen events of the instance's extension and periphery, and nothing without an address", () => {
-    expect(launchTopics([NATIVE.extension]).sort()).toEqual(
+    expect(launchTopics([INSTANCE.extension]).sort()).toEqual(
       [
         ...Object.values(FROZEN.topics).map((t) => [
-          NATIVE.extension.toLowerCase(),
+          INSTANCE.extension.toLowerCase(),
           t,
         ]),
         ...Object.values(FROZEN.peripheryTopics).map((t) => [
-          NATIVE.periphery.toLowerCase(),
+          INSTANCE.periphery.toLowerCase(),
           t,
         ]),
       ].sort(),
@@ -552,15 +680,16 @@ describe("processors", () => {
     expect(launchTopics([])).toEqual([]);
   });
 
-  it("register a launch pool at PoolInitialized only when support is on", async () => {
-    const poolInitialized = fixture.branches.prefix.logs.find(
+  it("register every launch pool at PoolInitialized, whatever its quote, only when support is on", async () => {
+    const poolInitialized = allLogs.filter(
       (l) =>
         l.topics[0] ===
         encodeEventTopics({ abi: CORE_ABI, eventName: "PoolInitialized" })[0],
-    )!;
+    );
+    expect(poolInitialized).toHaveLength(4);
     for (const [addresses, expected] of [
-      [[NATIVE.extension], 1],
-      [[WETH.extension], 0],
+      [[INSTANCE.extension], 4],
+      [[], 0],
       [undefined, 0],
     ] as const) {
       const registered: string[] = [];
@@ -577,9 +706,10 @@ describe("processors", () => {
       const core = processors.find(
         (p) =>
           p.address === config.coreAddress &&
-          p.filter.topics[0] === poolInitialized.topics[0],
+          p.filter.topics[0] === poolInitialized[0].topics[0],
       )!;
-      await core.handler(dao, keyOf(poolInitialized), poolInitialized);
+      for (const log of poolInitialized)
+        await core.handler(dao, keyOf(log), log);
       expect(registered).toHaveLength(expected);
     }
   });
@@ -597,8 +727,8 @@ describe("processors", () => {
     await guard(dao, 3);
     await guard(dao, 4);
     expect(calls).toEqual([
-      [ZERO_SEED_LAUNCH_PINS[0].core, NATIVE.extension.toLowerCase(), 2, 3],
-      [ZERO_SEED_LAUNCH_PINS[0].core, NATIVE.extension.toLowerCase(), 2, 3],
+      [ZERO_SEED_LAUNCH_PINS[0].core, INSTANCE.extension.toLowerCase(), 2, 3],
+      [ZERO_SEED_LAUNCH_PINS[0].core, INSTANCE.extension.toLowerCase(), 2, 3],
     ]);
     await zeroSeedLaunchCatchUpGuard([])(
       {
@@ -611,120 +741,211 @@ describe("processors", () => {
   });
 });
 
-describe("LaunchCreated decoder guards", () => {
-  it("accept every chain-emitted LaunchCreated against its instance's constructor quote", () => {
+describe("LaunchCreated decoding", () => {
+  const createdProcessor = createZeroSeedLaunchProcessors({
+    coreAddress: config.coreAddress,
+    zeroSeedLaunchAddresses: [INSTANCE.extension],
+  }).find((p) => p.filter.topics[0] === LAUNCH_CREATED)!;
+
+  it("decodes every raw chain log into the launch's own quote, requested supply and computed liquidity", async () => {
+    const stored: ZeroSeedLaunchCreatedInsert[] = [];
+    const dao = {
+      insertZeroSeedLaunchCreatedEvent: async (
+        _key: unknown,
+        row: ZeroSeedLaunchCreatedInsert,
+      ) => void stored.push(row),
+    } as unknown as DAO;
+    for (const log of createdLogs)
+      await createdProcessor.handler(dao, keyOf(log), log);
+    expect(
+      stored.map((row) => ({
+        poolId: row.poolId,
+        quote: (row.quoteToken as string).toLowerCase(),
+        requested: String(row.requestedSupply),
+        liquidity: String(row.liquidity),
+        token: row.token,
+        tokenIsToken1: BigInt(row.token) > BigInt(row.quoteToken),
+      })),
+    ).toEqual(
+      createdLogs.map((log) => {
+        const launch = launchOf(decodeCreated(log).poolId);
+        return {
+          poolId: launch.poolId,
+          quote: launch.quote.toLowerCase(),
+          requested: launch.requestedSupply,
+          liquidity: launch.liquidity,
+          token: launch.token,
+          tokenIsToken1: launch.tokenIsToken1,
+        };
+      }),
+    );
+    // the installed supply is not in the log; the DAO takes it from Core
+    expect(stored.every((row) => !("installedSupply" in row))).toBe(true);
+  });
+
+  it("accepts every chain-emitted LaunchCreated, native and ERC-20, on one extension", () => {
     for (const log of createdLogs) {
       const event = decodeCreated(log);
-      const instance = instanceOf(log.address);
-      expect(launchCreatedProblems(keyOf(log), event, instance.quote)).toEqual(
-        [],
-      );
-      // native ETH is always token0, so the launch token is token1
-      expect(BigInt(event.poolKey.token0) === 0n).toBe(
-        instance.quoteKind === "native",
-      );
+      const launch = launchOf(event.poolId);
+      expect(launchCreatedProblems(keyOf(log), event)).toEqual([]);
+      // native ETH is always token0, so the launch token is token1; the
+      // relocated ERC-20 at 0xff..ff is always token1
+      if (launch.quoteKind === "native")
+        expect([event.poolKey.token0, launch.tokenIsToken1]).toEqual([
+          zeroAddress,
+          true,
+        ]);
+      else
+        expect([
+          same(event.poolKey.token1, fixture.addresses.erc20Quote),
+          launch.tokenIsToken1,
+        ]).toEqual([true, false]);
     }
   });
 
-  it("refuse logs whose fields disagree, and the handler stores nothing", async () => {
-    const log = createdLogs[0];
-    const event = decodeCreated(log);
-    const quote = instanceOf(log.address).quote;
-    const mutants: [string, typeof event, string][] = [
-      [
-        "liquidity",
-        { ...event, liquidity: event.liquidity + 1n },
-        "parameters.liquidity != liquidity",
-      ],
-      ["emitter", event, "pool extension is not the emitter"],
-      [
-        "poolId",
-        { ...event, poolId: toHex(1n, { size: 32 }) },
-        "poolId != id of poolKey",
-      ],
-      [
-        "order",
-        {
-          ...event,
-          poolKey: {
-            ...event.poolKey,
-            token0: event.poolKey.token1,
-            token1: event.poolKey.token0,
+  it("refuses logs whose fields disagree, and the handler stores nothing", async () => {
+    for (const log of createdLogs) {
+      const event = decodeCreated(log);
+      const withParameters = (p: Partial<typeof event.parameters>) => ({
+        ...event,
+        parameters: { ...event.parameters, ...p },
+      });
+      const otherQuote =
+        BigInt(event.parameters.quoteToken) === 0n
+          ? fixture.addresses.erc20Quote
+          : zeroAddress;
+      const mutants: [string, typeof event, string][] = [
+        [
+          "quote/pool key mismatch",
+          withParameters({ quoteToken: otherQuote }),
+          "pool tokens are not (token, quoteToken) in order",
+        ],
+        [
+          "quote is another ERC-20",
+          withParameters({
+            quoteToken: "0x5eed00000000000000000000000000000000ab01",
+          }),
+          "pool tokens are not (token, quoteToken) in order",
+        ],
+        [
+          "token is the quote",
+          withParameters({ quoteToken: event.token }),
+          "launch token is the quote",
+        ],
+        ["emitter", event, "pool extension is not the emitter"],
+        [
+          "poolId",
+          { ...event, poolId: toHex(1n, { size: 32 }) },
+          "poolId != id of poolKey",
+        ],
+        [
+          "order",
+          {
+            ...event,
+            poolKey: {
+              ...event.poolKey,
+              token0: event.poolKey.token1,
+              token1: event.poolKey.token0,
+            },
           },
-        },
-        "pool tokens are not (token, constructor quote) in order",
-      ],
-      [
-        "position",
-        {
-          ...event,
-          positionId: toHex(BigInt(event.positionId) + 1n, { size: 32 }),
-        },
-        "position is not (salt 0, tick_lower, tick_upper)",
-      ],
-      [
-        "fee",
-        {
-          ...event,
-          poolKey: {
-            ...event.poolKey,
-            config: toHex(BigInt(event.poolKey.config) | (1n << 64n), {
+          "pool tokens are not (token, quoteToken) in order",
+        ],
+        [
+          "position salt",
+          {
+            ...event,
+            positionId: toHex(BigInt(event.positionId) | (1n << 64n), {
               size: 32,
             }),
           },
-        },
-        "Core fee is not 0",
-      ],
-      ["token", { ...event, token: quote }, "launch token is the quote"],
-    ];
-    for (const [name, mutated, problem] of mutants) {
-      const key =
-        name === "emitter"
-          ? { ...keyOf(log), emitter: config.coreAddress }
-          : keyOf(log);
-      expect(launchCreatedProblems(key, mutated, quote)).toContain(problem);
+          "position is not (salt 0, tick_lower, tick_upper)",
+        ],
+        [
+          "position bounds",
+          {
+            ...event,
+            positionId: toHex(BigInt(event.positionId) + 1n, { size: 32 }),
+          },
+          "position is not (salt 0, tick_lower, tick_upper)",
+        ],
+        [
+          "economic ticks",
+          withParameters({ askTick: event.parameters.askTick + 100 }),
+          "position is not (salt 0, tick_lower, tick_upper)",
+        ],
+        [
+          "fee",
+          {
+            ...event,
+            poolKey: {
+              ...event.poolKey,
+              config: toHex(BigInt(event.poolKey.config) | (1n << 64n), {
+                size: 32,
+              }),
+            },
+          },
+          "Core fee is not 0",
+        ],
+        [
+          "spacing",
+          withParameters({ tickSpacing: event.parameters.tickSpacing + 1 }),
+          "tick spacing differs",
+        ],
+        ["liquidity", { ...event, liquidity: 0n }, "liquidity is 0"],
+        [
+          "zero supply",
+          withParameters({ supply: 0n }),
+          "requested supply is outside 1..int128.max",
+        ],
+        [
+          "supply above int128",
+          withParameters({ supply: 1n << 127n }),
+          "requested supply is outside 1..int128.max",
+        ],
+      ];
+      for (const [name, mutated, problem] of mutants) {
+        const key =
+          name === "emitter"
+            ? { ...keyOf(log), emitter: config.coreAddress }
+            : keyOf(log);
+        expect(launchCreatedProblems(key, mutated), name).toContain(problem);
+      }
+      expect(
+        launchCreatedProblems(
+          keyOf(log),
+          withParameters({ supply: (1n << 127n) - 1n }),
+        ),
+      ).toEqual([]);
     }
-    const [created] = createZeroSeedLaunchProcessors({
-      coreAddress: config.coreAddress,
-      zeroSeedLaunchAddresses: [log.address],
-    }).filter((p) => p.filter.topics[0] === LAUNCH_CREATED);
+    const [log] = createdLogs;
     const dao = {
       insertZeroSeedLaunchCreatedEvent: async () => {
         throw new Error("must not store");
       },
     } as unknown as DAO;
     await expectRejects(
-      created.handler(dao, { ...keyOf(log), emitter: config.coreAddress }, log),
+      createdProcessor.handler(
+        dao,
+        { ...keyOf(log), emitter: config.coreAddress },
+        log,
+      ),
       /Refusing LaunchCreated/,
     );
   });
 
-  it("refuses a launch against another instance's quote and 32-byte multibyte metadata", () => {
-    const log = createdLogs.find(
-      (l) => instanceOf(l.address).quoteKind === "native",
-    )!;
+  it("refuses 32-byte multibyte metadata", () => {
+    const [log] = createdLogs;
     const event = decodeCreated(log);
-    expect(launchCreatedProblems(keyOf(log), event, WETH.quote)).toContain(
-      "pool tokens are not (token, constructor quote) in order",
-    );
     for (const field of ["name", "symbol"] as const) {
       const withMetadata = (value: string) => ({
         ...event,
         parameters: { ...event.parameters, [field]: value },
       });
       expect(
-        launchCreatedProblems(
-          keyOf(log),
-          withMetadata("é".repeat(15) + "a"),
-          NATIVE.quote,
-        ),
+        launchCreatedProblems(keyOf(log), withMetadata("é".repeat(15) + "a")),
       ).toEqual([]);
       expect(
-        launchCreatedProblems(
-          keyOf(log),
-          withMetadata("é".repeat(16)),
-          NATIVE.quote,
-        ),
+        launchCreatedProblems(keyOf(log), withMetadata("é".repeat(16))),
       ).toContain("metadata exceeds 31 UTF-8 bytes");
     }
   });

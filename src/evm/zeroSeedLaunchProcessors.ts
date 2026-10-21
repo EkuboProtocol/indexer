@@ -24,19 +24,23 @@ type LaunchCreated = ContractEvent<
 const same = (a: string, b: string) => BigInt(a) === BigInt(b);
 const utf8Length = (value: string) => new TextEncoder().encode(value).length;
 
+const INT128_MAX = (1n << 127n) - 1n;
+
 /**
  * Reasons a LaunchCreated log disagrees with itself or its emitter. The quote
- * is the instance's constructor quote (address 0 for native ETH, which is
- * then always token0), not a log field. The stored row derives the position's
- * pool ticks from the economic ticks and the token order, so the log's own
- * pool key and position id must say the same thing.
+ * is the launch's own parameters.quoteToken (address 0 for native ETH, which
+ * is then always token0), and it must be the other token of the pool key. The
+ * stored row derives the position's pool ticks from the economic ticks and the
+ * token order, so the log's own pool key and position id must say the same
+ * thing. The installed supply is not in the log; the DAO takes it from Core's
+ * PositionUpdated of the same transaction.
  */
 export function launchCreatedProblems(
   key: Pick<EventKey, "emitter">,
   event: LaunchCreated,
-  quoteToken: `0x${string}`,
 ): string[] {
   const { poolKey, parameters, positionId } = event;
+  const { quoteToken } = parameters;
   const config = parseV2PoolKeyConfig(poolKey.config);
   const tokenIs0 = BigInt(event.token) < BigInt(quoteToken);
   const [token0, token1] = tokenIs0
@@ -53,9 +57,10 @@ export function launchCreatedProblems(
       utf8Length(parameters.name) <= 31 && utf8Length(parameters.symbol) <= 31,
       "metadata exceeds 31 UTF-8 bytes",
     ],
+    [event.liquidity > 0n, "liquidity is 0"],
     [
-      parameters.liquidity === event.liquidity,
-      "parameters.liquidity != liquidity",
+      parameters.supply > 0n && parameters.supply <= INT128_MAX,
+      "requested supply is outside 1..int128.max",
     ],
     [same(config.extension, key.emitter), "pool extension is not the emitter"],
     [
@@ -64,7 +69,7 @@ export function launchCreatedProblems(
     ],
     [
       same(poolKey.token0, token0) && same(poolKey.token1, token1),
-      "pool tokens are not (token, constructor quote) in order",
+      "pool tokens are not (token, quoteToken) in order",
     ],
     [config.fee === 0n, "Core fee is not 0"],
     [
@@ -97,12 +102,12 @@ export function createZeroSeedLaunchProcessors({
     const pin = zeroSeedLaunchPinForAddress(address);
     if (!pin || !same(pin.core, coreAddress))
       throw new Error(
-        "ZeroSeedLaunch event processor lacks reviewed instance/Core/quote provenance",
+        "ZeroSeedLaunch event processor lacks reviewed instance/Core provenance",
       );
     return createProcessorsFromHandlers({
       ZeroSeedLaunch: {
         address: pin.address,
-        ...zeroSeedLaunchHandlers(coreAddress, pin.quote.address),
+        ...zeroSeedLaunchHandlers(coreAddress),
       },
       ZeroSeedLaunchPeriphery: {
         address: pin.periphery,
@@ -117,13 +122,12 @@ export function createZeroSeedLaunchProcessors({
  */
 export function zeroSeedLaunchHandlers(
   coreAddress: `0x${string}`,
-  quoteToken: `0x${string}`,
 ): Omit<ContractHandlers<typeof ZERO_SEED_LAUNCH_ABI>, "address"> {
   return {
     abi: ZERO_SEED_LAUNCH_ABI,
     handlers: {
       async LaunchCreated(dao, key, event) {
-        const problems = launchCreatedProblems(key, event, quoteToken);
+        const problems = launchCreatedProblems(key, event);
         if (problems.length > 0)
           throw new Error(
             `Refusing LaunchCreated for pool ${event.poolId}: ${problems.join("; ")}`,
@@ -134,10 +138,10 @@ export function zeroSeedLaunchHandlers(
           poolId: event.poolId,
           token: event.token,
           controller: event.controller,
-          quoteToken,
+          quoteToken: parameters.quoteToken,
           positionId: event.positionId,
           liquidity: event.liquidity,
-          supply: parameters.supply,
+          requestedSupply: parameters.supply,
           name: parameters.name,
           symbol: parameters.symbol,
           decimals: parameters.decimals,

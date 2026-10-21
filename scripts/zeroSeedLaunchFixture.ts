@@ -1,19 +1,26 @@
 // Generates tests/fixtures/zero-seed-launch/local-chain.json: logs and state
 // that a local anvil chain actually emits for ZeroSeedLaunch launches created,
-// claimed and transferred through ZeroSeedLaunchPeriphery, and swaps through
-// the Base 0x03c8 Yul router runtime.
+// claimed and transferred through ZeroSeedLaunchPeriphery, and swapped through
+// the checkout's test/LaunchTestRouter.sol.
 //
 //   bun scripts/zeroSeedLaunchFixture.ts <evm-contracts checkout> [out.json]
 //
 // The checkout must be EkuboProtocol/evm-contracts at the pinned head, built
-// with `forge build`. Core is the main (Q0.64) runtime the build produces, set
-// at the canonical address; the router runtime is the checkout's Base fixture.
-// Two instances, each an extension (mined CREATE2 salt carrying the call-point
-// byte) plus its periphery, both deployed through the deterministic deployer:
+// with `forge build`; it is only read. Core is the main (Q0.64) runtime the
+// build produces, set at the canonical address. One instance: the extension
+// (constructor `(core)`, mined CREATE2 salt carrying the call-point byte) and
+// its periphery, both deployed through the deterministic deployer. Every
+// launch names its own quote, and launches of both kinds share the instance:
 //   native  quote address(0) (native ETH, always token0; launch is token1)
-//   weth    quote 0xff..ff, the Base WETH9 runtime relocated (launch is token0)
-// The native instance and its first launch share the deployment block, so a
-// replay that starts one block late provably misses a launch.
+//   erc20   quote 0xff..ff, the checkout's plain 18-decimal test/TestToken.sol
+//           runtime relocated there (launch is token0)
+// Each launch requests a round supply of 1e27; the extension installs at most
+// that much and mints the remainder (the sink) to address(0). The script
+// checks, per creation, the Installation that create returns against the
+// preview, Core's PositionUpdated delta against the installed supply,
+// totalSupply against the requested supply and balanceOf(address(0)) against
+// the sink. The instance and its first launch share the deployment block, so
+// a replay that starts one block late provably misses a launch.
 //
 // Nothing here leaves the machine: anvil runs locally with no fork URL.
 import { spawn, execFileSync } from "node:child_process";
@@ -25,11 +32,15 @@ import {
   createPublicClient,
   createTestClient,
   createWalletClient,
+  decodeEventLog,
+  decodeFunctionResult,
   encodeAbiParameters,
   encodeFunctionData,
+  encodePacked,
   getContractAddress,
   http,
   keccak256,
+  maxUint256,
   numberToHex,
   pad,
   toHex,
@@ -38,6 +49,7 @@ import {
   type Address,
   type Hex,
 } from "viem";
+import { parsePoolBalanceUpdate } from "../src/evm/poolKey";
 
 const [evmContracts, outArg] = process.argv.slice(2);
 if (!evmContracts)
@@ -52,7 +64,6 @@ const CHAIN_ID = 31337;
 const T0 = 1_800_000_000;
 
 const CORE: Address = "0x00000000000014aA86C5d3c41765bb24e11bd701";
-const ROUTER: Address = "0x03c8B90854b90AA22448b11e885F692972DA441C";
 const CREATE2_FACTORY: Address = "0x4e59b44847b379578588920cA78FbF26c0B4956C";
 // beforeInitializePool (1) + beforeSwap (64) + beforeUpdatePosition (16)
 const CALL_POINTS_BYTE = 0x51;
@@ -61,6 +72,8 @@ const TRADER: Address = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const CREATOR: Address = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 const FEE_RECIPIENT: Address = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
 const NEW_OWNER: Address = "0x90F79bf6EB2c4f870365E785982E1f101E93b906";
+// The router is TRADER's first CREATE.
+const ROUTER: Address = getContractAddress({ from: TRADER, nonce: 0n });
 
 const FEE_50 = 9223372036854775808n;
 const FEE_5 = 922337203685477580n;
@@ -69,37 +82,40 @@ const SPACING = 100;
 const WIDTH = 4605200;
 const ASK_18_18 = -13815500;
 const REQUESTED_SUPPLY = 1_000_000_000n * 10n ** 18n;
-const GAS = 6_000_000n;
+const GAS = 10_000_000n;
 const NATIVE: Address = zeroAddress;
-const WETH: Address = "0xffffffffffffffffffffffffffffffffffffffff";
-const PINNED_HEAD = "4f1a3060b099e8a50469848118f44c0c65cfab9a";
+const ERC20_QUOTE: Address = "0xffffffffffffffffffffffffffffffffffffffff";
+const PINNED_HEAD = "40af6cb359b0de2f61f15e47b6622a00c48b5b08";
 // sha256 of `jq -cS .abi` output without a trailing newline, as in the
 // protocol manifest
 const PINNED_ABIS: Record<string, string> = {
   ZeroSeedLaunch:
-    "21f9e2c0166ab28ce8573c481de5b0fc2f37dd7595d496d326f0a2d1a544254e",
+    "999068f8e41867e972f4485c0105f584a2c10d7537615e6b4517807548fcd4bf",
   ZeroSeedLaunchPeriphery:
-    "5c563488b843aee923d0d819a66489eeee543dd20d1582de1f5df643f5d08a75",
+    "df24d9f07d45323da7e46c0f6e64ce24f8f522442d60cb07880ddf742ebe7305",
 };
+// creation code without constructor arguments, and the runtime with its
+// immutables zero-filled, as in the protocol manifest
 const PINNED_CREATION: Record<string, Hex> = {
   ZeroSeedLaunch:
-    "0x50dc9c4148f4c81f8f689a2b62ed70c9590366fdb963072b4f2b89361f1dcd7c",
+    "0x78906a80dd0e4aeb1b7c94698a1e7917c20dc7b031a4513759ea12495f374384",
   ZeroSeedLaunchPeriphery:
-    "0x79a8ef83d84f8110f6fec96a2d964a39913f81ab23a304fb19fb577fe29ef56c",
+    "0xb36a0535c61c790f3600a0c45dd92763a1934652de322ddd1c175f3cda2dc046",
 };
-const readHex = (path: string): Hex =>
-  `0x${readFileSync(resolve(evmContracts, path), "utf8")
-    .trim()
-    .replace(/^0x/, "")}`;
-const WETH_RUNTIME = readHex("test/fixtures/weth9-0x4200-base-52449112.hex");
-const ROUTER_RUNTIME = readHex(
-  "test/fixtures/yul-router-0x03c8-base-52449112.hex",
-);
+const PINNED_RUNTIME_TEMPLATE: Record<string, Hex> = {
+  ZeroSeedLaunch:
+    "0x39a99e30dfff34873b7a820416ae4bc33a337612c644c45e68c51ac6564a9f4d",
+  ZeroSeedLaunchPeriphery:
+    "0x08216f696368b4398afb8c43ca3eff0cccdcea00e71397178b78b2b94f957dbb",
+};
 
 type Artifact = {
   abi: Abi;
   bytecode: { object: Hex };
-  deployedBytecode: { object: Hex };
+  deployedBytecode: {
+    object: Hex;
+    immutableReferences?: Record<string, { start: number; length: number }[]>;
+  };
 };
 const artifact = (path: string): Artifact =>
   JSON.parse(readFileSync(resolve(evmContracts, "out", path), "utf8"));
@@ -109,6 +125,8 @@ const PERIPHERY = artifact(
   "ZeroSeedLaunchPeriphery.sol/ZeroSeedLaunchPeriphery.json",
 );
 const CORE_BUILD = artifact("Core.sol/Core.json");
+const ROUTER_BUILD = artifact("LaunchTestRouter.sol/LaunchTestRouter.json");
+const QUOTE_BUILD = artifact("TestToken.sol/TestToken.json");
 const ERC20_ABI = [
   {
     type: "function",
@@ -127,6 +145,22 @@ const ERC20_ABI = [
     inputs: [{ name: "a", type: "address" }],
     outputs: [{ type: "uint256" }],
   },
+  {
+    type: "function",
+    name: "totalSupply",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "event",
+    name: "Transfer",
+    inputs: [
+      { name: "from", type: "address", indexed: true },
+      { name: "to", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
 ] as const;
 
 // jq -cS: keys sorted recursively, no whitespace.
@@ -140,6 +174,7 @@ function canonicalJson(value: unknown): string {
           `${JSON.stringify(k)}:${canonicalJson((value as Record<string, unknown>)[k])}`,
       )
       .join(",")}}`;
+  if (typeof value === "bigint") return JSON.stringify(String(value));
   return JSON.stringify(value);
 }
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -179,7 +214,7 @@ const pub = createPublicClient({ chain, transport, cacheTime: 0 });
 const test = createTestClient({ chain, transport, mode: "anvil" });
 const wallet = createWalletClient({ chain, transport });
 
-type Action = { label: string; hash: Hex };
+type Action = { label: string; hash: Hex; verify?: () => Promise<void> };
 type Block = {
   number: number;
   hash: Hex;
@@ -188,28 +223,45 @@ type Block = {
   actions: string[];
 };
 type PoolKey = { token0: Address; token1: Address; config: Hex };
+type Installation = {
+  token: Address;
+  poolKey: PoolKey;
+  positionId: Hex;
+  initialTick: number;
+  liquidity: bigint;
+  installedSupply: bigint;
+};
 type Launch = {
   label: string;
   instance: string;
   token: Address;
   quote: Address;
+  quoteKind: "native" | "erc20";
+  tokenIsToken1: boolean;
   extension: Address;
   periphery: Address;
   poolKey: PoolKey;
   poolId: Hex;
+  positionId: Hex;
   userSalt: Hex;
+  owner: Address;
+  requestedSupply: string;
+  installedSupply: string;
+  sinkSupply: string;
+  liquidity: string;
+  initialTick: number;
 };
 type Branch = { blocks: Block[]; logs: unknown[]; states: unknown[] };
 type Instance = {
   label: string;
-  quote: Address;
-  quoteKind: "native" | "erc20";
   extension: Address;
   extensionSalt: Hex;
   periphery: Address;
+  peripherySalt: Hex;
   extensionRuntimeKeccak: Hex;
   peripheryRuntimeKeccak: Hex;
-  quoteRuntimeKeccak: Hex | null;
+  extensionRuntimeTemplateKeccak: Hex;
+  peripheryRuntimeTemplateKeccak: Hex;
   deploymentBlock: number;
   scope: string;
 };
@@ -217,7 +269,7 @@ type Instance = {
 const launches = new Map<string, Launch>();
 const allLaunches = new Map<string, Launch>();
 const instances = new Map<string, Instance>();
-const installations = new Map<string, unknown>();
+const installations = new Map<string, Record<string, unknown>>();
 let current: Branch;
 
 async function waitForAnvil() {
@@ -268,6 +320,7 @@ async function mine(timestamp: number, actions: Array<() => Promise<Action>>) {
     timestamp: Number(block.timestamp),
     actions: sent.map((a) => a.label),
   });
+  for (const { verify } of sent) await verify?.();
   await snapshotState(Number(block.number));
   return Number(block.number);
 }
@@ -284,6 +337,40 @@ async function quoteBalance(token: Address, who: Address, block: bigint) {
   });
 }
 
+async function launchReads(launch: Launch, block: bigint, timestamp: number) {
+  const read = (
+    address: Address,
+    abi: Abi,
+    functionName: string,
+    args: readonly unknown[] = [],
+  ): Promise<unknown> =>
+    pub.readContract({ address, abi, functionName, args, blockNumber: block });
+  return {
+    poolStateWord: await pub.getStorageAt({
+      address: CORE,
+      slot: launch.poolId,
+      blockNumber: block,
+    }),
+    fees: (await read(launch.extension, LAUNCH.abi, "creatorFees", [
+      launch.poolKey,
+    ])) as readonly [bigint, bigint],
+    owner: (await read(launch.periphery, PERIPHERY.abi, "launchOwner", [
+      launch.poolId,
+    ])) as Address,
+    stored: (await read(launch.extension, LAUNCH.abi, "getLaunch", [
+      launch.poolId,
+    ])) as { controller: Address },
+    feeAt: (await read(launch.extension, LAUNCH.abi, "feeAt", [
+      launch.poolId,
+      BigInt(timestamp),
+    ])) as bigint,
+    totalSupply: (await read(launch.token, ERC20_ABI, "totalSupply")) as bigint,
+    sinkBalance: (await read(launch.token, ERC20_ABI, "balanceOf", [
+      zeroAddress,
+    ])) as bigint,
+  };
+}
+
 async function snapshotState(blockNumber: number) {
   const block = BigInt(blockNumber);
   const tokens = new Set<Address>();
@@ -296,47 +383,26 @@ async function snapshotState(blockNumber: number) {
     if (!code || code === "0x") continue;
     tokens.add(launch.token);
     tokens.add(launch.quote);
-    const word = await pub.getStorageAt({
-      address: CORE,
-      slot: launch.poolId,
-      blockNumber: block,
-    });
-    const fees = (await pub.readContract({
-      address: launch.extension,
-      abi: LAUNCH.abi,
-      functionName: "creatorFees",
-      args: [launch.poolKey],
-      blockNumber: block,
-    })) as readonly [bigint, bigint];
-    const owner = (await pub.readContract({
-      address: launch.periphery,
-      abi: PERIPHERY.abi,
-      functionName: "launchOwner",
-      args: [launch.poolId],
-      blockNumber: block,
-    })) as Address;
-    const stored = (await pub.readContract({
-      address: launch.extension,
-      abi: LAUNCH.abi,
-      functionName: "getLaunch",
-      args: [launch.poolId],
-      blockNumber: block,
-    })) as { controller: Address };
-    const feeAt = (await pub.readContract({
-      address: launch.extension,
-      abi: LAUNCH.abi,
-      functionName: "feeAt",
-      args: [launch.poolId, BigInt(current.blocks.at(-1)!.timestamp)],
-      blockNumber: block,
-    })) as bigint;
+    const r = await launchReads(
+      launch,
+      block,
+      current.blocks.at(-1)!.timestamp,
+    );
+    if (
+      String(r.totalSupply) !== launch.requestedSupply ||
+      String(r.sinkBalance) !== launch.sinkSupply
+    )
+      throw new Error(`${launch.label}: totalSupply or sink balance moved`);
     pools.push({
       label: launch.label,
       poolId: launch.poolId,
-      poolStateWord: word,
-      creatorFees: fees.map(String),
-      launchOwner: owner,
-      controller: stored.controller,
-      feeAtBlockTime: String(feeAt),
+      poolStateWord: r.poolStateWord,
+      creatorFees: r.fees.map(String),
+      launchOwner: r.owner,
+      controller: r.stored.controller,
+      feeAtBlockTime: String(r.feeAt),
+      totalSupply: String(r.totalSupply),
+      sinkBalance: String(r.sinkBalance),
     });
   }
   const coreBalances: Record<string, string> = {};
@@ -357,14 +423,21 @@ async function collectLogs(fromBlock: number) {
   current.logs = logs;
 }
 
+/** The runtime with every immutable zero-filled: the manifest's template. */
+function templateOf(code: Hex, build: Artifact): Hex {
+  const bytes = Buffer.from(code.slice(2), "hex");
+  for (const refs of Object.values(
+    build.deployedBytecode.immutableReferences ?? {},
+  ))
+    for (const { start, length } of refs) bytes.fill(0, start, start + length);
+  return toHex(bytes);
+}
+
 /** Deploys the extension at a mined call-point salt and its periphery at salt 0, in one block. */
-function deployInstance(label: string, quote: Address) {
+function deployInstance(label: string) {
   const initCode = concat([
     LAUNCH.bytecode.object,
-    encodeAbiParameters(
-      [{ type: "address" }, { type: "address" }],
-      [CORE, quote],
-    ),
+    encodeAbiParameters([{ type: "address" }], [CORE]),
   ]);
   const bytecodeHash = keccak256(initCode);
   let extension!: Address;
@@ -395,19 +468,17 @@ function deployInstance(label: string, quote: Address) {
   });
   instances.set(label, {
     label,
-    quote,
-    quoteKind: quote === NATIVE ? "native" : "erc20",
     extension,
     extensionSalt,
     periphery,
+    peripherySalt,
     extensionRuntimeKeccak: "0x",
     peripheryRuntimeKeccak: "0x",
-    quoteRuntimeKeccak: null,
+    extensionRuntimeTemplateKeccak: "0x",
+    peripheryRuntimeTemplateKeccak: "0x",
     deploymentBlock: 0,
     scope:
-      quote === NATIVE
-        ? "native ETH quote, local only"
-        : "relocated plain WETH quote, local only",
+      "one extension and periphery for every quote (native ETH and the relocated plain test ERC-20 here), local only",
   });
   return [
     async (): Promise<Action> => ({
@@ -429,6 +500,18 @@ function deployInstance(label: string, quote: Address) {
   ];
 }
 
+const deployRouter = async (): Promise<Action> => ({
+  label: "deploy LaunchTestRouter",
+  hash: await send(
+    TRADER,
+    null,
+    concat([
+      ROUTER_BUILD.bytecode.object,
+      encodeAbiParameters([{ type: "address" }], [CORE]),
+    ]),
+  ),
+});
+
 const approve =
   (from: Address, token: Address, label: string) =>
   async (): Promise<Action> => ({
@@ -439,7 +522,7 @@ const approve =
       encodeFunctionData({
         abi: ERC20_ABI,
         functionName: "approve",
-        args: [ROUTER, 2n ** 256n - 1n],
+        args: [ROUTER, maxUint256],
       }),
     ),
   });
@@ -447,6 +530,7 @@ const approve =
 type Spec = {
   label: string;
   instance: string;
+  quote: Address;
   owner: Address;
   duration: number;
   initialFee: bigint;
@@ -461,7 +545,15 @@ const poolIdOf = (key: PoolKey) =>
     ),
   );
 
-/** Binds a single periphery preview's (liquidity, installedSupply) pair for the owner. */
+const sameInstallation = (a: Installation, b: Installation) =>
+  canonicalJson(a) === canonicalJson(b);
+
+/**
+ * The requested parameters, the periphery preview (checked against the
+ * extension preview with the owner-namespaced salt) and the Installation that
+ * create returns when simulated on the pending block. The requested supply is
+ * submitted unchanged; the extension computes the liquidity.
+ */
 async function prepareLaunch(spec: Spec) {
   const instance = instances.get(spec.instance)!;
   const userSalt = keccak256(toHex(spec.label));
@@ -470,7 +562,7 @@ async function prepareLaunch(spec: Spec) {
     symbol: spec.label.toUpperCase(),
     decimals: 18,
     supply: REQUESTED_SUPPLY,
-    liquidity: 0n,
+    quoteToken: spec.quote,
     askTick: ASK_18_18,
     upperTick: ASK_18_18 + WIDTH,
     tickSpacing: SPACING,
@@ -487,12 +579,7 @@ async function prepareLaunch(spec: Spec) {
     args: [spec.owner, parameters],
     // pending: the deployment block previews against its own queued deployment
     blockTag: "pending",
-  })) as {
-    token: Address;
-    poolKey: PoolKey;
-    liquidity: bigint;
-    installedSupply: bigint;
-  };
+  })) as Installation;
   // The periphery preview equals the extension preview with the owner-namespaced salt.
   const namespaced = keccak256(
     encodeAbiParameters(
@@ -506,20 +593,61 @@ async function prepareLaunch(spec: Spec) {
     functionName: "previewInstallation",
     args: [instance.periphery, { ...parameters, salt: namespaced }],
     blockTag: "pending",
-  })) as { token: Address };
-  if (direct.token !== preview.token)
+  })) as Installation;
+  if (!sameInstallation(direct, preview))
     throw new Error("periphery preview does not namespace the salt");
-  if (
-    BigInt(preview.token) > BigInt(instance.quote) !==
-    (instance.quote === NATIVE)
-  )
+  const data = encodeFunctionData({
+    abi: PERIPHERY.abi,
+    functionName: "create",
+    args: [parameters],
+  });
+  const { data: returned } = await pub.call({
+    account: spec.owner,
+    to: instance.periphery,
+    data,
+    blockTag: "pending",
+    gas: GAS,
+  });
+  const created = decodeFunctionResult({
+    abi: PERIPHERY.abi,
+    functionName: "create",
+    data: returned!,
+  }) as Installation;
+  if (!sameInstallation(created, preview))
+    throw new Error(`${spec.label}: create returns another installation`);
+  const tokenIsToken1 = BigInt(preview.token) > BigInt(spec.quote);
+  if (tokenIsToken1 !== (spec.quote === NATIVE))
     throw new Error(`unexpected token order for ${spec.label}`);
-  parameters.liquidity = preview.liquidity;
-  parameters.supply = preview.installedSupply;
-  installations.set(spec.label, {
+  const installed = preview.installedSupply;
+  if (installed <= 0n || installed > REQUESTED_SUPPLY)
+    throw new Error(`${spec.label}: installed supply out of range`);
+  const launch: Launch = {
+    label: spec.label,
+    instance: spec.instance,
+    token: preview.token,
+    quote: spec.quote,
+    quoteKind: spec.quote === NATIVE ? "native" : "erc20",
+    tokenIsToken1,
+    extension: instance.extension,
+    periphery: instance.periphery,
+    poolKey: preview.poolKey,
+    poolId: poolIdOf(preview.poolKey),
+    positionId: preview.positionId,
+    userSalt,
+    owner: spec.owner,
     requestedSupply: String(REQUESTED_SUPPLY),
-    actualInstalledSupply: String(preview.installedSupply),
-    actualLiquidity: String(preview.liquidity),
+    installedSupply: String(installed),
+    sinkSupply: String(REQUESTED_SUPPLY - installed),
+    liquidity: String(preview.liquidity),
+    initialTick: preview.initialTick,
+  };
+  installations.set(spec.label, {
+    requestedSupply: launch.requestedSupply,
+    installedSupply: launch.installedSupply,
+    sinkSupply: launch.sinkSupply,
+    liquidity: launch.liquidity,
+    quote: spec.quote,
+    quoteKind: launch.quoteKind,
     tradingStart: spec.tradingStart,
     previewBlock: Number(await pub.getBlockNumber()),
     owner: spec.owner,
@@ -527,38 +655,122 @@ async function prepareLaunch(spec: Spec) {
     extensionSalt: namespaced,
     predictedToken: preview.token,
     instance: spec.instance,
-  });
-  return {
-    parameters,
-    launch: {
-      label: spec.label,
-      instance: spec.instance,
+    // what previewInstallation and the simulated create returned (identical)
+    installation: {
       token: preview.token,
-      quote: instance.quote,
-      extension: instance.extension,
-      periphery: instance.periphery,
       poolKey: preview.poolKey,
-      poolId: poolIdOf(preview.poolKey),
-      userSalt,
+      positionId: preview.positionId,
+      initialTick: preview.initialTick,
+      liquidity: String(preview.liquidity),
+      installedSupply: String(installed),
     },
+  });
+  return { data, launch };
+}
+
+/**
+ * After the creation is mined: LaunchCreated carries the requested supply and
+ * the quote, Core's PositionUpdated of the extension added exactly the
+ * computed liquidity for exactly the installed supply and no quote, the sink
+ * was minted to address(0), and totalSupply is the requested supply.
+ */
+async function verifyCreation(launch: Launch, hash: Hex) {
+  const receipt = await pub.getTransactionReceipt({ hash });
+  const decoded = receipt.logs.flatMap((log) => {
+    for (const abi of [LAUNCH.abi, CORE_BUILD.abi, ERC20_ABI as Abi])
+      try {
+        return [
+          {
+            address: log.address.toLowerCase(),
+            ...decodeEventLog({ abi, topics: log.topics, data: log.data }),
+          },
+        ];
+      } catch {
+        // another contract's event
+      }
+    return [];
+  }) as { address: string; eventName: string; args: never }[];
+  const created = decoded.filter((l) => l.eventName === "LaunchCreated");
+  const positions = decoded.filter(
+    (l) =>
+      l.eventName === "PositionUpdated" &&
+      l.address === CORE.toLowerCase() &&
+      (l.args as { poolId: Hex }).poolId === launch.poolId,
+  );
+  if (created.length !== 1 || positions.length !== 1)
+    throw new Error(`${launch.label}: not one creation and one position`);
+  const event = created[0].args as {
+    liquidity: bigint;
+    parameters: { supply: bigint; quoteToken: Address };
   };
+  const position = positions[0].args as {
+    locker: Address;
+    positionId: Hex;
+    liquidityDelta: bigint;
+    balanceUpdate: Hex;
+  };
+  const { delta0, delta1 } = parsePoolBalanceUpdate(position.balanceUpdate);
+  const [tokenDelta, quoteDelta] = launch.tokenIsToken1
+    ? [delta1, delta0]
+    : [delta0, delta1];
+  const sinkMints = decoded.filter(
+    (l) =>
+      l.eventName === "Transfer" &&
+      l.address === launch.token.toLowerCase() &&
+      BigInt((l.args as { from: Address }).from) === 0n &&
+      BigInt((l.args as { to: Address }).to) === 0n,
+  );
+  const block = receipt.blockNumber;
+  const totalSupply = await pub.readContract({
+    address: launch.token,
+    abi: ERC20_ABI,
+    functionName: "totalSupply",
+    blockNumber: block,
+  });
+  const sinkBalance = await quoteBalance(launch.token, zeroAddress, block);
+  const checks: [boolean, string][] = [
+    [String(event.parameters.supply) === launch.requestedSupply, "supply"],
+    [BigInt(event.parameters.quoteToken) === BigInt(launch.quote), "quote"],
+    [String(event.liquidity) === launch.liquidity, "liquidity"],
+    [BigInt(position.locker) === BigInt(launch.extension), "locker"],
+    [position.positionId === launch.positionId, "position"],
+    [String(position.liquidityDelta) === launch.liquidity, "Core liquidity"],
+    [String(tokenDelta) === launch.installedSupply, "Core installed delta"],
+    [quoteDelta === 0n, "Core quote delta"],
+    [String(totalSupply) === launch.requestedSupply, "totalSupply"],
+    [String(sinkBalance) === launch.sinkSupply, "balanceOf(0)"],
+    [
+      BigInt(launch.sinkSupply) === 0n
+        ? sinkMints.length === 0
+        : sinkMints.length === 1 &&
+          String((sinkMints[0].args as { amount: bigint }).amount) ===
+            launch.sinkSupply,
+      "Transfer(0, 0, sink)",
+    ],
+  ];
+  const failed = checks.filter(([ok]) => !ok).map(([what]) => what);
+  if (failed.length > 0)
+    throw new Error(`${launch.label} creation: ${failed.join(", ")}`);
+  Object.assign(installations.get(launch.label)!, {
+    creationBlock: Number(block),
+    creationTransaction: hash,
+    coreInstalledDelta: String(tokenDelta),
+    coreQuoteDelta: String(quoteDelta),
+    coreLiquidityDelta: String(position.liquidityDelta),
+    totalSupply: String(totalSupply),
+    sinkBalance: String(sinkBalance),
+  });
 }
 
 const create = (spec: Spec) => async (): Promise<Action> => {
-  const { parameters, launch } = await prepareLaunch(spec);
+  const { data, launch } = await prepareLaunch(spec);
   launches.set(spec.label, launch);
   allLaunches.set(spec.label, launch);
+  const hash = await send(spec.owner, launch.periphery, data);
   return {
     label: `create ${spec.label}`,
-    hash: await send(
-      spec.owner,
-      launch.periphery,
-      encodeFunctionData({
-        abi: PERIPHERY.abi,
-        functionName: "create",
-        args: [parameters],
-      }),
-    ),
+    hash,
+    verify: () => verifyCreation(launch, hash),
   };
 };
 
@@ -591,49 +803,14 @@ const transfer =
     ),
   });
 
-const int128 = (v: bigint) => pad(toHex(BigInt.asUintN(128, v)), { size: 16 });
-
-/** yul-router v0.8 packed route, one forwarded hop, inclusive uint32 deadline (see ZeroSeedLaunchYulRouterTest). */
-function route(
-  launch: Launch,
-  sell: boolean,
-  amount: bigint,
-  threshold: bigint,
-  deadline: number,
-): Hex {
-  // threshold 0 marks the deliberate zero fill, which only an explicit partial route accepts
-  const allowPartial = threshold === 0n;
-  const [specified, calculated] =
-    sell === amount > 0n
-      ? [launch.token, launch.quote]
-      : [launch.quote, launch.token];
-  return concat([
-    "0x03",
-    "0x00",
-    specified,
-    calculated,
-    int128(threshold),
-    TRADER,
-    pad(toHex(deadline), { size: 4 }),
-    int128(amount),
-    "0x00",
-    "0x01",
-    launch.extension,
-    launch.poolKey.token0,
-    launch.poolKey.token1,
-    launch.poolKey.config,
-    pad("0x", { size: 12 }),
-    allowPartial ? "0x80000000" : "0x00000000",
-  ]);
-}
-
 const MAX_NATIVE_IN = 10n ** 24n;
 
 /**
  * amount > 0: exact input of the token being sold; amount < 0: exact output
  * of the token being bought. The threshold is a positive minimum output (or a
- * negative maximum input); zero is only used for the deliberate no-bid fill.
- * A native buy attaches the exact input, or a maximum input the router refunds.
+ * negative maximum input); zero is only used for the deliberate no-bid fill,
+ * the only swap that allows a partial fill. A native buy attaches the exact
+ * input, or a maximum input the router refunds.
  */
 const swap =
   (
@@ -651,18 +828,29 @@ const swap =
           ? amount
           : MAX_NATIVE_IN
         : 0n;
+    const minOut = threshold ?? (amount > 0n ? 1n : -(10n ** 30n));
+    const [specified, calculated] =
+      sell === amount > 0n
+        ? [launch.token, launch.quote]
+        : [launch.quote, launch.token];
     return {
       label: `${sell ? "sell" : "buy"} ${label} ${amount > 0n ? "exact-in" : "exact-out"} ${amount}`,
       hash: await send(
         TRADER,
         ROUTER,
-        route(
-          launch,
-          sell,
-          amount,
-          threshold ?? (amount > 0n ? 1n : -(10n ** 30n)),
-          deadline,
-        ),
+        encodeFunctionData({
+          abi: ROUTER_BUILD.abi,
+          functionName: "swap",
+          args: [
+            launch.poolKey,
+            specified,
+            calculated,
+            amount,
+            minOut,
+            minOut === 0n,
+            deadline,
+          ],
+        }),
         value,
       ),
     };
@@ -673,11 +861,13 @@ const approveLaunchToken = (label: string) => async () =>
 
 const START = T0 + 1_000;
 const E18 = 10n ** 18n;
+const INSTANCE = "local";
 
 async function prefix() {
   const L1: Spec = {
     label: "l1",
-    instance: "native",
+    instance: INSTANCE,
+    quote: NATIVE,
     owner: CREATOR,
     duration: 3600,
     initialFee: FEE_50,
@@ -685,25 +875,21 @@ async function prefix() {
   };
   const L2: Spec = {
     label: "l2",
-    instance: "weth",
+    instance: INSTANCE,
+    quote: ERC20_QUOTE,
     owner: CREATOR,
     duration: 600,
     initialFee: FEE_5,
     tradingStart: START,
   };
-  // Deployment block: both instances, then a native launch in the same block.
+  // Deployment block: the instance, then a native launch in the same block.
   const deploymentBlock = await mine(T0 + 10, [
-    ...deployInstance("native", NATIVE),
-    ...deployInstance("weth", WETH),
+    ...deployInstance(INSTANCE),
     create(L1),
   ]);
   for (const instance of instances.values())
     instance.deploymentBlock = deploymentBlock;
-  await mine(T0 + 20, [
-    approve(TRADER, WETH, "approve weth"),
-    create(L2),
-    approveLaunchToken("l1"),
-  ]);
+  await mine(T0 + 20, [create(L2), approveLaunchToken("l1")]);
   await mine(T0 + 30, [approveLaunchToken("l2")]);
   // A no-bid sell before any buy fills nothing (threshold 0 is deliberate here).
   await mine(START, [
@@ -727,7 +913,8 @@ async function prefix() {
 async function forkA() {
   const L3: Spec = {
     label: "l3",
-    instance: "native",
+    instance: INSTANCE,
+    quote: NATIVE,
     owner: NEW_OWNER,
     duration: 3600,
     initialFee: FEE_50,
@@ -748,7 +935,8 @@ async function forkA() {
 async function canonical() {
   const L4: Spec = {
     label: "l4",
-    instance: "weth",
+    instance: INSTANCE,
+    quote: ERC20_QUOTE,
     owner: TRADER,
     duration: 600,
     initialFee: FEE_5,
@@ -810,40 +998,79 @@ function validateFixtureBuild() {
       throw new Error(`${name} ABI differs from the pinned build`);
     if (keccak256(build.bytecode.object) !== PINNED_CREATION[name])
       throw new Error(`${name} creation code differs from the pinned build`);
+    if (
+      keccak256(build.deployedBytecode.object) !== PINNED_RUNTIME_TEMPLATE[name]
+    )
+      throw new Error(`${name} runtime differs from the pinned build`);
   }
-  if (
-    keccak256(WETH_RUNTIME) !==
-    "0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c"
-  )
-    throw new Error("WETH fixture runtime mismatch");
+}
+
+/** Solady ERC20 balance slot: keccak256(owner ++ 8 zero bytes ++ 0x87a211a2). */
+const soladyBalanceSlot = (owner: Address) =>
+  keccak256(
+    encodePacked(["address", "uint64", "uint32"], [owner, 0n, 0x87a211a2]),
+  );
+const SOLADY_TOTAL_SUPPLY_SLOT = pad("0x05345cdf77eb68f44c", { size: 32 });
+
+/**
+ * The checkout's plain test ERC-20 (TestToken: Solady ERC20, 18 decimals, no
+ * immutables, no hooks) at 0xff..ff, so a launch token always sorts below it.
+ * Its constructor would mint 2^256-1 to a recipient; the same state is
+ * written directly for TRADER and read back through the token.
+ */
+async function relocateQuote() {
+  await test.setCode({
+    address: ERC20_QUOTE,
+    bytecode: QUOTE_BUILD.deployedBytecode.object,
+  });
+  const max = toHex(maxUint256, { size: 32 });
+  await test.setStorageAt({
+    address: ERC20_QUOTE,
+    index: soladyBalanceSlot(TRADER),
+    value: max,
+  });
+  await test.setStorageAt({
+    address: ERC20_QUOTE,
+    index: SOLADY_TOTAL_SUPPLY_SLOT,
+    value: max,
+  });
+  const [balance, supply] = await Promise.all([
+    quoteBalance(ERC20_QUOTE, TRADER, await pub.getBlockNumber()),
+    pub.readContract({
+      address: ERC20_QUOTE,
+      abi: ERC20_ABI,
+      functionName: "totalSupply",
+    }),
+  ]);
+  if (balance !== maxUint256 || supply !== maxUint256)
+    throw new Error("relocated ERC-20 quote state mismatch");
 }
 
 async function bindInstances() {
   for (const instance of instances.values()) {
-    instance.extensionRuntimeKeccak = keccak256(
-      (await pub.getCode({ address: instance.extension }))!,
+    const extensionCode = (await pub.getCode({ address: instance.extension }))!;
+    const peripheryCode = (await pub.getCode({ address: instance.periphery }))!;
+    instance.extensionRuntimeKeccak = keccak256(extensionCode);
+    instance.peripheryRuntimeKeccak = keccak256(peripheryCode);
+    instance.extensionRuntimeTemplateKeccak = keccak256(
+      templateOf(extensionCode, LAUNCH),
     );
-    instance.peripheryRuntimeKeccak = keccak256(
-      (await pub.getCode({ address: instance.periphery }))!,
+    instance.peripheryRuntimeTemplateKeccak = keccak256(
+      templateOf(peripheryCode, PERIPHERY),
     );
-    if (instance.quote !== NATIVE)
-      instance.quoteRuntimeKeccak = keccak256(
-        (await pub.getCode({ address: instance.quote }))!,
-      );
-    const actualQuote = (await pub.readContract({
-      address: instance.extension,
-      abi: LAUNCH.abi,
-      functionName: "quoteToken",
-    })) as Address;
+    if (
+      instance.extensionRuntimeTemplateKeccak !==
+        PINNED_RUNTIME_TEMPLATE.ZeroSeedLaunch ||
+      instance.peripheryRuntimeTemplateKeccak !==
+        PINNED_RUNTIME_TEMPLATE.ZeroSeedLaunchPeriphery
+    )
+      throw new Error("deployed runtime is not the pinned template");
     const actualLaunch = (await pub.readContract({
       address: instance.periphery,
       abi: PERIPHERY.abi,
       functionName: "LAUNCH",
     })) as Address;
-    if (
-      BigInt(actualQuote) !== BigInt(instance.quote) ||
-      BigInt(actualLaunch) !== BigInt(instance.extension)
-    )
+    if (BigInt(actualLaunch) !== BigInt(instance.extension))
       throw new Error("constructor immutables mismatch");
   }
 }
@@ -855,20 +1082,26 @@ async function main() {
     address: CORE,
     bytecode: CORE_BUILD.deployedBytecode.object,
   });
-  await test.setCode({ address: ROUTER, bytecode: ROUTER_RUNTIME });
-  await test.setCode({ address: WETH, bytecode: WETH_RUNTIME });
+  await relocateQuote();
   const coreCodehash = keccak256((await pub.getCode({ address: CORE }))!);
-  const routerCodehash = keccak256((await pub.getCode({ address: ROUTER }))!);
+  const quoteCodehash = keccak256(
+    (await pub.getCode({ address: ERC20_QUOTE }))!,
+  );
 
   const branches: Record<string, Branch> = {};
   current = branches.prefix = { blocks: [], logs: [], states: [] };
   await test.setBalance({ address: TRADER, value: 10n ** 32n });
   await mine(T0 + 5, [
-    async () => ({
-      label: "deposit plain WETH",
-      hash: await send(TRADER, WETH, "0xd0e30db0", 10n ** 30n),
-    }),
+    deployRouter,
+    approve(TRADER, ERC20_QUOTE, "approve erc20 quote"),
   ]);
+  const routerCode = (await pub.getCode({ address: ROUTER }))!;
+  const routerCodehash = keccak256(routerCode);
+  if (
+    keccak256(templateOf(routerCode, ROUTER_BUILD)) !==
+    keccak256(ROUTER_BUILD.deployedBytecode.object)
+  )
+    throw new Error("router runtime is not the compiled LaunchTestRouter");
   await prefix();
   await bindInstances();
   await collectLogs(1);
@@ -889,7 +1122,7 @@ async function main() {
 
   const fixture = {
     description:
-      "Logs and state emitted by a local anvil chain (no fork) running ZeroSeedLaunch and ZeroSeedLaunchPeriphery over the main Core runtime and the Base 0x03c8 Yul router runtime. Local fixture, not live evidence.",
+      "Logs and state emitted by a local anvil chain (no fork) running one ZeroSeedLaunch extension and its ZeroSeedLaunchPeriphery over the main Core runtime, with native-ETH and plain-ERC-20 quote launches on the same extension and swaps through the compiled test/LaunchTestRouter.sol. Supplies are raw launch-token units as decimal strings: requestedSupply = LaunchParameters.supply = totalSupply, installedSupply = Core PositionUpdated launch-token delta of the creation, sinkSupply = requested - installed = balanceOf(address(0)). Local fixture, not live evidence.",
     generator: "scripts/zeroSeedLaunchFixture.ts",
     provenance: {
       evmContractsHead: git("rev-parse", "HEAD"),
@@ -900,19 +1133,26 @@ async function main() {
       )[0],
       coreRuntimeKeccak: coreCodehash,
       routerRuntimeKeccak: routerCodehash,
+      routerCreationKeccak: keccak256(ROUTER_BUILD.bytecode.object),
+      erc20QuoteRuntimeKeccak: quoteCodehash,
+      erc20QuoteSource: "test/TestToken.sol (Solady ERC20), relocated",
       launchAbiSha256: sha256(canonicalJson(LAUNCH.abi)),
       peripheryAbiSha256: sha256(canonicalJson(PERIPHERY.abi)),
       launchCreationKeccak: keccak256(LAUNCH.bytecode.object),
       peripheryCreationKeccak: keccak256(PERIPHERY.bytecode.object),
-      wethRuntimeKeccak: keccak256(WETH_RUNTIME),
+      launchRuntimeTemplateKeccak: keccak256(LAUNCH.deployedBytecode.object),
+      peripheryRuntimeTemplateKeccak: keccak256(
+        PERIPHERY.deployedBytecode.object,
+      ),
       buildSubmodules:
-        "excluded from git dirty check; canonical ABI and creation code checked independently",
+        "excluded from git dirty check; canonical ABI, creation code and runtime template checked independently",
     },
     chainId: CHAIN_ID,
     instances: [...instances.values()],
     addresses: {
       core: CORE,
       router: ROUTER,
+      erc20Quote: ERC20_QUOTE,
       creator: CREATOR,
       trader: TRADER,
       feeRecipient: FEE_RECIPIENT,
@@ -926,7 +1166,10 @@ async function main() {
     branches,
   };
   mkdirSync(dirname(OUT), { recursive: true });
-  writeFileSync(OUT, `${JSON.stringify(fixture, null, 1)}\n`);
+  writeFileSync(
+    OUT,
+    `${JSON.stringify(fixture, (_k, v: unknown) => (typeof v === "bigint" ? String(v) : v), 1)}\n`,
+  );
   console.log(
     `wrote ${OUT}: ${[...instances.values()]
       .map(

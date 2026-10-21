@@ -322,11 +322,13 @@ export interface ZeroSeedLaunchEventDescriptor {
 export interface ZeroSeedLaunchCreatedInsert extends ZeroSeedLaunchEventDescriptor {
   token: AddressValue;
   controller: AddressValue;
-  /** The extension's constructor quote; 0 is native ETH. */
+  /** LaunchParameters.quoteToken, the other token of the pool key; 0 is native ETH. */
   quoteToken: AddressValue;
   positionId: `0x${string}`;
-  liquidity: NumericValue;
-  supply: NumericValue;
+  /** The installed liquidity the extension computed. */
+  liquidity: bigint;
+  /** LaunchParameters.supply: the token's totalSupply. */
+  requestedSupply: bigint;
   name: string;
   symbol: string;
   decimals: number;
@@ -1214,6 +1216,60 @@ export class DAO {
     `;
   }
 
+  /**
+   * The launch-token amount Core took into the launch position: the token-side
+   * delta of the Core PositionUpdated that installed it, earlier in the same
+   * transaction (Core emits it inside updatePosition, before the extension
+   * emits LaunchCreated, and logs are written in order). It must be the only
+   * update of (extension, salt 0, launch bounds) there, add exactly the
+   * LaunchCreated liquidity, take a positive amount of the launch token and
+   * none of the quote, and not exceed the requested supply. Anything else is
+   * refused: the installed supply is never guessed.
+   */
+  private async zeroSeedLaunchInstalledSupply(
+    key: EventKey,
+    poolKeyId: bigint,
+    parsed: ZeroSeedLaunchCreatedInsert,
+  ): Promise<bigint> {
+    const tokenIs1 = BigInt(parsed.token) > BigInt(parsed.quoteToken);
+    const [lower, upper] = tokenIs1
+      ? [-parsed.upperTick, -parsed.askTick]
+      : [parsed.askTick, parsed.upperTick];
+    const rows = await this.sql<
+      { liquidity_delta: bigint; delta0: bigint; delta1: bigint }[]
+    >`
+      SELECT liquidity_delta, delta0, delta1
+      FROM position_updates
+      WHERE chain_id = ${this.chainId}
+        AND block_number = ${key.blockNumber}
+        AND transaction_index = ${key.transactionIndex}
+        AND event_index < ${key.eventIndex}
+        AND emitter = ${this.numeric(parsed.coreAddress)}
+        AND pool_key_id = ${poolKeyId}
+        AND locker = ${this.numeric(key.emitter)}
+        AND salt = 0
+        AND lower_bound = ${lower}
+        AND upper_bound = ${upper}`;
+    const problem = (() => {
+      if (rows.length !== 1)
+        return `${rows.length} Core position updates of the launch position in its transaction`;
+      const row = rows[0];
+      const [tokenDelta, quoteDelta] = tokenIs1
+        ? [BigInt(row.delta1), BigInt(row.delta0)]
+        : [BigInt(row.delta0), BigInt(row.delta1)];
+      if (BigInt(row.liquidity_delta) !== parsed.liquidity)
+        return "Core liquidity delta != LaunchCreated.liquidity";
+      if (quoteDelta !== 0n) return "Core took quote into the position";
+      if (tokenDelta <= 0n || tokenDelta > parsed.requestedSupply)
+        return "installed supply is outside 1..requested supply";
+      return tokenDelta;
+    })();
+    if (typeof problem === "bigint") return problem;
+    throw new Error(
+      `Refusing LaunchCreated for pool ${parsed.poolId}: ${problem}`,
+    );
+  }
+
   // Launch writers insert with ON CONFLICT DO NOTHING so that a redelivered
   // log fires no ledger trigger. Swaps, claims, owner changes and payouts
   // without their LaunchCreated are refused by the state triggers.
@@ -1226,10 +1282,16 @@ export class DAO {
       parsed.poolId,
       key.emitter,
     );
+    const installedSupply = await this.zeroSeedLaunchInstalledSupply(
+      key,
+      poolKeyId,
+      parsed,
+    );
     await this.sql`
       INSERT INTO zero_seed_launch_created
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
-         pool_key_id, pool_id, token, controller, quote_token, position_id, liquidity, supply,
+         pool_key_id, pool_id, token, controller, quote_token, position_id, liquidity,
+         requested_supply, installed_supply,
          name, symbol, decimals, ask_tick, upper_tick, tick_spacing, trading_start,
          fee_duration, initial_fee, final_fee, salt)
       VALUES (
@@ -1241,7 +1303,8 @@ export class DAO {
         ${this.numeric(parsed.quoteToken)},
         ${this.numeric(parsed.positionId)},
         ${this.numeric(parsed.liquidity)},
-        ${this.numeric(parsed.supply)},
+        ${this.numeric(parsed.requestedSupply)},
+        ${this.numeric(installedSupply)},
         ${stripNul(parsed.name)},
         ${stripNul(parsed.symbol)},
         ${parsed.decimals},

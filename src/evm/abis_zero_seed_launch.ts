@@ -1,14 +1,16 @@
 // ZeroSeedLaunch and ZeroSeedLaunchPeriphery ABIs: EkuboProtocol/evm-contracts
-// 4f1a3060b099e8a50469848118f44c0c65cfab9a (forward-only extension, native
-// ETH quote, fixed-base fee table, separate periphery). Verbatim from the
-// build artifacts. Each `*_ABI_SHA256` is the sha256 of `jq -cS .abi` output
+// 40af6cb359b0de2f61f15e47b6622a00c48b5b08 (forward-only extension, per-launch
+// quote in LaunchParameters.quoteToken served by one extension and periphery,
+// requested supply with the uninstallable remainder minted to address(0),
+// fixed-base fee table, separate periphery). Verbatim from the build
+// artifacts. Each `*_ABI_SHA256` is the sha256 of `jq -cS .abi` output
 // without a trailing newline (the protocol manifest's convention); a test
 // recomputes it. Any change here is an interface change.
 export const ZERO_SEED_LAUNCH_ABI_SHA256 =
-  "21f9e2c0166ab28ce8573c481de5b0fc2f37dd7595d496d326f0a2d1a544254e";
+  "999068f8e41867e972f4485c0105f584a2c10d7537615e6b4517807548fcd4bf";
 
 export const ZERO_SEED_LAUNCH_PERIPHERY_ABI_SHA256 =
-  "5c563488b843aee923d0d819a66489eeee543dd20d1582de1f5df643f5d08a75";
+  "df24d9f07d45323da7e46c0f6e64ce24f8f522442d60cb07880ddf742ebe7305";
 
 export const ZERO_SEED_LAUNCH_ABI = [
   {
@@ -18,11 +20,6 @@ export const ZERO_SEED_LAUNCH_ABI = [
         name: "core",
         type: "address",
         internalType: "contract ICore",
-      },
-      {
-        name: "quote",
-        type: "address",
-        internalType: "address",
       },
     ],
     stateMutability: "nonpayable",
@@ -561,9 +558,9 @@ export const ZERO_SEED_LAUNCH_ABI = [
             internalType: "uint128",
           },
           {
-            name: "liquidity",
-            type: "uint128",
-            internalType: "uint128",
+            name: "quoteToken",
+            type: "address",
+            internalType: "address",
           },
           {
             name: "askTick",
@@ -662,19 +659,6 @@ export const ZERO_SEED_LAUNCH_ABI = [
             internalType: "uint128",
           },
         ],
-      },
-    ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "quoteToken",
-    inputs: [],
-    outputs: [
-      {
-        name: "",
-        type: "address",
-        internalType: "address",
       },
     ],
     stateMutability: "view",
@@ -794,9 +778,9 @@ export const ZERO_SEED_LAUNCH_ABI = [
             internalType: "uint128",
           },
           {
-            name: "liquidity",
-            type: "uint128",
-            internalType: "uint128",
+            name: "quoteToken",
+            type: "address",
+            internalType: "address",
           },
           {
             name: "askTick",
@@ -1007,22 +991,6 @@ export const ZERO_SEED_LAUNCH_ABI = [
   },
   {
     type: "error",
-    name: "SupplyNotExactlyInstallable",
-    inputs: [
-      {
-        name: "requested",
-        type: "uint128",
-        internalType: "uint128",
-      },
-      {
-        name: "installable",
-        type: "uint128",
-        internalType: "uint128",
-      },
-    ],
-  },
-  {
-    type: "error",
     name: "SwapsThroughForwardOnly",
     inputs: [],
   },
@@ -1159,9 +1127,9 @@ export const ZERO_SEED_LAUNCH_PERIPHERY_ABI = [
             internalType: "uint128",
           },
           {
-            name: "liquidity",
-            type: "uint128",
-            internalType: "uint128",
+            name: "quoteToken",
+            type: "address",
+            internalType: "address",
           },
           {
             name: "askTick",
@@ -1331,9 +1299,9 @@ export const ZERO_SEED_LAUNCH_PERIPHERY_ABI = [
             internalType: "uint128",
           },
           {
-            name: "liquidity",
-            type: "uint128",
-            internalType: "uint128",
+            name: "quoteToken",
+            type: "address",
+            internalType: "address",
           },
           {
             name: "askTick",

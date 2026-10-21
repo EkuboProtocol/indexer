@@ -4,7 +4,14 @@ import { gunzipSync } from "node:zlib";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres, { type Sql } from "postgres";
-import { decodeEventLog, encodeEventTopics, type Abi } from "viem";
+import {
+  decodeEventLog,
+  encodeAbiParameters,
+  encodeEventTopics,
+  type Abi,
+  type AbiEvent,
+} from "viem";
+import { CORE_ABI } from "./abis_v3";
 import {
   ZERO_SEED_LAUNCH_ABI,
   ZERO_SEED_LAUNCH_PERIPHERY_ABI,
@@ -19,6 +26,7 @@ import {
   type LogStreamFilter,
   type RawLog,
   type StreamBlock,
+  type StreamLog,
 } from "./logStream";
 import { floatSqrtRatioToFixed } from "./swapEvent";
 import { resolveZeroSeedLaunchPin } from "./zeroSeedLaunchConfig";
@@ -32,7 +40,9 @@ import {
 // processors, DAO and the 00139 triggers on a real Postgres, and checks the
 // indexed state against the chain state recorded after every block: Core
 // pool state and custody (native ETH and ERC-20), the creator fee ledger,
-// the periphery owner of every launch and the contract's feeAt.
+// the periphery owner of every launch and the contract's feeAt. One extension
+// serves native-ETH and ERC-20 quote launches; each launch's requested,
+// installed and sink supply are checked against the chain.
 /** Awaits `expect(promise).rejects.toThrow(error)`: bun-types declares the
  * matcher as returning void, but it returns a promise that must be awaited. */
 const expectRejects = (promise: Promise<unknown>, error: RegExp) =>
@@ -49,6 +59,8 @@ type FixturePool = {
   launchOwner: `0x${string}`;
   controller: `0x${string}`;
   feeAtBlockTime: string;
+  totalSupply: string;
+  sinkBalance: string;
 };
 type FixtureState = {
   blockNumber: number;
@@ -62,8 +74,6 @@ type Branch = {
 };
 type Instance = {
   label: string;
-  quote: `0x${string}`;
-  quoteKind: "native" | "erc20";
   extension: `0x${string}`;
   periphery: `0x${string}`;
   extensionRuntimeKeccak: `0x${string}`;
@@ -83,9 +93,14 @@ const fixture = JSON.parse(
     {
       token: string;
       quote: string;
+      quoteKind: "native" | "erc20";
       extension: `0x${string}`;
       periphery: `0x${string}`;
       poolId: `0x${string}`;
+      requestedSupply: string;
+      installedSupply: string;
+      sinkSupply: string;
+      liquidity: string;
     }
   >;
   installations: Record<string, { owner: `0x${string}` }>;
@@ -99,7 +114,11 @@ const CORE = fixture.addresses.core;
 const topic = (abi: Abi, eventName: string) =>
   encodeEventTopics({ abi, eventName })[0] as `0x${string}`;
 /** Strictly decoded args of a launch log, every field present. */
-const decodeArgs = <T>(abi: Abi, eventName: string, log: RawLog): T =>
+const decodeArgs = <T>(
+  abi: Abi,
+  eventName: string,
+  log: Pick<RawLog, "topics" | "data">,
+): T =>
   decodeEventLog({
     abi,
     eventName,
@@ -119,7 +138,7 @@ const FEES_PAID = topic(ZERO_SEED_LAUNCH_PERIPHERY_ABI, "LaunchFeesClaimed");
 const unused = (n: number): `0x${string}` =>
   `0x${n.toString(16).padStart(40, "0")}`;
 
-// Both instances resolve through the production configuration path.
+// The instance resolves through the production configuration path.
 const PINS = fixture.instances.map((i) =>
   resolveZeroSeedLaunchPin({
     coreAddress: CORE,
@@ -358,11 +377,14 @@ describe.skipIf(!SERVER)(
           current_owner: bigint | null;
           initial_owner: bigint | null;
           controller: bigint;
+          requested_supply: bigint;
+          sink_supply: bigint;
           fee_at: bigint;
         }[]
       >`
       SELECT ps.sqrt_ratio, ps.tick, ps.liquidity, s.accrued0, s.accrued1, s.claimed0, s.claimed1,
              pt.balance0, pt.balance1, pk.token0, pk.token1, s.current_owner, s.initial_owner, c.controller,
+             c.requested_supply, c.sink_supply,
              zero_seed_launch_fee_at(c.trading_start, c.fee_duration, c.initial_fee, c.final_fee,
                                      (SELECT EXTRACT(EPOCH FROM MAX(block_time))::int8 FROM blocks)) AS fee_at
       FROM pool_keys pk
@@ -400,6 +422,10 @@ describe.skipIf(!SERVER)(
           BigInt(fixture.installations[pool.label].owner),
         );
         expect(String(row.fee_at)).toBe(pool.feeAtBlockTime);
+        // totalSupply is the requested supply; address(0) holds the sink
+        expect([String(row.requested_supply), String(row.sink_supply)]).toEqual(
+          [pool.totalSupply, pool.sinkBalance],
+        );
         // Core holds each pool's reserves (Core events only) plus the
         // extension's saved fee balance; the two ledgers never mix.
         add(row.token0, row.balance0 + unclaimed[0]);
@@ -488,11 +514,13 @@ describe.skipIf(!SERVER)(
 
     let canonicalDump: Awaited<ReturnType<typeof dump>>;
 
-    test("both fixture instances resolve through the pins, native and ERC-20", () => {
-      expect(PINS.map((p) => [p.quote.kind, p.deploymentBlock])).toEqual([
-        ["native", 2],
-        ["erc20", 2],
+    test("the single fixture instance resolves through the pins and serves both quote kinds", () => {
+      expect(PINS.map((p) => [p.address, p.deploymentBlock])).toEqual([
+        [fixture.instances[0].extension.toLowerCase() as Hex, 2],
       ]);
+      expect(
+        new Set(Object.values(fixture.launches).map((l) => l.quoteKind)),
+      ).toEqual(new Set(["native", "erc20"]));
     });
 
     test("canonical replay equals chain state after every block", async () => {
@@ -517,6 +545,243 @@ describe.skipIf(!SERVER)(
         [BigInt(fixture.launches.l2.quote).toString(), "erc20", false],
         [BigInt(fixture.launches.l4.quote).toString(), "erc20", false],
       ]);
+      // one extension for every quote
+      expect(
+        new Set(canonicalDump.created.map((c) => String(c.emitter))),
+      ).toEqual(new Set([BigInt(PINS[0].address).toString()]));
+      await db.sql.end();
+    }, 120_000);
+
+    test("supply: requested, installed and sink are stored exactly, and installed is Core's position delta", async () => {
+      const db = await canonicalReplay();
+      const rows = await db.sql<
+        {
+          pool_id: bigint;
+          requested_supply: bigint;
+          installed_supply: bigint;
+          sink_supply: bigint;
+          liquidity: bigint;
+          core_installed: bigint;
+          core_quote: bigint;
+          core_liquidity: bigint;
+        }[]
+      >`
+      SELECT c.pool_id, c.requested_supply, c.installed_supply, c.sink_supply, c.liquidity,
+             CASE WHEN c.token_is_token1 THEN p.delta1 ELSE p.delta0 END AS core_installed,
+             CASE WHEN c.token_is_token1 THEN p.delta0 ELSE p.delta1 END AS core_quote,
+             p.liquidity_delta AS core_liquidity
+      FROM zero_seed_launch_created c
+               JOIN position_updates p ON p.chain_id = c.chain_id AND p.pool_key_id = c.pool_key_id
+                                          AND p.transaction_hash = c.transaction_hash
+      ORDER BY c.event_id`;
+      expect(rows.map((r) => ({ ...r }))).toEqual(
+        ["l1", "l2", "l4"].map((label) => {
+          const l = fixture.launches[label];
+          return {
+            pool_id: BigInt(l.poolId),
+            requested_supply: BigInt(l.requestedSupply),
+            installed_supply: BigInt(l.installedSupply),
+            sink_supply: BigInt(l.sinkSupply),
+            liquidity: BigInt(l.liquidity),
+            core_installed: BigInt(l.installedSupply),
+            core_quote: 0n,
+            core_liquidity: BigInt(l.liquidity),
+          };
+        }),
+      );
+      for (const r of rows) {
+        expect(r.requested_supply).toBe(10n ** 27n);
+        expect(r.sink_supply).toBe(r.requested_supply - r.installed_supply);
+        expect(r.sink_supply > 0n).toBe(true);
+      }
+      // The table refuses an installed supply above the request, or zero.
+      for (const installed of ["0", "1000000000000000000000000001"])
+        await expectRejects(
+          db.sql.begin((tx) =>
+            tx.unsafe(
+              `INSERT INTO zero_seed_launch_created
+                 (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+                  pool_key_id, pool_id, token, controller, quote_token, position_id, liquidity, requested_supply,
+                  installed_supply, name, symbol, decimals, ask_tick, upper_tick, tick_spacing, trading_start,
+                  fee_duration, initial_fee, final_fee, salt)
+                 SELECT chain_id, block_number, transaction_index, event_index + 1000, transaction_hash, emitter,
+                        NULL, pool_id, token, controller, quote_token, position_id, liquidity, requested_supply,
+                        ${installed}, name, symbol, decimals, ask_tick, upper_tick, tick_spacing, trading_start,
+                        fee_duration, initial_fee, final_fee, salt
+                 FROM zero_seed_launch_created LIMIT 1`,
+            ),
+          ),
+          /check constraint/,
+        );
+      await db.sql.end();
+    }, 120_000);
+
+    test("LaunchCreated is refused without exactly one consistent Core position update of the launch", async () => {
+      const blocks = groupLogsByBlock(prefix.logs, filtersOf(LAUNCH_ON()));
+      // l2: the ERC-20 quote launch, alone in its block's first transaction
+      const l2 = fixture.launches.l2;
+      const createdIn = blocks.find((b) =>
+        b.logs.some(
+          (l) => l.topics[0] === LAUNCH_CREATED && l.topics[1] === l2.poolId,
+        ),
+      )!;
+      const createdNumber = Number(createdIn.header.blockNumber);
+      const positionEvent = CORE_ABI.find(
+        (i) => i.type === "event" && i.name === "PositionUpdated",
+      ) as AbiEvent;
+      const positionTopic = encodeEventTopics({ abi: [positionEvent] })[0];
+      const isLaunchPosition = (l: StreamLog) =>
+        l.topics[0] === positionTopic &&
+        decodeArgs<{ poolId: Hex }>(CORE_ABI, "PositionUpdated", l).poolId ===
+          l2.poolId;
+      expect(createdIn.logs.filter(isLaunchPosition)).toHaveLength(1);
+      type Position = {
+        locker: Hex;
+        poolId: Hex;
+        positionId: Hex;
+        liquidityDelta: bigint;
+        balanceUpdate: Hex;
+        stateAfter: Hex;
+      };
+      const rewrite = (change: (p: Position) => Position | undefined) => ({
+        ...createdIn,
+        logs: createdIn.logs.flatMap((l) => {
+          if (!isLaunchPosition(l)) return [l];
+          const changed = change(
+            decodeArgs<Position>(CORE_ABI, "PositionUpdated", l),
+          );
+          if (!changed) return [];
+          return [
+            {
+              ...l,
+              data: encodeAbiParameters(positionEvent.inputs, [
+                changed.locker,
+                changed.poolId,
+                changed.positionId,
+                changed.liquidityDelta,
+                changed.balanceUpdate,
+                changed.stateAfter,
+              ]),
+            },
+          ];
+        }),
+      });
+      const word = (hi: bigint, lo: bigint) =>
+        `0x${BigInt.asUintN(128, hi).toString(16).padStart(32, "0")}${BigInt.asUintN(128, lo).toString(16).padStart(32, "0")}` as Hex;
+      const installed = BigInt(l2.installedSupply);
+      // l2's launch token is token0: the installed supply is delta0
+      const cases: [string, (p: Position) => Position | undefined, RegExp][] = [
+        ["missing", () => undefined, /0 Core position updates/],
+        [
+          "another locker",
+          (p) => ({ ...p, locker: unused(77) }),
+          /0 Core position updates/,
+        ],
+        [
+          "another position",
+          (p) => ({
+            ...p,
+            positionId: `0x${(BigInt(p.positionId) | (1n << 64n)).toString(16).padStart(64, "0")}`,
+          }),
+          /0 Core position updates/,
+        ],
+        [
+          "another liquidity",
+          (p) => ({ ...p, liquidityDelta: p.liquidityDelta - 1n }),
+          /liquidity delta != LaunchCreated.liquidity/,
+        ],
+        [
+          "quote taken",
+          (p) => ({ ...p, balanceUpdate: word(installed, 1n) }),
+          /Core took quote/,
+        ],
+        [
+          "no launch token",
+          (p) => ({ ...p, balanceUpdate: word(0n, 0n) }),
+          /installed supply is outside/,
+        ],
+        [
+          "above the request",
+          (p) => ({
+            ...p,
+            balanceUpdate: word(BigInt(l2.requestedSupply) + 1n, 0n),
+          }),
+          /installed supply is outside/,
+        ],
+      ];
+      const db = await freshDb();
+      const processors = LAUNCH_ON();
+      await replay(
+        db,
+        {
+          ...prefix,
+          blocks: prefix.blocks.filter((b) => b.number < createdNumber),
+        },
+        processors,
+      );
+      const before = await dump(db);
+      for (const [name, change, error] of cases) {
+        await expectRejects(
+          applyBlock(db.dao, processors, rewrite(change)),
+          error,
+        );
+        expect(await dump(db), name).toEqual(before);
+      }
+      // the unmodified block is accepted
+      await applyBlock(db.dao, processors, createdIn);
+      const [row] = await db.sql<{ installed_supply: bigint }[]>`
+        SELECT installed_supply FROM zero_seed_launch_created WHERE pool_id = ${num(l2.poolId)}::numeric`;
+      expect(row.installed_supply).toBe(installed);
+      // A LaunchCreated delivered before its Core position update (a log
+      // order the chain never produces) finds none and is refused.
+      const createdLog = createdIn.logs.find(
+        (l) => l.topics[0] === LAUNCH_CREATED,
+      )!;
+      const event = decodeArgs<{
+        poolId: Hex;
+        token: Hex;
+        controller: Hex;
+        positionId: Hex;
+        liquidity: bigint;
+        parameters: {
+          supply: bigint;
+          quoteToken: Hex;
+          name: string;
+          symbol: string;
+          decimals: number;
+          askTick: number;
+          upperTick: number;
+          tickSpacing: number;
+          tradingStart: bigint;
+          feeDuration: number;
+          initialFee: bigint;
+          finalFee: bigint;
+          salt: Hex;
+        };
+      }>(ZERO_SEED_LAUNCH_ABI, "LaunchCreated", createdLog);
+      const position = createdIn.logs.find(isLaunchPosition)!;
+      await expectRejects(
+        db.dao.begin((tx) =>
+          tx.insertZeroSeedLaunchCreatedEvent(
+            {
+              blockNumber: createdNumber,
+              transactionIndex: position.transactionIndex,
+              eventIndex: position.logIndex,
+              emitter: createdLog.address,
+              transactionHash: createdLog.transactionHash,
+            },
+            {
+              coreAddress: CORE,
+              ...event,
+              ...event.parameters,
+              tradingStart: event.parameters.tradingStart,
+              quoteToken: event.parameters.quoteToken,
+              requestedSupply: event.parameters.supply,
+            },
+          ),
+        ),
+        /0 Core position updates/,
+      );
       await db.sql.end();
     }, 120_000);
 
@@ -676,15 +941,12 @@ describe.skipIf(!SERVER)(
         ),
         /another controller/,
       );
-      // cross-instance: a periphery event attributed to the other extension
-      const other = PINS.find(
-        (p) => p.address !== launch.extension.toLowerCase(),
-      )!;
+      // a periphery event attributed to an extension that is not the pool's
       await expectRejects(
         db.dao.begin((tx) =>
           tx.insertZeroSeedLaunchFeesPaidEvent(freshKey, {
             ...base,
-            extension: other.address,
+            extension: unused(94),
           }),
         ),
         /not a registered launch pool/,
@@ -837,7 +1099,7 @@ describe.skipIf(!SERVER)(
       ORDER BY c.event_id`;
       expect(rows.map((r) => [r.token_is_token1, r.native])).toEqual([
         [true, true], // l1: native quote, launch token1
-        [false, false], // l2: WETH quote, launch token0
+        [false, false], // l2: ERC-20 quote, launch token0
         [false, false], // l4
       ]);
       expect(rows.every((r) => r.ok)).toBe(true);
@@ -917,16 +1179,13 @@ describe.skipIf(!SERVER)(
       expect(n).toBe(1);
       await skipped.sql.end();
 
-      // (4) The WETH instance turned on one block after its deployment,
-      // before its first launch pool: nothing can have been missed (its
-      // ExtensionRegistered is indexed and no pool of it lacks registration),
-      // so the guard accepts and the result equals the canonical replay.
+      // (4) Support was on through the deployment block and the guard first
+      // runs one block later (a restart): nothing can have been missed (the
+      // ExtensionRegistered is indexed and no pool of the extension lacks
+      // registration), so the guard accepts and the result equals the
+      // canonical replay.
       const db = await freshDb();
-      await replay(
-        db,
-        upTo(prefix, deployment),
-        processorsFor([PINS[0].address]),
-      );
+      await replay(db, upTo(prefix, deployment), LAUNCH_ON());
       await replay(
         db,
         from(prefix, deployment + 1),
