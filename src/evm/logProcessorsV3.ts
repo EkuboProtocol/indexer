@@ -1,4 +1,5 @@
-import type { PoolInitializedInsert } from "../_shared/dao";
+import type { DAO, PoolInitializedInsert } from "../_shared/dao";
+import type { EventKey } from "../_shared/eventKey";
 import { floatSqrtRatioToFixed, parseSwapEventV3 } from "./swapEvent";
 import { parseOracleEvent } from "./oracleEvent";
 import { parseTwammVirtualOrdersExecuted } from "./twammEvent";
@@ -33,9 +34,12 @@ import {
   BOOSTED_FEES_ABI as BOOSTED_FEES_ABI_V3,
 } from "./abis_v3";
 import { createZeroSeedLaunchProcessors } from "./zeroSeedLaunchProcessors";
+import { mevCaptureV21Processors } from "./mevCaptureV21";
 
 export interface LogProcessorConfigV3 {
   mevCaptureAddress: `0x${string}`;
+  /** MEVCapture v2.1; selected by this address only, never by the v1 flag. */
+  mevCaptureV21Address?: `0x${string}`;
   boostedFeesConcentratedAddress: `0x${string}`;
   boostedFeesStableswapAddress: `0x${string}`;
   coreAddress: `0x${string}`;
@@ -81,6 +85,7 @@ function stakeDescriptor(stakeId: `0x${string}`) {
 
 export function createLogProcessorsV3({
   mevCaptureAddress,
+  mevCaptureV21Address,
   boostedFeesConcentratedAddress,
   boostedFeesStableswapAddress,
   coreAddress,
@@ -97,6 +102,23 @@ export function createLogProcessorsV3({
   positionsContracts,
 }: LogProcessorConfigV3): EvmLogProcessor[] {
   const mevCaptureAddressBigInt = BigInt(mevCaptureAddress);
+
+  // Records a newly initialized pool under the extension that owns it.
+  async function registerExtensionPool(
+    dao: DAO,
+    key: EventKey,
+    poolId: `0x${string}`,
+    extension: bigint,
+  ) {
+    if (extension === mevCaptureAddressBigInt) {
+      await dao.insertMEVCapturePoolKey(key.emitter, poolId);
+    } else if (zeroSeedLaunchAddresses?.some((a) => BigInt(a) === extension)) {
+      await dao.insertZeroSeedLaunchPoolKey(key.emitter, poolId);
+    }
+    if (mevCaptureV21Address && extension === BigInt(mevCaptureV21Address)) {
+      await dao.insertMEVCaptureV21Pool(mevCaptureV21Address, poolId, key);
+    }
+  }
 
   const positionsConfigMap = new Map<
     bigint,
@@ -280,14 +302,12 @@ export function createLogProcessorsV3({
           };
           await dao.insertPoolInitializedEvent(poolInitialized, key);
 
-          const extension = BigInt(parsedConfig.extension);
-          if (extension === mevCaptureAddressBigInt) {
-            await dao.insertMEVCapturePoolKey(key.emitter, parsed.poolId);
-          } else if (
-            zeroSeedLaunchAddresses?.some((a) => BigInt(a) === extension)
-          ) {
-            await dao.insertZeroSeedLaunchPoolKey(key.emitter, parsed.poolId);
-          }
+          await registerExtensionPool(
+            dao,
+            key,
+            parsed.poolId,
+            BigInt(parsedConfig.extension),
+          );
         },
         async PositionUpdated(dao, key, parsed) {
           const params = parsePositionId(parsed.positionId);
@@ -605,5 +625,6 @@ export function createLogProcessorsV3({
     ordersProcessors,
     positionsProcessors,
     createZeroSeedLaunchProcessors({ coreAddress, zeroSeedLaunchAddresses }),
+    mevCaptureV21Processors(mevCaptureV21Address, coreAddress),
   );
 }

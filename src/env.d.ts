@@ -52,6 +52,8 @@ interface EvmConfig extends CommonConfiguration {
   RECOMPILED_ORDERS_V3_ADDRESS?: `0x${string}`;
   INCENTIVES_V3_ADDRESS: `0x${string}`;
   MEV_CAPTURE_V3_ADDRESS: `0x${string}`;
+  /** MEVCapture v2.1 extension on the V3 core. Unset: not indexed. */
+  MEV_CAPTURE_V21_V3_ADDRESS?: `0x${string}`;
   AUCTIONS_V3_ADDRESS: `0x${string}`;
   BOOSTED_FEES_CONCENTRATED_V3_ADDRESS: `0x${string}`;
   BOOSTED_FEES_STABLESWAP_V3_ADDRESS: `0x${string}`;

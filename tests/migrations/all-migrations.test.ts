@@ -21,6 +21,7 @@ test("all migrations apply successfully", async () => {
 
   // 00129 adds two extension tables and the latest-event view; 00134 adds
   // the hourly token price history; 00137 adds the TWAMM hourly volume ledger;
-  // 00139 adds seven zero-seed launch tables.
-  expect(result).toBe(97);
+  // 00139 adds five MEVCapture v2.1 tables and the pool-states view; 00140
+  // adds seven zero-seed launch tables.
+  expect(result).toBe(103);
 });

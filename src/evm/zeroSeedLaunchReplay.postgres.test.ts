@@ -37,7 +37,7 @@ import {
 
 // Replays logs that a local anvil chain actually emitted (see
 // scripts/zeroSeedLaunchFixture.ts) through the indexer's own stream grouping,
-// processors, DAO and the 00139 triggers on a real Postgres, and checks the
+// processors, DAO and the 00140 triggers on a real Postgres, and checks the
 // indexed state against the chain state recorded after every block: Core
 // pool state and custody (native ETH and ERC-20), the creator fee ledger,
 // the periphery owner of every launch and the contract's feeAt. One extension

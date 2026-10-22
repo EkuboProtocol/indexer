@@ -21,10 +21,14 @@ import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
 import { parsePositionsProtocolFeeConfigs } from "./evm/positionsProtocolFeeConfig";
 import { resolveZeroSeedLaunchPin } from "./evm/zeroSeedLaunchConfig";
 import { zeroSeedLaunchCatchUpGuard } from "./evm/zeroSeedLaunchProcessors";
-import type { EvmLogProcessor } from "./evm/logProcessorsShared";
-import type { DAO } from "./_shared/dao";
 import { isProduction } from "./config";
+import {
+  loadMevCaptureV21Address,
+  recordMevCaptureV21BlockState,
+} from "./evm/mevCaptureV21";
 import { runIndexer, type ParsedRuntimeBlock } from "./runtime";
+import type { DAO } from "./_shared/dao";
+import type { EvmLogProcessor } from "./evm/logProcessorsShared";
 import type { NetworkEntrypoint, StreamOptions } from "./types";
 
 function requireAtLeastOneAddress(
@@ -96,15 +100,19 @@ function logIndexedContracts({
     logger.info(`Indexing V3 Ve33 contracts`, { evmV3Ve33AddressConfig });
 }
 
-export function createEvmProcessors() {
-  return createEvmProcessorsAndLaunchPin().processors;
+/**
+ * The configured contracts' log processors, in filter-id order. Exported so an
+ * audit can build exactly the filters the stream uses.
+ */
+export function createEvmProcessors(): EvmLogProcessor[] {
+  return createEvmIndexing().processors;
 }
 
 /** The pinned launch instance named by the environment, if launch support is on. */
 function resolveConfiguredZeroSeedLaunchPin(
   coreAddress: `0x${string}` | undefined,
 ) {
-  return resolveZeroSeedLaunchPin({
+  const pin = resolveZeroSeedLaunchPin({
     coreAddress,
     chainId: process.env.CHAIN_ID ? BigInt(process.env.CHAIN_ID) : undefined,
     address: loadOptionalHexAddress("ZERO_SEED_LAUNCH_ADDRESS"),
@@ -114,10 +122,18 @@ function resolveConfiguredZeroSeedLaunchPin(
     production: isProduction(),
     warn: (message) => logger.warn(message),
   });
+  if (pin)
+    logger.info(`Indexing ZeroSeedLaunch`, {
+      zeroSeedLaunchAddress: pin.address,
+    });
+  return pin;
 }
 
-/** The processors and the launch instance they index, if launch support is on. */
-export function createEvmProcessorsAndLaunchPin() {
+/**
+ * The processors, with the MEVCapture v2.1 extension and the launch instance
+ * they index when either is configured.
+ */
+function createEvmIndexing() {
   const evmV2AddressConfig = loadHexAddresses({
     mevCaptureAddress: "MEV_CAPTURE_ADDRESS",
     coreAddress: "CORE_ADDRESS",
@@ -153,11 +169,15 @@ export function createEvmProcessorsAndLaunchPin() {
   const zeroSeedLaunchPin = resolveConfiguredZeroSeedLaunchPin(
     evmV3AddressConfig?.coreAddress,
   );
-  const zeroSeedLaunchAddress = zeroSeedLaunchPin?.address;
 
   if (!evmV2AddressConfig && !evmV3AddressConfig) {
     throw new Error("No config for either V2 or V3 contracts");
   }
+
+  const mevCaptureV21 = mevCaptureV21Config(
+    evmV2AddressConfig?.mevCaptureAddress,
+    evmV3AddressConfig,
+  );
 
   logIndexedContracts({
     evmV2AddressConfig,
@@ -165,14 +185,13 @@ export function createEvmProcessorsAndLaunchPin() {
     positionsV3ProtocolFeeConfigs,
     evmV3Ve33AddressConfig,
   });
-  if (zeroSeedLaunchAddress)
-    logger.info(`Indexing ZeroSeedLaunch`, { zeroSeedLaunchAddress });
 
   const processors = [
     ...(evmV2AddressConfig ? createLogProcessorsV2(evmV2AddressConfig) : []),
     ...(evmV3AddressConfig
       ? createLogProcessorsV3({
           ...evmV3AddressConfig,
+          mevCaptureV21Address: mevCaptureV21?.extension,
           twammAddresses: requireAtLeastOneAddress("V3 TWAMM address", [
             "TWAMM_V3_ADDRESS",
             "LEGACY_TWAMM_V3_ADDRESS",
@@ -183,14 +202,39 @@ export function createEvmProcessorsAndLaunchPin() {
             "RECOMPILED_ORDERS_V3_ADDRESS",
           ]),
           ...evmV3Ve33AddressConfig,
-          zeroSeedLaunchAddresses: zeroSeedLaunchAddress
-            ? [zeroSeedLaunchAddress]
+          zeroSeedLaunchAddresses: zeroSeedLaunchPin
+            ? [zeroSeedLaunchPin.address]
             : [],
           positionsContracts: positionsV3ProtocolFeeConfigs ?? [],
         })
       : []),
   ];
-  return { processors, zeroSeedLaunchPin };
+  return { processors, mevCaptureV21, zeroSeedLaunchPin };
+}
+
+/**
+ * MEVCapture v2.1 is optional and V3-only. Unset leaves indexing exactly as it
+ * was; set, it needs the V3 core and must not be a v1 MEVCapture address.
+ */
+export function mevCaptureV21Config(
+  v2MevCaptureAddress: HexAddress | undefined,
+  evmV3AddressConfig:
+    | { coreAddress: HexAddress; mevCaptureAddress: HexAddress }
+    | null
+    | undefined,
+): { extension: HexAddress; coreAddress: HexAddress } | null {
+  const extension = loadMevCaptureV21Address(
+    loadOptionalHexAddress("MEV_CAPTURE_V21_V3_ADDRESS"),
+    [v2MevCaptureAddress, evmV3AddressConfig?.mevCaptureAddress],
+  );
+  if (!extension) return null;
+  if (!evmV3AddressConfig) {
+    throw new Error(
+      "MEV_CAPTURE_V21_V3_ADDRESS needs the V3 contracts to be configured",
+    );
+  }
+  logger.info("Indexing MEVCapture v2.1", { extension });
+  return { extension, coreAddress: evmV3AddressConfig.coreAddress };
 }
 
 function positiveInt(name: string, fallbackValue: number): number {
@@ -247,10 +291,11 @@ function createStickyRpc(chainId: bigint): StickyRpc {
 export async function createEvmEntrypoint(
   chainId: bigint,
 ): Promise<NetworkEntrypoint<EvmBlock>> {
-  const { processors, zeroSeedLaunchPin } = createEvmProcessorsAndLaunchPin();
+  const { processors, mevCaptureV21, zeroSeedLaunchPin } = createEvmIndexing();
   const launchCatchUp = zeroSeedLaunchCatchUpGuard(
     zeroSeedLaunchPin ? [zeroSeedLaunchPin] : [],
   );
+  let mevCaptureV21PoolsRegistered = false;
 
   const rpc = createStickyRpc(chainId);
   await rpc.startWithin(
@@ -297,9 +342,52 @@ export async function createEvmEntrypoint(
     },
     async processBlock({ block, blockNumber, dao }) {
       await launchCatchUp(dao, blockNumber);
-      return processEvmBlock(processors, block, blockNumber, dao);
+      // Pools initialized before the v2.1 address was configured. Only marked
+      // done once a block finds nothing left to register, so a rolled-back
+      // block registers them again.
+      let registeredPools: Awaited<
+        ReturnType<DAO["registerIndexedMEVCaptureV21Pools"]>
+      > = [];
+      if (mevCaptureV21 && !mevCaptureV21PoolsRegistered) {
+        registeredPools = await dao.registerIndexedMEVCaptureV21Pools(
+          mevCaptureV21.extension,
+          mevCaptureV21.coreAddress,
+        );
+        if (registeredPools.length === 0) mevCaptureV21PoolsRegistered = true;
+      }
+      const eventsProcessed = await processEvmBlock(
+        processors,
+        block,
+        blockNumber,
+        dao,
+      );
+      // After the block's Core and gate events are written, in the same
+      // transaction. A gate failure on a no-op swap has no Core log.
+      if (
+        mevCaptureV21 &&
+        (registeredPools.length > 0 ||
+          hasLogFrom(block, [
+            mevCaptureV21.coreAddress,
+            mevCaptureV21.extension,
+          ]))
+      ) {
+        await recordMevCaptureV21BlockState({
+          rpc,
+          dao,
+          ...mevCaptureV21,
+          blockNumber,
+          blockHash: block.header.blockHash,
+          registeredPools,
+        });
+      }
+      return eventsProcessed;
     },
   };
+}
+
+function hasLogFrom(block: EvmBlock, addresses: HexAddress[]): boolean {
+  const wanted = new Set(addresses.map((address) => BigInt(address)));
+  return block.logs.some((log) => wanted.has(BigInt(log.address)));
 }
 
 /**

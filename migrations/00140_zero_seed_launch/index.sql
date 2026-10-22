@@ -7,7 +7,7 @@
 --
 -- Replaces the unshipped draft 00134_scheduled_launch_pool_states of
 -- indexer PR #246 (ScheduledLaunch, LockedLaunchLiquidity, LaunchRouter).
--- That migration never ran in production (main stops at 00138), so this
+-- That migration never ran in production (main stops at 00139), so this
 -- is a replacement of a development format, not a data migration. Nothing of
 -- the staged/advance/migrate/terminal/seed design survives here.
 --
@@ -29,7 +29,9 @@
 -- sink_supply. LaunchCreated does not carry the installed amount: it is the
 -- launch-token delta of Core's PositionUpdated of the creation, which the
 -- writer requires in the same transaction. A database that applied an earlier
--- 00139 must be rebuilt; none exists outside local tests.
+-- draft of this migration (numbered 00134 or 00139) must be rebuilt; none
+-- exists outside local tests. It is numbered 00140 to follow the applied
+-- 00139_mev_capture_v21, whose objects it does not touch.
 --
 --   zero_seed_launch_pool_keys      pools whose extension is a configured
 --                                   ZeroSeedLaunch, filled at PoolInitialized
@@ -95,7 +97,7 @@
 -- Rollback before issuance: in one transaction that locks blocks first,
 -- DROP VIEW all_pool_states_view and recreate it from 00123; restore
 -- recompute_pool_last_event_id from 00123; DROP the zero_seed_launch_* tables
--- and functions. This returns to the 00138 schema, never to the #246 draft.
+-- and functions. This returns to the 00139 schema, never to the #246 draft.
 
 SET LOCAL lock_timeout = '15min';
 

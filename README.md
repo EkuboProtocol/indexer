@@ -421,9 +421,9 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
-### Unreleased: zero-seed launches (00139, additive)
+### Unreleased: zero-seed launches (00140, additive)
 
-Migration 00139 (schema `zero-seed-launch-index/v3`) indexes the forward-only
+Migration 00140 (schema `zero-seed-launch-index/v3`) indexes the forward-only
 `ZeroSeedLaunch` extension and its `ZeroSeedLaunchPeriphery` (evm-contracts
 `43d6628`; ABI sha256 `efae9388…e41e` and `df24d9f0…7305`, `jq -cS .abi`
 without a trailing newline, unchanged since `550afc4`; the protocol's interface manifest is vendored as
@@ -436,9 +436,10 @@ apart from the Core pool reserves, and the periphery owner). It appends nine
 `pool_last_event_id`. It parks the workers by locking `blocks` first, as 00123
 does. The schema must precede any later quoter-service or API deployment
 selecting the new columns. This draft authorizes no deployment or live
-database write. It was drafted as 00134, renumbered to follow 00138 on `main`,
-and revised in place before any application, last for the per-launch quote
-and requested supply:
+database write. It was drafted as 00134, renumbered to 00139 to follow 00138,
+then to 00140 to follow `00139_mev_capture_v21` (whose objects it does not
+touch), and revised in place before any application, last for the per-launch
+quote and requested supply:
 
 - The quote is per launch: `LaunchParameters.quoteToken` (replacing the
   extension's constructor quote and its `quoteToken()` getter) is the other
@@ -489,7 +490,7 @@ and requested supply:
   linked to the extension's `CreatorFeesClaimed` in the same transaction: it
   moves `paid{0,1}` only and never the claimed ledger.
 
-A database that applied an earlier 00139 must be rebuilt from scratch locally;
+A database that applied an earlier draft (00134 or 00139) must be rebuilt from scratch locally;
 there is no in-place upgrade path and none is needed while no launch is live.
 
 Launch indexing is off unless `ZERO_SEED_LAUNCH_ADDRESS` and
@@ -552,6 +553,113 @@ updates and the catch-up guard.
 independent fee vectors (25,212 rows); the SQL fee function reproduces every
 row. Contract-event replay does not enforce producer build-time/start/expiry
 rules: those require fresh-time producer/owner validation.
+
+### 2026-10-22: MEVCapture v2.1 anchor/config history, gate events and per-swap surcharges (00139, additive)
+
+**`00139_mev_capture_v21`. New tables, a view and two SQL functions. No
+existing table, view, trigger or the v1 MEVCapture path changes. Nothing is
+written until a worker sets `MEV_CAPTURE_V21_V3_ADDRESS`.**
+
+Contract: `src/extensions/MEVCaptureV21.sol` on evm-contracts `main`, for the
+current (V3) Core. Ethereum deployment:
+`0x51f831c23fa4051862881Ef8EfC0c3C37905Ce49`.
+
+- `mev_capture_v21_configs`: all eight `getConfig()` fields (`max_fee` is
+  Q0.64 `numeric`; `segment_width_multiplier = 2^segment_exp`), one row per
+  extension. Read once, at the block of the first v2.1 activity seen. It is
+  never inferred from constructor defaults.
+- `mev_capture_v21_pools`: pools initialized on the configured v2.1 extension.
+  The version is chosen by extension address only. A worker refuses to start if
+  the v2.1 address is also configured as v1.
+- `mev_capture_v21_anchor_states`: all seven `getAnchor(poolId)` fields at the
+  end of every block in which Core logged a swap, position update or
+  initialization for the pool, or the extension logged `AnchorGateFailed`.
+- `mev_capture_v21_gate_failures`: `AnchorGateFailed(bytes32 indexed poolId,
+  uint8 lObs, uint8 eRef)` with chain, block, transaction, log index, emitter
+  and pool. An event from another address, with another topic layout, with
+  non-canonical data or for a pool that is not a v2.1 pool of the emitter
+  fails the block. It is not dropped.
+- `mev_capture_v21_swap_surcharges`: one row per forwarded v2.1 swap, written
+  at the end of the block. The extension charges the surcharge through
+  `Core.accumulateAsFees` right after each charged Core call, so each
+  `FeesAccumulated` of a v2.1 pool is attributed to the forwarded swap of the
+  `Swapped` log (locker = extension) preceding it in the same transaction. A
+  forwarded swap is a maximal run of consecutive `Swapped` logs in a
+  transaction with the same pool and the extension as locker. The row has the
+  number of Core calls and of charged calls, the summed Core deltas, the
+  surcharge per token and `delta0`/`delta1`, which equal the forward's
+  returned balance update. A `FeesAccumulated` that cannot be attributed fails
+  the block. Two forwarded swaps of the same pool with no other pool's swap
+  between them in one transaction form one row.
+- `mev_capture_v21_pool_states` (view): the quoter contract. One row per v2.1
+  pool with config and latest indexed anchor. A pool missing either is absent,
+  so consumers fail closed.
+- `mev_capture_v21_pool_health(chain_id, as_of)`: monitor input, not a
+  monitor. It returns anchor age, `stale_anchor` (> 2*tau), the decayed gate
+  reference `e_ref_now`, `gate_margin_now` against the latest swap's liquidity,
+  gate failures within the last 2*tau, and the last failure.
+
+**Reads and errors.** Core's logs do not carry the extension's state, so the
+worker uses `eth_call` pinned to the block hash (EIP-1898,
+`requireCanonical`). The call runs in the same transaction that writes the
+block's events. A failed or malformed read fails the block and the runtime
+retries it, so there are no gaps. Every row cascades from `blocks`, so a reorg
+removes orphaned reads and events and the canonical block reads again. Expect
+one `getAnchor` per touched v2.1 pool per block, plus one `getConfig` per
+extension.
+
+**Known limit.** Two paths change anchor state with no log at all: a no-op
+forwarded swap (zero amount, or limit equal to price) whose gate passes, and a
+zero-delta position update that takes the per-timestamp liquidity snapshot.
+The next logged touch catches up, but the intermediate state is not recorded.
+Exact quotes must `eth_call getAnchor` at the quote block. The tables are
+history and analytics input.
+
+**Order.** Run the migration first (additive, no locks on worker-written
+tables). Then set `MEV_CAPTURE_V21_V3_ADDRESS` on the V3 workers that should
+index a deployed v2.1 extension. The address must be a real deployment, not a
+placeholder. Pools of the extension whose initialization is already indexed
+are registered once when the worker starts processing blocks, so the address
+can be set after the first pool initialization.
+
+**Rollback.** Unset `MEV_CAPTURE_V21_V3_ADDRESS` and restart. Then
+`DROP FUNCTION mev_capture_v21_pool_health(int8, timestamptz); DROP FUNCTION
+mev_capture_v21_bit_length(numeric); DROP VIEW mev_capture_v21_pool_states;
+DROP TABLE mev_capture_v21_swap_surcharges, mev_capture_v21_gate_failures, mev_capture_v21_anchor_states,
+mev_capture_v21_pools, mev_capture_v21_configs;` and, to allow a later
+re-apply, `DELETE FROM migrations WHERE migration_id = 139;` (postgres-shift).
+Only valid while 00139 is the latest migration.
+
+**Indexes and representative queries.**
+
+```sql
+-- quoter / API: current state of every v2.1 pool on a chain
+-- (latest anchor: PK (pool_key_id, block_number) backward scan, LIMIT 1)
+SELECT * FROM mev_capture_v21_pool_states WHERE chain_id = $1;
+
+-- anchor history of one pool (PK range scan)
+SELECT * FROM mev_capture_v21_anchor_states
+WHERE pool_key_id = $1 AND block_number BETWEEN $2 AND $3 ORDER BY block_number;
+
+-- gate failures of one pool, newest first ((pool_key_id, event_id DESC))
+SELECT * FROM mev_capture_v21_gate_failures
+WHERE pool_key_id = $1 ORDER BY event_id DESC LIMIT 100;
+
+-- surcharge per forwarded swap of one pool, newest first
+-- ((pool_key_id, first_event_id DESC))
+SELECT * FROM mev_capture_v21_swap_surcharges
+WHERE pool_key_id = $1 ORDER BY first_event_id DESC LIMIT 100;
+
+-- monitor input: stale anchors and pools at or past the gate edge
+SELECT * FROM mev_capture_v21_pool_health($1, now())
+WHERE stale_anchor OR gate_margin_now <= 0 OR gate_failures_2tau > 0;
+```
+
+The per-block touched-pool lookup uses the existing `(chain_id, block_number)`
+indexes on `swaps`, `position_updates`, `pool_initializations` and the new
+gate-failure table. The latest-liquidity lookup uses
+`swaps (pool_key_id, event_id DESC)`. Each new table has a
+`(chain_id, block_number)` index for the reorg cascade.
 
 ### 2026-10-14: Exact division for TWAMM hourly volume (00138)
 
