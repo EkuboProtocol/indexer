@@ -1,8 +1,8 @@
 {
- "source": "consumer interface manifest of EkuboProtocol/evm-contracts at 40af6cb359b0de2f61f15e47b6622a00c48b5b08, generated from forge build artifacts (methodIdentifiers, ABI) and test/vectors/zero-seed-launch.json",
- "manifest_sha256": "5eb115a68920aab6ed83f0fa61f961f841c5680e7cdb05be57b757ed74079dcb",
- "frozen_commit": "40af6cb359b0de2f61f15e47b6622a00c48b5b08",
- "frozen_tree": "f9925da3e2047b5ab5e45729056a3595043aa804",
+ "source": "consumer interface manifest of EkuboProtocol/evm-contracts at 550afc40280423128c02eb5ffd213aa959b34e2a, generated from forge build artifacts (methodIdentifiers, ABI) and test/vectors/zero-seed-launch.json",
+ "manifest_sha256": "032f3c9bfe191f5bb074d1926f4c265af9e06e939140ca13edbd9181e0b2deed",
+ "frozen_commit": "550afc40280423128c02eb5ffd213aa959b34e2a",
+ "frozen_tree": "dbbfe6a5eb5ddefe04974338b2b57bdf675c431e",
  "deployment": {
   "contracts": [
    "ZeroSeedLaunch(address core)",
@@ -14,11 +14,11 @@
  },
  "artifacts": {
   "ZeroSeedLaunch": {
-   "abi_sha256_canonical_json": "999068f8e41867e972f4485c0105f584a2c10d7537615e6b4517807548fcd4bf",
-   "runtime_template_keccak256_immutables_zero": "0x39a99e30dfff34873b7a820416ae4bc33a337612c644c45e68c51ac6564a9f4d",
-   "runtime_length": 20184,
-   "creation_code_keccak256_no_constructor_args": "0x78906a80dd0e4aeb1b7c94698a1e7917c20dc7b031a4513759ea12495f374384",
-   "creation_code_length": 20674,
+   "abi_sha256_canonical_json": "efae9388aa6b1342479204ddf436fd2a310df16bf06c80c990b2d22c90d1e41e",
+   "runtime_template_keccak256_immutables_zero": "0xf10adeca29e131bfb07f22d350641a17df000fb9945b40ac65061fb3c6ddf8c1",
+   "runtime_length": 20125,
+   "creation_code_keccak256_no_constructor_args": "0x985a18f42a75f5378e49bf136e027eaeaca4a4315f5a1036a99cc93576b98ced",
+   "creation_code_length": 20615,
    "immutable_references": {
     "73285": [
      {
@@ -32,15 +32,15 @@
       "length": 32
      },
      {
-      "start": 6258,
+      "start": 6199,
       "length": 32
      },
      {
-      "start": 7399,
+      "start": 7340,
       "length": 32
      },
      {
-      "start": 9094,
+      "start": 9035,
       "length": 32
      }
     ]
@@ -62,9 +62,9 @@
   },
   "ZeroSeedLaunchPeriphery": {
    "abi_sha256_canonical_json": "df24d9f07d45323da7e46c0f6e64ce24f8f522442d60cb07880ddf742ebe7305",
-   "runtime_template_keccak256_immutables_zero": "0x08216f696368b4398afb8c43ca3eff0cccdcea00e71397178b78b2b94f957dbb",
+   "runtime_template_keccak256_immutables_zero": "0x73cbf73c2fb778fd4a2541d59da08c4346a2217e5a73d7282583fe3ab69376d9",
    "runtime_length": 5552,
-   "creation_code_keccak256_no_constructor_args": "0xb36a0535c61c790f3600a0c45dd92763a1934652de322ddd1c175f3cda2dc046",
+   "creation_code_keccak256_no_constructor_args": "0x355b93fd4ef88a9e5be84795c19aa552ee6de280d31244d944aacb40c2219391",
    "creation_code_length": 5772,
    "immutable_references": {
     "72634": [
@@ -204,7 +204,6 @@
     "CallPointNotImplemented()": "0xc6f26286",
     "ControllerOnly()": "0xac8ff76a",
     "CoreOnly()": "0x62279cff",
-    "FeeTooHigh()": "0xcd4e6167",
     "InitializeThroughCreateOnly()": "0x028eb443",
     "InvalidFeeSchedule()": "0xf75a271a",
     "InvalidParameters()": "0xe5239090",
@@ -437,7 +436,7 @@
   ],
   "zero_from_s": 131072,
   "formula": "finalFee + floor((initialFee - finalFee) * (decay(t) - decay(D)) / (2**128 - decay(D))) for 0 < t < D; initialFee at t <= 0; finalFee at t >= D. decay(t) = 0 for t >= fee_decay_zero_from_s, else the product over the set bits i of t of fee_decay_table_q128[i], starting at 2**128 and flooring to Q128 after every multiply (src/math/feeDecay.sol decayQ128). The table is round(2**128 * 2**(-2**i/600)); the operation order is normative.",
-  "max_creator_fee_q64": "18262276632972456099",
+  "max_creator_fee_q64": "18446744073709551615",
   "all_second_digests_sha256": {
    "600": {
     "5": "636937adfdd71123c726c4d2a596d079a63726428a2fe4646571b28f8400a3b7",
@@ -466,15 +465,151 @@
   },
   "final_fee_q64": "55340232221128654"
  },
- "unchanged_from_4f1a306": [
+ "creator_fee_range": {
+  "type": "uint64, Q0.64 (2**64 = 100%)",
+  "min_q64": "0",
+  "max_q64": "18446744073709551615",
+  "max_fraction": "1 - 2**-64: just under 100%, not 100%",
+  "constant": "MAX_CREATOR_FEE = type(uint64).max (src/extensions/ZeroSeedLaunch.sol); no ceiling comparison in _validate",
+  "schedule_rules": [
+   "finalFee <= initialFee",
+   "feeDuration > 0"
+  ],
+  "error": "InvalidFeeSchedule() 0xf75a271a",
+  "checked_in": [
+   "create",
+   "previewInstallation",
+   "forwarded create payload"
+  ],
+  "unencodable": {
+   "value": "18446744073709551616",
+   "meaning": "exactly 100% = 2**64",
+   "verdict": "ABI decoding failure with empty revert data in create(LaunchParameters), previewInstallation(address,LaunchParameters) and the forwarded create payload (abi.encode(ZERO_SEED_LAUNCH_CREATE, LaunchParameters)), for either fee word; nothing is truncated or wrapped to zero",
+   "dirty_high_bits": {
+    "value": "36893488147419103231",
+    "note": "2**64 + (2**64 - 1)",
+    "verdict": "same ABI decoding failure"
+   }
+  },
+  "removed": {
+   "error": "FeeTooHigh()",
+   "selector": "0xcd4e6167",
+   "note": "removed from IZeroSeedLaunch and the derived ABI; the previous ceiling floor(2**64 * 99 / 100) = 18262276632972456099 no longer exists"
+  },
+  "vectors": [
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "55340232221128654",
+    "feeDuration": 3600,
+    "verdict": "accept",
+    "note": "max -> 0.3% over the canonical window"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "18446744073709551615",
+    "feeDuration": 1,
+    "verdict": "accept",
+    "note": "flat at the maximum, shortest window"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "18446744073709551615",
+    "feeDuration": 4294967295,
+    "verdict": "accept",
+    "note": "flat at the maximum, longest window"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "0",
+    "feeDuration": 4294967295,
+    "verdict": "accept",
+    "note": "max -> 0 over the longest window; the decay chain is zero from 76,800 s so the rate is 0 from there"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "0",
+    "feeDuration": 1,
+    "verdict": "accept"
+   },
+   {
+    "initialFee": "0",
+    "finalFee": "0",
+    "feeDuration": 3600,
+    "verdict": "accept",
+    "note": "zero schedule"
+   },
+   {
+    "initialFee": "18446744073709551614",
+    "finalFee": "18446744073709551615",
+    "feeDuration": 3600,
+    "verdict": "InvalidFeeSchedule",
+    "note": "final above initial at the top of the range"
+   },
+   {
+    "initialFee": "0",
+    "finalFee": "1",
+    "feeDuration": 3600,
+    "verdict": "InvalidFeeSchedule"
+   },
+   {
+    "initialFee": "922337203685477580",
+    "finalFee": "922337203685477581",
+    "feeDuration": 3600,
+    "verdict": "InvalidFeeSchedule"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "18446744073709551615",
+    "feeDuration": 0,
+    "verdict": "InvalidFeeSchedule",
+    "note": "zero duration"
+   },
+   {
+    "initialFee": "18446744073709551616",
+    "finalFee": "18446744073709551615",
+    "feeDuration": 3600,
+    "verdict": "abi_decoding_failure",
+    "note": "2**64 in initialFee"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "18446744073709551616",
+    "feeDuration": 3600,
+    "verdict": "abi_decoding_failure",
+    "note": "2**64 in finalFee"
+   }
+  ],
+  "reference_schedules": {
+   "fixture": {
+    "initialFee": "922337203685477580",
+    "finalFee": "55340232221128654",
+    "feeDuration": 3600,
+    "note": "5% -> 0.3%: this fixture's local reference parameters"
+   },
+   "consumer_default": {
+    "initialFee": "9223372036854775808",
+    "finalFee": "55340232221128654",
+    "feeDuration": 3600,
+    "note": "50% -> 0.3% over 3,600 s: the unchanged consumer-side default schedule; a contract parameter choice, not a contract constant. The ceiling is a caller-selectable bound, not a suggested default."
+   }
+  }
+ },
+ "removed_from_abi": {
+  "FeeTooHigh()": "0xcd4e6167"
+ },
+ "unchanged_from_40af6cb": [
+  "every function selector and event topic",
+  "LaunchParameters, Launch and Installation structs",
   "swap forward payload and return",
   "claim-fees forward payload",
   "pool config (fee 0, tickSpacing, extension)",
   "pool id",
-  "Launch storage struct",
-  "Installation struct",
-  "fee schedule and table",
-  "LaunchSwapped and CreatorFeesClaimed topics",
-  "periphery claimFees/transferLaunch/launchOwner/LAUNCH selectors and events"
+  "fee schedule, table and digests",
+  "creator-fee settlement math at every rate",
+  "MintableERC20 ABI and creation code"
+ ],
+ "changed_from_40af6cb": [
+  "FeeTooHigh() removed: every uint64 initial fee is accepted (MAX_CREATOR_FEE = type(uint64).max); only finalFee <= initialFee and feeDuration > 0 are checked (InvalidFeeSchedule)",
+  "ZeroSeedLaunch runtime and creation code (so the mined extension address and the periphery address of a deployment)"
  ]
 }

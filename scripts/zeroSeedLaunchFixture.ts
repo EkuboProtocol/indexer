@@ -78,6 +78,8 @@ const ROUTER: Address = getContractAddress({ from: TRADER, nonce: 0n });
 const FEE_50 = 9223372036854775808n;
 const FEE_5 = 922337203685477580n;
 const FEE_03 = 55340232221128654n;
+// The highest Q0.64 rate, 2^64 - 1: just under 100%.
+const FEE_MAX = 2n ** 64n - 1n;
 const SPACING = 100;
 const WIDTH = 4605200;
 const ASK_18_18 = -13815500;
@@ -85,12 +87,12 @@ const REQUESTED_SUPPLY = 1_000_000_000n * 10n ** 18n;
 const GAS = 10_000_000n;
 const NATIVE: Address = zeroAddress;
 const ERC20_QUOTE: Address = "0xffffffffffffffffffffffffffffffffffffffff";
-const PINNED_HEAD = "40af6cb359b0de2f61f15e47b6622a00c48b5b08";
+const PINNED_HEAD = "550afc40280423128c02eb5ffd213aa959b34e2a";
 // sha256 of `jq -cS .abi` output without a trailing newline, as in the
 // protocol manifest
 const PINNED_ABIS: Record<string, string> = {
   ZeroSeedLaunch:
-    "999068f8e41867e972f4485c0105f584a2c10d7537615e6b4517807548fcd4bf",
+    "efae9388aa6b1342479204ddf436fd2a310df16bf06c80c990b2d22c90d1e41e",
   ZeroSeedLaunchPeriphery:
     "df24d9f07d45323da7e46c0f6e64ce24f8f522442d60cb07880ddf742ebe7305",
 };
@@ -98,15 +100,15 @@ const PINNED_ABIS: Record<string, string> = {
 // immutables zero-filled, as in the protocol manifest
 const PINNED_CREATION: Record<string, Hex> = {
   ZeroSeedLaunch:
-    "0x78906a80dd0e4aeb1b7c94698a1e7917c20dc7b031a4513759ea12495f374384",
+    "0x985a18f42a75f5378e49bf136e027eaeaca4a4315f5a1036a99cc93576b98ced",
   ZeroSeedLaunchPeriphery:
-    "0xb36a0535c61c790f3600a0c45dd92763a1934652de322ddd1c175f3cda2dc046",
+    "0x355b93fd4ef88a9e5be84795c19aa552ee6de280d31244d944aacb40c2219391",
 };
 const PINNED_RUNTIME_TEMPLATE: Record<string, Hex> = {
   ZeroSeedLaunch:
-    "0x39a99e30dfff34873b7a820416ae4bc33a337612c644c45e68c51ac6564a9f4d",
+    "0xf10adeca29e131bfb07f22d350641a17df000fb9945b40ac65061fb3c6ddf8c1",
   ZeroSeedLaunchPeriphery:
-    "0x08216f696368b4398afb8c43ca3eff0cccdcea00e71397178b78b2b94f957dbb",
+    "0x73cbf73c2fb778fd4a2541d59da08c4346a2217e5a73d7282583fe3ab69376d9",
 };
 
 type Artifact = {
@@ -534,6 +536,7 @@ type Spec = {
   owner: Address;
   duration: number;
   initialFee: bigint;
+  finalFee?: bigint;
   tradingStart: number;
 };
 
@@ -569,7 +572,7 @@ async function prepareLaunch(spec: Spec) {
     tradingStart: BigInt(spec.tradingStart),
     feeDuration: spec.duration,
     initialFee: spec.initialFee,
-    finalFee: FEE_03,
+    finalFee: spec.finalFee ?? FEE_03,
     salt: userSalt,
   };
   const preview = (await pub.readContract({
@@ -942,15 +945,46 @@ async function canonical() {
     initialFee: FEE_5,
     tradingStart: START + 400,
   };
+  // Two launches at the highest rate, created normally through the periphery:
+  // native max -> 0.3% over 3,600 s and ERC-20 flat at the maximum.
+  const L5: Spec = {
+    label: "l5",
+    instance: INSTANCE,
+    quote: NATIVE,
+    owner: CREATOR,
+    duration: 3600,
+    initialFee: FEE_MAX,
+    tradingStart: START + 400,
+  };
+  const L6: Spec = {
+    label: "l6",
+    instance: INSTANCE,
+    quote: ERC20_QUOTE,
+    owner: TRADER,
+    duration: 1,
+    initialFee: FEE_MAX,
+    finalFee: FEE_MAX,
+    tradingStart: START + 400,
+  };
   await mine(START + 310, [
     swap("l1", false, 2n * E18, START + 310),
     claim("l2", NEW_OWNER, NEW_OWNER),
     create(L4),
+    create(L5),
+    create(L6),
   ]);
+  // At 2^64 - 1 an exact-input buy nets floor(gross / 2^64) launch tokens and
+  // an exact-output buy pays calculated * 2^64 quote.
   await mine(START + 400, [
     approveLaunchToken("l4"),
     swap("l4", true, E18, START + 400, 0n),
     swap("l4", false, 7n * E18, START + 400),
+    approveLaunchToken("l5"),
+    approveLaunchToken("l6"),
+    swap("l5", false, E18, START + 400),
+    swap("l5", false, -(10n ** 10n), START + 400),
+    swap("l6", false, E18, START + 400),
+    swap("l6", false, -(10n ** 10n), START + 400),
   ]);
   await mine(START + 700, [
     swap("l4", false, -(10n ** 23n), START + 700),
@@ -965,11 +999,19 @@ async function canonical() {
     swap("l1", false, E18, START + 1800),
     swap("l4", true, 10n ** 22n, START + 1800),
     claim("l1", FEE_RECIPIENT, FEE_RECIPIENT),
+    swap("l5", false, E18, START + 1800),
+    claim("l6", TRADER, FEE_RECIPIENT),
   ]);
   await mine(START + 3599, [swap("l1", false, E18, START + 3599)]);
   await mine(START + 3600, [
     swap("l1", false, E18, START + 3600),
     claim("l4", TRADER, FEE_RECIPIENT),
+  ]);
+  // l5 has decayed from the maximum to its 0.3% final rate.
+  await mine(START + 4000, [
+    swap("l5", true, 10n ** 10n, START + 4000),
+    swap("l5", false, E18, START + 4000),
+    claim("l5", CREATOR, FEE_RECIPIENT),
   ]);
   const tenYears = START + 10 * 365 * 86_400;
   await mine(tenYears, [

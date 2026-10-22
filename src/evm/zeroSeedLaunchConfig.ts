@@ -34,25 +34,25 @@ export interface ZeroSeedLaunchPin {
 
 /**
  * No live deployment is pinned. The only entry is the local instance of the
- * replay fixture (anvil, evm-contracts 40af6cb, no fork), which serves both a
+ * replay fixture (anvil, evm-contracts 550afc4, no fork), which serves both a
  * native-ETH and an ERC-20 quote launch. Production refuses it.
  */
 export const ZERO_SEED_LAUNCH_PINS: readonly ZeroSeedLaunchPin[] = [
   {
     chainId: 31337n,
-    address: "0x519ddb6580e97e08e639d601dc6e378285c3ef34",
+    address: "0x511b4327c2a2b6fd803b4ae85f2f9d831e046d8b",
     runtimeCodehash:
-      "0x32160cd19576b73812a6c557ca8f9697ac1c3cd821576afc70e9a9b00bf888be",
+      "0xb8c6d15f45c41e9dc43ac0e6ab8ea941dc833514cdb0b82f381c65f42f73a858",
     abiSha256: ZERO_SEED_LAUNCH_ABI_SHA256,
-    periphery: "0x094511cf93e73feca154da35a2404e8bde1111b4",
+    periphery: "0x2f0be2fc5a2825cecd23dbf6ed33ed8ff823ef64",
     peripheryRuntimeCodehash:
-      "0x91a98d2669389244ad8553d84f5c7e3c2947d5d4b5abb519be93d68142cce7c1",
+      "0x49988478ba70cc8d2587eb63141b333c7ef0a67c4639c3a2ee25de4c4597999e",
     peripheryAbiSha256: ZERO_SEED_LAUNCH_PERIPHERY_ABI_SHA256,
     core: "0x00000000000014aa86c5d3c41765bb24e11bd701",
     deploymentBlock: 2,
     local: true,
     source:
-      "tests/fixtures/zero-seed-launch/local-chain.json: anvil, evm-contracts 40af6cb, constructor-executed, no fork",
+      "tests/fixtures/zero-seed-launch/local-chain.json: anvil, evm-contracts 550afc4, constructor-executed, no fork",
   },
 ];
 
@@ -63,8 +63,8 @@ export const ZERO_SEED_LAUNCH_PINS: readonly ZeroSeedLaunchPin[] = [
 const INVALID_CODEHASHES = new Set([
   "0x0000000000000000000000000000000000000000000000000000000000000000",
   "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
-  "0x39a99e30dfff34873b7a820416ae4bc33a337612c644c45e68c51ac6564a9f4d",
-  "0x08216f696368b4398afb8c43ca3eff0cccdcea00e71397178b78b2b94f957dbb",
+  "0xf10adeca29e131bfb07f22d350641a17df000fb9945b40ac65061fb3c6ddf8c1",
+  "0x73cbf73c2fb778fd4a2541d59da08c4346a2217e5a73d7282583fe3ab69376d9",
 ]);
 
 export interface ZeroSeedLaunchEnv {

@@ -529,12 +529,12 @@ describe.skipIf(!SERVER)(
       await replay(db, prefix, processors, (state) => check(db, state));
       await replay(db, canonical, processors, (state) => check(db, state));
       canonicalDump = await dump(db);
-      expect(canonicalDump.created.length).toBe(3);
+      expect(canonicalDump.created.length).toBe(5);
       expect(canonicalDump.swapped.length).toBeGreaterThan(15);
-      expect(canonicalDump.claimed.length).toBe(6);
-      expect(canonicalDump.paid.length).toBe(6);
-      // three creations and three transfers
-      expect(canonicalDump.owners.length).toBe(6);
+      expect(canonicalDump.claimed.length).toBe(8);
+      expect(canonicalDump.paid.length).toBe(8);
+      // five creations and three transfers
+      expect(canonicalDump.owners.length).toBe(8);
       const quotes = canonicalDump.created.map((c) => [
         String(c.quote_token),
         c.quote_kind,
@@ -544,6 +544,8 @@ describe.skipIf(!SERVER)(
         ["0", "native", true],
         [BigInt(fixture.launches.l2.quote).toString(), "erc20", false],
         [BigInt(fixture.launches.l4.quote).toString(), "erc20", false],
+        ["0", "native", true],
+        [BigInt(fixture.launches.l6.quote).toString(), "erc20", false],
       ]);
       // one extension for every quote
       expect(
@@ -575,7 +577,7 @@ describe.skipIf(!SERVER)(
                                           AND p.transaction_hash = c.transaction_hash
       ORDER BY c.event_id`;
       expect(rows.map((r) => ({ ...r }))).toEqual(
-        ["l1", "l2", "l4"].map((label) => {
+        ["l1", "l2", "l4", "l5", "l6"].map((label) => {
           const l = fixture.launches[label];
           return {
             pool_id: BigInt(l.poolId),
@@ -808,6 +810,8 @@ describe.skipIf(!SERVER)(
         [BigInt(creator), BigInt(feeRecipient), 3], // l1: creator -> new -> recipient
         [BigInt(creator), BigInt(newOwner), 2], // l2: creator -> new
         [BigInt(trader), BigInt(trader), 1], // l4
+        [BigInt(creator), BigInt(creator), 1], // l5
+        [BigInt(trader), BigInt(trader), 1], // l6
       ]);
       // The creation transfer comes from zero right after LaunchCreated, in the same transaction.
       const [{ ok }] = await db.sql<{ ok: boolean }[]>`
@@ -825,7 +829,7 @@ describe.skipIf(!SERVER)(
                AND (f.amount0, f.amount1) = (p.amount0, p.amount1) AND f.controller = p.emitter AS ok
       FROM zero_seed_launch_fees_paid p
                JOIN zero_seed_launch_fees_claimed f ON f.chain_id = p.chain_id AND f.event_id = p.claimed_event_id`;
-      expect(payouts.length).toBe(6);
+      expect(payouts.length).toBe(8);
       expect(payouts.every((r) => r.ok)).toBe(true);
       await db.sql.end();
     }, 120_000);
@@ -1011,6 +1015,85 @@ describe.skipIf(!SERVER)(
       await db.sql.end();
     }, 120_000);
 
+    test("the maximum rate 2^64 - 1 is stored and served exactly: schedule, swaps and fee_at", async () => {
+      const db = await canonicalReplay();
+      const MAX = 2n ** 64n - 1n;
+      const created = await db.sql<
+        {
+          pool_id: bigint;
+          initial_fee: string;
+          final_fee: string;
+          fee_duration: bigint;
+        }[]
+      >`
+      SELECT pool_id, initial_fee::TEXT, final_fee::TEXT, fee_duration
+      FROM zero_seed_launch_created WHERE initial_fee = ${MAX.toString()}::NUMERIC ORDER BY event_id`;
+      expect(
+        created.map((r) => [
+          r.pool_id,
+          r.initial_fee,
+          r.final_fee,
+          Number(r.fee_duration),
+        ]),
+      ).toEqual([
+        [
+          BigInt(fixture.launches.l5.poolId),
+          MAX.toString(),
+          "55340232221128654",
+          3600,
+        ],
+        [BigInt(fixture.launches.l6.poolId), MAX.toString(), MAX.toString(), 1],
+      ]);
+      // Exact input nets floor(gross / 2^64); exact output pays calculated * 2^64.
+      const swaps = await db.sql<
+        { fee_rate: string; calculated: string; fee_amount: string }[]
+      >`
+      SELECT w.fee_rate::TEXT,
+             (CASE WHEN w.fee_is_token1 THEN w.delta1 ELSE w.delta0 END)::TEXT AS calculated,
+             w.fee_amount::TEXT
+      FROM zero_seed_launch_swapped w JOIN zero_seed_launch_created c USING (pool_key_id)
+      WHERE c.initial_fee = ${MAX.toString()}::NUMERIC ORDER BY w.event_id`;
+      const atMax = swaps.filter((r) => r.fee_rate === MAX.toString());
+      expect(atMax).toHaveLength(4);
+      for (const r of atMax) {
+        const calculated = BigInt(r.calculated);
+        const fee = BigInt(r.fee_amount);
+        if (calculated < 0n)
+          expect(-calculated).toBe((fee - calculated) / 2n ** 64n);
+        else
+          expect([calculated % 2n ** 64n, fee]).toEqual([
+            0n,
+            (calculated / 2n ** 64n) * MAX,
+          ]);
+      }
+      // fee_at at the maximum: exact endpoints, never 2^64, monotone over the window.
+      const [ends] = await db.sql<
+        {
+          start: string;
+          end: string;
+          flat: string;
+          above: boolean;
+          rising: number;
+        }[]
+      >`
+      SELECT zero_seed_launch_fee_at(0, 3600, ${MAX.toString()}::NUMERIC, 55340232221128654, 0)::TEXT AS start,
+             zero_seed_launch_fee_at(0, 3600, ${MAX.toString()}::NUMERIC, 55340232221128654, 3600)::TEXT AS end,
+             zero_seed_launch_fee_at(0, 1, ${MAX.toString()}::NUMERIC, ${MAX.toString()}::NUMERIC, 1)::TEXT AS flat,
+             EXISTS (SELECT 1 FROM generate_series(0, 3600) t
+                     WHERE zero_seed_launch_fee_at(0, 3600, ${MAX.toString()}::NUMERIC, 0, t) > ${MAX.toString()}::NUMERIC) AS above,
+             (SELECT COUNT(*)::int FROM generate_series(1, 3600) t
+              WHERE zero_seed_launch_fee_at(0, 3600, ${MAX.toString()}::NUMERIC, 0, t)
+                  > zero_seed_launch_fee_at(0, 3600, ${MAX.toString()}::NUMERIC, 0, t - 1)) AS rising`;
+      expect(ends).toEqual({
+        start: MAX.toString(),
+        end: "55340232221128654",
+        flat: MAX.toString(),
+        above: false,
+        rising: 0,
+      });
+      await db.sql.end();
+    }, 120_000);
+
     test("fee_at and decay_q128 reproduce the independent all-second vectors bit for bit", async () => {
       const db = await freshDb();
       // [initial, final, duration, elapsed, fee] for every second of 12 curves,
@@ -1101,6 +1184,8 @@ describe.skipIf(!SERVER)(
         [true, true], // l1: native quote, launch token1
         [false, false], // l2: ERC-20 quote, launch token0
         [false, false], // l4
+        [true, true], // l5
+        [false, false], // l6
       ]);
       expect(rows.every((r) => r.ok)).toBe(true);
       await db.sql.end();
@@ -1420,7 +1505,7 @@ describe.skipIf(!SERVER)(
                + (SELECT COUNT(*)::int FROM zero_seed_launch_swapped) + (SELECT COUNT(*)::int FROM zero_seed_launch_states)
                + (SELECT COUNT(*)::int FROM zero_seed_launch_owner_changed) + (SELECT COUNT(*)::int FROM zero_seed_launch_fees_paid) AS launch_rows,
              (SELECT COUNT(*)::int FROM all_pool_states_view WHERE is_zero_seed_launch_pool) AS flagged`;
-      expect(row).toEqual({ pools: 3, launch_rows: 0, flagged: 0 });
+      expect(row).toEqual({ pools: 5, launch_rows: 0, flagged: 0 });
       await db.sql.end();
     }, 120_000);
   },

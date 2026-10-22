@@ -1,7 +1,7 @@
 -- DRAFT for the contract freeze. Not deployed.
 -- Schema version: zero-seed-launch-index/v3
--- Source ABIs: EkuboProtocol/evm-contracts 40af6cb359b0de2f61f15e47b6622a00c48b5b08
---              ZeroSeedLaunch abi sha256 999068f8...d4bf,
+-- Source ABIs: EkuboProtocol/evm-contracts 550afc40280423128c02eb5ffd213aa959b34e2a
+--              ZeroSeedLaunch abi sha256 efae9388...e41e,
 --              ZeroSeedLaunchPeriphery abi sha256 df24d9f0...7305
 --              (sha256 of `jq -cS .abi`, no trailing newline).
 --

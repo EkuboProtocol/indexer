@@ -1,5 +1,5 @@
 // ZeroSeedLaunch and ZeroSeedLaunchPeriphery ABIs: EkuboProtocol/evm-contracts
-// 40af6cb359b0de2f61f15e47b6622a00c48b5b08 (forward-only extension, per-launch
+// 550afc40280423128c02eb5ffd213aa959b34e2a (forward-only extension, per-launch
 // quote in LaunchParameters.quoteToken served by one extension and periphery,
 // requested supply with the uninstallable remainder minted to address(0),
 // fixed-base fee table, separate periphery). Verbatim from the build
@@ -7,7 +7,7 @@
 // without a trailing newline (the protocol manifest's convention); a test
 // recomputes it. Any change here is an interface change.
 export const ZERO_SEED_LAUNCH_ABI_SHA256 =
-  "999068f8e41867e972f4485c0105f584a2c10d7537615e6b4517807548fcd4bf";
+  "efae9388aa6b1342479204ddf436fd2a310df16bf06c80c990b2d22c90d1e41e";
 
 export const ZERO_SEED_LAUNCH_PERIPHERY_ABI_SHA256 =
   "df24d9f07d45323da7e46c0f6e64ce24f8f522442d60cb07880ddf742ebe7305";
@@ -904,11 +904,6 @@ export const ZERO_SEED_LAUNCH_ABI = [
   {
     type: "error",
     name: "CoreOnly",
-    inputs: [],
-  },
-  {
-    type: "error",
-    name: "FeeTooHigh",
     inputs: [],
   },
   {

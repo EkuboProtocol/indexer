@@ -103,10 +103,11 @@ const fixture = readJson("local-chain.json") as {
 };
 const [INSTANCE] = fixture.instances;
 
-// The protocol's interface manifest of evm-contracts 40af6cb, vendored
+// The protocol's interface manifest of evm-contracts 550afc4, vendored
 // verbatim: generated from the build artifacts, not from this code.
-const manifest = readJson("zero-seed-interface-40af6cb.json") as {
+const manifest = readJson("zero-seed-interface-550afc4.json") as {
   manifest_sha256: string;
+  removed_from_abi: Record<string, string>;
   frozen_commit: string;
   frozen_tree: string;
   artifacts: Record<
@@ -137,23 +138,23 @@ const manifest = readJson("zero-seed-interface-40af6cb.json") as {
   };
 };
 
-// The interface accepted for implementation: evm-contracts 40af6cb.
+// The interface accepted for implementation: evm-contracts 550afc4.
 const FROZEN = {
-  abiSha256: "999068f8e41867e972f4485c0105f584a2c10d7537615e6b4517807548fcd4bf",
+  abiSha256: "efae9388aa6b1342479204ddf436fd2a310df16bf06c80c990b2d22c90d1e41e",
   peripheryAbiSha256:
     "df24d9f07d45323da7e46c0f6e64ce24f8f522442d60cb07880ddf742ebe7305",
-  evmContractsHead: "40af6cb359b0de2f61f15e47b6622a00c48b5b08",
-  evmContractsTree: "f9925da3e2047b5ab5e45729056a3595043aa804",
+  evmContractsHead: "550afc40280423128c02eb5ffd213aa959b34e2a",
+  evmContractsTree: "dbbfe6a5eb5ddefe04974338b2b57bdf675c431e",
   coreRuntimeKeccak:
     "0xc5f90c9d0dbc5037f8f9e248f4bb292e7c1824f584eb6550cb4cad525b38c71a",
   launchCreationKeccak:
-    "0x78906a80dd0e4aeb1b7c94698a1e7917c20dc7b031a4513759ea12495f374384",
+    "0x985a18f42a75f5378e49bf136e027eaeaca4a4315f5a1036a99cc93576b98ced",
   peripheryCreationKeccak:
-    "0xb36a0535c61c790f3600a0c45dd92763a1934652de322ddd1c175f3cda2dc046",
+    "0x355b93fd4ef88a9e5be84795c19aa552ee6de280d31244d944aacb40c2219391",
   launchRuntimeTemplate:
-    "0x39a99e30dfff34873b7a820416ae4bc33a337612c644c45e68c51ac6564a9f4d",
+    "0xf10adeca29e131bfb07f22d350641a17df000fb9945b40ac65061fb3c6ddf8c1",
   peripheryRuntimeTemplate:
-    "0x08216f696368b4398afb8c43ca3eff0cccdcea00e71397178b78b2b94f957dbb",
+    "0x73cbf73c2fb778fd4a2541d59da08c4346a2217e5a73d7282583fe3ab69376d9",
   topics: {
     LaunchCreated:
       "0x3a4e811187f4a8c0b72396e9d7ca13aeed62eb97a599a24af1ed99066041098f",
@@ -353,9 +354,25 @@ describe("frozen interface", () => {
             encodeEventTopics({ abi: [e] })[0],
           ]),
       );
+      const errors = Object.fromEntries(
+        items
+          .filter((i) => i.type === "error")
+          .map((e) => {
+            const signature = toFunctionSignature(e as unknown as AbiFunction)
+              .replaceAll(" ", "")
+              .replace(/^error/, "");
+            return [signature, toFunctionSelector(signature)];
+          }),
+      );
       expect(functions).toEqual(manifest.abi[name].functions);
       expect(events).toEqual(manifest.abi[name].events);
+      expect(errors).toEqual(manifest.abi[name].errors ?? {});
     }
+    // FeeTooHigh() 0xcd4e6167 left the interface: every uint64 rate is valid.
+    expect(manifest.removed_from_abi).toEqual({ "FeeTooHigh()": "0xcd4e6167" });
+    expect(
+      abiItems(ZERO_SEED_LAUNCH_ABI).some((i) => i.name === "FeeTooHigh"),
+    ).toBe(false);
     expect([
       manifest.artifacts.ZeroSeedLaunch
         .creation_code_keccak256_no_constructor_args,
@@ -402,7 +419,7 @@ describe("frozen interface", () => {
       FROZEN.peripheryRuntimeTemplate,
     ]);
     expect(fixture.instances).toHaveLength(1);
-    expect(createdLogs.length).toBe(4);
+    expect(createdLogs.length).toBe(6);
     expect(fixture.forkPoint).toBe(
       Math.max(...fixture.branches.prefix.blocks.map((b) => b.number)),
     );
@@ -686,9 +703,9 @@ describe("processors", () => {
         l.topics[0] ===
         encodeEventTopics({ abi: CORE_ABI, eventName: "PoolInitialized" })[0],
     );
-    expect(poolInitialized).toHaveLength(4);
+    expect(poolInitialized).toHaveLength(6);
     for (const [addresses, expected] of [
-      [[INSTANCE.extension], 4],
+      [[INSTANCE.extension], 6],
       [[], 0],
       [undefined, 0],
     ] as const) {
@@ -781,6 +798,78 @@ describe("LaunchCreated decoding", () => {
     );
     // the installed supply is not in the log; the DAO takes it from Core
     expect(stored.every((row) => !("installedSupply" in row))).toBe(true);
+  });
+
+  it("decodes the maximum Q0.64 rate 2^64 - 1 exactly from normally created launches and their swaps", async () => {
+    const MAX = 2n ** 64n - 1n;
+    const stored: ZeroSeedLaunchCreatedInsert[] = [];
+    const swapped: Record<string, unknown>[] = [];
+    const dao = {
+      insertZeroSeedLaunchCreatedEvent: async (
+        _key: unknown,
+        row: ZeroSeedLaunchCreatedInsert,
+      ) => void stored.push(row),
+      insertZeroSeedLaunchSwappedEvent: async (
+        _key: unknown,
+        row: Record<string, unknown>,
+      ) => void swapped.push(row),
+    } as unknown as DAO;
+    const processors = createZeroSeedLaunchProcessors({
+      coreAddress: config.coreAddress,
+      zeroSeedLaunchAddresses: [INSTANCE.extension],
+    });
+    const swappedProcessor = processors.find(
+      (p) => p.filter.topics[0] === FROZEN.topics.LaunchSwapped,
+    )!;
+    const maxPools = new Set<string>([
+      fixture.launches.l5.poolId,
+      fixture.launches.l6.poolId,
+    ]);
+    for (const log of createdLogs.filter((l) =>
+      maxPools.has(decodeCreated(l).poolId),
+    )) {
+      expect(launchCreatedProblems(keyOf(log), decodeCreated(log))).toEqual([]);
+      await createdProcessor.handler(dao, keyOf(log), log);
+    }
+    expect(
+      stored.map((r) => [
+        String(r.initialFee),
+        String(r.finalFee),
+        r.feeDuration,
+      ]),
+    ).toEqual([
+      [String(MAX), "55340232221128654", 3600],
+      [String(MAX), String(MAX), 1],
+    ]);
+    const maxSwaps = fixture.branches.canonical.logs.filter(
+      (l) =>
+        l.topics[0] === FROZEN.topics.LaunchSwapped &&
+        maxPools.has(l.topics[1] as string),
+    );
+    for (const log of maxSwaps)
+      await swappedProcessor.handler(dao, keyOf(log), log);
+    const atMax = swapped.filter((r) => r.feeRate === MAX);
+    // exact input (fee on the launch token) and exact output (fee on the quote)
+    // in both quote kinds at 2^64 - 1, then l5 decayed to its 0.3% final rate
+    expect(atMax).toHaveLength(4);
+    expect(
+      swapped.filter((r) => r.feeRate === 55340232221128654n),
+    ).toHaveLength(2);
+    for (const r of atMax) {
+      const [d0, d1] = [r.delta0 as bigint, r.delta1 as bigint];
+      const fee = r.feeAmount as bigint;
+      const feeIsToken1 = r.feeIsToken1 as boolean;
+      const calculated = feeIsToken1 ? d1 : d0;
+      if (calculated < 0n) {
+        // exact input: net output floor(gross / 2^64), the rest is the fee
+        const gross = -calculated + fee;
+        expect(-calculated).toBe(gross / 2n ** 64n);
+      } else {
+        // exact output: paid input calculated * 2^64
+        expect(calculated % 2n ** 64n).toBe(0n);
+        expect(fee).toBe((calculated / 2n ** 64n) * MAX);
+      }
+    }
   });
 
   it("accepts every chain-emitted LaunchCreated, native and ERC-20, on one extension", () => {

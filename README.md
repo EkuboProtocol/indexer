@@ -425,9 +425,9 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 Migration 00139 (schema `zero-seed-launch-index/v3`) indexes the forward-only
 `ZeroSeedLaunch` extension and its `ZeroSeedLaunchPeriphery` (evm-contracts
-`40af6cb`; ABI sha256 `999068f8…d4bf` and `df24d9f0…7305`, `jq -cS .abi`
+`550afc4`; ABI sha256 `efae9388…e41e` and `df24d9f0…7305`, `jq -cS .abi`
 without a trailing newline; the protocol's interface manifest is vendored as
-`tests/fixtures/zero-seed-launch/zero-seed-interface-40af6cb.json`) into `zero_seed_launch_pool_keys`, `_created`,
+`tests/fixtures/zero-seed-launch/zero-seed-interface-550afc4.json`) into `zero_seed_launch_pool_keys`, `_created`,
 `_swapped`, `_fees_claimed`, `_owner_changed`, `_fees_paid` and
 `zero_seed_launch_states` (one row per launch: the creator fee ledger, kept
 apart from the Core pool reserves, and the periphery owner). It appends nine
@@ -464,6 +464,10 @@ and requested supply:
   emits it inside `updatePosition`, before the extension emits
   `LaunchCreated`, and a block's logs are written in order in one transaction,
   so the row is always present and reorgs remove both together.
+- Creator fees accept the whole `uint64` range: `initial_fee` and `final_fee`
+  are `NUMERIC` and hold any Q0.64 rate up to `2^64 - 1` (just under 100%)
+  exactly. The protocol no longer has a 99% ceiling or a `FeeTooHigh` error;
+  the schema is unchanged.
 - Earlier revisions: `decayFactor`, `decay_factor`, `zero_seed_launch_pow_q64`
   and the view column `zero_seed_launch_decay_factor` are gone;
   `zero_seed_launch_decay_q128` and a five-argument `zero_seed_launch_fee_at`
@@ -523,7 +527,10 @@ delta, `totalSupply` and `balanceOf(address(0))` against the requested,
 installed and sink supply it records. The replay compares, after every block,
 indexed Core state and custody (native ETH and ERC-20), the creator fee
 ledger, the current and initial owner, the supply and the contract's `feeAt`
-with the chain, and covers a reorg across transfers, claims and a creation,
+with the chain, including two launches created at the maximum rate `2^64 - 1`
+(native max to 0.3% over 3,600 s and ERC-20 flat at the maximum) whose swaps
+net `floor(gross / 2^64)` on exact input and pay `calculated * 2^64` on exact
+output, and covers a reorg across transfers, claims and a creation,
 redelivery, deletion orders, orphans, missing or inconsistent Core position
 updates and the catch-up guard.
 `fee-curve-all-seconds.json.gz` and `fee-decay-vectors.json` are the protocol's
