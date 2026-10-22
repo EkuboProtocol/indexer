@@ -210,6 +210,11 @@
       "count": 1
     }
   },
+  "tests/evm/mevCaptureV21.test.ts": {
+    "typescript(await-thenable)": {
+      "count": 8
+    }
+  },
   "tests/migrations/erc20-bridge-link-provenance.test.ts": {
     "typescript(await-thenable)": {
       "count": 1
