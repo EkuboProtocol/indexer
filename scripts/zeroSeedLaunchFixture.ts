@@ -87,7 +87,7 @@ const REQUESTED_SUPPLY = 1_000_000_000n * 10n ** 18n;
 const GAS = 10_000_000n;
 const NATIVE: Address = zeroAddress;
 const ERC20_QUOTE: Address = "0xffffffffffffffffffffffffffffffffffffffff";
-const PINNED_HEAD = "550afc40280423128c02eb5ffd213aa959b34e2a";
+const PINNED_HEAD = "43d6628841b3ce91dafa048b7ceef64bed55fc8e";
 // sha256 of `jq -cS .abi` output without a trailing newline, as in the
 // protocol manifest
 const PINNED_ABIS: Record<string, string> = {
@@ -100,15 +100,15 @@ const PINNED_ABIS: Record<string, string> = {
 // immutables zero-filled, as in the protocol manifest
 const PINNED_CREATION: Record<string, Hex> = {
   ZeroSeedLaunch:
-    "0x985a18f42a75f5378e49bf136e027eaeaca4a4315f5a1036a99cc93576b98ced",
+    "0x10f4088a9ae5dff5f2caa7d005c4da80e8ece5c515b6f3e4e5ab452606f2b2ff",
   ZeroSeedLaunchPeriphery:
-    "0x355b93fd4ef88a9e5be84795c19aa552ee6de280d31244d944aacb40c2219391",
+    "0x7ec2d7eb35806d3ec7edab5809a6b5441977afc32ad3b5276cd9437d0d276f88",
 };
 const PINNED_RUNTIME_TEMPLATE: Record<string, Hex> = {
   ZeroSeedLaunch:
-    "0xf10adeca29e131bfb07f22d350641a17df000fb9945b40ac65061fb3c6ddf8c1",
+    "0x19d7461a57e0058bd09c848684152a234b4b3909404c1c85dbf6e69b9d59c925",
   ZeroSeedLaunchPeriphery:
-    "0x73cbf73c2fb778fd4a2541d59da08c4346a2217e5a73d7282583fe3ab69376d9",
+    "0x76db610aa6d183253d966ff21d2c59f750028b9ad83c0e4cc0d362324740e2e7",
 };
 
 type Artifact = {
@@ -538,6 +538,11 @@ type Spec = {
   initialFee: bigint;
   finalFee?: bigint;
   tradingStart: number;
+  // defaults: REQUESTED_SUPPLY over [ASK_18_18, ASK_18_18 + WIDTH], spacing SPACING
+  supply?: bigint;
+  askTick?: number;
+  upperTick?: number;
+  tickSpacing?: number;
 };
 
 const poolIdOf = (key: PoolKey) =>
@@ -557,24 +562,30 @@ const sameInstallation = (a: Installation, b: Installation) =>
  * create returns when simulated on the pending block. The requested supply is
  * submitted unchanged; the extension computes the liquidity.
  */
-async function prepareLaunch(spec: Spec) {
-  const instance = instances.get(spec.instance)!;
-  const userSalt = keccak256(toHex(spec.label));
-  const parameters = {
+function launchParameters(spec: Spec, userSalt: Hex) {
+  const askTick = spec.askTick ?? ASK_18_18;
+  return {
     name: `Zero Seed ${spec.label}`,
     symbol: spec.label.toUpperCase(),
     decimals: 18,
-    supply: REQUESTED_SUPPLY,
+    supply: spec.supply ?? REQUESTED_SUPPLY,
     quoteToken: spec.quote,
-    askTick: ASK_18_18,
-    upperTick: ASK_18_18 + WIDTH,
-    tickSpacing: SPACING,
+    askTick,
+    upperTick: spec.upperTick ?? askTick + WIDTH,
+    tickSpacing: spec.tickSpacing ?? SPACING,
     tradingStart: BigInt(spec.tradingStart),
     feeDuration: spec.duration,
     initialFee: spec.initialFee,
     finalFee: spec.finalFee ?? FEE_03,
     salt: userSalt,
   };
+}
+
+async function prepareLaunch(spec: Spec) {
+  const instance = instances.get(spec.instance)!;
+  const userSalt = keccak256(toHex(spec.label));
+  const parameters = launchParameters(spec, userSalt);
+  const requested = parameters.supply;
   const preview = (await pub.readContract({
     address: instance.periphery,
     abi: PERIPHERY.abi,
@@ -622,7 +633,7 @@ async function prepareLaunch(spec: Spec) {
   if (tokenIsToken1 !== (spec.quote === NATIVE))
     throw new Error(`unexpected token order for ${spec.label}`);
   const installed = preview.installedSupply;
-  if (installed <= 0n || installed > REQUESTED_SUPPLY)
+  if (installed <= 0n || installed > requested)
     throw new Error(`${spec.label}: installed supply out of range`);
   const launch: Launch = {
     label: spec.label,
@@ -638,9 +649,9 @@ async function prepareLaunch(spec: Spec) {
     positionId: preview.positionId,
     userSalt,
     owner: spec.owner,
-    requestedSupply: String(REQUESTED_SUPPLY),
+    requestedSupply: String(requested),
     installedSupply: String(installed),
-    sinkSupply: String(REQUESTED_SUPPLY - installed),
+    sinkSupply: String(requested - installed),
     liquidity: String(preview.liquidity),
     initialTick: preview.initialTick,
   };
@@ -1012,6 +1023,42 @@ async function canonical() {
     swap("l5", true, 10n ** 10n, START + 4000),
     swap("l5", false, E18, START + 4000),
     claim("l5", CREATOR, FEE_RECIPIENT),
+  ]);
+  // Two ERC-20 (token0) launches at low prices, where the exact token0
+  // inverse installs more than the shared helper: 1e30 over the narrow range
+  // near the bottom of the tick space (helper L 106052588672, sink about
+  // 7.84%; exact L 115073586432) and int128-scale supply over the full width
+  // at spacing 1 (exact L installs the requested supply, no sink mint).
+  const L7: Spec = {
+    label: "l7",
+    instance: INSTANCE,
+    quote: ERC20_QUOTE,
+    owner: CREATOR,
+    duration: 3600,
+    initialFee: FEE_50,
+    tradingStart: START + 4200,
+    supply: 10n ** 30n,
+    askTick: -88080384,
+    upperTick: -85983232,
+    tickSpacing: 524288,
+  };
+  const L8: Spec = {
+    label: "l8",
+    instance: INSTANCE,
+    quote: ERC20_QUOTE,
+    owner: TRADER,
+    duration: 3600,
+    initialFee: FEE_50,
+    tradingStart: START + 4200,
+    supply: 170141183460469231694794709727778658247n,
+    askTick: -88722835,
+    upperTick: 88722835,
+    tickSpacing: 1,
+  };
+  await mine(START + 4100, [create(L7), create(L8)]);
+  await mine(START + 4200, [
+    swap("l7", false, -(10n ** 20n), START + 4200),
+    swap("l8", false, -(10n ** 20n), START + 4200),
   ]);
   const tenYears = START + 10 * 365 * 86_400;
   await mine(tenYears, [

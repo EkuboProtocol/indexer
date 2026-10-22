@@ -425,9 +425,9 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 Migration 00139 (schema `zero-seed-launch-index/v3`) indexes the forward-only
 `ZeroSeedLaunch` extension and its `ZeroSeedLaunchPeriphery` (evm-contracts
-`550afc4`; ABI sha256 `efae9388…e41e` and `df24d9f0…7305`, `jq -cS .abi`
-without a trailing newline; the protocol's interface manifest is vendored as
-`tests/fixtures/zero-seed-launch/zero-seed-interface-550afc4.json`) into `zero_seed_launch_pool_keys`, `_created`,
+`43d6628`; ABI sha256 `efae9388…e41e` and `df24d9f0…7305`, `jq -cS .abi`
+without a trailing newline, unchanged since `550afc4`; the protocol's interface manifest is vendored as
+`tests/fixtures/zero-seed-launch/zero-seed-interface-43d6628.json`) into `zero_seed_launch_pool_keys`, `_created`,
 `_swapped`, `_fees_claimed`, `_owner_changed`, `_fees_paid` and
 `zero_seed_launch_states` (one row per launch: the creator fee ledger, kept
 apart from the Core pool reserves, and the periphery owner). It appends nine
@@ -468,6 +468,14 @@ and requested supply:
   are `NUMERIC` and hold any Q0.64 rate up to `2^64 - 1` (just under 100%)
   exactly. The protocol no longer has a 99% ceiling or a `FeeTooHigh` error;
   the schema is unchanged.
+- At `43d6628` the extension installs the exact largest token0 liquidity the
+  requested supply pays for, `floor(supply * lower * upper / (2^128 * (upper -
+  lower)))` over the fixed sqrt ratios, instead of the shared helper's earlier
+  floor, which installed less at low prices. The indexer does not recompute the
+  installation: it stores `LaunchCreated.liquidity` and Core's position delta,
+  so neither the schema nor the decoder changes. A creation can now have an
+  empty sink (`installed_supply = requested_supply`, no mint to `address(0)`),
+  which the existing `CHECK 0 < installed <= requested` already allows.
 - Earlier revisions: `decayFactor`, `decay_factor`, `zero_seed_launch_pow_q64`
   and the view column `zero_seed_launch_decay_factor` are gone;
   `zero_seed_launch_decay_q128` and a five-argument `zero_seed_launch_fee_at`
@@ -521,7 +529,14 @@ checkout, requires the exact clean pinned source and checks both ABIs,
 creation codes and runtime templates. Its chain has one extension and
 periphery with native-ETH and ERC-20 quote launches (the checkout's plain
 `test/TestToken.sol` relocated to `0xff…ff`) and swaps through the compiled
-`test/LaunchTestRouter.sol`; every launch requests `1e27` and the generator
+`test/LaunchTestRouter.sol`; six launches request `1e27` at the default
+geometry and two ERC-20 (token0) launches use low-price geometry where the
+exact installation differs from the shared helper (`1e30` over ticks
+`-88080384..-85983232` at spacing 524288, and an int128-scale supply over the
+full width at spacing 1, which installs its whole supply). Each launch's
+liquidity, installed and sink supply equal the protocol's exact installation
+vectors (`tests/fixtures/zero-seed-launch/zero-seed-launch-installation.json`,
+vendored verbatim). The generator
 checks the `Installation` that `create` returns, Core's `PositionUpdated`
 delta, `totalSupply` and `balanceOf(address(0))` against the requested,
 installed and sink supply it records. The replay compares, after every block,

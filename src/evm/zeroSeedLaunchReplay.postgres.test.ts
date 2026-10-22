@@ -529,12 +529,12 @@ describe.skipIf(!SERVER)(
       await replay(db, prefix, processors, (state) => check(db, state));
       await replay(db, canonical, processors, (state) => check(db, state));
       canonicalDump = await dump(db);
-      expect(canonicalDump.created.length).toBe(5);
+      expect(canonicalDump.created.length).toBe(7);
       expect(canonicalDump.swapped.length).toBeGreaterThan(15);
       expect(canonicalDump.claimed.length).toBe(8);
       expect(canonicalDump.paid.length).toBe(8);
-      // five creations and three transfers
-      expect(canonicalDump.owners.length).toBe(8);
+      // seven creations and three transfers
+      expect(canonicalDump.owners.length).toBe(10);
       const quotes = canonicalDump.created.map((c) => [
         String(c.quote_token),
         c.quote_kind,
@@ -546,6 +546,8 @@ describe.skipIf(!SERVER)(
         [BigInt(fixture.launches.l4.quote).toString(), "erc20", false],
         ["0", "native", true],
         [BigInt(fixture.launches.l6.quote).toString(), "erc20", false],
+        [BigInt(fixture.launches.l7.quote).toString(), "erc20", false],
+        [BigInt(fixture.launches.l8.quote).toString(), "erc20", false],
       ]);
       // one extension for every quote
       expect(
@@ -577,7 +579,7 @@ describe.skipIf(!SERVER)(
                                           AND p.transaction_hash = c.transaction_hash
       ORDER BY c.event_id`;
       expect(rows.map((r) => ({ ...r }))).toEqual(
-        ["l1", "l2", "l4", "l5", "l6"].map((label) => {
+        ["l1", "l2", "l4", "l5", "l6", "l7", "l8"].map((label) => {
           const l = fixture.launches[label];
           return {
             pool_id: BigInt(l.poolId),
@@ -591,11 +593,17 @@ describe.skipIf(!SERVER)(
           };
         }),
       );
-      for (const r of rows) {
-        expect(r.requested_supply).toBe(10n ** 27n);
+      for (const r of rows)
         expect(r.sink_supply).toBe(r.requested_supply - r.installed_supply);
-        expect(r.sink_supply > 0n).toBe(true);
-      }
+      // Requested supply is stored as submitted, also for the two low-price
+      // token0 launches; l8 installs its whole int128-scale supply (no sink).
+      expect(rows.map((r) => [r.requested_supply, r.sink_supply > 0n])).toEqual(
+        [
+          ...Array.from({ length: 5 }, () => [10n ** 27n, true]),
+          [10n ** 30n, true],
+          [170141183460469231694794709727778658247n, false],
+        ],
+      );
       // The table refuses an installed supply above the request, or zero.
       for (const installed of ["0", "1000000000000000000000000001"])
         await expectRejects(
@@ -812,6 +820,8 @@ describe.skipIf(!SERVER)(
         [BigInt(trader), BigInt(trader), 1], // l4
         [BigInt(creator), BigInt(creator), 1], // l5
         [BigInt(trader), BigInt(trader), 1], // l6
+        [BigInt(creator), BigInt(creator), 1], // l7
+        [BigInt(trader), BigInt(trader), 1], // l8
       ]);
       // The creation transfer comes from zero right after LaunchCreated, in the same transaction.
       const [{ ok }] = await db.sql<{ ok: boolean }[]>`
@@ -1186,6 +1196,8 @@ describe.skipIf(!SERVER)(
         [false, false], // l4
         [true, true], // l5
         [false, false], // l6
+        [false, false], // l7: low price, exact token0 installation
+        [false, false], // l8: full width at spacing 1, no sink
       ]);
       expect(rows.every((r) => r.ok)).toBe(true);
       await db.sql.end();
@@ -1505,7 +1517,7 @@ describe.skipIf(!SERVER)(
                + (SELECT COUNT(*)::int FROM zero_seed_launch_swapped) + (SELECT COUNT(*)::int FROM zero_seed_launch_states)
                + (SELECT COUNT(*)::int FROM zero_seed_launch_owner_changed) + (SELECT COUNT(*)::int FROM zero_seed_launch_fees_paid) AS launch_rows,
              (SELECT COUNT(*)::int FROM all_pool_states_view WHERE is_zero_seed_launch_pool) AS flagged`;
-      expect(row).toEqual({ pools: 5, launch_rows: 0, flagged: 0 });
+      expect(row).toEqual({ pools: 7, launch_rows: 0, flagged: 0 });
       await db.sql.end();
     }, 120_000);
   },

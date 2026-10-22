@@ -1,5 +1,5 @@
 // ZeroSeedLaunch and ZeroSeedLaunchPeriphery ABIs: EkuboProtocol/evm-contracts
-// 550afc40280423128c02eb5ffd213aa959b34e2a (forward-only extension, per-launch
+// 43d6628841b3ce91dafa048b7ceef64bed55fc8e (forward-only extension, per-launch
 // quote in LaunchParameters.quoteToken served by one extension and periphery,
 // requested supply with the uninstallable remainder minted to address(0),
 // fixed-base fee table, separate periphery). Verbatim from the build

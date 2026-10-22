@@ -103,9 +103,30 @@ const fixture = readJson("local-chain.json") as {
 };
 const [INSTANCE] = fixture.instances;
 
-// The protocol's interface manifest of evm-contracts 550afc4, vendored
+// The protocol's interface manifest of evm-contracts 43d6628, vendored
 // verbatim: generated from the build artifacts, not from this code.
-const manifest = readJson("zero-seed-interface-550afc4.json") as {
+// The protocol's exact installation vectors of evm-contracts 43d6628, vendored
+// verbatim (sha256 b06f6576...330d): an independent integer oracle, not this
+// code. previousLiquidity is what the shared helper installed before.
+const installationVectors = (
+  readJson("zero-seed-launch-installation.json") as {
+    vectors: {
+      label: string;
+      order: "t0" | "t1";
+      askTick: number;
+      upperTick: number;
+      tickSpacing: number;
+      supply: string;
+      liquidity?: string;
+      installedSupply?: string;
+      sink?: string;
+      previousLiquidity: string;
+      error?: string;
+    }[];
+  }
+).vectors;
+
+const manifest = readJson("zero-seed-interface-43d6628.json") as {
   manifest_sha256: string;
   removed_from_abi: Record<string, string>;
   frozen_commit: string;
@@ -138,23 +159,23 @@ const manifest = readJson("zero-seed-interface-550afc4.json") as {
   };
 };
 
-// The interface accepted for implementation: evm-contracts 550afc4.
+// The interface accepted for implementation: evm-contracts 43d6628.
 const FROZEN = {
   abiSha256: "efae9388aa6b1342479204ddf436fd2a310df16bf06c80c990b2d22c90d1e41e",
   peripheryAbiSha256:
     "df24d9f07d45323da7e46c0f6e64ce24f8f522442d60cb07880ddf742ebe7305",
-  evmContractsHead: "550afc40280423128c02eb5ffd213aa959b34e2a",
-  evmContractsTree: "dbbfe6a5eb5ddefe04974338b2b57bdf675c431e",
+  evmContractsHead: "43d6628841b3ce91dafa048b7ceef64bed55fc8e",
+  evmContractsTree: "9ab869d1a453b8df48d47c2e0e2fb2d4ca8f67bf",
   coreRuntimeKeccak:
     "0xc5f90c9d0dbc5037f8f9e248f4bb292e7c1824f584eb6550cb4cad525b38c71a",
   launchCreationKeccak:
-    "0x985a18f42a75f5378e49bf136e027eaeaca4a4315f5a1036a99cc93576b98ced",
+    "0x10f4088a9ae5dff5f2caa7d005c4da80e8ece5c515b6f3e4e5ab452606f2b2ff",
   peripheryCreationKeccak:
-    "0x355b93fd4ef88a9e5be84795c19aa552ee6de280d31244d944aacb40c2219391",
+    "0x7ec2d7eb35806d3ec7edab5809a6b5441977afc32ad3b5276cd9437d0d276f88",
   launchRuntimeTemplate:
-    "0xf10adeca29e131bfb07f22d350641a17df000fb9945b40ac65061fb3c6ddf8c1",
+    "0x19d7461a57e0058bd09c848684152a234b4b3909404c1c85dbf6e69b9d59c925",
   peripheryRuntimeTemplate:
-    "0x73cbf73c2fb778fd4a2541d59da08c4346a2217e5a73d7282583fe3ab69376d9",
+    "0x76db610aa6d183253d966ff21d2c59f750028b9ad83c0e4cc0d362324740e2e7",
   topics: {
     LaunchCreated:
       "0x3a4e811187f4a8c0b72396e9d7ca13aeed62eb97a599a24af1ed99066041098f",
@@ -419,7 +440,7 @@ describe("frozen interface", () => {
       FROZEN.peripheryRuntimeTemplate,
     ]);
     expect(fixture.instances).toHaveLength(1);
-    expect(createdLogs.length).toBe(6);
+    expect(createdLogs.length).toBe(8);
     expect(fixture.forkPoint).toBe(
       Math.max(...fixture.branches.prefix.blocks.map((b) => b.number)),
     );
@@ -439,6 +460,7 @@ describe("frozen interface", () => {
 
   it("every launch submitted the requested supply and recorded installed and sink supply exactly", () => {
     const kinds = new Set<string>();
+    const exactOnly: string[] = [];
     for (const log of createdLogs) {
       const event = decodeCreated(log);
       const launch = launchOf(event.poolId);
@@ -465,7 +487,6 @@ describe("frozen interface", () => {
       ]);
       const requested = BigInt(launch.requestedSupply);
       const installed = BigInt(launch.installedSupply);
-      expect(requested).toBe(10n ** 27n);
       expect(installed > 0n && installed <= requested).toBe(true);
       expect(BigInt(launch.sinkSupply)).toBe(requested - installed);
       // the chain's own evidence, recorded by the generator
@@ -482,7 +503,32 @@ describe("frozen interface", () => {
         launch.requestedSupply,
         launch.sinkSupply,
       ]);
-      // the protocol's independent 18/18 vectors for this token order
+      // the protocol's exact installation vector for these inputs
+      const exact = installationVectors.find(
+        (v) =>
+          v.order === (launch.tokenIsToken1 ? "t1" : "t0") &&
+          v.askTick === Number(event.parameters.askTick) &&
+          v.upperTick === Number(event.parameters.upperTick) &&
+          v.tickSpacing === Number(event.parameters.tickSpacing) &&
+          v.supply === launch.requestedSupply,
+      )!;
+      expect(exact.error).toBeUndefined();
+      const recorded: (string | undefined)[] = [
+        launch.liquidity,
+        launch.installedSupply,
+        launch.sinkSupply,
+      ];
+      expect(recorded).toEqual([
+        exact.liquidity,
+        exact.installedSupply,
+        exact.sink,
+      ]);
+      if (exact.previousLiquidity !== exact.liquidity) {
+        exactOnly.push(launch.label);
+        continue;
+      }
+      // the protocol's 18/18 manifest examples for the default geometry
+      expect(requested).toBe(10n ** 27n);
       const vector = manifest.supply.examples.find(
         (e) =>
           e.dec === "18/18" && e.order === (launch.tokenIsToken1 ? "t1" : "t0"),
@@ -500,6 +546,10 @@ describe("frozen interface", () => {
       ]);
     }
     expect([...kinds].sort()).toEqual(["erc20", "native"]);
+    // l7 and l8 are token0 launches where the exact maximum installs more
+    // than the shared helper; l8 installs its whole supply and mints no sink.
+    expect(exactOnly.sort()).toEqual(["l7", "l8"]);
+    expect(fixture.launches.l8.sinkSupply).toBe("0");
   });
 });
 
@@ -703,9 +753,9 @@ describe("processors", () => {
         l.topics[0] ===
         encodeEventTopics({ abi: CORE_ABI, eventName: "PoolInitialized" })[0],
     );
-    expect(poolInitialized).toHaveLength(6);
+    expect(poolInitialized).toHaveLength(8);
     for (const [addresses, expected] of [
-      [[INSTANCE.extension], 6],
+      [[INSTANCE.extension], 8],
       [[], 0],
       [undefined, 0],
     ] as const) {

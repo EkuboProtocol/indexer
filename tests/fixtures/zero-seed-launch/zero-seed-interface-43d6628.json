@@ -1,8 +1,8 @@
 {
- "source": "consumer interface manifest of EkuboProtocol/evm-contracts at 550afc40280423128c02eb5ffd213aa959b34e2a, generated from forge build artifacts (methodIdentifiers, ABI) and test/vectors/zero-seed-launch.json",
- "manifest_sha256": "032f3c9bfe191f5bb074d1926f4c265af9e06e939140ca13edbd9181e0b2deed",
- "frozen_commit": "550afc40280423128c02eb5ffd213aa959b34e2a",
- "frozen_tree": "dbbfe6a5eb5ddefe04974338b2b57bdf675c431e",
+ "source": "consumer interface manifest of EkuboProtocol/evm-contracts at 43d6628841b3ce91dafa048b7ceef64bed55fc8e, generated from forge build artifacts (methodIdentifiers, ABI) and test/vectors/zero-seed-launch.json",
+ "manifest_sha256": "6be8bd0a5a54f6dd51f9f7836bd4d64922672deebff7e19a6ff821e318906629",
+ "frozen_commit": "43d6628841b3ce91dafa048b7ceef64bed55fc8e",
+ "frozen_tree": "9ab869d1a453b8df48d47c2e0e2fb2d4ca8f67bf",
  "deployment": {
   "contracts": [
    "ZeroSeedLaunch(address core)",
@@ -15,10 +15,10 @@
  "artifacts": {
   "ZeroSeedLaunch": {
    "abi_sha256_canonical_json": "efae9388aa6b1342479204ddf436fd2a310df16bf06c80c990b2d22c90d1e41e",
-   "runtime_template_keccak256_immutables_zero": "0xf10adeca29e131bfb07f22d350641a17df000fb9945b40ac65061fb3c6ddf8c1",
-   "runtime_length": 20125,
-   "creation_code_keccak256_no_constructor_args": "0x985a18f42a75f5378e49bf136e027eaeaca4a4315f5a1036a99cc93576b98ced",
-   "creation_code_length": 20615,
+   "runtime_template_keccak256_immutables_zero": "0x19d7461a57e0058bd09c848684152a234b4b3909404c1c85dbf6e69b9d59c925",
+   "runtime_length": 20402,
+   "creation_code_keccak256_no_constructor_args": "0x10f4088a9ae5dff5f2caa7d005c4da80e8ece5c515b6f3e4e5ab452606f2b2ff",
+   "creation_code_length": 20892,
    "immutable_references": {
     "73285": [
      {
@@ -32,15 +32,15 @@
       "length": 32
      },
      {
-      "start": 6199,
+      "start": 6169,
       "length": 32
      },
      {
-      "start": 7340,
+      "start": 7310,
       "length": 32
      },
      {
-      "start": 9035,
+      "start": 9005,
       "length": 32
      }
     ]
@@ -62,9 +62,9 @@
   },
   "ZeroSeedLaunchPeriphery": {
    "abi_sha256_canonical_json": "df24d9f07d45323da7e46c0f6e64ce24f8f522442d60cb07880ddf742ebe7305",
-   "runtime_template_keccak256_immutables_zero": "0x73cbf73c2fb778fd4a2541d59da08c4346a2217e5a73d7282583fe3ab69376d9",
+   "runtime_template_keccak256_immutables_zero": "0x76db610aa6d183253d966ff21d2c59f750028b9ad83c0e4cc0d362324740e2e7",
    "runtime_length": 5552,
-   "creation_code_keccak256_no_constructor_args": "0x355b93fd4ef88a9e5be84795c19aa552ee6de280d31244d944aacb40c2219391",
+   "creation_code_keccak256_no_constructor_args": "0x7ec2d7eb35806d3ec7edab5809a6b5441977afc32ad3b5276cd9437d0d276f88",
    "creation_code_length": 5772,
    "immutable_references": {
     "72634": [
@@ -597,19 +597,23 @@
  "removed_from_abi": {
   "FeeTooHigh()": "0xcd4e6167"
  },
- "unchanged_from_40af6cb": [
-  "every function selector and event topic",
+ "unchanged_from_550afc4": [
+  "every function selector, event topic and error selector, and every ABI (sha256 unchanged)",
   "LaunchParameters, Launch and Installation structs",
   "swap forward payload and return",
   "claim-fees forward payload",
   "pool config (fee 0, tickSpacing, extension)",
   "pool id",
   "fee schedule, table and digests",
+  "full uint64 creator-fee range",
   "creator-fee settlement math at every rate",
+  "token1 (native-quote) installation",
+  "ZeroLiquidity, LiquidityAboveTickCap and uint128 saturation semantics",
   "MintableERC20 ABI and creation code"
  ],
- "changed_from_40af6cb": [
-  "FeeTooHigh() removed: every uint64 initial fee is accepted (MAX_CREATOR_FEE = type(uint64).max); only finalFee <= initialFee and feeDuration > 0 are checked (InvalidFeeSchedule)",
-  "ZeroSeedLaunch runtime and creation code (so the mined extension address and the periphery address of a deployment)"
+ "changed_from_550afc4": [
+  "token0 installation (ERC-20 quote above the launch token): liquidity = min(2**128 - 1, floor(supply * lower * upper / (2**128 * (upper - lower)))) over the fixed sqrt ratios, the exact largest liquidity whose Core token0 debit ceil(ceil(L * 2**128 * (upper - lower) / upper) / lower) fits the requested supply; the shared maxLiquidityForToken0 helper floored lower * upper / 2**128 first and could install less. Installed and sink supply change accordingly where they differed; a geometry whose helper result was 0 may now create, and one whose exact maximum exceeds the per-tick cap now refuses LiquidityAboveTickCap",
+  "ZeroSeedLaunch runtime and creation code (so the mined extension address and the periphery address of a deployment) and the periphery's metadata hash",
+  "quoteToken NatSpec: an ERC-20 quote's trust is token-wide in Core, not pair-local"
  ]
 }
