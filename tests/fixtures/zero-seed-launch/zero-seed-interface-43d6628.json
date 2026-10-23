@@ -1,0 +1,619 @@
+{
+ "source": "consumer interface manifest of EkuboProtocol/evm-contracts at 43d6628841b3ce91dafa048b7ceef64bed55fc8e, generated from forge build artifacts (methodIdentifiers, ABI) and test/vectors/zero-seed-launch.json",
+ "manifest_sha256": "6be8bd0a5a54f6dd51f9f7836bd4d64922672deebff7e19a6ff821e318906629",
+ "frozen_commit": "43d6628841b3ce91dafa048b7ceef64bed55fc8e",
+ "frozen_tree": "9ab869d1a453b8df48d47c2e0e2fb2d4ca8f67bf",
+ "deployment": {
+  "contracts": [
+   "ZeroSeedLaunch(address core)",
+   "ZeroSeedLaunchPeriphery(address core,address launch)"
+  ],
+  "extension_address_requirement": "CREATE2 salt mined so the address encodes callpoints beforeInitializePool, beforeSwap, beforeUpdatePosition (zeroSeedLaunchCallPoints(); high byte 0x51 in tests); constructor registers with Core",
+  "quote": "No constructor quote and no quoteToken() getter. Each launch selects LaunchParameters.quoteToken; it is the other token of that launch's pool key and never changes. One extension and one periphery serve every quote. address(0) is native ETH (always token0, launch token always token1). A nonzero quote without code is refused (UnsupportedQuoteToken) by preview and creation; nothing else screens an ERC-20 quote, whose risks are local to its own pair.",
+  "note": "runtime hashes below have immutables zeroed; deployed runtimes embed CORE (extension, periphery) and LAUNCH (periphery). Do not pin by template hash alone."
+ },
+ "artifacts": {
+  "ZeroSeedLaunch": {
+   "abi_sha256_canonical_json": "efae9388aa6b1342479204ddf436fd2a310df16bf06c80c990b2d22c90d1e41e",
+   "runtime_template_keccak256_immutables_zero": "0x19d7461a57e0058bd09c848684152a234b4b3909404c1c85dbf6e69b9d59c925",
+   "runtime_length": 20402,
+   "creation_code_keccak256_no_constructor_args": "0x10f4088a9ae5dff5f2caa7d005c4da80e8ece5c515b6f3e4e5ab452606f2b2ff",
+   "creation_code_length": 20892,
+   "immutable_references": {
+    "73285": [
+     {
+      "start": 2418,
+      "length": 32
+     }
+    ],
+    "77162": [
+     {
+      "start": 846,
+      "length": 32
+     },
+     {
+      "start": 6169,
+      "length": 32
+     },
+     {
+      "start": 7310,
+      "length": 32
+     },
+     {
+      "start": 9005,
+      "length": 32
+     }
+    ]
+   },
+   "compiler": "0.8.33+commit.64118f21",
+   "settings": {
+    "optimizer": {
+     "enabled": true,
+     "runs": 9999999
+    },
+    "evmVersion": "osaka",
+    "viaIR": true,
+    "remappings": [
+     "forge-std/=lib/forge-std/src/",
+     "solady/=lib/solady/src/"
+    ]
+   },
+   "constructor": "(address core)"
+  },
+  "ZeroSeedLaunchPeriphery": {
+   "abi_sha256_canonical_json": "df24d9f07d45323da7e46c0f6e64ce24f8f522442d60cb07880ddf742ebe7305",
+   "runtime_template_keccak256_immutables_zero": "0x76db610aa6d183253d966ff21d2c59f750028b9ad83c0e4cc0d362324740e2e7",
+   "runtime_length": 5552,
+   "creation_code_keccak256_no_constructor_args": "0x7ec2d7eb35806d3ec7edab5809a6b5441977afc32ad3b5276cd9437d0d276f88",
+   "creation_code_length": 5772,
+   "immutable_references": {
+    "72634": [
+     {
+      "start": 1399,
+      "length": 32
+     },
+     {
+      "start": 4401,
+      "length": 32
+     }
+    ],
+    "72637": [
+     {
+      "start": 311,
+      "length": 32
+     },
+     {
+      "start": 1335,
+      "length": 32
+     },
+     {
+      "start": 2015,
+      "length": 32
+     },
+     {
+      "start": 4346,
+      "length": 32
+     }
+    ],
+    "73358": [
+     {
+      "start": 2121,
+      "length": 32
+     },
+     {
+      "start": 4640,
+      "length": 32
+     },
+     {
+      "start": 5261,
+      "length": 32
+     }
+    ]
+   },
+   "compiler": "0.8.33+commit.64118f21",
+   "settings": {
+    "optimizer": {
+     "enabled": true,
+     "runs": 9999999
+    },
+    "evmVersion": "osaka",
+    "viaIR": true,
+    "remappings": [
+     "forge-std/=lib/forge-std/src/",
+     "solady/=lib/solady/src/"
+    ]
+   },
+   "constructor": "(address core,address launch)"
+  },
+  "MintableERC20": {
+   "abi_sha256_canonical_json": "fa77fe077e7630e8d08191428bbdf6529fb32d0bbe49b8a7245887fbd1f1abba",
+   "runtime_template_keccak256_immutables_zero": "0x8afb928e4768a3b46b8be13f3ff8e3674f607eb39d3406e49ec56d703511d659",
+   "runtime_length": 3949,
+   "creation_code_keccak256_no_constructor_args": "0x25da7fd323fdbf874dde8aaef1bce445ec035022d8518cb3046f65a0427a2f52",
+   "creation_code_length": 4419,
+   "immutable_references": {
+    "65544": [
+     {
+      "start": 748,
+      "length": 32
+     },
+     {
+      "start": 2442,
+      "length": 32
+     },
+     {
+      "start": 3402,
+      "length": 32
+     }
+    ],
+    "65546": [
+     {
+      "start": 1782,
+      "length": 32
+     }
+    ],
+    "65548": [
+     {
+      "start": 2667,
+      "length": 32
+     }
+    ]
+   },
+   "compiler": "0.8.33+commit.64118f21",
+   "settings": {
+    "optimizer": {
+     "enabled": true,
+     "runs": 9999999
+    },
+    "evmVersion": "osaka",
+    "viaIR": true,
+    "remappings": [
+     "forge-std/=lib/forge-std/src/",
+     "solady/=lib/solady/src/"
+    ]
+   },
+   "constructor": "(address owner,string name_,string symbol_,uint8 decimals_)"
+  }
+ },
+ "abi": {
+  "ZeroSeedLaunch": {
+   "functions": {
+    "afterCollectFees(bytes32,(address,address,bytes32),bytes32,uint128,uint128)": "0x751fd5df",
+    "afterInitializePool(address,(address,address,bytes32),int32,uint96)": "0x948374ff",
+    "afterSwap(bytes32,(address,address,bytes32),bytes32,bytes32,bytes32)": "0xa4e8f288",
+    "afterUpdatePosition(bytes32,(address,address,bytes32),bytes32,int128,bytes32,bytes32)": "0x25fa4e69",
+    "beforeCollectFees(bytes32,(address,address,bytes32),bytes32)": "0xdf65d8d1",
+    "beforeInitializePool(address,(address,address,bytes32),int32)": "0x1fbbb462",
+    "beforeSwap(bytes32,(address,address,bytes32),bytes32)": "0xca11dba7",
+    "beforeUpdatePosition(bytes32,(address,address,bytes32),bytes32,int128)": "0x0035c723",
+    "creatorFees((address,address,bytes32))": "0xb4ce9a2e",
+    "feeAt(bytes32,uint256)": "0xe81084ec",
+    "forwarded_2374103877(bytes32)": "0x00000001",
+    "getLaunch(bytes32)": "0x7d1d589c",
+    "previewInstallation(address,(string,string,uint8,uint128,address,int32,int32,uint32,uint64,uint32,uint64,uint64,bytes32))": "0x917c1163"
+   },
+   "events": {
+    "CreatorFeesClaimed(bytes32,address,uint128,uint128)": "0xf0ffdfa84530baef2e9f8bbb160545a59bfef8da319fa27aa69e4f3c8f05a41d",
+    "LaunchCreated(bytes32,address,address,(address,address,bytes32),bytes32,uint128,(string,string,uint8,uint128,address,int32,int32,uint32,uint64,uint32,uint64,uint64,bytes32))": "0x3a4e811187f4a8c0b72396e9d7ca13aeed62eb97a599a24af1ed99066041098f",
+    "LaunchSwapped(bytes32,address,int128,int128,uint64,uint128,bool)": "0x3e58795f52a8e88efdec2da89ea3798175f8764145ccd7bf5e40633a7d571f6d"
+   },
+   "errors": {
+    "BaseForwardeeAccountantOnly()": "0x588e1740",
+    "BoundsOrder()": "0x68651c5c",
+    "BoundsTickSpacing()": "0x89fd41b1",
+    "CallPointNotImplemented()": "0xc6f26286",
+    "ControllerOnly()": "0xac8ff76a",
+    "CoreOnly()": "0x62279cff",
+    "InitializeThroughCreateOnly()": "0x028eb443",
+    "InvalidFeeSchedule()": "0xf75a271a",
+    "InvalidParameters()": "0xe5239090",
+    "InvalidTick(int32)": "0x073ee172",
+    "InvalidTradingStart()": "0xe0839259",
+    "LaunchTokenExists(address)": "0xf68475cd",
+    "LiquidityAboveTickCap(uint128,uint128)": "0x20ea795f",
+    "MetadataTooLong()": "0x85b8e2f4",
+    "MinMaxBounds()": "0xabfa4a31",
+    "PositionsThroughCreateOnly()": "0x74a99003",
+    "StableswapMustBeFullRange()": "0x72b1019d",
+    "SwapsThroughForwardOnly()": "0xf17f54b3",
+    "TradingNotStarted()": "0xacf75be8",
+    "UnknownForwardAction()": "0xe5c78d9a",
+    "UnknownLaunch()": "0xf6806bf8",
+    "UnsupportedQuoteToken()": "0x658d8331",
+    "ZeroLiquidity()": "0x10074548"
+   }
+  },
+  "ZeroSeedLaunchPeriphery": {
+   "functions": {
+    "LAUNCH()": "0x096e3c3e",
+    "claimFees((address,address,bytes32),address)": "0x6906b4c0",
+    "create((string,string,uint8,uint128,address,int32,int32,uint32,uint64,uint32,uint64,uint64,bytes32))": "0x662af306",
+    "launchOwner(bytes32)": "0x60ac0b66",
+    "locked_6416899205(uint256)": "0x00000000",
+    "previewInstallation(address,(string,string,uint8,uint128,address,int32,int32,uint32,uint64,uint32,uint64,uint64,bytes32))": "0x917c1163",
+    "transferLaunch(bytes32,address)": "0x8b1cb36f"
+   },
+   "events": {
+    "LaunchFeesClaimed(bytes32,address,address,uint128,uint128)": "0x908c6b2c19765fe47aef218b4f71ea1a10a9e156d9d5c3500c3a298e01428805",
+    "LaunchOwnerChanged(bytes32,address,address)": "0x478004cf03e8c3b648608ce0259ce479c813aa671a383230ee7763fe5da22391"
+   },
+   "errors": {
+    "BaseLockerAccountantOnly()": "0x3ed2a9c0",
+    "ExpectedRevertWithinLock()": "0x4c816e2b",
+    "InvalidOwner()": "0x49e27cff",
+    "InvalidRecipient()": "0x9c8d2cd2",
+    "OwnerOnly()": "0x596dcdb8"
+   }
+  },
+  "MintableERC20": {
+   "functions": {
+    "DOMAIN_SEPARATOR()": "0x3644e515",
+    "allowance(address,address)": "0xdd62ed3e",
+    "approve(address,uint256)": "0x095ea7b3",
+    "balanceOf(address)": "0x70a08231",
+    "cancelOwnershipHandover()": "0x54d1f13d",
+    "completeOwnershipHandover(address)": "0xf04e283e",
+    "decimals()": "0x313ce567",
+    "mint(address,uint128)": "0xbe29184f",
+    "name()": "0x06fdde03",
+    "nonces(address)": "0x7ecebe00",
+    "owner()": "0x8da5cb5b",
+    "ownershipHandoverExpiresAt(address)": "0xfee81cf4",
+    "permit(address,address,uint256,uint256,uint8,bytes32,bytes32)": "0xd505accf",
+    "renounceOwnership()": "0x715018a6",
+    "requestOwnershipHandover()": "0x25692962",
+    "symbol()": "0x95d89b41",
+    "totalSupply()": "0x18160ddd",
+    "transfer(address,uint256)": "0xa9059cbb",
+    "transferFrom(address,address,uint256)": "0x23b872dd",
+    "transferOwnership(address)": "0xf2fde38b"
+   },
+   "events": {
+    "Approval(address,address,uint256)": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
+    "OwnershipHandoverCanceled(address)": "0xfa7b8eab7da67f412cc9575ed43464468f9bfbae89d1675917346ca6d8fe3c92",
+    "OwnershipHandoverRequested(address)": "0xdbf36a107da19e49527a7176a1babf963b4b0ff8cde35ee35d6cd8f1f9ac7e1d",
+    "OwnershipTransferred(address,address)": "0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0",
+    "Transfer(address,address,uint256)": "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+   },
+   "errors": {
+    "AllowanceOverflow()": "0xf9067066",
+    "AllowanceUnderflow()": "0x8301ab38",
+    "AlreadyInitialized()": "0x0dc149f0",
+    "InsufficientAllowance()": "0x13be252b",
+    "InsufficientBalance()": "0xf4d678b8",
+    "InvalidPermit()": "0xddafbaef",
+    "NewOwnerIsZeroAddress()": "0x7448fbae",
+    "NoHandoverRequest()": "0x6f5e8818",
+    "PackedStringTooLong()": "0x73c9e700",
+    "Permit2AllowanceIsFixedAtInfinity()": "0x3f68539a",
+    "PermitExpired()": "0x1a15a3cc",
+    "TotalSupplyOverflow()": "0xe5cfe957",
+    "Unauthorized()": "0x82b42900"
+   }
+  }
+ },
+ "structs": {
+  "LaunchParameters": "(string name,string symbol,uint8 decimals,uint128 supply,address quoteToken,int32 askTick,int32 upperTick,uint32 tickSpacing,uint64 tradingStart,uint32 feeDuration,uint64 initialFee,uint64 finalFee,bytes32 salt)",
+  "Launch": "(address controller,uint64 tradingStart,uint32 feeDuration,uint64 initialFee,uint64 finalFee,int32 tickLower,int32 tickUpper)",
+  "Installation": "(address token,(address token0,address token1,bytes32 config) poolKey,bytes32 positionId,int32 initialTick,uint128 liquidity,uint128 installedSupply)"
+ },
+ "supply": {
+  "requested": "LaunchParameters.supply: submitted unchanged by the producer; the token's totalSupply after creation; emitted as LaunchCreated.parameters.supply",
+  "installed": "Installation.installedSupply = the launch-token amount Core takes for the computed liquidity (rounded up), <= requested: the circulating inventory, all of it in the single position. Not emitted directly: LaunchCreated.liquidity is the installed liquidity and Core's PositionUpdated delta of the creation is the installed amount.",
+  "sink": "requested - installed, minted directly to address(0) in the creation (Transfer(0x0, 0x0, sink) when nonzero); never spendable. Not an ERC-20 burn: totalSupply stays equal to requested.",
+  "liquidity": "Not an input. Creation and previewInstallation compute the maximum liquidity the requested supply buys, refusing ZeroLiquidity and LiquidityAboveTickCap(liquidity, cap).",
+  "rule": "Never rewrite supply to installedSupply. previewInstallation is installation math for display; create receives the same requested supply.",
+  "examples": [
+   {
+    "order": "t0",
+    "dec": "18/18",
+    "ask": "-13815500",
+    "upper": "-9210300",
+    "requested": "1000000000000000000000000000",
+    "installed": "999999999999999999999999210",
+    "liquidity": "1111119116089565312897934",
+    "tickLower": "-13815500",
+    "tickUpper": "-9210300",
+    "initialTick": "-13815500",
+    "sink": "790"
+   },
+   {
+    "order": "t0",
+    "dec": "18/6",
+    "ask": "-41446500",
+    "upper": "-36841300",
+    "requested": "1000000000000000000000000000",
+    "installed": "999999999999999999302656786",
+    "liquidity": "1111138522742929536",
+    "tickLower": "-41446500",
+    "tickUpper": "-36841300",
+    "initialTick": "-41446500",
+    "sink": "697343214"
+   },
+   {
+    "order": "t1",
+    "dec": "18/18",
+    "ask": "-13815500",
+    "upper": "-9210300",
+    "requested": "1000000000000000000000000000",
+    "installed": "999999999999999999999999422",
+    "liquidity": "1111119116089565312898036",
+    "tickLower": "9210300",
+    "tickUpper": "13815500",
+    "initialTick": "13815500",
+    "sink": "578"
+   },
+   {
+    "order": "t1",
+    "dec": "18/6",
+    "ask": "-41446500",
+    "upper": "-36841300",
+    "requested": "1000000000000000000000000000",
+    "installed": "999999999999999999282285400",
+    "liquidity": "1111138522742929536",
+    "tickLower": "36841300",
+    "tickUpper": "41446500",
+    "initialTick": "41446500",
+    "sink": "717714600"
+   }
+  ]
+ },
+ "forward_schema": {
+  "swap": {
+   "payload": "abi.encode(PoolKey, SwapParameters)",
+   "length": 128,
+   "returns": "abi.encode(PoolBalanceUpdate, PoolState)",
+   "first_word": "PoolKey.token0 < 2**160"
+  },
+  "create": {
+   "tag": "0x224a5a98239f599168b798c4205db155bfff4332b4931a7fb5bc60c2e2eeee30",
+   "tag_source": "keccak256(\"IZeroSeedLaunch#CREATE\")",
+   "payload": "abi.encode(tag, LaunchParameters)",
+   "returns": "abi.encode(Installation)",
+   "controller": "Locker.addr() of the forwarding locker",
+   "lock_debt_after": "zero"
+  },
+  "claim_fees": {
+   "tag": "0xe52d8a05fd0f2d32b280675736d8117fee83069a0eac7ab9279aa52ff05a614c",
+   "tag_source": "keccak256(\"IZeroSeedLaunch#CLAIM_FEES\")",
+   "payload": "abi.encode(tag, PoolKey)",
+   "returns": "abi.encode(uint128 amount0, uint128 amount1)",
+   "authorization": "launch.controller == Locker.addr()",
+   "lock_debt_after": "credit of (amount0, amount1) for the locker to withdraw"
+  },
+  "unknown": "any first word >= 2**160 that is not a tag, or fewer than 32 bytes, reverts UnknownForwardAction(); a first word < 2**160 is decoded as a swap"
+ },
+ "identity": {
+  "controller": "Locker.addr() of the locker that forwarded the creation (Core-authenticated). Only controller claims; part of the CREATE2 salt.",
+  "owner": "ZeroSeedLaunchPeriphery.launchOwner[poolId], set to msg.sender of create, transferable with transferLaunch; gates claimFees. Attribute creators from LaunchOwnerChanged(poolId, 0x0, owner).",
+  "address_prediction": "token address = CREATE2(extension, keccak256(abi.encode(controller, salt)), MintableERC20 init code with name/symbol/decimals). The controller is the locker that forwards the creation; the periphery passes salt = keccak256(abi.encode(owner, userSalt)). Refused when the address already has code. Same salt with other metadata, another salt, another owner or another controller is independent.",
+  "calldata_targets": {
+   "create": "periphery.create(LaunchParameters) 0x662af306",
+   "preview": "periphery.previewInstallation(address owner, LaunchParameters) 0x917c1163 (or extension.previewInstallation(address controller, LaunchParameters) with the namespaced salt)",
+   "claim": "periphery.claimFees(PoolKey, address recipient) 0x6906b4c0",
+   "transfer": "periphery.transferLaunch(bytes32 poolId, address newOwner) 0x8b1cb36f",
+   "swap": "any locker: Core.forward(extension, abi.encode(PoolKey, SwapParameters)); native ETH as address(0) with value. Payload unchanged."
+  },
+  "recipient_refusals": {
+   "error": "InvalidRecipient() (periphery)",
+   "refused": [
+    "address(0)",
+    "Core",
+    "extension",
+    "periphery",
+    "poolKey.token0",
+    "poolKey.token1"
+   ],
+   "accepted_examples": [
+    "owner",
+    "EOA",
+    "other contract (ETH-receiving for a native quote)"
+   ],
+   "atomicity": "both assets or neither; a reverting native recipient or a refused ERC-20 transfer rolls the ledger, principal and Core balances back; retry to another recipient pays both in full",
+   "reentrancy": "the ledger is moved onto the lock before Core pays; an owner contract re-entering claimFees during the payment claims zero"
+  }
+ },
+ "fee": {
+  "half_life_s": 600,
+  "table_q128": [
+   "339889484297159900493648602831395569057",
+   "339497055287118257930533248299650400736",
+   "338713556013920184336129943844147573651",
+   "337151977828609613753562640265082287810",
+   "334050386396171404885545237344599070716",
+   "327932539264834336949184815807600758235",
+   "316030922441737935988095136387330274498",
+   "293507844215098455952964317090465751204",
+   "253162852354938356992240649094357060196",
+   "188347784201757897225807540435664088841",
+   "104251325552682051605813724741512712010",
+   "31939177389160626453527783486618815759",
+   "2997836947964109484105344435429137776",
+   "26410496811510722015611852309540293",
+   "2049810421099131403277778219901",
+   "12347753427443481862030",
+   "448060"
+  ],
+  "zero_from_s": 131072,
+  "formula": "finalFee + floor((initialFee - finalFee) * (decay(t) - decay(D)) / (2**128 - decay(D))) for 0 < t < D; initialFee at t <= 0; finalFee at t >= D. decay(t) = 0 for t >= fee_decay_zero_from_s, else the product over the set bits i of t of fee_decay_table_q128[i], starting at 2**128 and flooring to Q128 after every multiply (src/math/feeDecay.sol decayQ128). The table is round(2**128 * 2**(-2**i/600)); the operation order is normative.",
+  "max_creator_fee_q64": "18446744073709551615",
+  "all_second_digests_sha256": {
+   "600": {
+    "5": "636937adfdd71123c726c4d2a596d079a63726428a2fe4646571b28f8400a3b7",
+    "50": "a5d0666688ef4a2dd7153351cf2871a5b84a4fbf7023bbb876bc2de8c740cf23",
+    "75": "8acacd858306553f71f73f15197ccf8915d3473a6a1d3ced8876ff355fd2a865",
+    "90": "d29e09a6613fbd52bccbcc0e49ba74ea7469bcea65904887c67b3115603b7109",
+    "99": "47a588db69ac7fe12529c7cb9b15fe91b41494195360caa9bccb939ae8133cc4",
+    "max": "7c849a9c92021aa28ed2e4a32f7c33b15c2ff8513157f822229f53e85c0f9612"
+   },
+   "3600": {
+    "5": "41cb8af04c65adc7513c3a9741665eb332011f25b3b46d2b2f06ddad318409c8",
+    "50": "9d60494802e0ebc9136779b23c27cd4a18f13b9c68102aa343908cf6d422b3f6",
+    "75": "700df4fd9f07ce4eedc4ad337d17836c478b0a2b1e752ae3cbfdf72940aae60f",
+    "90": "4cfbc14801fe33bef5a1c0201d2cc03a992d446efd4bacdd3883469e8dc7d5d1",
+    "99": "7988ddeb4a28991a8b29a05eb9ce25763fc27d41a25a370d19f5b1364f285bfc",
+    "max": "56a3f80709937290c4323f106110af97b27ec87e019266c65bd91eb3aa316e02"
+   }
+  },
+  "rates_q64": {
+   "5": "922337203685477580",
+   "50": "9223372036854775808",
+   "75": "13835058055282163712",
+   "90": "16602069666338596454",
+   "99": "18262276632972456099",
+   "max": "18446744073709551615"
+  },
+  "final_fee_q64": "55340232221128654"
+ },
+ "creator_fee_range": {
+  "type": "uint64, Q0.64 (2**64 = 100%)",
+  "min_q64": "0",
+  "max_q64": "18446744073709551615",
+  "max_fraction": "1 - 2**-64: just under 100%, not 100%",
+  "constant": "MAX_CREATOR_FEE = type(uint64).max (src/extensions/ZeroSeedLaunch.sol); no ceiling comparison in _validate",
+  "schedule_rules": [
+   "finalFee <= initialFee",
+   "feeDuration > 0"
+  ],
+  "error": "InvalidFeeSchedule() 0xf75a271a",
+  "checked_in": [
+   "create",
+   "previewInstallation",
+   "forwarded create payload"
+  ],
+  "unencodable": {
+   "value": "18446744073709551616",
+   "meaning": "exactly 100% = 2**64",
+   "verdict": "ABI decoding failure with empty revert data in create(LaunchParameters), previewInstallation(address,LaunchParameters) and the forwarded create payload (abi.encode(ZERO_SEED_LAUNCH_CREATE, LaunchParameters)), for either fee word; nothing is truncated or wrapped to zero",
+   "dirty_high_bits": {
+    "value": "36893488147419103231",
+    "note": "2**64 + (2**64 - 1)",
+    "verdict": "same ABI decoding failure"
+   }
+  },
+  "removed": {
+   "error": "FeeTooHigh()",
+   "selector": "0xcd4e6167",
+   "note": "removed from IZeroSeedLaunch and the derived ABI; the previous ceiling floor(2**64 * 99 / 100) = 18262276632972456099 no longer exists"
+  },
+  "vectors": [
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "55340232221128654",
+    "feeDuration": 3600,
+    "verdict": "accept",
+    "note": "max -> 0.3% over the canonical window"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "18446744073709551615",
+    "feeDuration": 1,
+    "verdict": "accept",
+    "note": "flat at the maximum, shortest window"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "18446744073709551615",
+    "feeDuration": 4294967295,
+    "verdict": "accept",
+    "note": "flat at the maximum, longest window"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "0",
+    "feeDuration": 4294967295,
+    "verdict": "accept",
+    "note": "max -> 0 over the longest window; the decay chain is zero from 76,800 s so the rate is 0 from there"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "0",
+    "feeDuration": 1,
+    "verdict": "accept"
+   },
+   {
+    "initialFee": "0",
+    "finalFee": "0",
+    "feeDuration": 3600,
+    "verdict": "accept",
+    "note": "zero schedule"
+   },
+   {
+    "initialFee": "18446744073709551614",
+    "finalFee": "18446744073709551615",
+    "feeDuration": 3600,
+    "verdict": "InvalidFeeSchedule",
+    "note": "final above initial at the top of the range"
+   },
+   {
+    "initialFee": "0",
+    "finalFee": "1",
+    "feeDuration": 3600,
+    "verdict": "InvalidFeeSchedule"
+   },
+   {
+    "initialFee": "922337203685477580",
+    "finalFee": "922337203685477581",
+    "feeDuration": 3600,
+    "verdict": "InvalidFeeSchedule"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "18446744073709551615",
+    "feeDuration": 0,
+    "verdict": "InvalidFeeSchedule",
+    "note": "zero duration"
+   },
+   {
+    "initialFee": "18446744073709551616",
+    "finalFee": "18446744073709551615",
+    "feeDuration": 3600,
+    "verdict": "abi_decoding_failure",
+    "note": "2**64 in initialFee"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "18446744073709551616",
+    "feeDuration": 3600,
+    "verdict": "abi_decoding_failure",
+    "note": "2**64 in finalFee"
+   }
+  ],
+  "reference_schedules": {
+   "fixture": {
+    "initialFee": "922337203685477580",
+    "finalFee": "55340232221128654",
+    "feeDuration": 3600,
+    "note": "5% -> 0.3%: this fixture's local reference parameters"
+   },
+   "consumer_default": {
+    "initialFee": "9223372036854775808",
+    "finalFee": "55340232221128654",
+    "feeDuration": 3600,
+    "note": "50% -> 0.3% over 3,600 s: the unchanged consumer-side default schedule; a contract parameter choice, not a contract constant. The ceiling is a caller-selectable bound, not a suggested default."
+   }
+  }
+ },
+ "removed_from_abi": {
+  "FeeTooHigh()": "0xcd4e6167"
+ },
+ "unchanged_from_550afc4": [
+  "every function selector, event topic and error selector, and every ABI (sha256 unchanged)",
+  "LaunchParameters, Launch and Installation structs",
+  "swap forward payload and return",
+  "claim-fees forward payload",
+  "pool config (fee 0, tickSpacing, extension)",
+  "pool id",
+  "fee schedule, table and digests",
+  "full uint64 creator-fee range",
+  "creator-fee settlement math at every rate",
+  "token1 (native-quote) installation",
+  "ZeroLiquidity, LiquidityAboveTickCap and uint128 saturation semantics",
+  "MintableERC20 ABI and creation code"
+ ],
+ "changed_from_550afc4": [
+  "token0 installation (ERC-20 quote above the launch token): liquidity = min(2**128 - 1, floor(supply * lower * upper / (2**128 * (upper - lower)))) over the fixed sqrt ratios, the exact largest liquidity whose Core token0 debit ceil(ceil(L * 2**128 * (upper - lower) / upper) / lower) fits the requested supply; the shared maxLiquidityForToken0 helper floored lower * upper / 2**128 first and could install less. Installed and sink supply change accordingly where they differed; a geometry whose helper result was 0 may now create, and one whose exact maximum exceeds the per-tick cap now refuses LiquidityAboveTickCap",
+  "ZeroSeedLaunch runtime and creation code (so the mined extension address and the periphery address of a deployment) and the periphery's metadata hash",
+  "quoteToken NatSpec: an ERC-20 quote's trust is token-wide in Core, not pair-local"
+ ]
+}
