@@ -568,8 +568,51 @@ describe("launch support configuration", () => {
     local: false,
   };
 
-  it("only the local fixture instance is pinned, with no quote; no live pin exists", () => {
-    expect(ZERO_SEED_LAUNCH_PINS).toHaveLength(1);
+  it("only the two local fixture instances are pinned, one per fee model, with no quote; no live pin exists", () => {
+    expect(ZERO_SEED_LAUNCH_PINS).toHaveLength(2);
+    expect(ZERO_SEED_LAUNCH_PINS.map((p) => [p.feeModel, p.local])).toEqual([
+      ["fixed_base_duration_v1", true],
+      ["tick_rate_v2", true],
+    ]);
+    const v2 = readJson("local-chain-v2.json") as typeof fixture & {
+      feeModel: string;
+    };
+    expect(v2.feeModel).toBe("tick_rate_v2");
+    expect(v2.provenance.evmContractsHead).toBe(
+      "3d6378f585591dc7eabeea6976932c30524bb8ea",
+    );
+    const [v2Instance] = v2.instances;
+    const v2Pin = ZERO_SEED_LAUNCH_PINS[1];
+    expect([
+      v2Pin.address,
+      v2Pin.runtimeCodehash,
+      v2Pin.periphery,
+      v2Pin.peripheryRuntimeCodehash,
+      v2Pin.deploymentBlock,
+      v2Pin.abiSha256,
+      v2Pin.peripheryAbiSha256,
+    ]).toEqual([
+      v2Instance.extension.toLowerCase() as `0x${string}`,
+      v2Instance.extensionRuntimeKeccak,
+      v2Instance.periphery.toLowerCase() as `0x${string}`,
+      v2Instance.peripheryRuntimeKeccak,
+      v2Instance.deploymentBlock,
+      v2.provenance.launchAbiSha256 as string,
+      v2.provenance.peripheryAbiSha256 as string,
+    ]);
+    // The frozen extension runtime of the tick-rate revision.
+    expect(v2Pin.runtimeCodehash).toBe(
+      "0xe08ad382497fc9825956c2b4e9ccf463014c4ed65baf50c0a59db8d7b7aedfc3",
+    );
+    // A pin's model and ABI must agree: the v2 pin with the v1 model is refused.
+    expect(() =>
+      resolveZeroSeedLaunchPin({
+        ...base,
+        address: v2Pin.address,
+        runtimeCodehash: v2Pin.runtimeCodehash,
+        pins: [{ ...v2Pin, feeModel: "fixed_base_duration_v1" }],
+      }),
+    ).toThrow(/another ABI/);
     expect({
       address: PIN.address,
       runtime: PIN.runtimeCodehash,
@@ -885,11 +928,12 @@ describe("LaunchCreated decoding", () => {
       stored.map((r) => [
         String(r.initialFee),
         String(r.finalFee),
-        r.feeDuration,
+        r.feeModel,
+        r.feeModel === "fixed_base_duration_v1" ? r.feeDuration : undefined,
       ]),
     ).toEqual([
-      [String(MAX), "55340232221128654", 3600],
-      [String(MAX), String(MAX), 1],
+      [String(MAX), "55340232221128654", "fixed_base_duration_v1", 3600],
+      [String(MAX), String(MAX), "fixed_base_duration_v1", 1],
     ]);
     const maxSwaps = fixture.branches.canonical.logs.filter(
       (l) =>

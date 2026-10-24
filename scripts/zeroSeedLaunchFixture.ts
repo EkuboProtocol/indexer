@@ -87,29 +87,69 @@ const REQUESTED_SUPPLY = 1_000_000_000n * 10n ** 18n;
 const GAS = 10_000_000n;
 const NATIVE: Address = zeroAddress;
 const ERC20_QUOTE: Address = "0xffffffffffffffffffffffffffffffffffffffff";
-const PINNED_HEAD = "43d6628841b3ce91dafa048b7ceef64bed55fc8e";
-// sha256 of `jq -cS .abi` output without a trailing newline, as in the
-// protocol manifest
-const PINNED_ABIS: Record<string, string> = {
-  ZeroSeedLaunch:
-    "efae9388aa6b1342479204ddf436fd2a310df16bf06c80c990b2d22c90d1e41e",
-  ZeroSeedLaunchPeriphery:
-    "df24d9f07d45323da7e46c0f6e64ce24f8f522442d60cb07880ddf742ebe7305",
+// The two reviewed contract revisions. The fee model is a property of the
+// source revision: 43d6628 takes `uint32 feeDuration` (fixed-base table),
+// 3d6378f `uint64 decayRateX32` (tick-rate decay toward the floor). The
+// checkout's HEAD selects one; anything else is refused.
+type FeeModel = "fixed_base_duration_v1" | "tick_rate_v2";
+type PinnedSource = {
+  feeModel: FeeModel;
+  // sha256 of `jq -cS .abi` output without a trailing newline, as in the
+  // protocol manifest
+  abis: Record<string, string>;
+  // creation code without constructor arguments, and the runtime with its
+  // immutables zero-filled, as in the protocol manifest
+  creation: Record<string, Hex>;
+  runtimeTemplate: Record<string, Hex>;
 };
-// creation code without constructor arguments, and the runtime with its
-// immutables zero-filled, as in the protocol manifest
-const PINNED_CREATION: Record<string, Hex> = {
-  ZeroSeedLaunch:
-    "0x10f4088a9ae5dff5f2caa7d005c4da80e8ece5c515b6f3e4e5ab452606f2b2ff",
-  ZeroSeedLaunchPeriphery:
-    "0x7ec2d7eb35806d3ec7edab5809a6b5441977afc32ad3b5276cd9437d0d276f88",
+const PINNED_SOURCES: Record<string, PinnedSource> = {
+  "43d6628841b3ce91dafa048b7ceef64bed55fc8e": {
+    feeModel: "fixed_base_duration_v1",
+    abis: {
+      ZeroSeedLaunch:
+        "efae9388aa6b1342479204ddf436fd2a310df16bf06c80c990b2d22c90d1e41e",
+      ZeroSeedLaunchPeriphery:
+        "df24d9f07d45323da7e46c0f6e64ce24f8f522442d60cb07880ddf742ebe7305",
+    },
+    creation: {
+      ZeroSeedLaunch:
+        "0x10f4088a9ae5dff5f2caa7d005c4da80e8ece5c515b6f3e4e5ab452606f2b2ff",
+      ZeroSeedLaunchPeriphery:
+        "0x7ec2d7eb35806d3ec7edab5809a6b5441977afc32ad3b5276cd9437d0d276f88",
+    },
+    runtimeTemplate: {
+      ZeroSeedLaunch:
+        "0x19d7461a57e0058bd09c848684152a234b4b3909404c1c85dbf6e69b9d59c925",
+      ZeroSeedLaunchPeriphery:
+        "0x76db610aa6d183253d966ff21d2c59f750028b9ad83c0e4cc0d362324740e2e7",
+    },
+  },
+  "3d6378f585591dc7eabeea6976932c30524bb8ea": {
+    feeModel: "tick_rate_v2",
+    abis: {
+      ZeroSeedLaunch:
+        "89ff4d15e5e8b4f044c4804d460df915e9206bbdbdcef22cf4afe0fbbf4eaadd",
+      ZeroSeedLaunchPeriphery:
+        "a6d43b362d04eeb4e636ee32a031fc06995a2fd8bb71fb63750f27836a0ddb07",
+    },
+    creation: {
+      ZeroSeedLaunch:
+        "0xa76b1de0bfc2d72b32ce963cbc7598aa67fa60ae6b8874ec176e3630ec965f2c",
+      ZeroSeedLaunchPeriphery:
+        "0x7a4c7a556485b2005cb824b11641adc4d766a5c501e3a65adaa72646654ec0c4",
+    },
+    runtimeTemplate: {
+      ZeroSeedLaunch:
+        "0xae9245361f958f479a4ff1a85ca242f6adf3ae21b3e1f3696317368ba8c47c3b",
+      ZeroSeedLaunchPeriphery:
+        "0x1fa935c3de39691b912dd3db3ef84d7e66cc0e54dddef3740aeb1d453e6ad3f8",
+    },
+  },
 };
-const PINNED_RUNTIME_TEMPLATE: Record<string, Hex> = {
-  ZeroSeedLaunch:
-    "0x19d7461a57e0058bd09c848684152a234b4b3909404c1c85dbf6e69b9d59c925",
-  ZeroSeedLaunchPeriphery:
-    "0x76db610aa6d183253d966ff21d2c59f750028b9ad83c0e4cc0d362324740e2e7",
-};
+// The one-day half-life default and the 600 s half-life rate (Q32.32 ticks
+// per second) of the tick-rate model.
+const DECAY_RATE_DEFAULT = 68913100933n;
+const DECAY_RATE_600 = 9923486534471n;
 
 type Artifact = {
   abi: Abi;
@@ -184,6 +224,8 @@ const git = (...args: string[]) =>
   execFileSync("git", ["-C", evmContracts, ...args], {
     encoding: "utf8",
   }).trim();
+const SOURCE = PINNED_SOURCES[git("rev-parse", "HEAD")];
+if (!SOURCE) throw new Error("fixture requires a pinned evm-contracts head");
 
 const anvil = spawn(
   "anvil",
@@ -534,7 +576,10 @@ type Spec = {
   instance: string;
   quote: Address;
   owner: Address;
+  // fixed_base_duration_v1: seconds to the final fee
   duration: number;
+  // tick_rate_v2: Q32.32 ticks per second (default: the one-day half-life)
+  decayRateX32?: bigint;
   initialFee: bigint;
   finalFee?: bigint;
   tradingStart: number;
@@ -574,7 +619,9 @@ function launchParameters(spec: Spec, userSalt: Hex) {
     upperTick: spec.upperTick ?? askTick + WIDTH,
     tickSpacing: spec.tickSpacing ?? SPACING,
     tradingStart: BigInt(spec.tradingStart),
-    feeDuration: spec.duration,
+    ...(SOURCE.feeModel === "tick_rate_v2"
+      ? { decayRateX32: spec.decayRateX32 ?? DECAY_RATE_DEFAULT }
+      : { feeDuration: spec.duration }),
     initialFee: spec.initialFee,
     finalFee: spec.finalFee ?? FEE_03,
     salt: userSalt,
@@ -884,6 +931,7 @@ async function prefix() {
     quote: NATIVE,
     owner: CREATOR,
     duration: 3600,
+    decayRateX32: DECAY_RATE_600,
     initialFee: FEE_50,
     tradingStart: START,
   };
@@ -931,6 +979,7 @@ async function forkA() {
     quote: NATIVE,
     owner: NEW_OWNER,
     duration: 3600,
+    decayRateX32: 1n << 30n,
     initialFee: FEE_50,
     tradingStart: START + 300,
   };
@@ -953,6 +1002,7 @@ async function canonical() {
     quote: ERC20_QUOTE,
     owner: TRADER,
     duration: 600,
+    decayRateX32: 0n,
     initialFee: FEE_5,
     tradingStart: START + 400,
   };
@@ -964,6 +1014,8 @@ async function canonical() {
     quote: NATIVE,
     owner: CREATOR,
     duration: 3600,
+    // 2^64 - 1 ticks/s: at the floor from the first second
+    decayRateX32: FEE_MAX,
     initialFee: FEE_MAX,
     tradingStart: START + 400,
   };
@@ -973,6 +1025,7 @@ async function canonical() {
     quote: ERC20_QUOTE,
     owner: TRADER,
     duration: 1,
+    decayRateX32: 1n,
     initialFee: FEE_MAX,
     finalFee: FEE_MAX,
     tradingStart: START + 400,
@@ -1070,7 +1123,7 @@ async function canonical() {
 
 function validateFixtureBuild() {
   if (
-    git("rev-parse", "HEAD") !== PINNED_HEAD ||
+    PINNED_SOURCES[git("rev-parse", "HEAD")] !== SOURCE ||
     git(
       "status",
       "--porcelain",
@@ -1083,12 +1136,12 @@ function validateFixtureBuild() {
     ["ZeroSeedLaunch", LAUNCH],
     ["ZeroSeedLaunchPeriphery", PERIPHERY],
   ] as const) {
-    if (sha256(canonicalJson(build.abi)) !== PINNED_ABIS[name])
+    if (sha256(canonicalJson(build.abi)) !== SOURCE.abis[name])
       throw new Error(`${name} ABI differs from the pinned build`);
-    if (keccak256(build.bytecode.object) !== PINNED_CREATION[name])
+    if (keccak256(build.bytecode.object) !== SOURCE.creation[name])
       throw new Error(`${name} creation code differs from the pinned build`);
     if (
-      keccak256(build.deployedBytecode.object) !== PINNED_RUNTIME_TEMPLATE[name]
+      keccak256(build.deployedBytecode.object) !== SOURCE.runtimeTemplate[name]
     )
       throw new Error(`${name} runtime differs from the pinned build`);
   }
@@ -1149,9 +1202,9 @@ async function bindInstances() {
     );
     if (
       instance.extensionRuntimeTemplateKeccak !==
-        PINNED_RUNTIME_TEMPLATE.ZeroSeedLaunch ||
+        SOURCE.runtimeTemplate.ZeroSeedLaunch ||
       instance.peripheryRuntimeTemplateKeccak !==
-        PINNED_RUNTIME_TEMPLATE.ZeroSeedLaunchPeriphery
+        SOURCE.runtimeTemplate.ZeroSeedLaunchPeriphery
     )
       throw new Error("deployed runtime is not the pinned template");
     const actualLaunch = (await pub.readContract({
@@ -1213,6 +1266,7 @@ async function main() {
     description:
       "Logs and state emitted by a local anvil chain (no fork) running one ZeroSeedLaunch extension and its ZeroSeedLaunchPeriphery over the main Core runtime, with native-ETH and plain-ERC-20 quote launches on the same extension and swaps through the compiled test/LaunchTestRouter.sol. Supplies are raw launch-token units as decimal strings: requestedSupply = LaunchParameters.supply = totalSupply, installedSupply = Core PositionUpdated launch-token delta of the creation, sinkSupply = requested - installed = balanceOf(address(0)). Local fixture, not live evidence.",
     generator: "scripts/zeroSeedLaunchFixture.ts",
+    feeModel: SOURCE.feeModel,
     provenance: {
       evmContractsHead: git("rev-parse", "HEAD"),
       evmContractsTree: git("rev-parse", "HEAD^{tree}"),

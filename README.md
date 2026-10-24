@@ -423,14 +423,14 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ### Unreleased: zero-seed launches (00140, additive)
 
-Migration 00140 (schema `zero-seed-launch-index/v3`) indexes the forward-only
+Migration 00140 (schema `zero-seed-launch-index/v4`) indexes the forward-only
 `ZeroSeedLaunch` extension and its `ZeroSeedLaunchPeriphery` (evm-contracts
 `43d6628`; ABI sha256 `efae9388…e41e` and `df24d9f0…7305`, `jq -cS .abi`
 without a trailing newline, unchanged since `550afc4`; the protocol's interface manifest is vendored as
 `tests/fixtures/zero-seed-launch/zero-seed-interface-43d6628.json`) into `zero_seed_launch_pool_keys`, `_created`,
 `_swapped`, `_fees_claimed`, `_owner_changed`, `_fees_paid` and
 `zero_seed_launch_states` (one row per launch: the creator fee ledger, kept
-apart from the Core pool reserves, and the periphery owner). It appends nine
+apart from the Core pool reserves, and the periphery owner). It appends eleven
 `zero_seed_launch_*`/`is_zero_seed_launch_pool` columns to
 `all_pool_states_view`, and the launch's creation event becomes a source for
 `pool_last_event_id`. It parks the workers by locking `blocks` first, as 00123
@@ -439,8 +439,29 @@ selecting the new columns. This draft authorizes no deployment or live
 database write. It was drafted as 00134, renumbered to 00139 to follow 00138,
 then to 00140 to follow `00139_mev_capture_v21` (whose objects it does not
 touch), and revised in place before any application, last for the per-launch
-quote and requested supply:
+quote and requested supply, then for the second fee model:
 
+- Two fee models, bound to the deployment pin (`ZeroSeedLaunchPin.feeModel`),
+  never inferred from an event. `fixed_base_duration_v1` is evm-contracts
+  `43d6628` (`uint32 feeDuration`, the fixed-base table below; the earlier
+  revision and the existing fixture). `tick_rate_v2` is evm-contracts `3d6378f`
+  (`uint64 decayRateX32`, unsigned Q32.32 ticks per second, in the same
+  position; ABI sha256 `89ff4d15…aadd` and `a6d43b36…db07`, `LaunchCreated`
+  topic `0x8f81ce1b…5888`): the excess over the long-run floor `final_fee`
+  shrinks by `toFixed(tickToSqrtRatio(-m))`, `m = floor(rate * elapsed /
+  2^32)`, and saturates to `final_fee` once `elapsed > 381061679028371455 /
+  rate`; rate 0 keeps `initial_fee`. A pin's logs are decoded only with its
+  model's ABI, so a creation of the other revision (another topic) is never
+  decoded. `zero_seed_launch_created.fee_model` records the model,
+  `fee_duration` is v1 only, `decay_rate_x32 NUMERIC` (uint64 does not fit
+  `int8`) is v2 only, and a `CHECK` admits exactly the model's parameter in
+  range; `fee_end` is `NULL` for v2, which has no end.
+  `zero_seed_launch_tick_factor_q128`, `zero_seed_launch_tick_rate_fee` and
+  the dispatcher `zero_seed_launch_model_fee_at(fee_model, trading_start,
+  fee_duration, decay_rate_x32, initial, final, time)` mirror the contract; the
+  v1 functions are unchanged. The view gains `zero_seed_launch_fee_model` and
+  `zero_seed_launch_decay_rate_x32` (eleven columns in all). Fresh `main` ends
+  at `00139_mev_capture_v21`, so the number stays 00140.
 - The quote is per launch: `LaunchParameters.quoteToken` (replacing the
   extension's constructor quote and its `quoteToken()` getter) is the other
   token of the launch's pool key, so one extension and periphery serve every
@@ -495,9 +516,10 @@ there is no in-place upgrade path and none is needed while no launch is live.
 
 Launch indexing is off unless `ZERO_SEED_LAUNCH_ADDRESS` and
 `ZERO_SEED_LAUNCH_RUNTIME_CODEHASH` both match an entry in
-`src/evm/zeroSeedLaunchConfig.ts`. No live deployment is pinned; the only pin
-is the local instance of the replay fixture, refused in production. A pin
-binds chain, extension and runtime, periphery and runtime (taken from the pin,
+`src/evm/zeroSeedLaunchConfig.ts`. No live deployment is pinned; the only pins
+are the local instances of the two replay fixtures (one per fee model),
+refused in production. A pin binds its fee model and that model's ABIs, chain,
+extension and runtime, periphery and runtime (taken from the pin,
 never configured), Core and the deployment block; it has no quote. The
 zero-filled template runtimes of the build are refused as codehashes. A set address or Core that disagrees with the pin stops the
 worker. Missing runtime/chain pins leave support off.
@@ -553,6 +575,21 @@ updates and the catch-up guard.
 independent fee vectors (25,212 rows); the SQL fee function reproduces every
 row. Contract-event replay does not enforce producer build-time/start/expiry
 rules: those require fresh-time producer/owner validation.
+
+`tests/fixtures/zero-seed-launch/local-chain-v2.json` is the same chain
+program generated at evm-contracts `3d6378f` (`bun
+scripts/zeroSeedLaunchFixture.ts <checkout at 3d6378f>
+tests/fixtures/zero-seed-launch/local-chain-v2.json`; the checkout's head
+selects the model and its pinned ABIs, creation codes and runtime templates).
+Its launches use rates 0 (flat), 1 (slowest), `2^30` (a quarter tick per
+second, on the reorg fork), the one-day default `68913100933`, the 600 s rate
+`9923486534471` and `2^64 - 1` (at the floor from the first second).
+`src/evm/zeroSeedLaunchReplayV2.postgres.test.ts` replays it and checks, after
+every block, Core state, ledgers, owners, supply and the contract's `feeAt`
+against `zero_seed_launch_model_fee_at`, every swap's fee rate, a reorg, the
+schedule `CHECK`, and the SQL tick-rate functions against the contract's
+frozen vectors v7 (`zero-seed-launch-v2-vectors.json`, verbatim: 40 fee rows,
+the curve tables, tick steps, saturation seconds and the five SHA-256 chains).
 
 ### 2026-10-22: MEVCapture v2.1 anchor/config history, gate events and per-swap surcharges (00139, additive)
 

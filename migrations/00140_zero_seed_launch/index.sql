@@ -1,9 +1,12 @@
 -- DRAFT for the contract freeze. Not deployed.
--- Schema version: zero-seed-launch-index/v3
--- Source ABIs: EkuboProtocol/evm-contracts 550afc40280423128c02eb5ffd213aa959b34e2a
---              ZeroSeedLaunch abi sha256 efae9388...e41e,
---              ZeroSeedLaunchPeriphery abi sha256 df24d9f0...7305
---              (sha256 of `jq -cS .abi`, no trailing newline).
+-- Schema version: zero-seed-launch-index/v4
+-- Source ABIs, one per fee model (sha256 of `jq -cS .abi`, no trailing newline):
+--   fixed_base_duration_v1  EkuboProtocol/evm-contracts 43d6628
+--                           ZeroSeedLaunch efae9388...e41e,
+--                           ZeroSeedLaunchPeriphery df24d9f0...7305
+--   tick_rate_v2            EkuboProtocol/evm-contracts 3d6378f
+--                           ZeroSeedLaunch 89ff4d15...aadd,
+--                           ZeroSeedLaunchPeriphery a6d43b36...db07
 --
 -- Replaces the unshipped draft 00134_scheduled_launch_pool_states of
 -- indexer PR #246 (ScheduledLaunch, LockedLaunchLiquidity, LaunchRouter).
@@ -32,6 +35,16 @@
 -- draft of this migration (numbered 00134 or 00139) must be rebuilt; none
 -- exists outside local tests. It is numbered 00140 to follow the applied
 -- 00139_mev_capture_v21, whose objects it does not touch.
+--
+-- v4 adds the second fee model. The replacement extension (evm-contracts
+-- 3d6378f) replaces LaunchParameters.feeDuration (uint32 seconds) with
+-- decayRateX32 (uint64, unsigned Q32.32 ticks per second): the excess over the
+-- long-run floor final_fee shrinks by tickToSqrtRatio(-m) with
+-- m = floor(rate * elapsed / 2^32), and saturates to final_fee when m would
+-- leave the tick range. The model is a property of the deployment (the
+-- indexer pin), recorded per launch in fee_model; a launch row carries exactly
+-- its model's parameter. Launches of the 43d6628 deployment keep their
+-- fixed-base table math unchanged. Still unapplied anywhere.
 --
 --   zero_seed_launch_pool_keys      pools whose extension is a configured
 --                                   ZeroSeedLaunch, filled at PoolInitialized
@@ -146,7 +159,13 @@ CREATE TABLE zero_seed_launch_created
     tick_spacing         int8    NOT NULL,
     -- unix seconds
     trading_start        int8    NOT NULL,
-    fee_duration         int8    NOT NULL,
+    -- the deployment's fee model: 'fixed_base_duration_v1' (evm-contracts
+    -- 43d6628, fee_duration) or 'tick_rate_v2' (3d6378f, decay_rate_x32)
+    fee_model            TEXT    NOT NULL,
+    -- v1 only: seconds from trading_start to final_fee
+    fee_duration         int8,
+    -- v2 only: uint64 Q32.32 ticks per second; 0 keeps initial_fee
+    decay_rate_x32       NUMERIC,
     -- Q0.64 fractions (2^64 = 100%)
     initial_fee          NUMERIC NOT NULL,
     final_fee            NUMERIC NOT NULL,
@@ -157,8 +176,15 @@ CREATE TABLE zero_seed_launch_created
     -- pool-tick bounds of the position
     tick_lower           int4 GENERATED ALWAYS AS (CASE WHEN token > quote_token THEN -upper_tick ELSE ask_tick END) STORED,
     tick_upper           int4 GENERATED ALWAYS AS (CASE WHEN token > quote_token THEN -ask_tick ELSE upper_tick END) STORED,
+    -- v1 only; v2 has no end: final_fee is a floor that is approached
     fee_end              int8 GENERATED ALWAYS AS (trading_start + fee_duration) STORED,
     CHECK (0 < installed_supply AND installed_supply <= requested_supply),
+    -- exactly the model's parameter; IS NOT NULL keeps a NULL from passing
+    CHECK ((fee_model = 'fixed_base_duration_v1' AND fee_duration IS NOT NULL
+            AND fee_duration BETWEEN 1 AND 4294967295 AND decay_rate_x32 IS NULL)
+        OR (fee_model = 'tick_rate_v2' AND fee_duration IS NULL AND decay_rate_x32 IS NOT NULL
+            AND decay_rate_x32 BETWEEN 0 AND 18446744073709551615
+            AND decay_rate_x32 = TRUNC(decay_rate_x32))),
     PRIMARY KEY (chain_id, event_id),
     FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
@@ -528,6 +554,7 @@ CREATE TRIGGER trg_zero_seed_launch_owner_changed_owner
     FOR EACH ROW
 EXECUTE FUNCTION trg_zero_seed_launch_owner();
 
+-- fixed_base_duration_v1 only (evm-contracts 43d6628).
 -- decayQ128 of the contract (math/feeDecay.sol): 2^(-elapsed/600) in Q128.
 -- Starting at 2^128, multiply by the constant of every set bit of p_elapsed in
 -- ascending bit order and floor to Q128 after each multiply; exactly zero from
@@ -577,6 +604,7 @@ BEGIN
 END
 $$;
 
+-- fixed_base_duration_v1 (evm-contracts 43d6628) only.
 -- The fee in effect at p_time (unix seconds), as feeAt in the contract: initial
 -- until the start, then final + floor((initial - final) * (decay(t) - decay(D))
 -- / (2^128 - decay(D))) for elapsed t below duration D, then final.
@@ -596,7 +624,8 @@ SELECT CASE
            END
 $$;
 
--- Fee phase at p_time. A schedule label only; trading and the pool are unchanged.
+-- fixed_base_duration_v1 only. Fee phase at p_time. A schedule label only;
+-- trading and the pool are unchanged.
 CREATE FUNCTION zero_seed_launch_fee_phase(p_trading_start int8, p_fee_duration int8, p_time int8)
     RETURNS TEXT
     LANGUAGE sql
@@ -607,6 +636,112 @@ SELECT CASE
            WHEN p_time < p_trading_start + p_fee_duration THEN 'fee_decay'
            ELSE 'final_fee'
            END
+$$;
+
+-- toFixed(tickToSqrtRatio(-p_magnitude)) of the contracts (math/ticks.sol,
+-- types/sqrtRatio.sol): from 2^128, multiply by the constant of every set bit
+-- of the magnitude in ascending order and floor to Q128 after each multiply,
+-- then round down to the compact 94-bit mantissa of the region the value
+-- lands in. Bit 0's constant is 2^128 minus the contract's subtrahend. Only
+-- magnitudes 0..88722835 exist; the contract reverts InvalidTick beyond.
+CREATE FUNCTION zero_seed_launch_tick_factor_q128(p_magnitude int8)
+    RETURNS NUMERIC
+    LANGUAGE plpgsql
+    IMMUTABLE STRICT PARALLEL SAFE AS
+$$
+DECLARE
+    q      CONSTANT NUMERIC   := 340282366920938463463374607431768211456;
+    t      CONSTANT NUMERIC[] := ARRAY [
+        340282196779882608775400081051345954875,
+        340282026638911824551550055881712329744,
+        340281686357225467326082729798982530761,
+        340281005794873596573094710012989410072,
+        340279644674253220331048947518555486588,
+        340276922449345852680114346161748269428,
+        340271478064864046934932689706268169160,
+        340260589557227275536970734808027446368,
+        340238813587222069206590352882444122789,
+        340195265827972829906238800850533898084,
+        340108187030021964395011332102514443192,
+        339934096296338836553381438728885759063,
+        339586182118148867994722769619739863337,
+        338891421642114786711725022995822495130,
+        337506162020136007223375792700736547955,
+        334752606878476170032608184381010470119,
+        329312708224965356314372077522414179198,
+        318696677643769341895946499718036526719,
+        298480268784467865547185399201474874621,
+        261813363001402740542020888190605903085,
+        201439286044552466954512953679502885114,
+        119247395418425876229630149779831629514,
+        41788651709309085859755118322591422179,
+        5131889223303998677939799486543748348,
+        77395391476111124436543048938586576,
+        17603164912545197391926702422886,
+        910630244353091011850553
+        ];
+    result NUMERIC            := q;
+    shift  NUMERIC;
+BEGIN
+    IF p_magnitude < 0 OR p_magnitude > 88722835 THEN
+        RAISE EXCEPTION 'tick magnitude % outside 0..88722835', p_magnitude;
+    END IF;
+    FOR i IN 0..26
+        LOOP
+            IF (p_magnitude >> i) & 1 = 1 THEN
+                result := DIV(result * t[i + 1], q);
+            END IF;
+        END LOOP;
+    -- regions >= 2^160 cannot occur for a non-positive tick
+    shift := CASE
+                 WHEN result >= q THEN 73786976294838206464          -- 2^66
+                 WHEN result >= 79228162514264337593543950336 THEN 17179869184 -- 2^96: 2^34
+                 ELSE 4                                                 -- 2^2
+        END;
+    RETURN DIV(result, shift) * shift;
+END
+$$;
+
+-- decayedFee of the tick-rate contract (evm-contracts 3d6378f,
+-- math/feeDecay.sol) in its normative order: rate 0 is the initial fee;
+-- elapsed > MAX_DECAY_PRODUCT / rate (integer division before any multiply;
+-- MAX_DECAY_PRODUCT = (88722835 + 1) * 2^32 - 1) is the final fee, the floor;
+-- otherwise m = floor(rate * elapsed / 2^32) and
+-- final + floor((initial - final) * factor(m) / 2^128).
+CREATE FUNCTION zero_seed_launch_tick_rate_fee(p_initial NUMERIC, p_final NUMERIC,
+                                               p_decay_rate_x32 NUMERIC, p_elapsed NUMERIC)
+    RETURNS NUMERIC
+    LANGUAGE sql
+    IMMUTABLE STRICT PARALLEL SAFE AS
+$$
+SELECT CASE
+           WHEN p_elapsed <= 0 OR p_decay_rate_x32 = 0 THEN p_initial
+           WHEN p_elapsed > DIV(381061679028371455, p_decay_rate_x32) THEN p_final
+           ELSE p_final + DIV((p_initial - p_final) *
+                              zero_seed_launch_tick_factor_q128(
+                                      DIV(p_decay_rate_x32 * p_elapsed, 4294967296)::int8),
+                              340282366920938463463374607431768211456)
+           END
+$$;
+
+-- feeAt of either fee model at p_time (unix seconds): the launch row's own
+-- model decides; the other model's parameter must be NULL.
+CREATE FUNCTION zero_seed_launch_model_fee_at(p_fee_model TEXT, p_trading_start int8,
+                                              p_fee_duration int8, p_decay_rate_x32 NUMERIC,
+                                              p_initial NUMERIC, p_final NUMERIC, p_time int8)
+    RETURNS NUMERIC
+    LANGUAGE plpgsql
+    IMMUTABLE PARALLEL SAFE AS
+$$
+BEGIN
+    IF p_fee_model = 'fixed_base_duration_v1' AND p_decay_rate_x32 IS NULL THEN
+        RETURN zero_seed_launch_fee_at(p_trading_start, p_fee_duration, p_initial, p_final, p_time);
+    ELSIF p_fee_model = 'tick_rate_v2' AND p_fee_duration IS NULL THEN
+        RETURN zero_seed_launch_tick_rate_fee(p_initial, p_final, p_decay_rate_x32,
+                                              p_time::NUMERIC - p_trading_start);
+    END IF;
+    RAISE EXCEPTION 'invalid zero-seed launch fee model %', p_fee_model;
+END
 $$;
 
 -- pool_last_event_id: the 00123 recompute plus the launch state table.
@@ -735,7 +870,9 @@ SELECT pk.pool_key_id,
        zslc.tick_upper                                           AS zero_seed_launch_tick_upper,
        zslc.liquidity                                            AS zero_seed_launch_liquidity,
        zslc.trading_start                                        AS zero_seed_launch_trading_start,
+       zslc.fee_model                                            AS zero_seed_launch_fee_model,
        zslc.fee_duration                                         AS zero_seed_launch_fee_duration,
+       zslc.decay_rate_x32                                       AS zero_seed_launch_decay_rate_x32,
        zslc.initial_fee                                          AS zero_seed_launch_initial_fee,
        zslc.final_fee                                            AS zero_seed_launch_final_fee,
        (zslpk.pool_key_id IS NOT NULL OR zslc.pool_key_id IS NOT NULL)

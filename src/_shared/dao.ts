@@ -319,7 +319,18 @@ export interface ZeroSeedLaunchEventDescriptor {
   poolId: `0x${string}`;
 }
 
-export interface ZeroSeedLaunchCreatedInsert extends ZeroSeedLaunchEventDescriptor {
+/**
+ * The decay parameter of a launch, by the fee model of its deployment: a
+ * feeDuration (evm-contracts 43d6628) or a decayRateX32 (3d6378f), never both.
+ */
+export type ZeroSeedLaunchFeeDecayInsert =
+  | { feeModel: "fixed_base_duration_v1"; feeDuration: number }
+  | { feeModel: "tick_rate_v2"; decayRateX32: NumericValue };
+
+export type ZeroSeedLaunchCreatedInsert = ZeroSeedLaunchCreatedFields &
+  ZeroSeedLaunchFeeDecayInsert;
+
+export interface ZeroSeedLaunchCreatedFields extends ZeroSeedLaunchEventDescriptor {
   token: AddressValue;
   controller: AddressValue;
   /** LaunchParameters.quoteToken, the other token of the pool key; 0 is native ETH. */
@@ -336,7 +347,6 @@ export interface ZeroSeedLaunchCreatedInsert extends ZeroSeedLaunchEventDescript
   upperTick: number;
   tickSpacing: number;
   tradingStart: NumericValue;
-  feeDuration: number;
   initialFee: NumericValue;
   finalFee: NumericValue;
   salt: `0x${string}`;
@@ -1293,7 +1303,7 @@ export class DAO {
          pool_key_id, pool_id, token, controller, quote_token, position_id, liquidity,
          requested_supply, installed_supply,
          name, symbol, decimals, ask_tick, upper_tick, tick_spacing, trading_start,
-         fee_duration, initial_fee, final_fee, salt)
+         fee_model, fee_duration, decay_rate_x32, initial_fee, final_fee, salt)
       VALUES (
         ${this.eventKeyValues(key)},
         ${poolKeyId},
@@ -1312,7 +1322,9 @@ export class DAO {
         ${parsed.upperTick},
         ${parsed.tickSpacing},
         ${this.numeric(parsed.tradingStart)},
-        ${parsed.feeDuration},
+        ${parsed.feeModel},
+        ${parsed.feeModel === "fixed_base_duration_v1" ? parsed.feeDuration : null},
+        ${parsed.feeModel === "tick_rate_v2" ? this.numeric(parsed.decayRateX32) : null},
         ${this.numeric(parsed.initialFee)},
         ${this.numeric(parsed.finalFee)},
         ${this.numeric(parsed.salt)}

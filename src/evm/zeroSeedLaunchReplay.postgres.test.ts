@@ -385,8 +385,9 @@ describe.skipIf(!SERVER)(
       SELECT ps.sqrt_ratio, ps.tick, ps.liquidity, s.accrued0, s.accrued1, s.claimed0, s.claimed1,
              pt.balance0, pt.balance1, pk.token0, pk.token1, s.current_owner, s.initial_owner, c.controller,
              c.requested_supply, c.sink_supply,
-             zero_seed_launch_fee_at(c.trading_start, c.fee_duration, c.initial_fee, c.final_fee,
-                                     (SELECT EXTRACT(EPOCH FROM MAX(block_time))::int8 FROM blocks)) AS fee_at
+             zero_seed_launch_model_fee_at(c.fee_model, c.trading_start, c.fee_duration, c.decay_rate_x32,
+                                           c.initial_fee, c.final_fee,
+                                           (SELECT EXTRACT(EPOCH FROM MAX(block_time))::int8 FROM blocks)) AS fee_at
       FROM pool_keys pk
                JOIN pool_states ps USING (pool_key_id)
                JOIN zero_seed_launch_states s USING (pool_key_id)
@@ -495,7 +496,8 @@ describe.skipIf(!SERVER)(
                       JOIN pool_tvl pt USING (pool_key_id) ORDER BY pk.pool_id`),
         view: await q(`SELECT pool_id, sqrt_ratio, tick, liquidity, last_event_id, ticks, zero_seed_launch_token_is_token1,
                        zero_seed_launch_tick_lower, zero_seed_launch_tick_upper, zero_seed_launch_liquidity,
-                       zero_seed_launch_trading_start, zero_seed_launch_fee_duration, zero_seed_launch_initial_fee,
+                       zero_seed_launch_trading_start, zero_seed_launch_fee_model, zero_seed_launch_fee_duration,
+                       zero_seed_launch_decay_rate_x32, zero_seed_launch_initial_fee,
                        zero_seed_launch_final_fee, is_zero_seed_launch_pool
                      FROM all_pool_states_view v JOIN pool_keys USING (pool_key_id) ORDER BY pool_id`),
       };
@@ -613,11 +615,11 @@ describe.skipIf(!SERVER)(
                  (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
                   pool_key_id, pool_id, token, controller, quote_token, position_id, liquidity, requested_supply,
                   installed_supply, name, symbol, decimals, ask_tick, upper_tick, tick_spacing, trading_start,
-                  fee_duration, initial_fee, final_fee, salt)
+                  fee_model, fee_duration, decay_rate_x32, initial_fee, final_fee, salt)
                  SELECT chain_id, block_number, transaction_index, event_index + 1000, transaction_hash, emitter,
                         NULL, pool_id, token, controller, quote_token, position_id, liquidity, requested_supply,
                         ${installed}, name, symbol, decimals, ask_tick, upper_tick, tick_spacing, trading_start,
-                        fee_duration, initial_fee, final_fee, salt
+                        fee_model, fee_duration, decay_rate_x32, initial_fee, final_fee, salt
                  FROM zero_seed_launch_created LIMIT 1`,
             ),
           ),
@@ -784,6 +786,7 @@ describe.skipIf(!SERVER)(
               coreAddress: CORE,
               ...event,
               ...event.parameters,
+              feeModel: "fixed_base_duration_v1",
               tradingStart: event.parameters.tradingStart,
               quoteToken: event.parameters.quoteToken,
               requestedSupply: event.parameters.supply,
@@ -991,8 +994,9 @@ describe.skipIf(!SERVER)(
           native: boolean;
         }[]
       >`
-      SELECT w.fee_rate = zero_seed_launch_fee_at(c.trading_start, c.fee_duration, c.initial_fee, c.final_fee,
-                                                   EXTRACT(EPOCH FROM b.block_time)::int8) AS ok_rate,
+      SELECT w.fee_rate = zero_seed_launch_model_fee_at(c.fee_model, c.trading_start, c.fee_duration,
+                                                         c.decay_rate_x32, c.initial_fee, c.final_fee,
+                                                         EXTRACT(EPOCH FROM b.block_time)::int8) AS ok_rate,
              (CASE WHEN w.fee_is_token1 THEN w.delta1 - s.delta1 ELSE w.delta0 - s.delta0 END) = w.fee_amount AS ok_fee_side,
              (CASE WHEN w.fee_is_token1 THEN w.delta0 = s.delta0 ELSE w.delta1 = s.delta1 END) AS ok_other,
              s.event_id IS NOT NULL AS core_found,
@@ -1182,6 +1186,7 @@ describe.skipIf(!SERVER)(
                AND v.zero_seed_launch_tick_lower = c.tick_lower AND v.zero_seed_launch_tick_upper = c.tick_upper
                AND v.zero_seed_launch_liquidity = c.liquidity AND v.zero_seed_launch_token_is_token1 = c.token_is_token1
                AND v.zero_seed_launch_trading_start = c.trading_start AND v.zero_seed_launch_fee_duration = c.fee_duration
+               AND v.zero_seed_launch_fee_model = c.fee_model AND v.zero_seed_launch_decay_rate_x32 IS NULL
                AND v.zero_seed_launch_initial_fee = c.initial_fee AND v.zero_seed_launch_final_fee = c.final_fee
                AND v.ticks = JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT('t', c.tick_lower, 'd', c.liquidity::TEXT),
                                                JSONB_BUILD_OBJECT('t', c.tick_upper, 'd', (-c.liquidity)::TEXT))

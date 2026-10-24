@@ -5,6 +5,10 @@ import {
   ZERO_SEED_LAUNCH_PERIPHERY_ABI,
 } from "./abis_zero_seed_launch";
 import {
+  ZERO_SEED_LAUNCH_PERIPHERY_V2_ABI,
+  ZERO_SEED_LAUNCH_V2_ABI,
+} from "./abis_zero_seed_launch_v2";
+import {
   createProcessorsFromHandlers,
   type ContractEvent,
   type ContractHandlers,
@@ -16,10 +20,15 @@ import {
   type ZeroSeedLaunchPin,
 } from "./zeroSeedLaunchConfig";
 
-type LaunchCreated = ContractEvent<
+type LaunchCreatedV1 = ContractEvent<
   typeof ZERO_SEED_LAUNCH_ABI,
   "LaunchCreated"
 >;
+type LaunchCreatedV2 = ContractEvent<
+  typeof ZERO_SEED_LAUNCH_V2_ABI,
+  "LaunchCreated"
+>;
+type LaunchCreated = LaunchCreatedV1 | LaunchCreatedV2;
 
 const same = (a: string, b: string) => BigInt(a) === BigInt(b);
 const utf8Length = (value: string) => new TextEncoder().encode(value).length;
@@ -104,6 +113,23 @@ export function createZeroSeedLaunchProcessors({
       throw new Error(
         "ZeroSeedLaunch event processor lacks reviewed instance/Core provenance",
       );
+    // The pin's fee model selects the only ABI its logs are decoded with: a
+    // LaunchCreated of the other revision has another topic and is ignored.
+    if (pin.feeModel === "tick_rate_v2")
+      return createProcessorsFromHandlers({
+        ZeroSeedLaunch: {
+          address: pin.address,
+          ...zeroSeedLaunchV2Handlers(coreAddress),
+        },
+        ZeroSeedLaunchPeriphery: {
+          address: pin.periphery,
+          ...zeroSeedLaunchPeripheryV2Handlers(coreAddress, pin),
+        },
+      });
+    if (pin.feeModel !== "fixed_base_duration_v1")
+      throw new Error(
+        `Unknown ZeroSeedLaunch fee model ${String(pin.feeModel)}`,
+      );
     return createProcessorsFromHandlers({
       ZeroSeedLaunch: {
         address: pin.address,
@@ -127,32 +153,9 @@ export function zeroSeedLaunchHandlers(
     abi: ZERO_SEED_LAUNCH_ABI,
     handlers: {
       async LaunchCreated(dao, key, event) {
-        const problems = launchCreatedProblems(key, event);
-        if (problems.length > 0)
-          throw new Error(
-            `Refusing LaunchCreated for pool ${event.poolId}: ${problems.join("; ")}`,
-          );
-        const { parameters } = event;
-        await dao.insertZeroSeedLaunchCreatedEvent(key, {
-          coreAddress,
-          poolId: event.poolId,
-          token: event.token,
-          controller: event.controller,
-          quoteToken: parameters.quoteToken,
-          positionId: event.positionId,
-          liquidity: event.liquidity,
-          requestedSupply: parameters.supply,
-          name: parameters.name,
-          symbol: parameters.symbol,
-          decimals: parameters.decimals,
-          askTick: parameters.askTick,
-          upperTick: parameters.upperTick,
-          tickSpacing: parameters.tickSpacing,
-          tradingStart: parameters.tradingStart,
-          feeDuration: parameters.feeDuration,
-          initialFee: parameters.initialFee,
-          finalFee: parameters.finalFee,
-          salt: parameters.salt,
+        await insertLaunchCreated(dao, key, event, coreAddress, {
+          feeModel: "fixed_base_duration_v1",
+          feeDuration: event.parameters.feeDuration,
         });
       },
       async LaunchSwapped(dao, key, event) {
@@ -178,6 +181,101 @@ export function zeroSeedLaunchPeripheryHandlers(
 ): Omit<ContractHandlers<typeof ZERO_SEED_LAUNCH_PERIPHERY_ABI>, "address"> {
   return {
     abi: ZERO_SEED_LAUNCH_PERIPHERY_ABI,
+    handlers: {
+      async LaunchOwnerChanged(dao, key, event) {
+        await dao.insertZeroSeedLaunchOwnerChangedEvent(key, {
+          coreAddress,
+          extension: pin.address,
+          ...event,
+        });
+      },
+      async LaunchFeesClaimed(dao, key, event) {
+        await dao.insertZeroSeedLaunchFeesPaidEvent(key, {
+          coreAddress,
+          extension: pin.address,
+          ...event,
+        });
+      },
+    },
+  };
+}
+
+type FeeDecay =
+  | { feeModel: "fixed_base_duration_v1"; feeDuration: number }
+  | { feeModel: "tick_rate_v2"; decayRateX32: bigint };
+
+async function insertLaunchCreated(
+  dao: DAO,
+  key: EventKey,
+  event: LaunchCreated,
+  coreAddress: `0x${string}`,
+  decay: FeeDecay,
+) {
+  const problems = launchCreatedProblems(key, event);
+  if (problems.length > 0)
+    throw new Error(
+      `Refusing LaunchCreated for pool ${event.poolId}: ${problems.join("; ")}`,
+    );
+  const { parameters } = event;
+  await dao.insertZeroSeedLaunchCreatedEvent(key, {
+    coreAddress,
+    poolId: event.poolId,
+    token: event.token,
+    controller: event.controller,
+    quoteToken: parameters.quoteToken,
+    positionId: event.positionId,
+    liquidity: event.liquidity,
+    requestedSupply: parameters.supply,
+    name: parameters.name,
+    symbol: parameters.symbol,
+    decimals: parameters.decimals,
+    askTick: parameters.askTick,
+    upperTick: parameters.upperTick,
+    tickSpacing: parameters.tickSpacing,
+    tradingStart: parameters.tradingStart,
+    ...decay,
+    initialFee: parameters.initialFee,
+    finalFee: parameters.finalFee,
+    salt: parameters.salt,
+  });
+}
+
+/** Pure event decoding of a tick-rate (evm-contracts 3d6378f) extension. */
+export function zeroSeedLaunchV2Handlers(
+  coreAddress: `0x${string}`,
+): Omit<ContractHandlers<typeof ZERO_SEED_LAUNCH_V2_ABI>, "address"> {
+  return {
+    abi: ZERO_SEED_LAUNCH_V2_ABI,
+    handlers: {
+      async LaunchCreated(dao, key, event) {
+        await insertLaunchCreated(dao, key, event, coreAddress, {
+          feeModel: "tick_rate_v2",
+          decayRateX32: event.parameters.decayRateX32,
+        });
+      },
+      async LaunchSwapped(dao, key, event) {
+        await dao.insertZeroSeedLaunchSwappedEvent(key, {
+          coreAddress,
+          ...event,
+        });
+      },
+      async CreatorFeesClaimed(dao, key, event) {
+        await dao.insertZeroSeedLaunchFeesClaimedEvent(key, {
+          coreAddress,
+          ...event,
+        });
+      },
+    },
+  };
+}
+
+/** The tick-rate periphery's owner and payout events (unchanged events). */
+export function zeroSeedLaunchPeripheryV2Handlers(
+  coreAddress: `0x${string}`,
+  pin: Pick<ZeroSeedLaunchPin, "address">,
+): Omit<ContractHandlers<typeof ZERO_SEED_LAUNCH_PERIPHERY_V2_ABI>, "address"> {
+  return {
+    abi: ZERO_SEED_LAUNCH_PERIPHERY_V2_ABI,
     handlers: {
       async LaunchOwnerChanged(dao, key, event) {
         await dao.insertZeroSeedLaunchOwnerChangedEvent(key, {
