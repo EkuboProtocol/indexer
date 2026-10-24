@@ -1266,7 +1266,11 @@ async function main() {
     description:
       "Logs and state emitted by a local anvil chain (no fork) running one ZeroSeedLaunch extension and its ZeroSeedLaunchPeriphery over the main Core runtime, with native-ETH and plain-ERC-20 quote launches on the same extension and swaps through the compiled test/LaunchTestRouter.sol. Supplies are raw launch-token units as decimal strings: requestedSupply = LaunchParameters.supply = totalSupply, installedSupply = Core PositionUpdated launch-token delta of the creation, sinkSupply = requested - installed = balanceOf(address(0)). Local fixture, not live evidence.",
     generator: "scripts/zeroSeedLaunchFixture.ts",
-    feeModel: SOURCE.feeModel,
+    // The 43d6628 fixture predates the field; leaving it out there keeps that
+    // fixture reproducible byte for byte. Its absence means fixed_base_duration_v1.
+    ...(SOURCE.feeModel === "tick_rate_v2"
+      ? { feeModel: SOURCE.feeModel }
+      : {}),
     provenance: {
       evmContractsHead: git("rev-parse", "HEAD"),
       evmContractsTree: git("rev-parse", "HEAD^{tree}"),
