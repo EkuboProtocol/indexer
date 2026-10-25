@@ -423,173 +423,66 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ### Unreleased: zero-seed launches (00140, additive)
 
-Migration 00140 (schema `zero-seed-launch-index/v4`) indexes the forward-only
-`ZeroSeedLaunch` extension and its `ZeroSeedLaunchPeriphery` (evm-contracts
-`43d6628`; ABI sha256 `efae9388…e41e` and `df24d9f0…7305`, `jq -cS .abi`
-without a trailing newline, unchanged since `550afc4`; the protocol's interface manifest is vendored as
-`tests/fixtures/zero-seed-launch/zero-seed-interface-43d6628.json`) into `zero_seed_launch_pool_keys`, `_created`,
-`_swapped`, `_fees_claimed`, `_owner_changed`, `_fees_paid` and
-`zero_seed_launch_states` (one row per launch: the creator fee ledger, kept
-apart from the Core pool reserves, and the periphery owner). It appends eleven
-`zero_seed_launch_*`/`is_zero_seed_launch_pool` columns to
-`all_pool_states_view`, and the launch's creation event becomes a source for
+Migration 00140 indexes the final `ZeroSeedLaunch` extension and its
+`ZeroSeedLaunchPeriphery` of evm-contracts `853b608` (source freeze, not
+deployed). It replaces, in place, every earlier draft of itself (the #246
+ScheduledLaunch draft, and the fixed-base and earlier tick-rate drafts); none
+was ever applied outside local tests, and a local database that applied one
+must be rebuilt. It creates `zero_seed_launch_pool_keys`, `_created`,
+`_swapped`, `_fees_claimed`, `_fees_paid`, `_owner_changed`,
+`zero_seed_launch_states` and the `zero_seed_launch_claims` view, the SQL fee
+function `zero_seed_launch_fee_at(trading_start, decay_rate_x32, initial,
+final, time)`, appends nine `zero_seed_launch_*`/`is_zero_seed_launch_pool`
+columns to `all_pool_states_view`, and makes a launch's creation a source of
 `pool_last_event_id`. It parks the workers by locking `blocks` first, as 00123
-does. The schema must precede any later quoter-service or API deployment
-selecting the new columns. This draft authorizes no deployment or live
-database write. It was drafted as 00134, renumbered to 00139 to follow 00138,
-then to 00140 to follow `00139_mev_capture_v21` (whose objects it does not
-touch), and revised in place before any application, last for the per-launch
-quote and requested supply, then for the second fee model:
+does, and must precede any API or quoter deployment reading it. This
+authorizes no deployment or live database write.
 
-- Two fee models, bound to the deployment pin (`ZeroSeedLaunchPin.feeModel`),
-  never inferred from an event. `fixed_base_duration_v1` is evm-contracts
-  `43d6628` (`uint32 feeDuration`, the fixed-base table below; the earlier
-  revision and the existing fixture). `tick_rate_v2` is evm-contracts `3d6378f`
-  (`uint64 decayRateX32`, unsigned Q32.32 ticks per second, in the same
-  position; ABI sha256 `89ff4d15…aadd` and `a6d43b36…db07`, `LaunchCreated`
-  topic `0x8f81ce1b…5888`): the excess over the long-run floor `final_fee`
-  shrinks by `toFixed(tickToSqrtRatio(-m))`, `m = floor(rate * elapsed /
-  2^32)`, and saturates to `final_fee` once `elapsed > 381061679028371455 /
-  rate`; rate 0 keeps `initial_fee`. A pin's logs are decoded only with its
-  model's ABI, so a creation of the other revision (another topic) is never
-  decoded. `zero_seed_launch_created.fee_model` records the model,
-  `fee_duration` is v1 only, `decay_rate_x32 NUMERIC` (uint64 does not fit
-  `int8`) is v2 only, and a `CHECK` admits exactly the model's parameter in
-  range; `fee_end` is `NULL` for v2, which has no end.
-  `zero_seed_launch_tick_factor_q128`, `zero_seed_launch_tick_rate_fee` and
-  the dispatcher `zero_seed_launch_model_fee_at(fee_model, trading_start,
-  fee_duration, decay_rate_x32, initial, final, time)` mirror the contract; the
-  v1 functions are unchanged. The view gains `zero_seed_launch_fee_model` and
-  `zero_seed_launch_decay_rate_x32` (eleven columns in all). Fresh `main` ends
-  at `00139_mev_capture_v21`, so the number stays 00140.
-- The quote is per launch: `LaunchParameters.quoteToken` (replacing the
-  extension's constructor quote and its `quoteToken()` getter) is the other
-  token of the launch's pool key, so one extension and periphery serve every
-  quote. Native ETH is `address(0)`, always token0; an ERC-20 quote above the
-  launch token makes the launch token token0. The decoder refuses a
-  `LaunchCreated` whose pool key is not (token, quoteToken) in order, whose
-  token is its quote, or whose liquidity is zero.
-  `zero_seed_launch_created.quote_token`/`quote_kind` (`native` or `erc20`)
-  record every launch of an indexed extension; whether a quote is supported is
-  the reader's policy.
-- `LaunchParameters.supply` is the requested supply (the token's
-  `totalSupply`); liquidity is no longer an input. The extension computes the
-  installed liquidity, puts `installedSupply <= supply` into the position and
-  mints the remainder directly to `address(0)`. `supply` became
-  `requested_supply`, `installed_supply` and the generated `sink_supply =
-  requested_supply - installed_supply` (`CHECK 0 < installed <= requested`).
-  `LaunchCreated` does not carry the installed amount: the writer takes the
-  launch-token delta of Core's `PositionUpdated` of the creation (same
-  transaction and pool, locker the extension, salt 0, the launch bounds,
-  liquidity delta equal to `LaunchCreated.liquidity`, no quote) and refuses the
-  launch if there is not exactly one such update or it is inconsistent. Core
-  emits it inside `updatePosition`, before the extension emits
-  `LaunchCreated`, and a block's logs are written in order in one transaction,
-  so the row is always present and reorgs remove both together.
-- Creator fees accept the whole `uint64` range: `initial_fee` and `final_fee`
-  are `NUMERIC` and hold any Q0.64 rate up to `2^64 - 1` (just under 100%)
-  exactly. The protocol no longer has a 99% ceiling or a `FeeTooHigh` error;
-  the schema is unchanged.
-- At `43d6628` the extension installs the exact largest token0 liquidity the
-  requested supply pays for, `floor(supply * lower * upper / (2^128 * (upper -
-  lower)))` over the fixed sqrt ratios, instead of the shared helper's earlier
-  floor, which installed less at low prices. The indexer does not recompute the
-  installation: it stores `LaunchCreated.liquidity` and Core's position delta,
-  so neither the schema nor the decoder changes. A creation can now have an
-  empty sink (`installed_supply = requested_supply`, no mint to `address(0)`),
-  which the existing `CHECK 0 < installed <= requested` already allows.
-- Earlier revisions: `decayFactor`, `decay_factor`, `zero_seed_launch_pow_q64`
-  and the view column `zero_seed_launch_decay_factor` are gone;
-  `zero_seed_launch_decay_q128` and a five-argument `zero_seed_launch_fee_at`
-  mirror the contract's fixed-base Q128 table (600 s half-life, floor after
-  every multiply).
-- `LaunchCreated` names the `controller` (the forwarding locker, normally the
-  periphery) instead of a creator, and `CreatorFeesClaimed` lost its recipient.
-  The periphery's `LaunchOwnerChanged(poolId, 0, owner)` gives the launch's
-  initial owner; later ones move `current_owner`, which holds the unclaimed and
-  future fee rights. `LaunchFeesClaimed` is the payout of the same claim and is
-  linked to the extension's `CreatorFeesClaimed` in the same transaction: it
-  moves `paid{0,1}` only and never the claimed ledger.
-
-A database that applied an earlier draft (00134 or 00139) must be rebuilt from scratch locally;
-there is no in-place upgrade path and none is needed while no launch is live.
+- `LaunchParameters` are stored as emitted: the packed `name`/`symbol` words
+  (`name_word`, `symbol_word`, with their text when it is UTF-8 without NUL),
+  `supply`, `quoteToken` (0 is native ETH), the requested `ask_tick` and
+  `upper_tick`, `trading_start`, `decay_rate_x32`, `initial_fee`, `final_fee`
+  and the owner-namespaced `salt`. Decimals are always 18.
+- `logo_url_bytes` holds `LaunchCreated.logoUrl` exactly (`""` stays empty)
+  and `logo_url` the same as text when representable. It is never fetched.
+- The derived spacing `(upper - ask + 255) / 256` and the signed-aligned
+  installed bounds are stored and checked against the pool key and position.
+- One claim is one row: the extension `CreatorFeesClaimed`. The periphery
+  `LaunchFeesClaimed` of the same transaction must match its amounts and only
+  attaches owner and recipient; it is never counted again.
+- Supply: `requested_supply` = `totalSupply`; `installed_supply` is Core's
+  debit for the position (the `Transfer(0, Core, installed)` mint);
+  `sink_supply` went to address 0 and is not a burn. LaunchToken
+  Transfer/Approval logs are not streamed; see
+  `docs/zero-seed-launch-events.md`, which also maps every event to its
+  filter, handler, columns, API field and tests.
 
 Launch indexing is off unless `ZERO_SEED_LAUNCH_ADDRESS` and
-`ZERO_SEED_LAUNCH_RUNTIME_CODEHASH` both match an entry in
-`src/evm/zeroSeedLaunchConfig.ts`. No live deployment is pinned; the only pins
-are the local instances of the two replay fixtures (one per fee model),
-refused in production. A pin binds its fee model and that model's ABIs, chain,
-extension and runtime, periphery and runtime (taken from the pin,
-never configured), Core and the deployment block; it has no quote. The
-zero-filled template runtimes of the build are refused as codehashes. A set address or Core that disagrees with the pin stops the
-worker. Missing runtime/chain pins leave support off.
-
-Catch-up is deployment-block inclusive. Before its first block the worker
-refuses to index a pinned instance from a block after the instance's
-deployment unless this database indexed the deployment's
-`ExtensionRegistered` and registered every launch pool Core initialized since;
-otherwise launch events could be missing. Recovery is to roll the indexer back
-to the block before the deployment (delete blocks at or above it) and restart:
-replay is idempotent and the ledgers and owners are exact under reorgs.
-
-Rollback before any launch exists: in one transaction that locks `blocks`
-first, recreate `all_pool_states_view` and `recompute_pool_last_event_id` from
-00123 and drop the `zero_seed_launch_*` tables and functions. Once launches
-exist on chain, rolling back only stops indexing them; their pools and locked
-principal are unaffected. Stop supported creation/handoff by leaving launch
-support off. Apps cannot refund, withdraw, rebalance or migrate the immutable
-principal.
+`ZERO_SEED_LAUNCH_RUNTIME_CODEHASH` match a pin in
+`src/evm/zeroSeedLaunchConfig.ts`. No deployment of the final contract exists,
+so there are no pins; tests inject the local fixture pin, and a local pin is
+refused in production. Catch-up is deployment-block inclusive: the worker
+refuses to index a pinned instance from after its deployment unless nothing
+can have been missed. Recovery is to roll back to the block before the
+deployment and replay; replay is idempotent and exact under reorgs.
 
 `tests/fixtures/zero-seed-launch/local-chain.json` is regenerated with
-`bun scripts/zeroSeedLaunchFixture.ts <evm-contracts checkout>` (local anvil,
-no fork, deterministic); `src/evm/zeroSeedLaunchReplay.postgres.test.ts`
-replays it against `TEST_PG_CONNECTION_STRING` (any disposable server, for
-example `docker run --rm -d -p 127.0.0.1:55432:5432 -e
-POSTGRES_PASSWORD=postgres postgres:18` and
-`TEST_PG_CONNECTION_STRING=postgres://postgres:postgres@127.0.0.1:55432/postgres`;
-the test creates and drops its own databases). The generator only reads the
-checkout, requires the exact clean pinned source and checks both ABIs,
-creation codes and runtime templates. Its chain has one extension and
-periphery with native-ETH and ERC-20 quote launches (the checkout's plain
-`test/TestToken.sol` relocated to `0xff…ff`) and swaps through the compiled
-`test/LaunchTestRouter.sol`; six launches request `1e27` at the default
-geometry and two ERC-20 (token0) launches use low-price geometry where the
-exact installation differs from the shared helper (`1e30` over ticks
-`-88080384..-85983232` at spacing 524288, and an int128-scale supply over the
-full width at spacing 1, which installs its whole supply). Each launch's
-liquidity, installed and sink supply equal the protocol's exact installation
-vectors (`tests/fixtures/zero-seed-launch/zero-seed-launch-installation.json`,
-vendored verbatim). The generator
-checks the `Installation` that `create` returns, Core's `PositionUpdated`
-delta, `totalSupply` and `balanceOf(address(0))` against the requested,
-installed and sink supply it records. The replay compares, after every block,
-indexed Core state and custody (native ETH and ERC-20), the creator fee
-ledger, the current and initial owner, the supply and the contract's `feeAt`
-with the chain, including two launches created at the maximum rate `2^64 - 1`
-(native max to 0.3% over 3,600 s and ERC-20 flat at the maximum) whose swaps
-net `floor(gross / 2^64)` on exact input and pay `calculated * 2^64` on exact
-output, and covers a reorg across transfers, claims and a creation,
-redelivery, deletion orders, orphans, missing or inconsistent Core position
-updates and the catch-up guard.
-`fee-curve-all-seconds.json.gz` and `fee-decay-vectors.json` are the protocol's
-independent fee vectors (25,212 rows); the SQL fee function reproduces every
-row. Contract-event replay does not enforce producer build-time/start/expiry
-rules: those require fresh-time producer/owner validation.
+`bun scripts/zeroSeedLaunchFixture.ts <evm-contracts checkout at 853b608>`
+(after `forge build`; local anvil, no fork). The generator requires the clean
+source and compiled ABIs equal to the frozen ABIs. Its chain has native-ETH
+and ERC-20 quote launches with empty, URL, Unicode and non-UTF-8 logos,
+swaps, claims, ownership transfers, a claim by a new owner and a reorged
+branch. `src/evm/zeroSeedLaunchReplay.postgres.test.ts` and
+`src/evm/zeroSeedLaunchFrozenReceipts.postgres.test.ts` replay it and the
+frozen receipts against `TEST_PG_CONNECTION_STRING` (any disposable server,
+for example `docker run --rm -d -p 127.0.0.1:55432:5432 -e
+POSTGRES_PASSWORD=postgres postgres:18`; the tests create and drop their own
+databases).
 
-`tests/fixtures/zero-seed-launch/local-chain-v2.json` is the same chain
-program generated at evm-contracts `3d6378f` (`bun
-scripts/zeroSeedLaunchFixture.ts <checkout at 3d6378f>
-tests/fixtures/zero-seed-launch/local-chain-v2.json`; the checkout's head
-selects the model and its pinned ABIs, creation codes and runtime templates).
-Its launches use rates 0 (flat), 1 (slowest), `2^30` (a quarter tick per
-second, on the reorg fork), the one-day default `68913100933`, the 600 s rate
-`9923486534471` and `2^64 - 1` (at the floor from the first second).
-`src/evm/zeroSeedLaunchReplayV2.postgres.test.ts` replays it and checks, after
-every block, Core state, ledgers, owners, supply and the contract's `feeAt`
-against `zero_seed_launch_model_fee_at`, every swap's fee rate, a reorg, the
-schedule `CHECK`, and the SQL tick-rate functions against the contract's
-frozen vectors v7 (`zero-seed-launch-v2-vectors.json`, verbatim: 40 fee rows,
-the curve tables, tick steps, saturation seconds and the five SHA-256 chains).
+Rollback before any launch exists: in one transaction that locks `blocks`
+first, recreate `all_pool_states_view` from 00139 and
+`recompute_pool_last_event_id` from 00123, and drop the `zero_seed_launch_*`
+objects.
 
 ### 2026-10-22: MEVCapture v2.1 anchor/config history, gate events and per-swap surcharges (00139, additive)
 
