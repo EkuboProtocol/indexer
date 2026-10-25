@@ -12,6 +12,7 @@ import {
 } from "viem";
 import { CORE_ABI } from "./abis_v3";
 import {
+  LAUNCH_TOKEN_ABI,
   ZERO_SEED_LAUNCH_ABI,
   ZERO_SEED_LAUNCH_PERIPHERY_ABI,
 } from "./abis_zero_seed_launch";
@@ -1525,6 +1526,202 @@ describe.skipIf(!SERVER)(
       await applyBlock(db.dao, processors, block);
       expect(await read()).toEqual(before);
       await expectPoolLastEventId(db);
+      await db.sql.end();
+    }, 120_000);
+
+    test("lifecycle reconciles with the raw logs: owners, claims per owner, fee balances and token supply; a second replay is identical", async () => {
+      const db = await canonicalReplay();
+      const logs = [...prefix.logs, ...canonical.logs];
+      const decodeAll = <T>(abi: Abi, eventName: string, t0: Hex) =>
+        logs
+          .filter((l) => l.topics[0] === t0)
+          .map((l) => ({ log: l, args: decodeArgs<T>(abi, eventName, l) }));
+      // Final owner per launch: the last raw LaunchOwnerChanged.
+      const ownerChanges = decodeAll<{ poolId: Hex; newOwner: Hex }>(
+        ZERO_SEED_LAUNCH_PERIPHERY_ABI,
+        "LaunchOwnerChanged",
+        OWNER_CHANGED,
+      );
+      const rawOwner = new Map<bigint, bigint>();
+      for (const { args } of ownerChanges)
+        rawOwner.set(BigInt(args.poolId), BigInt(args.newOwner));
+      const owners = await db.sql<{ pool_id: bigint; current_owner: bigint }[]>`
+        SELECT pk.pool_id, s.current_owner FROM zero_seed_launch_states s JOIN pool_keys pk USING (pool_key_id)`;
+      expect(new Map(owners.map((r) => [r.pool_id, r.current_owner]))).toEqual(
+        rawOwner,
+      );
+      // l2 changed hands and its new owner claimed.
+      expect(rawOwner.get(BigInt(fixture.launches.l2.poolId))).toBe(
+        BigInt(fixture.addresses.newOwner),
+      );
+      // Claims per owner: the raw periphery payouts, counted once per raw
+      // extension claim, never twice.
+      const extensionClaims = decodeAll<{
+        poolId: Hex;
+        amount0: bigint;
+        amount1: bigint;
+      }>(ZERO_SEED_LAUNCH_ABI, "CreatorFeesClaimed", CREATOR_FEES_CLAIMED);
+      const payouts = decodeAll<{
+        owner: Hex;
+        amount0: bigint;
+        amount1: bigint;
+      }>(ZERO_SEED_LAUNCH_PERIPHERY_ABI, "LaunchFeesClaimed", FEES_PAID);
+      expect(payouts.length).toBe(extensionClaims.length);
+      const perOwner = new Map<string, [bigint, bigint, number]>();
+      for (const { args } of payouts) {
+        const k = BigInt(args.owner).toString();
+        const [a0, a1, n] = perOwner.get(k) ?? [0n, 0n, 0];
+        perOwner.set(k, [a0 + args.amount0, a1 + args.amount1, n + 1]);
+      }
+      const claims = await db.sql<
+        { owner: bigint; amount0: bigint; amount1: bigint; n: bigint }[]
+      >`
+        SELECT owner, SUM(amount0) AS amount0, SUM(amount1) AS amount1, COUNT(*) AS n
+        FROM zero_seed_launch_claims GROUP BY owner`;
+      expect(
+        new Map(
+          claims.map((r) => [
+            r.owner.toString(),
+            [r.amount0, r.amount1, Number(r.n)],
+          ]),
+        ),
+      ).toEqual(perOwner);
+      const [{ claim_rows, payout_rows }] = await db.sql<
+        { claim_rows: number; payout_rows: number }[]
+      >`SELECT (SELECT COUNT(*)::int FROM zero_seed_launch_claims) AS claim_rows,
+               (SELECT COUNT(*)::int FROM zero_seed_launch_fees_paid) AS payout_rows`;
+      expect([claim_rows, payout_rows]).toEqual([
+        extensionClaims.length,
+        payouts.length,
+      ]);
+      // Fee balance: raw fees accrued minus raw extension claims equals the
+      // chain's creatorFees after the last block (and the indexed ledger).
+      const swaps = decodeAll<{
+        poolId: Hex;
+        feeAmount: bigint;
+        feeIsToken1: boolean;
+      }>(
+        ZERO_SEED_LAUNCH_ABI,
+        "LaunchSwapped",
+        topic(ZERO_SEED_LAUNCH_ABI, "LaunchSwapped"),
+      );
+      const last = canonical.states.at(-1)!;
+      for (const pool of last.pools) {
+        const id = BigInt(pool.poolId);
+        const fee = (one: boolean) =>
+          swaps
+            .filter(
+              (x) => BigInt(x.args.poolId) === id && x.args.feeIsToken1 === one,
+            )
+            .reduce((t, x) => t + x.args.feeAmount, 0n);
+        const claimed = (k: "amount0" | "amount1") =>
+          extensionClaims
+            .filter((x) => BigInt(x.args.poolId) === id)
+            .reduce((t, x) => t + x.args[k], 0n);
+        expect([
+          String(fee(false) - claimed("amount0")),
+          String(fee(true) - claimed("amount1")),
+        ]).toEqual(pool.creatorFees);
+      }
+      // Supply: the raw LaunchToken Transfers from address(0) are exactly the
+      // two creation mints (installed to Core, the sink to address(0)); their
+      // sum is the stored requested supply and totalSupply on chain. The sink
+      // is never followed by a transfer out of, or a burn into, address(0).
+      const TRANSFER = topic(LAUNCH_TOKEN_ABI, "Transfer");
+      const created = await db.sql<
+        {
+          token: bigint;
+          requested_supply: bigint;
+          installed_supply: bigint;
+          sink_supply: bigint;
+        }[]
+      >`SELECT token, requested_supply, installed_supply, sink_supply FROM zero_seed_launch_created`;
+      for (const c of created) {
+        const transfers = logs
+          .filter(
+            (l) => l.topics[0] === TRANSFER && BigInt(l.address) === c.token,
+          )
+          .map((l) =>
+            decodeArgs<{ from: Hex; to: Hex; amount: bigint }>(
+              LAUNCH_TOKEN_ABI,
+              "Transfer",
+              l,
+            ),
+          );
+        const mints = transfers.filter((t) => BigInt(t.from) === 0n);
+        expect(mints.map((m) => [BigInt(m.to), m.amount])).toEqual([
+          [BigInt(CORE), c.installed_supply],
+          [0n, c.sink_supply],
+        ]);
+        expect(mints.reduce((t, m) => t + m.amount, 0n)).toBe(
+          c.requested_supply,
+        );
+        expect(
+          transfers.filter((t) => BigInt(t.from) !== 0n && BigInt(t.to) === 0n),
+        ).toEqual([]);
+      }
+      const [pool] = last.pools;
+      expect(pool.totalSupply).toBe(
+        String(
+          created.find(
+            (c) => c.token === BigInt(fixture.launches[pool.label].token),
+          )!.requested_supply,
+        ),
+      );
+      // A second full replay into a fresh database is identical.
+      const again = await canonicalReplay();
+      expect(await dump(again)).toEqual(await dump(db));
+      await again.sql.end();
+      await db.sql.end();
+    }, 180_000);
+
+    test("launch metadata: packed words, logo bytes and text, aligned ticks are stored as emitted", async () => {
+      const db = await canonicalReplay();
+      const rows = await db.sql<
+        {
+          pool_id: bigint;
+          name: string | null;
+          symbol: string | null;
+          logo_url: string | null;
+          logo_url_bytes: Buffer;
+          tick_spacing: bigint;
+          aligned_ask_tick: number;
+          aligned_upper_tick: number;
+        }[]
+      >`SELECT pool_id, name, symbol, logo_url, logo_url_bytes, tick_spacing, aligned_ask_tick, aligned_upper_tick
+        FROM zero_seed_launch_created ORDER BY event_id`;
+      const byPool = new Map(rows.map((r) => [r.pool_id, r]));
+      for (const label of ["l1", "l2", "l4", "l5", "l6", "l7", "l8"]) {
+        const l = fixture.launches[label];
+        const r = byPool.get(BigInt(l.poolId))!;
+        expect(`0x${r.logo_url_bytes.toString("hex")}`).toBe(l.logoUrl);
+        expect([
+          Number(r.tick_spacing),
+          r.aligned_ask_tick,
+          r.aligned_upper_tick,
+        ]).toEqual([l.tickSpacing, l.alignedAskTick, l.alignedUpperTick]);
+        expect(r.symbol).toBe(label.toUpperCase());
+      }
+      const at = (label: string) =>
+        byPool.get(BigInt(fixture.launches[label].poolId))!;
+      expect(at("l1").logo_url).toBe("https://example.invalid/l1.svg");
+      // an empty logo stays the empty string, never NULL
+      expect([at("l2").logo_url, at("l2").logo_url_bytes.length]).toEqual([
+        "",
+        0,
+      ]);
+      // not UTF-8 and with a NUL: bytes only
+      expect(at("l4").logo_url).toBeNull();
+      expect(at("l5").logo_url).toBe("ipfs://bafy\u00e9logo \ud83d\ude80");
+      expect(at("l5").name).toBe("Z\u00e9ro \ud83d\ude80");
+      expect(at("l6").name).toBeNull();
+      expect(at("l1").name).toBe("Zero Seed l1");
+      // the default range: spacing 17990 and [-13798330, -9210880]
+      expect([
+        Number(at("l1").tick_spacing),
+        at("l1").aligned_ask_tick,
+        at("l1").aligned_upper_tick,
+      ]).toEqual([17990, -13798330, -9210880]);
       await db.sql.end();
     }, 120_000);
 
