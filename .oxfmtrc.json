@@ -6,6 +6,7 @@
   "ignorePatterns": [
     "migrations/**",
     "scripts/fixtures/**",
-    "tests/fixtures/**"
+    "tests/fixtures/**",
+    "src/evm/abis/**"
   ]
 }

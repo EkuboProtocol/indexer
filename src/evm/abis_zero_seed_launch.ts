@@ -1,1507 +1,1907 @@
-// ZeroSeedLaunch and ZeroSeedLaunchPeriphery ABIs: EkuboProtocol/evm-contracts
-// 43d6628841b3ce91dafa048b7ceef64bed55fc8e (forward-only extension, per-launch
-// quote in LaunchParameters.quoteToken served by one extension and periphery,
-// requested supply with the uninstallable remainder minted to address(0),
-// fixed-base fee table, separate periphery). Verbatim from the build
-// artifacts. Each `*_ABI_SHA256` is the sha256 of `jq -cS .abi` output
-// without a trailing newline (the protocol manifest's convention); a test
-// recomputes it. Any change here is an interface change.
-export const ZERO_SEED_LAUNCH_ABI_SHA256 =
-  "efae9388aa6b1342479204ddf436fd2a310df16bf06c80c990b2d22c90d1e41e";
-
-export const ZERO_SEED_LAUNCH_PERIPHERY_ABI_SHA256 =
-  "df24d9f07d45323da7e46c0f6e64ce24f8f522442d60cb07880ddf742ebe7305";
+// The frozen ZeroSeedLaunch, ZeroSeedLaunchPeriphery and LaunchToken ABIs of
+// EkuboProtocol/evm-contracts 853b608ec26d4c80bdad6e394cb8ba686e1ae615, as
+// `as const` literals so viem types the decoded events. They are copies of
+// the compiled JSON in src/evm/abis/zero-seed-launch/ (provenance in
+// tests/fixtures/zero-seed-launch/freeze-853b608/PROVENANCE.md), and a test
+// asserts each equals its JSON file entry for entry. Do not edit by hand.
+export const ZERO_SEED_LAUNCH_SOURCE_COMMIT =
+  "853b608ec26d4c80bdad6e394cb8ba686e1ae615";
 
 export const ZERO_SEED_LAUNCH_ABI = [
   {
-    type: "constructor",
     inputs: [
       {
+        internalType: "contract ICore",
         name: "core",
         type: "address",
-        internalType: "contract ICore",
       },
     ],
     stateMutability: "nonpayable",
+    type: "constructor",
   },
   {
-    type: "function",
-    name: "afterCollectFees",
-    inputs: [
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "Locker",
-      },
-      {
-        name: "",
-        type: "tuple",
-        internalType: "struct PoolKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "config",
-            type: "bytes32",
-            internalType: "PoolConfig",
-          },
-        ],
-      },
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "PositionId",
-      },
-      {
-        name: "",
-        type: "uint128",
-        internalType: "uint128",
-      },
-      {
-        name: "",
-        type: "uint128",
-        internalType: "uint128",
-      },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "afterInitializePool",
-    inputs: [
-      {
-        name: "",
-        type: "address",
-        internalType: "address",
-      },
-      {
-        name: "",
-        type: "tuple",
-        internalType: "struct PoolKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "config",
-            type: "bytes32",
-            internalType: "PoolConfig",
-          },
-        ],
-      },
-      {
-        name: "",
-        type: "int32",
-        internalType: "int32",
-      },
-      {
-        name: "",
-        type: "uint96",
-        internalType: "SqrtRatio",
-      },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "afterSwap",
-    inputs: [
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "Locker",
-      },
-      {
-        name: "",
-        type: "tuple",
-        internalType: "struct PoolKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "config",
-            type: "bytes32",
-            internalType: "PoolConfig",
-          },
-        ],
-      },
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "SwapParameters",
-      },
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "PoolBalanceUpdate",
-      },
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "PoolState",
-      },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "afterUpdatePosition",
-    inputs: [
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "Locker",
-      },
-      {
-        name: "",
-        type: "tuple",
-        internalType: "struct PoolKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "config",
-            type: "bytes32",
-            internalType: "PoolConfig",
-          },
-        ],
-      },
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "PositionId",
-      },
-      {
-        name: "",
-        type: "int128",
-        internalType: "int128",
-      },
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "PoolBalanceUpdate",
-      },
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "PoolState",
-      },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "beforeCollectFees",
-    inputs: [
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "Locker",
-      },
-      {
-        name: "",
-        type: "tuple",
-        internalType: "struct PoolKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "config",
-            type: "bytes32",
-            internalType: "PoolConfig",
-          },
-        ],
-      },
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "PositionId",
-      },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "beforeInitializePool",
-    inputs: [
-      {
-        name: "",
-        type: "address",
-        internalType: "address",
-      },
-      {
-        name: "",
-        type: "tuple",
-        internalType: "struct PoolKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "config",
-            type: "bytes32",
-            internalType: "PoolConfig",
-          },
-        ],
-      },
-      {
-        name: "",
-        type: "int32",
-        internalType: "int32",
-      },
-    ],
-    outputs: [],
-    stateMutability: "pure",
-  },
-  {
-    type: "function",
-    name: "beforeSwap",
-    inputs: [
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "Locker",
-      },
-      {
-        name: "",
-        type: "tuple",
-        internalType: "struct PoolKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "config",
-            type: "bytes32",
-            internalType: "PoolConfig",
-          },
-        ],
-      },
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "SwapParameters",
-      },
-    ],
-    outputs: [],
-    stateMutability: "pure",
-  },
-  {
-    type: "function",
-    name: "beforeUpdatePosition",
-    inputs: [
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "Locker",
-      },
-      {
-        name: "",
-        type: "tuple",
-        internalType: "struct PoolKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "config",
-            type: "bytes32",
-            internalType: "PoolConfig",
-          },
-        ],
-      },
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "PositionId",
-      },
-      {
-        name: "",
-        type: "int128",
-        internalType: "int128",
-      },
-    ],
-    outputs: [],
-    stateMutability: "pure",
-  },
-  {
-    type: "function",
-    name: "creatorFees",
-    inputs: [
-      {
-        name: "poolKey",
-        type: "tuple",
-        internalType: "struct PoolKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "config",
-            type: "bytes32",
-            internalType: "PoolConfig",
-          },
-        ],
-      },
-    ],
-    outputs: [
-      {
-        name: "",
-        type: "uint128",
-        internalType: "uint128",
-      },
-      {
-        name: "",
-        type: "uint128",
-        internalType: "uint128",
-      },
-    ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "feeAt",
-    inputs: [
-      {
-        name: "poolId",
-        type: "bytes32",
-        internalType: "PoolId",
-      },
-      {
-        name: "timestamp",
-        type: "uint256",
-        internalType: "uint256",
-      },
-    ],
-    outputs: [
-      {
-        name: "",
-        type: "uint64",
-        internalType: "uint64",
-      },
-    ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "forwarded_2374103877",
-    inputs: [
-      {
-        name: "original",
-        type: "bytes32",
-        internalType: "Locker",
-      },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "function",
-    name: "getLaunch",
-    inputs: [
-      {
-        name: "poolId",
-        type: "bytes32",
-        internalType: "PoolId",
-      },
-    ],
-    outputs: [
-      {
-        name: "",
-        type: "tuple",
-        internalType: "struct IZeroSeedLaunch.Launch",
-        components: [
-          {
-            name: "controller",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "tradingStart",
-            type: "uint64",
-            internalType: "uint64",
-          },
-          {
-            name: "feeDuration",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "initialFee",
-            type: "uint64",
-            internalType: "uint64",
-          },
-          {
-            name: "finalFee",
-            type: "uint64",
-            internalType: "uint64",
-          },
-          {
-            name: "tickLower",
-            type: "int32",
-            internalType: "int32",
-          },
-          {
-            name: "tickUpper",
-            type: "int32",
-            internalType: "int32",
-          },
-        ],
-      },
-    ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "previewInstallation",
-    inputs: [
-      {
-        name: "controller",
-        type: "address",
-        internalType: "address",
-      },
-      {
-        name: "parameters",
-        type: "tuple",
-        internalType: "struct IZeroSeedLaunch.LaunchParameters",
-        components: [
-          {
-            name: "name",
-            type: "string",
-            internalType: "string",
-          },
-          {
-            name: "symbol",
-            type: "string",
-            internalType: "string",
-          },
-          {
-            name: "decimals",
-            type: "uint8",
-            internalType: "uint8",
-          },
-          {
-            name: "supply",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "quoteToken",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "askTick",
-            type: "int32",
-            internalType: "int32",
-          },
-          {
-            name: "upperTick",
-            type: "int32",
-            internalType: "int32",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "tradingStart",
-            type: "uint64",
-            internalType: "uint64",
-          },
-          {
-            name: "feeDuration",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "initialFee",
-            type: "uint64",
-            internalType: "uint64",
-          },
-          {
-            name: "finalFee",
-            type: "uint64",
-            internalType: "uint64",
-          },
-          {
-            name: "salt",
-            type: "bytes32",
-            internalType: "bytes32",
-          },
-        ],
-      },
-    ],
-    outputs: [
-      {
-        name: "",
-        type: "tuple",
-        internalType: "struct IZeroSeedLaunch.Installation",
-        components: [
-          {
-            name: "token",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "poolKey",
-            type: "tuple",
-            internalType: "struct PoolKey",
-            components: [
-              {
-                name: "token0",
-                type: "address",
-                internalType: "address",
-              },
-              {
-                name: "token1",
-                type: "address",
-                internalType: "address",
-              },
-              {
-                name: "config",
-                type: "bytes32",
-                internalType: "PoolConfig",
-              },
-            ],
-          },
-          {
-            name: "positionId",
-            type: "bytes32",
-            internalType: "PositionId",
-          },
-          {
-            name: "initialTick",
-            type: "int32",
-            internalType: "int32",
-          },
-          {
-            name: "liquidity",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "installedSupply",
-            type: "uint128",
-            internalType: "uint128",
-          },
-        ],
-      },
-    ],
-    stateMutability: "view",
-  },
-  {
-    type: "event",
-    name: "CreatorFeesClaimed",
-    inputs: [
-      {
-        name: "poolId",
-        type: "bytes32",
-        indexed: true,
-        internalType: "PoolId",
-      },
-      {
-        name: "controller",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-      {
-        name: "amount0",
-        type: "uint128",
-        indexed: false,
-        internalType: "uint128",
-      },
-      {
-        name: "amount1",
-        type: "uint128",
-        indexed: false,
-        internalType: "uint128",
-      },
-    ],
-    anonymous: false,
-  },
-  {
-    type: "event",
-    name: "LaunchCreated",
-    inputs: [
-      {
-        name: "poolId",
-        type: "bytes32",
-        indexed: true,
-        internalType: "PoolId",
-      },
-      {
-        name: "token",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-      {
-        name: "controller",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-      {
-        name: "poolKey",
-        type: "tuple",
-        indexed: false,
-        internalType: "struct PoolKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "config",
-            type: "bytes32",
-            internalType: "PoolConfig",
-          },
-        ],
-      },
-      {
-        name: "positionId",
-        type: "bytes32",
-        indexed: false,
-        internalType: "PositionId",
-      },
-      {
-        name: "liquidity",
-        type: "uint128",
-        indexed: false,
-        internalType: "uint128",
-      },
-      {
-        name: "parameters",
-        type: "tuple",
-        indexed: false,
-        internalType: "struct IZeroSeedLaunch.LaunchParameters",
-        components: [
-          {
-            name: "name",
-            type: "string",
-            internalType: "string",
-          },
-          {
-            name: "symbol",
-            type: "string",
-            internalType: "string",
-          },
-          {
-            name: "decimals",
-            type: "uint8",
-            internalType: "uint8",
-          },
-          {
-            name: "supply",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "quoteToken",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "askTick",
-            type: "int32",
-            internalType: "int32",
-          },
-          {
-            name: "upperTick",
-            type: "int32",
-            internalType: "int32",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "tradingStart",
-            type: "uint64",
-            internalType: "uint64",
-          },
-          {
-            name: "feeDuration",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "initialFee",
-            type: "uint64",
-            internalType: "uint64",
-          },
-          {
-            name: "finalFee",
-            type: "uint64",
-            internalType: "uint64",
-          },
-          {
-            name: "salt",
-            type: "bytes32",
-            internalType: "bytes32",
-          },
-        ],
-      },
-    ],
-    anonymous: false,
-  },
-  {
-    type: "event",
-    name: "LaunchSwapped",
-    inputs: [
-      {
-        name: "poolId",
-        type: "bytes32",
-        indexed: true,
-        internalType: "PoolId",
-      },
-      {
-        name: "locker",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-      {
-        name: "delta0",
-        type: "int128",
-        indexed: false,
-        internalType: "int128",
-      },
-      {
-        name: "delta1",
-        type: "int128",
-        indexed: false,
-        internalType: "int128",
-      },
-      {
-        name: "feeRate",
-        type: "uint64",
-        indexed: false,
-        internalType: "uint64",
-      },
-      {
-        name: "feeAmount",
-        type: "uint128",
-        indexed: false,
-        internalType: "uint128",
-      },
-      {
-        name: "feeIsToken1",
-        type: "bool",
-        indexed: false,
-        internalType: "bool",
-      },
-    ],
-    anonymous: false,
-  },
-  {
-    type: "error",
+    inputs: [],
     name: "BaseForwardeeAccountantOnly",
-    inputs: [],
+    type: "error",
   },
   {
-    type: "error",
+    inputs: [],
     name: "BoundsOrder",
-    inputs: [],
+    type: "error",
   },
   {
-    type: "error",
+    inputs: [],
     name: "BoundsTickSpacing",
-    inputs: [],
+    type: "error",
   },
   {
-    type: "error",
+    inputs: [],
     name: "CallPointNotImplemented",
-    inputs: [],
+    type: "error",
   },
   {
-    type: "error",
+    inputs: [],
     name: "ControllerOnly",
-    inputs: [],
+    type: "error",
   },
   {
-    type: "error",
+    inputs: [],
     name: "CoreOnly",
-    inputs: [],
+    type: "error",
   },
   {
-    type: "error",
+    inputs: [],
     name: "InitializeThroughCreateOnly",
-    inputs: [],
+    type: "error",
   },
   {
-    type: "error",
+    inputs: [],
     name: "InvalidFeeSchedule",
-    inputs: [],
+    type: "error",
   },
   {
-    type: "error",
-    name: "InvalidParameters",
     inputs: [],
+    name: "InvalidMetadata",
+    type: "error",
   },
   {
+    inputs: [],
+    name: "InvalidSupply",
     type: "error",
-    name: "InvalidTick",
+  },
+  {
     inputs: [
       {
+        internalType: "int32",
         name: "tick",
         type: "int32",
-        internalType: "int32",
       },
     ],
+    name: "InvalidTick",
+    type: "error",
   },
   {
-    type: "error",
-    name: "InvalidTradingStart",
     inputs: [],
+    name: "InvalidTicks",
+    type: "error",
   },
   {
+    inputs: [],
+    name: "InvalidTradingStart",
     type: "error",
-    name: "LaunchTokenExists",
+  },
+  {
     inputs: [
       {
+        internalType: "address",
         name: "token",
         type: "address",
-        internalType: "address",
       },
     ],
+    name: "LaunchTokenExists",
+    type: "error",
   },
   {
-    type: "error",
-    name: "LiquidityAboveTickCap",
     inputs: [
       {
+        internalType: "uint128",
         name: "liquidity",
         type: "uint128",
-        internalType: "uint128",
       },
       {
+        internalType: "uint128",
         name: "cap",
         type: "uint128",
-        internalType: "uint128",
       },
     ],
+    name: "LiquidityAboveTickCap",
+    type: "error",
   },
   {
-    type: "error",
-    name: "MetadataTooLong",
     inputs: [],
-  },
-  {
-    type: "error",
     name: "MinMaxBounds",
-    inputs: [],
+    type: "error",
   },
   {
-    type: "error",
+    inputs: [],
     name: "PositionsThroughCreateOnly",
-    inputs: [],
+    type: "error",
   },
   {
-    type: "error",
+    inputs: [],
     name: "StableswapMustBeFullRange",
-    inputs: [],
+    type: "error",
   },
   {
-    type: "error",
+    inputs: [],
     name: "SwapsThroughForwardOnly",
-    inputs: [],
+    type: "error",
   },
   {
-    type: "error",
+    inputs: [],
     name: "TradingNotStarted",
-    inputs: [],
+    type: "error",
   },
   {
-    type: "error",
+    inputs: [],
     name: "UnknownForwardAction",
-    inputs: [],
+    type: "error",
   },
   {
-    type: "error",
+    inputs: [],
     name: "UnknownLaunch",
-    inputs: [],
+    type: "error",
   },
   {
-    type: "error",
+    inputs: [],
     name: "UnsupportedQuoteToken",
-    inputs: [],
+    type: "error",
   },
   {
-    type: "error",
-    name: "ZeroLiquidity",
     inputs: [],
+    name: "ZeroLiquidity",
+    type: "error",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: "PoolId",
+        name: "poolId",
+        type: "bytes32",
+      },
+      {
+        indexed: true,
+        internalType: "address",
+        name: "controller",
+        type: "address",
+      },
+      {
+        indexed: false,
+        internalType: "uint128",
+        name: "amount0",
+        type: "uint128",
+      },
+      {
+        indexed: false,
+        internalType: "uint128",
+        name: "amount1",
+        type: "uint128",
+      },
+    ],
+    name: "CreatorFeesClaimed",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: "PoolId",
+        name: "poolId",
+        type: "bytes32",
+      },
+      {
+        indexed: true,
+        internalType: "address",
+        name: "token",
+        type: "address",
+      },
+      {
+        indexed: true,
+        internalType: "address",
+        name: "controller",
+        type: "address",
+      },
+      {
+        components: [
+          {
+            internalType: "address",
+            name: "token0",
+            type: "address",
+          },
+          {
+            internalType: "address",
+            name: "token1",
+            type: "address",
+          },
+          {
+            internalType: "PoolConfig",
+            name: "config",
+            type: "bytes32",
+          },
+        ],
+        indexed: false,
+        internalType: "struct PoolKey",
+        name: "poolKey",
+        type: "tuple",
+      },
+      {
+        indexed: false,
+        internalType: "PositionId",
+        name: "positionId",
+        type: "bytes32",
+      },
+      {
+        indexed: false,
+        internalType: "uint128",
+        name: "liquidity",
+        type: "uint128",
+      },
+      {
+        components: [
+          {
+            internalType: "bytes32",
+            name: "name",
+            type: "bytes32",
+          },
+          {
+            internalType: "bytes32",
+            name: "symbol",
+            type: "bytes32",
+          },
+          {
+            internalType: "uint128",
+            name: "supply",
+            type: "uint128",
+          },
+          {
+            internalType: "address",
+            name: "quoteToken",
+            type: "address",
+          },
+          {
+            internalType: "int32",
+            name: "askTick",
+            type: "int32",
+          },
+          {
+            internalType: "int32",
+            name: "upperTick",
+            type: "int32",
+          },
+          {
+            internalType: "uint64",
+            name: "tradingStart",
+            type: "uint64",
+          },
+          {
+            internalType: "uint64",
+            name: "decayRateX32",
+            type: "uint64",
+          },
+          {
+            internalType: "uint64",
+            name: "initialFee",
+            type: "uint64",
+          },
+          {
+            internalType: "uint64",
+            name: "finalFee",
+            type: "uint64",
+          },
+          {
+            internalType: "bytes32",
+            name: "salt",
+            type: "bytes32",
+          },
+        ],
+        indexed: false,
+        internalType: "struct IZeroSeedLaunch.LaunchParameters",
+        name: "parameters",
+        type: "tuple",
+      },
+      {
+        indexed: false,
+        internalType: "string",
+        name: "logoUrl",
+        type: "string",
+      },
+    ],
+    name: "LaunchCreated",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: "PoolId",
+        name: "poolId",
+        type: "bytes32",
+      },
+      {
+        indexed: true,
+        internalType: "address",
+        name: "locker",
+        type: "address",
+      },
+      {
+        indexed: false,
+        internalType: "int128",
+        name: "delta0",
+        type: "int128",
+      },
+      {
+        indexed: false,
+        internalType: "int128",
+        name: "delta1",
+        type: "int128",
+      },
+      {
+        indexed: false,
+        internalType: "uint64",
+        name: "feeRate",
+        type: "uint64",
+      },
+      {
+        indexed: false,
+        internalType: "uint128",
+        name: "feeAmount",
+        type: "uint128",
+      },
+      {
+        indexed: false,
+        internalType: "bool",
+        name: "feeIsToken1",
+        type: "bool",
+      },
+    ],
+    name: "LaunchSwapped",
+    type: "event",
+  },
+  {
+    inputs: [
+      {
+        internalType: "Locker",
+        name: "",
+        type: "bytes32",
+      },
+      {
+        components: [
+          {
+            internalType: "address",
+            name: "token0",
+            type: "address",
+          },
+          {
+            internalType: "address",
+            name: "token1",
+            type: "address",
+          },
+          {
+            internalType: "PoolConfig",
+            name: "config",
+            type: "bytes32",
+          },
+        ],
+        internalType: "struct PoolKey",
+        name: "",
+        type: "tuple",
+      },
+      {
+        internalType: "PositionId",
+        name: "",
+        type: "bytes32",
+      },
+      {
+        internalType: "uint128",
+        name: "",
+        type: "uint128",
+      },
+      {
+        internalType: "uint128",
+        name: "",
+        type: "uint128",
+      },
+    ],
+    name: "afterCollectFees",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
+      {
+        components: [
+          {
+            internalType: "address",
+            name: "token0",
+            type: "address",
+          },
+          {
+            internalType: "address",
+            name: "token1",
+            type: "address",
+          },
+          {
+            internalType: "PoolConfig",
+            name: "config",
+            type: "bytes32",
+          },
+        ],
+        internalType: "struct PoolKey",
+        name: "",
+        type: "tuple",
+      },
+      {
+        internalType: "int32",
+        name: "",
+        type: "int32",
+      },
+      {
+        internalType: "SqrtRatio",
+        name: "",
+        type: "uint96",
+      },
+    ],
+    name: "afterInitializePool",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "Locker",
+        name: "",
+        type: "bytes32",
+      },
+      {
+        components: [
+          {
+            internalType: "address",
+            name: "token0",
+            type: "address",
+          },
+          {
+            internalType: "address",
+            name: "token1",
+            type: "address",
+          },
+          {
+            internalType: "PoolConfig",
+            name: "config",
+            type: "bytes32",
+          },
+        ],
+        internalType: "struct PoolKey",
+        name: "",
+        type: "tuple",
+      },
+      {
+        internalType: "SwapParameters",
+        name: "",
+        type: "bytes32",
+      },
+      {
+        internalType: "PoolBalanceUpdate",
+        name: "",
+        type: "bytes32",
+      },
+      {
+        internalType: "PoolState",
+        name: "",
+        type: "bytes32",
+      },
+    ],
+    name: "afterSwap",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "Locker",
+        name: "",
+        type: "bytes32",
+      },
+      {
+        components: [
+          {
+            internalType: "address",
+            name: "token0",
+            type: "address",
+          },
+          {
+            internalType: "address",
+            name: "token1",
+            type: "address",
+          },
+          {
+            internalType: "PoolConfig",
+            name: "config",
+            type: "bytes32",
+          },
+        ],
+        internalType: "struct PoolKey",
+        name: "",
+        type: "tuple",
+      },
+      {
+        internalType: "PositionId",
+        name: "",
+        type: "bytes32",
+      },
+      {
+        internalType: "int128",
+        name: "",
+        type: "int128",
+      },
+      {
+        internalType: "PoolBalanceUpdate",
+        name: "",
+        type: "bytes32",
+      },
+      {
+        internalType: "PoolState",
+        name: "",
+        type: "bytes32",
+      },
+    ],
+    name: "afterUpdatePosition",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "Locker",
+        name: "",
+        type: "bytes32",
+      },
+      {
+        components: [
+          {
+            internalType: "address",
+            name: "token0",
+            type: "address",
+          },
+          {
+            internalType: "address",
+            name: "token1",
+            type: "address",
+          },
+          {
+            internalType: "PoolConfig",
+            name: "config",
+            type: "bytes32",
+          },
+        ],
+        internalType: "struct PoolKey",
+        name: "",
+        type: "tuple",
+      },
+      {
+        internalType: "PositionId",
+        name: "",
+        type: "bytes32",
+      },
+    ],
+    name: "beforeCollectFees",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
+      {
+        components: [
+          {
+            internalType: "address",
+            name: "token0",
+            type: "address",
+          },
+          {
+            internalType: "address",
+            name: "token1",
+            type: "address",
+          },
+          {
+            internalType: "PoolConfig",
+            name: "config",
+            type: "bytes32",
+          },
+        ],
+        internalType: "struct PoolKey",
+        name: "",
+        type: "tuple",
+      },
+      {
+        internalType: "int32",
+        name: "",
+        type: "int32",
+      },
+    ],
+    name: "beforeInitializePool",
+    outputs: [],
+    stateMutability: "pure",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "Locker",
+        name: "",
+        type: "bytes32",
+      },
+      {
+        components: [
+          {
+            internalType: "address",
+            name: "token0",
+            type: "address",
+          },
+          {
+            internalType: "address",
+            name: "token1",
+            type: "address",
+          },
+          {
+            internalType: "PoolConfig",
+            name: "config",
+            type: "bytes32",
+          },
+        ],
+        internalType: "struct PoolKey",
+        name: "",
+        type: "tuple",
+      },
+      {
+        internalType: "SwapParameters",
+        name: "",
+        type: "bytes32",
+      },
+    ],
+    name: "beforeSwap",
+    outputs: [],
+    stateMutability: "pure",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "Locker",
+        name: "",
+        type: "bytes32",
+      },
+      {
+        components: [
+          {
+            internalType: "address",
+            name: "token0",
+            type: "address",
+          },
+          {
+            internalType: "address",
+            name: "token1",
+            type: "address",
+          },
+          {
+            internalType: "PoolConfig",
+            name: "config",
+            type: "bytes32",
+          },
+        ],
+        internalType: "struct PoolKey",
+        name: "",
+        type: "tuple",
+      },
+      {
+        internalType: "PositionId",
+        name: "",
+        type: "bytes32",
+      },
+      {
+        internalType: "int128",
+        name: "",
+        type: "int128",
+      },
+    ],
+    name: "beforeUpdatePosition",
+    outputs: [],
+    stateMutability: "pure",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        components: [
+          {
+            internalType: "address",
+            name: "token0",
+            type: "address",
+          },
+          {
+            internalType: "address",
+            name: "token1",
+            type: "address",
+          },
+          {
+            internalType: "PoolConfig",
+            name: "config",
+            type: "bytes32",
+          },
+        ],
+        internalType: "struct PoolKey",
+        name: "poolKey",
+        type: "tuple",
+      },
+    ],
+    name: "creatorFees",
+    outputs: [
+      {
+        internalType: "uint128",
+        name: "",
+        type: "uint128",
+      },
+      {
+        internalType: "uint128",
+        name: "",
+        type: "uint128",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "PoolId",
+        name: "poolId",
+        type: "bytes32",
+      },
+      {
+        internalType: "uint256",
+        name: "timestamp",
+        type: "uint256",
+      },
+    ],
+    name: "feeAt",
+    outputs: [
+      {
+        internalType: "uint64",
+        name: "",
+        type: "uint64",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "Locker",
+        name: "original",
+        type: "bytes32",
+      },
+    ],
+    name: "forwarded_2374103877",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "PoolId",
+        name: "poolId",
+        type: "bytes32",
+      },
+    ],
+    name: "getLaunch",
+    outputs: [
+      {
+        components: [
+          {
+            internalType: "address",
+            name: "controller",
+            type: "address",
+          },
+          {
+            internalType: "uint64",
+            name: "tradingStart",
+            type: "uint64",
+          },
+          {
+            internalType: "uint64",
+            name: "decayRateX32",
+            type: "uint64",
+          },
+          {
+            internalType: "uint64",
+            name: "initialFee",
+            type: "uint64",
+          },
+          {
+            internalType: "uint64",
+            name: "finalFee",
+            type: "uint64",
+          },
+          {
+            internalType: "int32",
+            name: "tickLower",
+            type: "int32",
+          },
+          {
+            internalType: "int32",
+            name: "tickUpper",
+            type: "int32",
+          },
+        ],
+        internalType: "struct IZeroSeedLaunch.Launch",
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "controller",
+        type: "address",
+      },
+      {
+        components: [
+          {
+            internalType: "bytes32",
+            name: "name",
+            type: "bytes32",
+          },
+          {
+            internalType: "bytes32",
+            name: "symbol",
+            type: "bytes32",
+          },
+          {
+            internalType: "uint128",
+            name: "supply",
+            type: "uint128",
+          },
+          {
+            internalType: "address",
+            name: "quoteToken",
+            type: "address",
+          },
+          {
+            internalType: "int32",
+            name: "askTick",
+            type: "int32",
+          },
+          {
+            internalType: "int32",
+            name: "upperTick",
+            type: "int32",
+          },
+          {
+            internalType: "uint64",
+            name: "tradingStart",
+            type: "uint64",
+          },
+          {
+            internalType: "uint64",
+            name: "decayRateX32",
+            type: "uint64",
+          },
+          {
+            internalType: "uint64",
+            name: "initialFee",
+            type: "uint64",
+          },
+          {
+            internalType: "uint64",
+            name: "finalFee",
+            type: "uint64",
+          },
+          {
+            internalType: "bytes32",
+            name: "salt",
+            type: "bytes32",
+          },
+        ],
+        internalType: "struct IZeroSeedLaunch.LaunchParameters",
+        name: "parameters",
+        type: "tuple",
+      },
+    ],
+    name: "previewInstallation",
+    outputs: [
+      {
+        components: [
+          {
+            internalType: "address",
+            name: "token",
+            type: "address",
+          },
+          {
+            components: [
+              {
+                internalType: "address",
+                name: "token0",
+                type: "address",
+              },
+              {
+                internalType: "address",
+                name: "token1",
+                type: "address",
+              },
+              {
+                internalType: "PoolConfig",
+                name: "config",
+                type: "bytes32",
+              },
+            ],
+            internalType: "struct PoolKey",
+            name: "poolKey",
+            type: "tuple",
+          },
+          {
+            internalType: "PositionId",
+            name: "positionId",
+            type: "bytes32",
+          },
+          {
+            internalType: "int32",
+            name: "initialTick",
+            type: "int32",
+          },
+          {
+            internalType: "uint128",
+            name: "liquidity",
+            type: "uint128",
+          },
+          {
+            internalType: "uint128",
+            name: "installedSupply",
+            type: "uint128",
+          },
+          {
+            internalType: "uint32",
+            name: "tickSpacing",
+            type: "uint32",
+          },
+          {
+            internalType: "int32",
+            name: "askTick",
+            type: "int32",
+          },
+          {
+            internalType: "int32",
+            name: "upperTick",
+            type: "int32",
+          },
+        ],
+        internalType: "struct IZeroSeedLaunch.Installation",
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
   },
 ] as const;
 
 export const ZERO_SEED_LAUNCH_PERIPHERY_ABI = [
   {
-    type: "constructor",
     inputs: [
       {
+        internalType: "contract ICore",
         name: "core",
         type: "address",
-        internalType: "contract ICore",
       },
       {
+        internalType: "contract IZeroSeedLaunch",
         name: "launch",
         type: "address",
-        internalType: "contract IZeroSeedLaunch",
       },
     ],
     stateMutability: "nonpayable",
+    type: "constructor",
   },
   {
-    type: "function",
-    name: "LAUNCH",
     inputs: [],
-    outputs: [
-      {
-        name: "",
-        type: "address",
-        internalType: "contract IZeroSeedLaunch",
-      },
-    ],
-    stateMutability: "view",
+    name: "BaseLockerAccountantOnly",
+    type: "error",
   },
   {
-    type: "function",
-    name: "claimFees",
-    inputs: [
-      {
-        name: "poolKey",
-        type: "tuple",
-        internalType: "struct PoolKey",
-        components: [
-          {
-            name: "token0",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "token1",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "config",
-            type: "bytes32",
-            internalType: "PoolConfig",
-          },
-        ],
-      },
-      {
-        name: "recipient",
-        type: "address",
-        internalType: "address",
-      },
-    ],
-    outputs: [
-      {
-        name: "amount0",
-        type: "uint128",
-        internalType: "uint128",
-      },
-      {
-        name: "amount1",
-        type: "uint128",
-        internalType: "uint128",
-      },
-    ],
-    stateMutability: "nonpayable",
+    inputs: [],
+    name: "ExpectedRevertWithinLock",
+    type: "error",
   },
   {
-    type: "function",
-    name: "create",
-    inputs: [
-      {
-        name: "parameters",
-        type: "tuple",
-        internalType: "struct IZeroSeedLaunch.LaunchParameters",
-        components: [
-          {
-            name: "name",
-            type: "string",
-            internalType: "string",
-          },
-          {
-            name: "symbol",
-            type: "string",
-            internalType: "string",
-          },
-          {
-            name: "decimals",
-            type: "uint8",
-            internalType: "uint8",
-          },
-          {
-            name: "supply",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "quoteToken",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "askTick",
-            type: "int32",
-            internalType: "int32",
-          },
-          {
-            name: "upperTick",
-            type: "int32",
-            internalType: "int32",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "tradingStart",
-            type: "uint64",
-            internalType: "uint64",
-          },
-          {
-            name: "feeDuration",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "initialFee",
-            type: "uint64",
-            internalType: "uint64",
-          },
-          {
-            name: "finalFee",
-            type: "uint64",
-            internalType: "uint64",
-          },
-          {
-            name: "salt",
-            type: "bytes32",
-            internalType: "bytes32",
-          },
-        ],
-      },
-    ],
-    outputs: [
-      {
-        name: "installation",
-        type: "tuple",
-        internalType: "struct IZeroSeedLaunch.Installation",
-        components: [
-          {
-            name: "token",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "poolKey",
-            type: "tuple",
-            internalType: "struct PoolKey",
-            components: [
-              {
-                name: "token0",
-                type: "address",
-                internalType: "address",
-              },
-              {
-                name: "token1",
-                type: "address",
-                internalType: "address",
-              },
-              {
-                name: "config",
-                type: "bytes32",
-                internalType: "PoolConfig",
-              },
-            ],
-          },
-          {
-            name: "positionId",
-            type: "bytes32",
-            internalType: "PositionId",
-          },
-          {
-            name: "initialTick",
-            type: "int32",
-            internalType: "int32",
-          },
-          {
-            name: "liquidity",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "installedSupply",
-            type: "uint128",
-            internalType: "uint128",
-          },
-        ],
-      },
-    ],
-    stateMutability: "nonpayable",
+    inputs: [],
+    name: "InvalidOwner",
+    type: "error",
   },
   {
-    type: "function",
-    name: "launchOwner",
-    inputs: [
-      {
-        name: "",
-        type: "bytes32",
-        internalType: "PoolId",
-      },
-    ],
-    outputs: [
-      {
-        name: "",
-        type: "address",
-        internalType: "address",
-      },
-    ],
-    stateMutability: "view",
+    inputs: [],
+    name: "InvalidRecipient",
+    type: "error",
   },
   {
-    type: "function",
-    name: "locked_6416899205",
-    inputs: [
-      {
-        name: "id",
-        type: "uint256",
-        internalType: "uint256",
-      },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
+    inputs: [],
+    name: "OwnerOnly",
+    type: "error",
   },
   {
-    type: "function",
-    name: "previewInstallation",
-    inputs: [
-      {
-        name: "owner",
-        type: "address",
-        internalType: "address",
-      },
-      {
-        name: "parameters",
-        type: "tuple",
-        internalType: "struct IZeroSeedLaunch.LaunchParameters",
-        components: [
-          {
-            name: "name",
-            type: "string",
-            internalType: "string",
-          },
-          {
-            name: "symbol",
-            type: "string",
-            internalType: "string",
-          },
-          {
-            name: "decimals",
-            type: "uint8",
-            internalType: "uint8",
-          },
-          {
-            name: "supply",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "quoteToken",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "askTick",
-            type: "int32",
-            internalType: "int32",
-          },
-          {
-            name: "upperTick",
-            type: "int32",
-            internalType: "int32",
-          },
-          {
-            name: "tickSpacing",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "tradingStart",
-            type: "uint64",
-            internalType: "uint64",
-          },
-          {
-            name: "feeDuration",
-            type: "uint32",
-            internalType: "uint32",
-          },
-          {
-            name: "initialFee",
-            type: "uint64",
-            internalType: "uint64",
-          },
-          {
-            name: "finalFee",
-            type: "uint64",
-            internalType: "uint64",
-          },
-          {
-            name: "salt",
-            type: "bytes32",
-            internalType: "bytes32",
-          },
-        ],
-      },
-    ],
-    outputs: [
-      {
-        name: "",
-        type: "tuple",
-        internalType: "struct IZeroSeedLaunch.Installation",
-        components: [
-          {
-            name: "token",
-            type: "address",
-            internalType: "address",
-          },
-          {
-            name: "poolKey",
-            type: "tuple",
-            internalType: "struct PoolKey",
-            components: [
-              {
-                name: "token0",
-                type: "address",
-                internalType: "address",
-              },
-              {
-                name: "token1",
-                type: "address",
-                internalType: "address",
-              },
-              {
-                name: "config",
-                type: "bytes32",
-                internalType: "PoolConfig",
-              },
-            ],
-          },
-          {
-            name: "positionId",
-            type: "bytes32",
-            internalType: "PositionId",
-          },
-          {
-            name: "initialTick",
-            type: "int32",
-            internalType: "int32",
-          },
-          {
-            name: "liquidity",
-            type: "uint128",
-            internalType: "uint128",
-          },
-          {
-            name: "installedSupply",
-            type: "uint128",
-            internalType: "uint128",
-          },
-        ],
-      },
-    ],
-    stateMutability: "view",
-  },
-  {
-    type: "function",
-    name: "transferLaunch",
-    inputs: [
-      {
-        name: "poolId",
-        type: "bytes32",
-        internalType: "PoolId",
-      },
-      {
-        name: "newOwner",
-        type: "address",
-        internalType: "address",
-      },
-    ],
-    outputs: [],
-    stateMutability: "nonpayable",
-  },
-  {
-    type: "event",
-    name: "LaunchFeesClaimed",
-    inputs: [
-      {
-        name: "poolId",
-        type: "bytes32",
-        indexed: true,
-        internalType: "PoolId",
-      },
-      {
-        name: "owner",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-      {
-        name: "recipient",
-        type: "address",
-        indexed: true,
-        internalType: "address",
-      },
-      {
-        name: "amount0",
-        type: "uint128",
-        indexed: false,
-        internalType: "uint128",
-      },
-      {
-        name: "amount1",
-        type: "uint128",
-        indexed: false,
-        internalType: "uint128",
-      },
-    ],
     anonymous: false,
-  },
-  {
-    type: "event",
-    name: "LaunchOwnerChanged",
     inputs: [
       {
-        name: "poolId",
-        type: "bytes32",
         indexed: true,
         internalType: "PoolId",
+        name: "poolId",
+        type: "bytes32",
       },
       {
+        indexed: true,
+        internalType: "address",
+        name: "owner",
+        type: "address",
+      },
+      {
+        indexed: true,
+        internalType: "address",
+        name: "recipient",
+        type: "address",
+      },
+      {
+        indexed: false,
+        internalType: "uint128",
+        name: "amount0",
+        type: "uint128",
+      },
+      {
+        indexed: false,
+        internalType: "uint128",
+        name: "amount1",
+        type: "uint128",
+      },
+    ],
+    name: "LaunchFeesClaimed",
+    type: "event",
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: "PoolId",
+        name: "poolId",
+        type: "bytes32",
+      },
+      {
+        indexed: true,
+        internalType: "address",
         name: "previousOwner",
         type: "address",
-        indexed: true,
-        internalType: "address",
       },
       {
-        name: "newOwner",
-        type: "address",
         indexed: true,
         internalType: "address",
+        name: "newOwner",
+        type: "address",
       },
     ],
+    name: "LaunchOwnerChanged",
+    type: "event",
+  },
+  {
+    inputs: [],
+    name: "LAUNCH",
+    outputs: [
+      {
+        internalType: "contract IZeroSeedLaunch",
+        name: "",
+        type: "address",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        components: [
+          {
+            internalType: "address",
+            name: "token0",
+            type: "address",
+          },
+          {
+            internalType: "address",
+            name: "token1",
+            type: "address",
+          },
+          {
+            internalType: "PoolConfig",
+            name: "config",
+            type: "bytes32",
+          },
+        ],
+        internalType: "struct PoolKey",
+        name: "poolKey",
+        type: "tuple",
+      },
+      {
+        internalType: "address",
+        name: "recipient",
+        type: "address",
+      },
+    ],
+    name: "claimFees",
+    outputs: [
+      {
+        internalType: "uint128",
+        name: "amount0",
+        type: "uint128",
+      },
+      {
+        internalType: "uint128",
+        name: "amount1",
+        type: "uint128",
+      },
+    ],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        components: [
+          {
+            internalType: "bytes32",
+            name: "name",
+            type: "bytes32",
+          },
+          {
+            internalType: "bytes32",
+            name: "symbol",
+            type: "bytes32",
+          },
+          {
+            internalType: "uint128",
+            name: "supply",
+            type: "uint128",
+          },
+          {
+            internalType: "address",
+            name: "quoteToken",
+            type: "address",
+          },
+          {
+            internalType: "int32",
+            name: "askTick",
+            type: "int32",
+          },
+          {
+            internalType: "int32",
+            name: "upperTick",
+            type: "int32",
+          },
+          {
+            internalType: "uint64",
+            name: "tradingStart",
+            type: "uint64",
+          },
+          {
+            internalType: "uint64",
+            name: "decayRateX32",
+            type: "uint64",
+          },
+          {
+            internalType: "uint64",
+            name: "initialFee",
+            type: "uint64",
+          },
+          {
+            internalType: "uint64",
+            name: "finalFee",
+            type: "uint64",
+          },
+          {
+            internalType: "bytes32",
+            name: "salt",
+            type: "bytes32",
+          },
+        ],
+        internalType: "struct IZeroSeedLaunch.LaunchParameters",
+        name: "parameters",
+        type: "tuple",
+      },
+      {
+        internalType: "string",
+        name: "logoUrl",
+        type: "string",
+      },
+    ],
+    name: "create",
+    outputs: [
+      {
+        components: [
+          {
+            internalType: "address",
+            name: "token",
+            type: "address",
+          },
+          {
+            components: [
+              {
+                internalType: "address",
+                name: "token0",
+                type: "address",
+              },
+              {
+                internalType: "address",
+                name: "token1",
+                type: "address",
+              },
+              {
+                internalType: "PoolConfig",
+                name: "config",
+                type: "bytes32",
+              },
+            ],
+            internalType: "struct PoolKey",
+            name: "poolKey",
+            type: "tuple",
+          },
+          {
+            internalType: "PositionId",
+            name: "positionId",
+            type: "bytes32",
+          },
+          {
+            internalType: "int32",
+            name: "initialTick",
+            type: "int32",
+          },
+          {
+            internalType: "uint128",
+            name: "liquidity",
+            type: "uint128",
+          },
+          {
+            internalType: "uint128",
+            name: "installedSupply",
+            type: "uint128",
+          },
+          {
+            internalType: "uint32",
+            name: "tickSpacing",
+            type: "uint32",
+          },
+          {
+            internalType: "int32",
+            name: "askTick",
+            type: "int32",
+          },
+          {
+            internalType: "int32",
+            name: "upperTick",
+            type: "int32",
+          },
+        ],
+        internalType: "struct IZeroSeedLaunch.Installation",
+        name: "installation",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "PoolId",
+        name: "",
+        type: "bytes32",
+      },
+    ],
+    name: "launchOwner",
+    outputs: [
+      {
+        internalType: "address",
+        name: "",
+        type: "address",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "uint256",
+        name: "id",
+        type: "uint256",
+      },
+    ],
+    name: "locked_6416899205",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "owner",
+        type: "address",
+      },
+      {
+        components: [
+          {
+            internalType: "bytes32",
+            name: "name",
+            type: "bytes32",
+          },
+          {
+            internalType: "bytes32",
+            name: "symbol",
+            type: "bytes32",
+          },
+          {
+            internalType: "uint128",
+            name: "supply",
+            type: "uint128",
+          },
+          {
+            internalType: "address",
+            name: "quoteToken",
+            type: "address",
+          },
+          {
+            internalType: "int32",
+            name: "askTick",
+            type: "int32",
+          },
+          {
+            internalType: "int32",
+            name: "upperTick",
+            type: "int32",
+          },
+          {
+            internalType: "uint64",
+            name: "tradingStart",
+            type: "uint64",
+          },
+          {
+            internalType: "uint64",
+            name: "decayRateX32",
+            type: "uint64",
+          },
+          {
+            internalType: "uint64",
+            name: "initialFee",
+            type: "uint64",
+          },
+          {
+            internalType: "uint64",
+            name: "finalFee",
+            type: "uint64",
+          },
+          {
+            internalType: "bytes32",
+            name: "salt",
+            type: "bytes32",
+          },
+        ],
+        internalType: "struct IZeroSeedLaunch.LaunchParameters",
+        name: "parameters",
+        type: "tuple",
+      },
+    ],
+    name: "previewInstallation",
+    outputs: [
+      {
+        components: [
+          {
+            internalType: "address",
+            name: "token",
+            type: "address",
+          },
+          {
+            components: [
+              {
+                internalType: "address",
+                name: "token0",
+                type: "address",
+              },
+              {
+                internalType: "address",
+                name: "token1",
+                type: "address",
+              },
+              {
+                internalType: "PoolConfig",
+                name: "config",
+                type: "bytes32",
+              },
+            ],
+            internalType: "struct PoolKey",
+            name: "poolKey",
+            type: "tuple",
+          },
+          {
+            internalType: "PositionId",
+            name: "positionId",
+            type: "bytes32",
+          },
+          {
+            internalType: "int32",
+            name: "initialTick",
+            type: "int32",
+          },
+          {
+            internalType: "uint128",
+            name: "liquidity",
+            type: "uint128",
+          },
+          {
+            internalType: "uint128",
+            name: "installedSupply",
+            type: "uint128",
+          },
+          {
+            internalType: "uint32",
+            name: "tickSpacing",
+            type: "uint32",
+          },
+          {
+            internalType: "int32",
+            name: "askTick",
+            type: "int32",
+          },
+          {
+            internalType: "int32",
+            name: "upperTick",
+            type: "int32",
+          },
+        ],
+        internalType: "struct IZeroSeedLaunch.Installation",
+        name: "",
+        type: "tuple",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "PoolId",
+        name: "poolId",
+        type: "bytes32",
+      },
+      {
+        internalType: "address",
+        name: "newOwner",
+        type: "address",
+      },
+    ],
+    name: "transferLaunch",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+] as const;
+
+export const LAUNCH_TOKEN_ABI = [
+  {
+    inputs: [
+      {
+        internalType: "bytes32",
+        name: "name_",
+        type: "bytes32",
+      },
+      {
+        internalType: "bytes32",
+        name: "symbol_",
+        type: "bytes32",
+      },
+    ],
+    stateMutability: "nonpayable",
+    type: "constructor",
+  },
+  {
+    inputs: [],
+    name: "AllowanceOverflow",
+    type: "error",
+  },
+  {
+    inputs: [],
+    name: "AllowanceUnderflow",
+    type: "error",
+  },
+  {
+    inputs: [],
+    name: "InsufficientAllowance",
+    type: "error",
+  },
+  {
+    inputs: [],
+    name: "InsufficientBalance",
+    type: "error",
+  },
+  {
+    inputs: [],
+    name: "InvalidPermit",
+    type: "error",
+  },
+  {
+    inputs: [],
+    name: "MintClosed",
+    type: "error",
+  },
+  {
+    inputs: [],
+    name: "Permit2AllowanceIsFixedAtInfinity",
+    type: "error",
+  },
+  {
+    inputs: [],
+    name: "PermitExpired",
+    type: "error",
+  },
+  {
+    inputs: [],
+    name: "TotalSupplyOverflow",
+    type: "error",
+  },
+  {
     anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: "address",
+        name: "owner",
+        type: "address",
+      },
+      {
+        indexed: true,
+        internalType: "address",
+        name: "spender",
+        type: "address",
+      },
+      {
+        indexed: false,
+        internalType: "uint256",
+        name: "amount",
+        type: "uint256",
+      },
+    ],
+    name: "Approval",
+    type: "event",
   },
   {
-    type: "error",
-    name: "BaseLockerAccountantOnly",
-    inputs: [],
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: "address",
+        name: "from",
+        type: "address",
+      },
+      {
+        indexed: true,
+        internalType: "address",
+        name: "to",
+        type: "address",
+      },
+      {
+        indexed: false,
+        internalType: "uint256",
+        name: "amount",
+        type: "uint256",
+      },
+    ],
+    name: "Transfer",
+    type: "event",
   },
   {
-    type: "error",
-    name: "ExpectedRevertWithinLock",
     inputs: [],
+    name: "DOMAIN_SEPARATOR",
+    outputs: [
+      {
+        internalType: "bytes32",
+        name: "result",
+        type: "bytes32",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
   },
   {
-    type: "error",
-    name: "InvalidOwner",
-    inputs: [],
+    inputs: [
+      {
+        internalType: "address",
+        name: "owner",
+        type: "address",
+      },
+      {
+        internalType: "address",
+        name: "spender",
+        type: "address",
+      },
+    ],
+    name: "allowance",
+    outputs: [
+      {
+        internalType: "uint256",
+        name: "result",
+        type: "uint256",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
   },
   {
-    type: "error",
-    name: "InvalidRecipient",
-    inputs: [],
+    inputs: [
+      {
+        internalType: "address",
+        name: "spender",
+        type: "address",
+      },
+      {
+        internalType: "uint256",
+        name: "amount",
+        type: "uint256",
+      },
+    ],
+    name: "approve",
+    outputs: [
+      {
+        internalType: "bool",
+        name: "",
+        type: "bool",
+      },
+    ],
+    stateMutability: "nonpayable",
+    type: "function",
   },
   {
-    type: "error",
-    name: "OwnerOnly",
+    inputs: [
+      {
+        internalType: "address",
+        name: "owner",
+        type: "address",
+      },
+    ],
+    name: "balanceOf",
+    outputs: [
+      {
+        internalType: "uint256",
+        name: "result",
+        type: "uint256",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
     inputs: [],
+    name: "decimals",
+    outputs: [
+      {
+        internalType: "uint8",
+        name: "",
+        type: "uint8",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "recipient",
+        type: "address",
+      },
+      {
+        internalType: "uint128",
+        name: "amount",
+        type: "uint128",
+      },
+      {
+        internalType: "uint128",
+        name: "remainder",
+        type: "uint128",
+      },
+    ],
+    name: "mint",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "name",
+    outputs: [
+      {
+        internalType: "string",
+        name: "",
+        type: "string",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "owner",
+        type: "address",
+      },
+    ],
+    name: "nonces",
+    outputs: [
+      {
+        internalType: "uint256",
+        name: "result",
+        type: "uint256",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "owner",
+        type: "address",
+      },
+      {
+        internalType: "address",
+        name: "spender",
+        type: "address",
+      },
+      {
+        internalType: "uint256",
+        name: "value",
+        type: "uint256",
+      },
+      {
+        internalType: "uint256",
+        name: "deadline",
+        type: "uint256",
+      },
+      {
+        internalType: "uint8",
+        name: "v",
+        type: "uint8",
+      },
+      {
+        internalType: "bytes32",
+        name: "r",
+        type: "bytes32",
+      },
+      {
+        internalType: "bytes32",
+        name: "s",
+        type: "bytes32",
+      },
+    ],
+    name: "permit",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "symbol",
+    outputs: [
+      {
+        internalType: "string",
+        name: "",
+        type: "string",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [],
+    name: "totalSupply",
+    outputs: [
+      {
+        internalType: "uint256",
+        name: "result",
+        type: "uint256",
+      },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "to",
+        type: "address",
+      },
+      {
+        internalType: "uint256",
+        name: "amount",
+        type: "uint256",
+      },
+    ],
+    name: "transfer",
+    outputs: [
+      {
+        internalType: "bool",
+        name: "",
+        type: "bool",
+      },
+    ],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [
+      {
+        internalType: "address",
+        name: "from",
+        type: "address",
+      },
+      {
+        internalType: "address",
+        name: "to",
+        type: "address",
+      },
+      {
+        internalType: "uint256",
+        name: "amount",
+        type: "uint256",
+      },
+    ],
+    name: "transferFrom",
+    outputs: [
+      {
+        internalType: "bool",
+        name: "",
+        type: "bool",
+      },
+    ],
+    stateMutability: "nonpayable",
+    type: "function",
   },
 ] as const;
