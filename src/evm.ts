@@ -202,9 +202,7 @@ function createEvmIndexing() {
             "RECOMPILED_ORDERS_V3_ADDRESS",
           ]),
           ...evmV3Ve33AddressConfig,
-          zeroSeedLaunchAddresses: zeroSeedLaunchPin
-            ? [zeroSeedLaunchPin.address]
-            : [],
+          zeroSeedLaunchPins: zeroSeedLaunchPin ? [zeroSeedLaunchPin] : [],
           positionsContracts: positionsV3ProtocolFeeConfigs ?? [],
         })
       : []),

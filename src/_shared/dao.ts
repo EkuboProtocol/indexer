@@ -319,18 +319,7 @@ export interface ZeroSeedLaunchEventDescriptor {
   poolId: `0x${string}`;
 }
 
-/**
- * The decay parameter of a launch, by the fee model of its deployment: a
- * feeDuration (evm-contracts 43d6628) or a decayRateX32 (3d6378f), never both.
- */
-export type ZeroSeedLaunchFeeDecayInsert =
-  | { feeModel: "fixed_base_duration_v1"; feeDuration: number }
-  | { feeModel: "tick_rate_v2"; decayRateX32: NumericValue };
-
-export type ZeroSeedLaunchCreatedInsert = ZeroSeedLaunchCreatedFields &
-  ZeroSeedLaunchFeeDecayInsert;
-
-export interface ZeroSeedLaunchCreatedFields extends ZeroSeedLaunchEventDescriptor {
+export interface ZeroSeedLaunchCreatedInsert extends ZeroSeedLaunchEventDescriptor {
   token: AddressValue;
   controller: AddressValue;
   /** LaunchParameters.quoteToken, the other token of the pool key; 0 is native ETH. */
@@ -340,13 +329,22 @@ export interface ZeroSeedLaunchCreatedFields extends ZeroSeedLaunchEventDescript
   liquidity: bigint;
   /** LaunchParameters.supply: the token's totalSupply. */
   requestedSupply: bigint;
-  name: string;
-  symbol: string;
-  decimals: number;
+  /** The packed LaunchParameters.name/symbol words. */
+  nameWord: `0x${string}`;
+  symbolWord: `0x${string}`;
+  /** Their content when it is storable text. */
+  name: string | null;
+  symbol: string | null;
+  /** LaunchCreated.logoUrl exactly as emitted, and as text when storable. */
+  logoUrlBytes: Uint8Array;
+  logoUrl: string | null;
   askTick: number;
   upperTick: number;
   tickSpacing: number;
+  alignedAskTick: number;
+  alignedUpperTick: number;
   tradingStart: NumericValue;
+  decayRateX32: NumericValue;
   initialFee: NumericValue;
   finalFee: NumericValue;
   salt: `0x${string}`;
@@ -382,12 +380,6 @@ export interface ZeroSeedLaunchFeesPaidInsert extends ZeroSeedLaunchPeripheryEve
   recipient: AddressValue;
   amount0: NumericValue;
   amount1: NumericValue;
-}
-
-// Postgres text cannot hold NUL, and launch names and symbols are arbitrary
-// creator input.
-export function stripNul(value: string): string {
-  return value.replaceAll("\u0000", "");
 }
 
 export interface TokenRegistrationInsert {
@@ -1243,8 +1235,8 @@ export class DAO {
   ): Promise<bigint> {
     const tokenIs1 = BigInt(parsed.token) > BigInt(parsed.quoteToken);
     const [lower, upper] = tokenIs1
-      ? [-parsed.upperTick, -parsed.askTick]
-      : [parsed.askTick, parsed.upperTick];
+      ? [-parsed.alignedUpperTick, -parsed.alignedAskTick]
+      : [parsed.alignedAskTick, parsed.alignedUpperTick];
     const rows = await this.sql<
       { liquidity_delta: bigint; delta0: bigint; delta1: bigint }[]
     >`
@@ -1301,9 +1293,9 @@ export class DAO {
       INSERT INTO zero_seed_launch_created
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
          pool_key_id, pool_id, token, controller, quote_token, position_id, liquidity,
-         requested_supply, installed_supply,
-         name, symbol, decimals, ask_tick, upper_tick, tick_spacing, trading_start,
-         fee_model, fee_duration, decay_rate_x32, initial_fee, final_fee, salt)
+         requested_supply, installed_supply, name_word, symbol_word, name, symbol,
+         logo_url_bytes, logo_url, ask_tick, upper_tick, tick_spacing, aligned_ask_tick,
+         aligned_upper_tick, trading_start, decay_rate_x32, initial_fee, final_fee, salt)
       VALUES (
         ${this.eventKeyValues(key)},
         ${poolKeyId},
@@ -1315,16 +1307,19 @@ export class DAO {
         ${this.numeric(parsed.liquidity)},
         ${this.numeric(parsed.requestedSupply)},
         ${this.numeric(installedSupply)},
-        ${stripNul(parsed.name)},
-        ${stripNul(parsed.symbol)},
-        ${parsed.decimals},
+        ${this.numeric(parsed.nameWord)},
+        ${this.numeric(parsed.symbolWord)},
+        ${parsed.name},
+        ${parsed.symbol},
+        ${Buffer.from(parsed.logoUrlBytes)},
+        ${parsed.logoUrl},
         ${parsed.askTick},
         ${parsed.upperTick},
         ${parsed.tickSpacing},
+        ${parsed.alignedAskTick},
+        ${parsed.alignedUpperTick},
         ${this.numeric(parsed.tradingStart)},
-        ${parsed.feeModel},
-        ${parsed.feeModel === "fixed_base_duration_v1" ? parsed.feeDuration : null},
-        ${parsed.feeModel === "tick_rate_v2" ? this.numeric(parsed.decayRateX32) : null},
+        ${this.numeric(parsed.decayRateX32)},
         ${this.numeric(parsed.initialFee)},
         ${this.numeric(parsed.finalFee)},
         ${this.numeric(parsed.salt)}

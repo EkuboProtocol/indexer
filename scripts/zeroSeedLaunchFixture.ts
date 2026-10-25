@@ -5,22 +5,25 @@
 //
 //   bun scripts/zeroSeedLaunchFixture.ts <evm-contracts checkout> [out.json]
 //
-// The checkout must be EkuboProtocol/evm-contracts at the pinned head, built
-// with `forge build`; it is only read. Core is the main (Q0.64) runtime the
-// build produces, set at the canonical address. One instance: the extension
-// (constructor `(core)`, mined CREATE2 salt carrying the call-point byte) and
-// its periphery, both deployed through the deterministic deployer. Every
-// launch names its own quote, and launches of both kinds share the instance:
+// The checkout must be EkuboProtocol/evm-contracts at 853b608 (the final
+// source freeze), built with `forge build`; it is only read, and its compiled
+// launch ABIs must equal the frozen ABIs in src/evm/abis/zero-seed-launch/.
+// Core is the main (Q0.64) runtime the build produces, set at the canonical
+// address. One instance: the extension (constructor `(core)`, mined CREATE2
+// salt carrying the call-point byte) and its periphery, both deployed through
+// the deterministic deployer. Every launch names its own quote, and launches
+// of both kinds share the instance:
 //   native  quote address(0) (native ETH, always token0; launch is token1)
 //   erc20   quote 0xff..ff, the checkout's plain 18-decimal test/TestToken.sol
 //           runtime relocated there (launch is token0)
-// Each launch requests a round supply of 1e27; the extension installs at most
-// that much and mints the remainder (the sink) to address(0). The script
-// checks, per creation, the Installation that create returns against the
-// preview, Core's PositionUpdated delta against the installed supply,
-// totalSupply against the requested supply and balanceOf(address(0)) against
-// the sink. The instance and its first launch share the deployment block, so
-// a replay that starts one block late provably misses a launch.
+// The extension derives the spacing from the requested range, installs at
+// most the requested supply and mints the remainder (the sink) to
+// address(0). The script checks, per creation, the Installation that create
+// returns against the preview, Core's PositionUpdated delta and the two mint
+// Transfers against the installed supply and sink, totalSupply against the
+// requested supply and balanceOf(address(0)) against the sink. The instance
+// and its first launch share the deployment block, so a replay that starts
+// one block late provably misses a launch.
 //
 // Nothing here leaves the machine: anvil runs locally with no fork URL.
 import { spawn, execFileSync } from "node:child_process";
@@ -43,6 +46,8 @@ import {
   maxUint256,
   numberToHex,
   pad,
+  slice,
+  toFunctionSelector,
   toHex,
   zeroAddress,
   type Abi,
@@ -87,67 +92,9 @@ const REQUESTED_SUPPLY = 1_000_000_000n * 10n ** 18n;
 const GAS = 10_000_000n;
 const NATIVE: Address = zeroAddress;
 const ERC20_QUOTE: Address = "0xffffffffffffffffffffffffffffffffffffffff";
-// The two reviewed contract revisions. The fee model is a property of the
-// source revision: 43d6628 takes `uint32 feeDuration` (fixed-base table),
-// 3d6378f `uint64 decayRateX32` (tick-rate decay toward the floor). The
-// checkout's HEAD selects one; anything else is refused.
-type FeeModel = "fixed_base_duration_v1" | "tick_rate_v2";
-type PinnedSource = {
-  feeModel: FeeModel;
-  // sha256 of `jq -cS .abi` output without a trailing newline, as in the
-  // protocol manifest
-  abis: Record<string, string>;
-  // creation code without constructor arguments, and the runtime with its
-  // immutables zero-filled, as in the protocol manifest
-  creation: Record<string, Hex>;
-  runtimeTemplate: Record<string, Hex>;
-};
-const PINNED_SOURCES: Record<string, PinnedSource> = {
-  "43d6628841b3ce91dafa048b7ceef64bed55fc8e": {
-    feeModel: "fixed_base_duration_v1",
-    abis: {
-      ZeroSeedLaunch:
-        "efae9388aa6b1342479204ddf436fd2a310df16bf06c80c990b2d22c90d1e41e",
-      ZeroSeedLaunchPeriphery:
-        "df24d9f07d45323da7e46c0f6e64ce24f8f522442d60cb07880ddf742ebe7305",
-    },
-    creation: {
-      ZeroSeedLaunch:
-        "0x10f4088a9ae5dff5f2caa7d005c4da80e8ece5c515b6f3e4e5ab452606f2b2ff",
-      ZeroSeedLaunchPeriphery:
-        "0x7ec2d7eb35806d3ec7edab5809a6b5441977afc32ad3b5276cd9437d0d276f88",
-    },
-    runtimeTemplate: {
-      ZeroSeedLaunch:
-        "0x19d7461a57e0058bd09c848684152a234b4b3909404c1c85dbf6e69b9d59c925",
-      ZeroSeedLaunchPeriphery:
-        "0x76db610aa6d183253d966ff21d2c59f750028b9ad83c0e4cc0d362324740e2e7",
-    },
-  },
-  "3d6378f585591dc7eabeea6976932c30524bb8ea": {
-    feeModel: "tick_rate_v2",
-    abis: {
-      ZeroSeedLaunch:
-        "89ff4d15e5e8b4f044c4804d460df915e9206bbdbdcef22cf4afe0fbbf4eaadd",
-      ZeroSeedLaunchPeriphery:
-        "a6d43b362d04eeb4e636ee32a031fc06995a2fd8bb71fb63750f27836a0ddb07",
-    },
-    creation: {
-      ZeroSeedLaunch:
-        "0xa76b1de0bfc2d72b32ce963cbc7598aa67fa60ae6b8874ec176e3630ec965f2c",
-      ZeroSeedLaunchPeriphery:
-        "0x7a4c7a556485b2005cb824b11641adc4d766a5c501e3a65adaa72646654ec0c4",
-    },
-    runtimeTemplate: {
-      ZeroSeedLaunch:
-        "0xae9245361f958f479a4ff1a85ca242f6adf3ae21b3e1f3696317368ba8c47c3b",
-      ZeroSeedLaunchPeriphery:
-        "0x1fa935c3de39691b912dd3db3ef84d7e66cc0e54dddef3740aeb1d453e6ad3f8",
-    },
-  },
-};
+const SOURCE_COMMIT = "853b608ec26d4c80bdad6e394cb8ba686e1ae615";
 // The one-day half-life default and the 600 s half-life rate (Q32.32 ticks
-// per second) of the tick-rate model.
+// per second).
 const DECAY_RATE_DEFAULT = 68913100933n;
 const DECAY_RATE_600 = 9923486534471n;
 
@@ -224,8 +171,16 @@ const git = (...args: string[]) =>
   execFileSync("git", ["-C", evmContracts, ...args], {
     encoding: "utf8",
   }).trim();
-const SOURCE = PINNED_SOURCES[git("rev-parse", "HEAD")];
-if (!SOURCE) throw new Error("fixture requires a pinned evm-contracts head");
+const FROZEN_ABI = (name: string): Abi =>
+  JSON.parse(
+    readFileSync(
+      resolve(
+        dirname(new URL(import.meta.url).pathname),
+        `../src/evm/abis/zero-seed-launch/${name}.abi.json`,
+      ),
+      "utf8",
+    ),
+  ) as Abi;
 
 const anvil = spawn(
   "anvil",
@@ -274,6 +229,9 @@ type Installation = {
   initialTick: number;
   liquidity: bigint;
   installedSupply: bigint;
+  tickSpacing: number;
+  askTick: number;
+  upperTick: number;
 };
 type Launch = {
   label: string;
@@ -294,6 +252,10 @@ type Launch = {
   sinkSupply: string;
   liquidity: string;
   initialTick: number;
+  logoUrl: Hex;
+  tickSpacing: number;
+  alignedAskTick: number;
+  alignedUpperTick: number;
 };
 type Branch = { blocks: Block[]; logs: unknown[]; states: unknown[] };
 type Instance = {
@@ -576,19 +538,30 @@ type Spec = {
   instance: string;
   quote: Address;
   owner: Address;
-  // fixed_base_duration_v1: seconds to the final fee
-  duration: number;
-  // tick_rate_v2: Q32.32 ticks per second (default: the one-day half-life)
+  // Q32.32 ticks per second (default: the one-day half-life)
   decayRateX32?: bigint;
   initialFee: bigint;
   finalFee?: bigint;
   tradingStart: number;
-  // defaults: REQUESTED_SUPPLY over [ASK_18_18, ASK_18_18 + WIDTH], spacing SPACING
+  // defaults: REQUESTED_SUPPLY over [ASK_18_18, ASK_18_18 + WIDTH]
   supply?: bigint;
   askTick?: number;
   upperTick?: number;
-  tickSpacing?: number;
+  // LaunchCreated.logoUrl as raw bytes (default: empty)
+  logo?: Hex;
+  // raw name content (default: "Zero Seed <label>")
+  name?: Hex;
 };
+
+/** A canonical Solady LibString.packOne word: length byte, content, zeros. */
+function packOne(content: Hex): Hex {
+  const length = (content.length - 2) / 2;
+  if (length < 1 || length > 31) throw new Error("packOne length");
+  return pad(concat([toHex(length, { size: 1 }), content]), {
+    dir: "right",
+    size: 32,
+  });
+}
 
 const poolIdOf = (key: PoolKey) =>
   keccak256(
@@ -610,23 +583,40 @@ const sameInstallation = (a: Installation, b: Installation) =>
 function launchParameters(spec: Spec, userSalt: Hex) {
   const askTick = spec.askTick ?? ASK_18_18;
   return {
-    name: `Zero Seed ${spec.label}`,
-    symbol: spec.label.toUpperCase(),
-    decimals: 18,
+    name: packOne(spec.name ?? toHex(`Zero Seed ${spec.label}`)),
+    symbol: packOne(toHex(spec.label.toUpperCase())),
     supply: spec.supply ?? REQUESTED_SUPPLY,
     quoteToken: spec.quote,
     askTick,
     upperTick: spec.upperTick ?? askTick + WIDTH,
-    tickSpacing: spec.tickSpacing ?? SPACING,
     tradingStart: BigInt(spec.tradingStart),
-    ...(SOURCE.feeModel === "tick_rate_v2"
-      ? { decayRateX32: spec.decayRateX32 ?? DECAY_RATE_DEFAULT }
-      : { feeDuration: spec.duration }),
+    decayRateX32: spec.decayRateX32 ?? DECAY_RATE_DEFAULT,
     initialFee: spec.initialFee,
     finalFee: spec.finalFee ?? FEE_03,
     salt: userSalt,
   };
 }
+
+// create(parameters, logoUrl) with logoUrl typed as bytes: the same ABI
+// encoding, so a logo of arbitrary bytes (invalid UTF-8, NUL) can be sent.
+const CREATE_WITH_RAW_LOGO = [
+  {
+    ...(PERIPHERY.abi.find(
+      (item) => item.type === "function" && item.name === "create",
+    ) as Extract<Abi[number], { type: "function" }>),
+  },
+].map((item) => ({
+  ...item,
+  inputs: item.inputs.map((input) =>
+    input.name === "logoUrl" ? { ...input, type: "bytes" } : input,
+  ),
+})) as Abi;
+const CREATE_SELECTOR = toFunctionSelector(
+  PERIPHERY.abi.find(
+    (item) => item.type === "function" && item.name === "create",
+  ) as Extract<Abi[number], { type: "function" }>,
+);
+if (CREATE_SELECTOR !== "0x9a09bd5d") throw new Error("create selector");
 
 async function prepareLaunch(spec: Spec) {
   const instance = instances.get(spec.instance)!;
@@ -657,11 +647,20 @@ async function prepareLaunch(spec: Spec) {
   })) as Installation;
   if (!sameInstallation(direct, preview))
     throw new Error("periphery preview does not namespace the salt");
-  const data = encodeFunctionData({
-    abi: PERIPHERY.abi,
-    functionName: "create",
-    args: [parameters],
-  });
+  const logoUrl = spec.logo ?? "0x";
+  // The bytes variant has another selector; the argument encoding is the
+  // same, so it is sent under create(LaunchParameters,string).
+  const data = concat([
+    CREATE_SELECTOR,
+    slice(
+      encodeFunctionData({
+        abi: CREATE_WITH_RAW_LOGO,
+        functionName: "create",
+        args: [parameters, logoUrl],
+      }),
+      4,
+    ),
+  ]);
   const { data: returned } = await pub.call({
     account: spec.owner,
     to: instance.periphery,
@@ -701,6 +700,10 @@ async function prepareLaunch(spec: Spec) {
     sinkSupply: String(requested - installed),
     liquidity: String(preview.liquidity),
     initialTick: preview.initialTick,
+    logoUrl,
+    tickSpacing: preview.tickSpacing,
+    alignedAskTick: preview.askTick,
+    alignedUpperTick: preview.upperTick,
   };
   installations.set(spec.label, {
     requestedSupply: launch.requestedSupply,
@@ -724,6 +727,9 @@ async function prepareLaunch(spec: Spec) {
       initialTick: preview.initialTick,
       liquidity: String(preview.liquidity),
       installedSupply: String(installed),
+      tickSpacing: preview.tickSpacing,
+      askTick: preview.askTick,
+      upperTick: preview.upperTick,
     },
   });
   return { data, launch };
@@ -774,13 +780,14 @@ async function verifyCreation(launch: Launch, hash: Hex) {
   const [tokenDelta, quoteDelta] = launch.tokenIsToken1
     ? [delta1, delta0]
     : [delta0, delta1];
-  const sinkMints = decoded.filter(
+  const mints = decoded.filter(
     (l) =>
       l.eventName === "Transfer" &&
       l.address === launch.token.toLowerCase() &&
-      BigInt((l.args as { from: Address }).from) === 0n &&
-      BigInt((l.args as { to: Address }).to) === 0n,
-  );
+      BigInt((l.args as { from: Address }).from) === 0n,
+  ) as unknown as { args: { to: Address; amount: bigint } }[];
+  const sinkMints = mints.filter((l) => BigInt(l.args.to) === 0n);
+  const coreMints = mints.filter((l) => BigInt(l.args.to) === BigInt(CORE));
   const block = receipt.blockNumber;
   const totalSupply = await pub.readContract({
     address: launch.token,
@@ -807,6 +814,12 @@ async function verifyCreation(launch: Launch, hash: Hex) {
           String((sinkMints[0].args as { amount: bigint }).amount) ===
             launch.sinkSupply,
       "Transfer(0, 0, sink)",
+    ],
+    [
+      coreMints.length === 1 &&
+        String(coreMints[0].args.amount) === launch.installedSupply &&
+        mints.length === coreMints.length + sinkMints.length,
+      "Transfer(0, Core, installed)",
     ],
   ];
   const failed = checks.filter(([ok]) => !ok).map(([what]) => what);
@@ -930,7 +943,7 @@ async function prefix() {
     instance: INSTANCE,
     quote: NATIVE,
     owner: CREATOR,
-    duration: 3600,
+    logo: toHex("https://example.invalid/l1.svg"),
     decayRateX32: DECAY_RATE_600,
     initialFee: FEE_50,
     tradingStart: START,
@@ -940,7 +953,6 @@ async function prefix() {
     instance: INSTANCE,
     quote: ERC20_QUOTE,
     owner: CREATOR,
-    duration: 600,
     initialFee: FEE_5,
     tradingStart: START,
   };
@@ -978,7 +990,6 @@ async function forkA() {
     instance: INSTANCE,
     quote: NATIVE,
     owner: NEW_OWNER,
-    duration: 3600,
     decayRateX32: 1n << 30n,
     initialFee: FEE_50,
     tradingStart: START + 300,
@@ -1001,7 +1012,8 @@ async function canonical() {
     instance: INSTANCE,
     quote: ERC20_QUOTE,
     owner: TRADER,
-    duration: 600,
+    // not UTF-8, with a NUL: stored as bytes only
+    logo: "0x68747470733a2f2fff00",
     decayRateX32: 0n,
     initialFee: FEE_5,
     tradingStart: START + 400,
@@ -1013,7 +1025,8 @@ async function canonical() {
     instance: INSTANCE,
     quote: NATIVE,
     owner: CREATOR,
-    duration: 3600,
+    logo: toHex("ipfs://bafy\u00e9logo \ud83d\ude80"),
+    name: toHex("Z\u00e9ro \ud83d\ude80"),
     // 2^64 - 1 ticks/s: at the floor from the first second
     decayRateX32: FEE_MAX,
     initialFee: FEE_MAX,
@@ -1024,7 +1037,8 @@ async function canonical() {
     instance: INSTANCE,
     quote: ERC20_QUOTE,
     owner: TRADER,
-    duration: 1,
+    // not UTF-8: the name is kept as its packed word only
+    name: "0x5aff00",
     decayRateX32: 1n,
     initialFee: FEE_MAX,
     finalFee: FEE_MAX,
@@ -1087,26 +1101,22 @@ async function canonical() {
     instance: INSTANCE,
     quote: ERC20_QUOTE,
     owner: CREATOR,
-    duration: 3600,
     initialFee: FEE_50,
     tradingStart: START + 4200,
     supply: 10n ** 30n,
     askTick: -88080384,
     upperTick: -85983232,
-    tickSpacing: 524288,
   };
   const L8: Spec = {
     label: "l8",
     instance: INSTANCE,
     quote: ERC20_QUOTE,
     owner: TRADER,
-    duration: 3600,
     initialFee: FEE_50,
     tradingStart: START + 4200,
-    supply: 170141183460469231694794709727778658247n,
+    supply: 10n ** 30n,
     askTick: -88722835,
     upperTick: 88722835,
-    tickSpacing: 1,
   };
   await mine(START + 4100, [create(L7), create(L8)]);
   await mine(START + 4200, [
@@ -1121,9 +1131,12 @@ async function canonical() {
   ]);
 }
 
+/** Entries in a stable order, so ABIs compare regardless of compiler order. */
+const sortedAbi = (abi: Abi) => abi.map((entry) => canonicalJson(entry)).sort();
+
 function validateFixtureBuild() {
   if (
-    PINNED_SOURCES[git("rev-parse", "HEAD")] !== SOURCE ||
+    git("rev-parse", "HEAD") !== SOURCE_COMMIT ||
     git(
       "status",
       "--porcelain",
@@ -1131,20 +1144,16 @@ function validateFixtureBuild() {
       "--ignore-submodules=all",
     ) !== ""
   )
-    throw new Error("fixture requires the clean pinned source");
+    throw new Error(`fixture requires the clean source at ${SOURCE_COMMIT}`);
   for (const [name, build] of [
     ["ZeroSeedLaunch", LAUNCH],
     ["ZeroSeedLaunchPeriphery", PERIPHERY],
-  ] as const) {
-    if (sha256(canonicalJson(build.abi)) !== SOURCE.abis[name])
-      throw new Error(`${name} ABI differs from the pinned build`);
-    if (keccak256(build.bytecode.object) !== SOURCE.creation[name])
-      throw new Error(`${name} creation code differs from the pinned build`);
+  ] as const)
     if (
-      keccak256(build.deployedBytecode.object) !== SOURCE.runtimeTemplate[name]
+      canonicalJson(sortedAbi(build.abi)) !==
+      canonicalJson(sortedAbi(FROZEN_ABI(name)))
     )
-      throw new Error(`${name} runtime differs from the pinned build`);
-  }
+      throw new Error(`${name} build ABI differs from the frozen ABI`);
 }
 
 /** Solady ERC20 balance slot: keccak256(owner ++ 8 zero bytes ++ 0x87a211a2). */
@@ -1202,9 +1211,9 @@ async function bindInstances() {
     );
     if (
       instance.extensionRuntimeTemplateKeccak !==
-        SOURCE.runtimeTemplate.ZeroSeedLaunch ||
+        keccak256(templateOf(LAUNCH.deployedBytecode.object, LAUNCH)) ||
       instance.peripheryRuntimeTemplateKeccak !==
-        SOURCE.runtimeTemplate.ZeroSeedLaunchPeriphery
+        keccak256(templateOf(PERIPHERY.deployedBytecode.object, PERIPHERY))
     )
       throw new Error("deployed runtime is not the pinned template");
     const actualLaunch = (await pub.readContract({
@@ -1266,11 +1275,6 @@ async function main() {
     description:
       "Logs and state emitted by a local anvil chain (no fork) running one ZeroSeedLaunch extension and its ZeroSeedLaunchPeriphery over the main Core runtime, with native-ETH and plain-ERC-20 quote launches on the same extension and swaps through the compiled test/LaunchTestRouter.sol. Supplies are raw launch-token units as decimal strings: requestedSupply = LaunchParameters.supply = totalSupply, installedSupply = Core PositionUpdated launch-token delta of the creation, sinkSupply = requested - installed = balanceOf(address(0)). Local fixture, not live evidence.",
     generator: "scripts/zeroSeedLaunchFixture.ts",
-    // The 43d6628 fixture predates the field; leaving it out there keeps that
-    // fixture reproducible byte for byte. Its absence means fixed_base_duration_v1.
-    ...(SOURCE.feeModel === "tick_rate_v2"
-      ? { feeModel: SOURCE.feeModel }
-      : {}),
     provenance: {
       evmContractsHead: git("rev-parse", "HEAD"),
       evmContractsTree: git("rev-parse", "HEAD^{tree}"),
@@ -1287,9 +1291,11 @@ async function main() {
       peripheryAbiSha256: sha256(canonicalJson(PERIPHERY.abi)),
       launchCreationKeccak: keccak256(LAUNCH.bytecode.object),
       peripheryCreationKeccak: keccak256(PERIPHERY.bytecode.object),
-      launchRuntimeTemplateKeccak: keccak256(LAUNCH.deployedBytecode.object),
+      launchRuntimeTemplateKeccak: keccak256(
+        templateOf(LAUNCH.deployedBytecode.object, LAUNCH),
+      ),
       peripheryRuntimeTemplateKeccak: keccak256(
-        PERIPHERY.deployedBytecode.object,
+        templateOf(PERIPHERY.deployedBytecode.object, PERIPHERY),
       ),
       buildSubmodules:
         "excluded from git dirty check; canonical ABI, creation code and runtime template checked independently",

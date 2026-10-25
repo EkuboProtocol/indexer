@@ -1,13 +1,15 @@
 import type { DAO } from "../_shared/dao";
 import type { EventKey } from "../_shared/eventKey";
 import {
+  decodeAbiParameters,
+  decodeEventLog,
+  encodeEventTopics,
+  type AbiParameter,
+} from "viem";
+import {
   ZERO_SEED_LAUNCH_ABI,
   ZERO_SEED_LAUNCH_PERIPHERY_ABI,
 } from "./abis_zero_seed_launch";
-import {
-  ZERO_SEED_LAUNCH_PERIPHERY_V2_ABI,
-  ZERO_SEED_LAUNCH_V2_ABI,
-} from "./abis_zero_seed_launch_v2";
 import {
   createProcessorsFromHandlers,
   type ContractEvent,
@@ -15,62 +17,122 @@ import {
   type EvmLogProcessor,
 } from "./logProcessorsShared";
 import { parsePositionId, parseV2PoolKeyConfig, toPoolId } from "./poolKey";
-import {
-  zeroSeedLaunchPinForAddress,
-  type ZeroSeedLaunchPin,
-} from "./zeroSeedLaunchConfig";
+import type { ZeroSeedLaunchPin } from "./zeroSeedLaunchConfig";
 
-type LaunchCreatedV1 = ContractEvent<
+export type LaunchCreated = ContractEvent<
   typeof ZERO_SEED_LAUNCH_ABI,
   "LaunchCreated"
 >;
-type LaunchCreatedV2 = ContractEvent<
-  typeof ZERO_SEED_LAUNCH_V2_ABI,
-  "LaunchCreated"
->;
-type LaunchCreated = LaunchCreatedV1 | LaunchCreatedV2;
 
 const same = (a: string, b: string) => BigInt(a) === BigInt(b);
-const utf8Length = (value: string) => new TextEncoder().encode(value).length;
 
-const INT128_MAX = (1n << 127n) - 1n;
+/** LaunchParameters.supply bounds of the contract (InvalidSupply). */
+export const MAX_LAUNCH_SUPPLY = 10n ** 30n;
+export const MIN_TICK = -88722835;
+export const MAX_TICK = 88722835;
 
 /**
- * Reasons a LaunchCreated log disagrees with itself or its emitter. The quote
- * is the launch's own parameters.quoteToken (address 0 for native ETH, which
- * is then always token0), and it must be the other token of the pool key. The
- * stored row derives the position's pool ticks from the economic ticks and the
- * token order, so the log's own pool key and position id must say the same
- * thing. The installed supply is not in the log; the DAO takes it from Core's
- * PositionUpdated of the same transaction.
+ * The content of a canonical Solady LibString.packOne word: byte 0 is the
+ * length 1..31, then that many content bytes, then zeros. Anything else is
+ * not a word the contract accepts (InvalidMetadata), so undefined.
  */
-export function launchCreatedProblems(
-  key: Pick<EventKey, "emitter">,
-  event: LaunchCreated,
-): string[] {
-  const { poolKey, parameters, positionId } = event;
-  const { quoteToken } = parameters;
-  const config = parseV2PoolKeyConfig(poolKey.config);
-  const tokenIs0 = BigInt(event.token) < BigInt(quoteToken);
-  const [token0, token1] = tokenIs0
-    ? [event.token, quoteToken]
-    : [quoteToken, event.token];
-  const position = parsePositionId(positionId);
-  const [lower, upper] = tokenIs0
-    ? [parameters.askTick, parameters.upperTick]
-    : [-parameters.upperTick, -parameters.askTick];
+export function unpackLaunchString(
+  word: `0x${string}`,
+): Uint8Array | undefined {
+  const bytes = Buffer.from(word.slice(2).padStart(64, "0"), "hex");
+  if (bytes.length !== 32) return undefined;
+  const length = bytes[0];
+  if (length < 1 || length > 31) return undefined;
+  if (bytes.subarray(1 + length).some((b) => b !== 0)) return undefined;
+  return new Uint8Array(bytes.subarray(1, 1 + length));
+}
 
+/**
+ * Bytes as Postgres-storable text: valid UTF-8 without NUL, else undefined.
+ * Launch metadata and logos are arbitrary creator bytes.
+ */
+export function storableText(bytes: Uint8Array): string | undefined {
+  if (bytes.includes(0)) return undefined;
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return undefined;
+  }
+}
+
+const floorDiv = (a: number, b: number) => Math.floor(a / b);
+
+/**
+ * The derived spacing and installed economic bounds of a requested range
+ * (ZeroSeedLaunch alignLaunchRange): s = (upper - ask + 255) // 256, the ask
+ * rounded up and the top rounded down to a multiple of s, with mathematical
+ * (not truncating) signed rounding.
+ */
+export function alignLaunchRange(askTick: number, upperTick: number) {
+  const tickSpacing = floorDiv(upperTick - askTick + 255, 256);
+  return {
+    tickSpacing,
+    alignedAskTick: -floorDiv(-askTick, tickSpacing) * tickSpacing,
+    alignedUpperTick: floorDiv(upperTick, tickSpacing) * tickSpacing,
+  };
+}
+
+/** Pool-tick bounds of the position for the token order. */
+export function launchPoolBounds(
+  tokenIs1: boolean,
+  alignedAskTick: number,
+  alignedUpperTick: number,
+): [number, number] {
+  return tokenIs1
+    ? [-alignedUpperTick, -alignedAskTick]
+    : [alignedAskTick, alignedUpperTick];
+}
+
+function parameterProblems(event: LaunchCreated): [boolean, string][] {
+  const { parameters: p } = event;
   return [
-    [!same(event.token, quoteToken), "launch token is the quote"],
+    [!same(event.token, p.quoteToken), "launch token is the quote"],
     [
-      utf8Length(parameters.name) <= 31 && utf8Length(parameters.symbol) <= 31,
-      "metadata exceeds 31 UTF-8 bytes",
+      unpackLaunchString(p.name) !== undefined &&
+        unpackLaunchString(p.symbol) !== undefined,
+      "name or symbol is not a canonical packed string",
     ],
     [event.liquidity > 0n, "liquidity is 0"],
     [
-      parameters.supply > 0n && parameters.supply <= INT128_MAX,
-      "requested supply is outside 1..int128.max",
+      p.supply > 0n && p.supply <= MAX_LAUNCH_SUPPLY,
+      "requested supply is outside 1..1e30",
     ],
+    [
+      MIN_TICK <= p.askTick &&
+        p.askTick < p.upperTick &&
+        p.upperTick <= MAX_TICK,
+      "ticks are outside MIN_TICK <= ask < upper <= MAX_TICK",
+    ],
+    [p.finalFee <= p.initialFee, "final fee above initial fee"],
+  ];
+}
+
+function geometryProblems(
+  key: Pick<EventKey, "emitter">,
+  event: LaunchCreated,
+): [boolean, string][] {
+  const { poolKey, parameters: p, positionId } = event;
+  const config = parseV2PoolKeyConfig(poolKey.config);
+  const tokenIs1 = BigInt(event.token) > BigInt(p.quoteToken);
+  const [token0, token1] = tokenIs1
+    ? [p.quoteToken, event.token]
+    : [event.token, p.quoteToken];
+  const position = parsePositionId(positionId);
+  const { tickSpacing, alignedAskTick, alignedUpperTick } = alignLaunchRange(
+    p.askTick,
+    p.upperTick,
+  );
+  const [lower, upper] = launchPoolBounds(
+    tokenIs1,
+    alignedAskTick,
+    alignedUpperTick,
+  );
+  return [
     [same(config.extension, key.emitter), "pool extension is not the emitter"],
     [
       toPoolId(poolKey) === event.poolId.toLowerCase(),
@@ -82,82 +144,136 @@ export function launchCreatedProblems(
     ],
     [config.fee === 0n, "Core fee is not 0"],
     [
-      "tickSpacing" in config && config.tickSpacing === parameters.tickSpacing,
-      "tick spacing differs",
+      "tickSpacing" in config && config.tickSpacing === tickSpacing,
+      "pool tick spacing is not the derived spacing",
     ],
     [
       position.salt === 0n &&
         position.lower === lower &&
         position.upper === upper,
-      "position is not (salt 0, tick_lower, tick_upper)",
+      "position is not (salt 0, aligned pool bounds)",
     ],
-  ]
-    .filter(([ok]) => !ok)
-    .map(([, problem]) => problem as string);
+  ];
 }
 
 /**
- * The events of each pinned instance: the extension's three and its
- * periphery's two, decoded with the frozen ABIs.
+ * Reasons a LaunchCreated log disagrees with itself or its emitter: the
+ * parameters the contract validates, and the pool key, derived spacing and
+ * position the contract derives from them. The installed supply is not in
+ * the log; the DAO takes it from Core's PositionUpdated of the creation.
  */
-export function createZeroSeedLaunchProcessors({
-  coreAddress,
-  zeroSeedLaunchAddresses,
-}: {
-  coreAddress: `0x${string}`;
-  zeroSeedLaunchAddresses?: readonly `0x${string}`[];
-}): EvmLogProcessor[] {
-  return (zeroSeedLaunchAddresses ?? []).flatMap((address) => {
-    const pin = zeroSeedLaunchPinForAddress(address);
-    if (!pin || !same(pin.core, coreAddress))
-      throw new Error(
-        "ZeroSeedLaunch event processor lacks reviewed instance/Core provenance",
-      );
-    // The pin's fee model selects the only ABI its logs are decoded with: a
-    // LaunchCreated of the other revision has another topic and is ignored.
-    if (pin.feeModel === "tick_rate_v2")
-      return createProcessorsFromHandlers({
-        ZeroSeedLaunch: {
-          address: pin.address,
-          ...zeroSeedLaunchV2Handlers(coreAddress),
-        },
-        ZeroSeedLaunchPeriphery: {
-          address: pin.periphery,
-          ...zeroSeedLaunchPeripheryV2Handlers(coreAddress, pin),
-        },
-      });
-    if (pin.feeModel !== "fixed_base_duration_v1")
-      throw new Error(
-        `Unknown ZeroSeedLaunch fee model ${String(pin.feeModel)}`,
-      );
-    return createProcessorsFromHandlers({
-      ZeroSeedLaunch: {
-        address: pin.address,
-        ...zeroSeedLaunchHandlers(coreAddress),
-      },
-      ZeroSeedLaunchPeriphery: {
-        address: pin.periphery,
-        ...zeroSeedLaunchPeripheryHandlers(coreAddress, pin),
-      },
-    });
-  });
+export function launchCreatedProblems(
+  key: Pick<EventKey, "emitter">,
+  event: LaunchCreated,
+): string[] {
+  return [...parameterProblems(event), ...geometryProblems(key, event)]
+    .filter(([ok]) => !ok)
+    .map(([, problem]) => problem);
 }
 
-/** Pure event decoding, also used by isolated replay tests.
- * Service entrypoints MUST use createZeroSeedLaunchProcessors above.
- */
+const LAUNCH_CREATED_EVENT = ZERO_SEED_LAUNCH_ABI.find(
+  (item) => item.type === "event" && item.name === "LaunchCreated",
+)!;
+// The non-indexed inputs with logoUrl read as bytes: the same ABI encoding,
+// so the logo comes back as exactly the emitted bytes.
+const LAUNCH_CREATED_DATA_AS_BYTES: AbiParameter[] = LAUNCH_CREATED_EVENT.inputs
+  .filter((input) => !input.indexed)
+  .map((input) =>
+    input.name === "logoUrl" ? { ...input, type: "bytes" } : input,
+  );
+
+/** The exact bytes of LaunchCreated.logoUrl. */
+export function launchCreatedLogoBytes(data: `0x${string}`): Uint8Array {
+  const decoded = decodeAbiParameters(LAUNCH_CREATED_DATA_AS_BYTES, data);
+  return Buffer.from((decoded.at(-1) as `0x${string}`).slice(2), "hex");
+}
+
+/** The decoded LaunchCreated fields the DAO stores. */
+export function launchCreatedRow(
+  event: LaunchCreated,
+  logoBytes: Uint8Array,
+  coreAddress: `0x${string}`,
+) {
+  const { parameters: p } = event;
+  const nameBytes = unpackLaunchString(p.name)!;
+  const symbolBytes = unpackLaunchString(p.symbol)!;
+  return {
+    coreAddress,
+    poolId: event.poolId,
+    token: event.token,
+    controller: event.controller,
+    quoteToken: p.quoteToken,
+    positionId: event.positionId,
+    liquidity: event.liquidity,
+    requestedSupply: p.supply,
+    nameWord: p.name,
+    symbolWord: p.symbol,
+    name: storableText(nameBytes) ?? null,
+    symbol: storableText(symbolBytes) ?? null,
+    logoUrlBytes: logoBytes,
+    logoUrl: storableText(logoBytes) ?? null,
+    askTick: p.askTick,
+    upperTick: p.upperTick,
+    ...alignLaunchRange(p.askTick, p.upperTick),
+    tradingStart: p.tradingStart,
+    decayRateX32: p.decayRateX32,
+    initialFee: p.initialFee,
+    finalFee: p.finalFee,
+    salt: p.salt,
+  };
+}
+
+function launchCreatedProcessor(
+  address: `0x${string}`,
+  coreAddress: `0x${string}`,
+): EvmLogProcessor {
+  return {
+    address,
+    filter: {
+      topics: encodeEventTopics({
+        abi: ZERO_SEED_LAUNCH_ABI,
+        eventName: "LaunchCreated",
+      }) as `0x${string}`[],
+      strict: false,
+    },
+    async handler(dao, key, log) {
+      const { args } = decodeEventLog({
+        abi: ZERO_SEED_LAUNCH_ABI,
+        eventName: "LaunchCreated",
+        topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
+        data: log.data,
+        strict: true,
+      });
+      await insertLaunchCreated(dao, key, args, log.data ?? "0x", coreAddress);
+    },
+  };
+}
+
+export async function insertLaunchCreated(
+  dao: DAO,
+  key: EventKey,
+  event: LaunchCreated,
+  data: `0x${string}`,
+  coreAddress: `0x${string}`,
+) {
+  const problems = launchCreatedProblems(key, event);
+  if (problems.length > 0)
+    throw new Error(
+      `Refusing LaunchCreated for pool ${event.poolId}: ${problems.join("; ")}`,
+    );
+  await dao.insertZeroSeedLaunchCreatedEvent(
+    key,
+    launchCreatedRow(event, launchCreatedLogoBytes(data), coreAddress),
+  );
+}
+
+/** The extension's swap and claim events. */
 export function zeroSeedLaunchHandlers(
   coreAddress: `0x${string}`,
 ): Omit<ContractHandlers<typeof ZERO_SEED_LAUNCH_ABI>, "address"> {
   return {
     abi: ZERO_SEED_LAUNCH_ABI,
     handlers: {
-      async LaunchCreated(dao, key, event) {
-        await insertLaunchCreated(dao, key, event, coreAddress, {
-          feeModel: "fixed_base_duration_v1",
-          feeDuration: event.parameters.feeDuration,
-        });
-      },
       async LaunchSwapped(dao, key, event) {
         await dao.insertZeroSeedLaunchSwappedEvent(key, {
           coreAddress,
@@ -174,7 +290,7 @@ export function zeroSeedLaunchHandlers(
   };
 }
 
-/** The periphery's owner and payout events, attributed to its pinned extension. */
+/** The periphery's owner and payout events, attributed to its extension. */
 export function zeroSeedLaunchPeripheryHandlers(
   coreAddress: `0x${string}`,
   pin: Pick<ZeroSeedLaunchPin, "address">,
@@ -200,99 +316,35 @@ export function zeroSeedLaunchPeripheryHandlers(
   };
 }
 
-type FeeDecay =
-  | { feeModel: "fixed_base_duration_v1"; feeDuration: number }
-  | { feeModel: "tick_rate_v2"; decayRateX32: bigint };
-
-async function insertLaunchCreated(
-  dao: DAO,
-  key: EventKey,
-  event: LaunchCreated,
-  coreAddress: `0x${string}`,
-  decay: FeeDecay,
-) {
-  const problems = launchCreatedProblems(key, event);
-  if (problems.length > 0)
-    throw new Error(
-      `Refusing LaunchCreated for pool ${event.poolId}: ${problems.join("; ")}`,
-    );
-  const { parameters } = event;
-  await dao.insertZeroSeedLaunchCreatedEvent(key, {
-    coreAddress,
-    poolId: event.poolId,
-    token: event.token,
-    controller: event.controller,
-    quoteToken: parameters.quoteToken,
-    positionId: event.positionId,
-    liquidity: event.liquidity,
-    requestedSupply: parameters.supply,
-    name: parameters.name,
-    symbol: parameters.symbol,
-    decimals: parameters.decimals,
-    askTick: parameters.askTick,
-    upperTick: parameters.upperTick,
-    tickSpacing: parameters.tickSpacing,
-    tradingStart: parameters.tradingStart,
-    ...decay,
-    initialFee: parameters.initialFee,
-    finalFee: parameters.finalFee,
-    salt: parameters.salt,
+/**
+ * The five events of each pinned instance: LaunchCreated, LaunchSwapped and
+ * CreatorFeesClaimed of the extension, LaunchOwnerChanged and
+ * LaunchFeesClaimed of its periphery, decoded with the frozen ABIs.
+ */
+export function createZeroSeedLaunchProcessors({
+  coreAddress,
+  zeroSeedLaunchPins,
+}: {
+  coreAddress: `0x${string}`;
+  zeroSeedLaunchPins?: readonly ZeroSeedLaunchPin[];
+}): EvmLogProcessor[] {
+  return (zeroSeedLaunchPins ?? []).flatMap((pin) => {
+    if (!same(pin.core, coreAddress))
+      throw new Error("ZeroSeedLaunch pin is for another Core");
+    return [
+      launchCreatedProcessor(pin.address, coreAddress),
+      ...createProcessorsFromHandlers({
+        ZeroSeedLaunch: {
+          address: pin.address,
+          ...zeroSeedLaunchHandlers(coreAddress),
+        },
+        ZeroSeedLaunchPeriphery: {
+          address: pin.periphery,
+          ...zeroSeedLaunchPeripheryHandlers(coreAddress, pin),
+        },
+      }),
+    ];
   });
-}
-
-/** Pure event decoding of a tick-rate (evm-contracts 3d6378f) extension. */
-export function zeroSeedLaunchV2Handlers(
-  coreAddress: `0x${string}`,
-): Omit<ContractHandlers<typeof ZERO_SEED_LAUNCH_V2_ABI>, "address"> {
-  return {
-    abi: ZERO_SEED_LAUNCH_V2_ABI,
-    handlers: {
-      async LaunchCreated(dao, key, event) {
-        await insertLaunchCreated(dao, key, event, coreAddress, {
-          feeModel: "tick_rate_v2",
-          decayRateX32: event.parameters.decayRateX32,
-        });
-      },
-      async LaunchSwapped(dao, key, event) {
-        await dao.insertZeroSeedLaunchSwappedEvent(key, {
-          coreAddress,
-          ...event,
-        });
-      },
-      async CreatorFeesClaimed(dao, key, event) {
-        await dao.insertZeroSeedLaunchFeesClaimedEvent(key, {
-          coreAddress,
-          ...event,
-        });
-      },
-    },
-  };
-}
-
-/** The tick-rate periphery's owner and payout events (unchanged events). */
-export function zeroSeedLaunchPeripheryV2Handlers(
-  coreAddress: `0x${string}`,
-  pin: Pick<ZeroSeedLaunchPin, "address">,
-): Omit<ContractHandlers<typeof ZERO_SEED_LAUNCH_PERIPHERY_V2_ABI>, "address"> {
-  return {
-    abi: ZERO_SEED_LAUNCH_PERIPHERY_V2_ABI,
-    handlers: {
-      async LaunchOwnerChanged(dao, key, event) {
-        await dao.insertZeroSeedLaunchOwnerChangedEvent(key, {
-          coreAddress,
-          extension: pin.address,
-          ...event,
-        });
-      },
-      async LaunchFeesClaimed(dao, key, event) {
-        await dao.insertZeroSeedLaunchFeesPaidEvent(key, {
-          coreAddress,
-          extension: pin.address,
-          ...event,
-        });
-      },
-    },
-  };
 }
 
 /**

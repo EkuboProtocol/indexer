@@ -1,116 +1,63 @@
--- DRAFT for the contract freeze. Not deployed.
--- Schema version: zero-seed-launch-index/v4
--- Source ABIs, one per fee model (sha256 of `jq -cS .abi`, no trailing newline):
---   fixed_base_duration_v1  EkuboProtocol/evm-contracts 43d6628
---                           ZeroSeedLaunch efae9388...e41e,
---                           ZeroSeedLaunchPeriphery df24d9f0...7305
---   tick_rate_v2            EkuboProtocol/evm-contracts 3d6378f
---                           ZeroSeedLaunch 89ff4d15...aadd,
---                           ZeroSeedLaunchPeriphery a6d43b36...db07
+-- Zero-seed launches of EkuboProtocol/evm-contracts 853b608 (final source
+-- freeze; not deployed). Source ABIs: src/evm/abis/zero-seed-launch/, hashes
+-- in tests/fixtures/zero-seed-launch/freeze-853b608/PROVENANCE.md.
 --
--- Replaces the unshipped draft 00134_scheduled_launch_pool_states of
--- indexer PR #246 (ScheduledLaunch, LockedLaunchLiquidity, LaunchRouter).
--- That migration never ran in production (main stops at 00139), so this
--- is a replacement of a development format, not a data migration. Nothing of
--- the staged/advance/migrate/terminal/seed design survives here.
+-- Unreleased: this migration only ever existed on the launch branch (main
+-- stops at 00139) and replaces every earlier draft of itself (the #246
+-- ScheduledLaunch draft numbered 00134, and the fixed-base and tick-rate
+-- drafts numbered 00139/00140). A local database that applied an earlier draft
+-- must be rebuilt; there is no data migration.
 --
--- v2 revises this unshipped migration in place for the forward-only extension
--- with a native ETH quote, the fixed-base creator-fee table and the separate
--- periphery: LaunchParameters lost quoteToken and decayFactor, LaunchCreated
--- names the controller (the forwarding locker, normally the periphery) instead
--- of a creator, CreatorFeesClaimed lost its recipient, and the periphery's
--- LaunchOwnerChanged and LaunchFeesClaimed are indexed.
---
--- v3 revises it again for the per-launch quote and the requested supply:
--- LaunchParameters.quoteToken replaced LaunchParameters.liquidity and the
--- extension's constructor quote, so one extension and periphery serve every
--- quote and quote_token is the launch's own. The extension now computes the
--- installed liquidity from the requested supply (LaunchParameters.supply, the
--- token's totalSupply), puts installed_supply <= requested_supply into the
--- position and mints the remainder, sink_supply, to address(0). `supply` is
--- replaced by requested_supply, installed_supply and the generated
--- sink_supply. LaunchCreated does not carry the installed amount: it is the
--- launch-token delta of Core's PositionUpdated of the creation, which the
--- writer requires in the same transaction. A database that applied an earlier
--- draft of this migration (numbered 00134 or 00139) must be rebuilt; none
--- exists outside local tests. It is numbered 00140 to follow the applied
--- 00139_mev_capture_v21, whose objects it does not touch.
---
--- v4 adds the second fee model. The replacement extension (evm-contracts
--- 3d6378f) replaces LaunchParameters.feeDuration (uint32 seconds) with
--- decayRateX32 (uint64, unsigned Q32.32 ticks per second): the excess over the
--- long-run floor final_fee shrinks by tickToSqrtRatio(-m) with
--- m = floor(rate * elapsed / 2^32), and saturates to final_fee when m would
--- leave the tick range. The model is a property of the deployment (the
--- indexer pin), recorded per launch in fee_model; a launch row carries exactly
--- its model's parameter. Launches of the 43d6628 deployment keep their
--- fixed-base table math unchanged. Still unapplied anywhere.
---
---   zero_seed_launch_pool_keys      pools whose extension is a configured
+--   zero_seed_launch_pool_keys      pools whose extension is the configured
 --                                   ZeroSeedLaunch, filled at PoolInitialized
 --   zero_seed_launch_created        ZeroSeedLaunch.LaunchCreated
 --   zero_seed_launch_swapped        ZeroSeedLaunch.LaunchSwapped
 --   zero_seed_launch_fees_claimed   ZeroSeedLaunch.CreatorFeesClaimed: the
---                                   controller moving the fee ledger onto its
---                                   lock
---   zero_seed_launch_owner_changed  ZeroSeedLaunchPeriphery.LaunchOwnerChanged
+--                                   claim itself (the ledger moves here)
 --   zero_seed_launch_fees_paid      ZeroSeedLaunchPeriphery.LaunchFeesClaimed:
---                                   the payout of that same claim
---   zero_seed_launch_states         one row per launch: the creator fee
---                                   ledger and the owner (the immutable
---                                   config, principal and supply are in
---                                   zero_seed_launch_created)
+--                                   owner and recipient of that same claim,
+--                                   linked 1:1 to it; never a second claim
+--   zero_seed_launch_owner_changed  ZeroSeedLaunchPeriphery.LaunchOwnerChanged
+--   zero_seed_launch_states         one row per launch: fee ledger, counts,
+--                                   creator and current owner
+--   zero_seed_launch_claims         view: one row per claim
 --
--- Principal and fees are separate ledgers by construction:
---   * Principal is the single position (salt 0, tick_lower, tick_upper) with
---     constant liquidity. Its current token/quote composition follows the Core
---     pool price (pool_states, swaps, pool_balance_change), which never include
---     the creator fee.
---   * The creator fee ledger is saved by the extension under salt = pool id.
---     accrued{0,1} sums LaunchSwapped.fee_amount by side, claimed{0,1} sums
---     the extension's CreatorFeesClaimed only. Balance = accrued - claimed. It
---     never includes principal.
---   * A periphery claim emits both CreatorFeesClaimed (extension, ledger) and
---     LaunchFeesClaimed (periphery, payout) with the same amounts in the same
---     transaction. Only the first moves the ledger; paid{0,1} sums the second
---     for reconciliation and is never added to claimed.
+-- Claims: a periphery claim emits CreatorFeesClaimed (extension) and then
+-- LaunchFeesClaimed (periphery) with equal amounts in one transaction. The
+-- claim is keyed on the extension event; the payout row must match its
+-- amounts and points at it (claimed_event_id, unique), so it can only attach
+-- the owner and recipient. claimed{0,1} sums the extension events only.
+-- paid{0,1} is kept for reconciliation and must equal claimed{0,1} for
+-- periphery launches; it is never added to it.
 --
--- Ownership: the extension knows only the controller. For launches whose
--- controller is the pinned periphery, the initial creator is the new owner of
--- LaunchOwnerChanged(poolId, 0, owner), emitted after LaunchCreated in the
--- creation transaction, and never changes. Every later LaunchOwnerChanged
--- moves current_owner, which holds the unclaimed and future fee rights.
--- Launches created by another controller have no owner here.
+-- Supply, raw launch-token units. LaunchToken mints exactly once, inside the
+-- creation: Transfer(0, Core, installed) and, if positive, Transfer(0, 0,
+-- requested - installed). requested_supply = LaunchParameters.supply =
+-- totalSupply. installed_supply is the launch-token delta of Core's
+-- PositionUpdated of the creation (Core's debit is the first mint's amount).
+-- sink_supply = requested - installed went to address(0) and can never move;
+-- it is not a burn and totalSupply stays requested_supply. LaunchToken
+-- Transfer/Approval logs are not streamed (see docs/zero-seed-launch-events.md).
 --
--- Native ETH is quote address 0: always token0, 18 decimals, no token
--- contract. quote_kind records native versus ERC-20 explicitly. Every launch
--- of an indexed extension is recorded whatever its quote; whether a quote is
--- supported is the reader's policy.
+-- Ticks: ask_tick/upper_tick are the requested economic ticks of
+-- LaunchParameters. The installed range uses the derived spacing
+-- s = (upper - ask + 255) / 256 and the signed-aligned bounds
+-- aligned_ask = ceil(ask / s) * s, aligned_upper = floor(upper / s) * s,
+-- checked against the pool key and position id by the writer.
+-- tick_lower/tick_upper are the pool ticks of the position.
 --
--- Supply, raw launch-token units: requested_supply is LaunchParameters.supply
--- and the token's totalSupply; installed_supply is what Core took into the
--- position (Core PositionUpdated of the creation), all of the circulating
--- inventory; sink_supply = requested - installed was minted to address(0) and
--- can never move. It is not a burn: totalSupply stays requested_supply.
+-- Fee: the shifted exponential of the contract (zero_seed_launch_fee_at).
 --
--- The fee phase is derived from a block timestamp and the immutable schedule;
--- nothing is stored for it, and there is no completed/migrated state.
+-- Reorgs: every event table cascades from blocks. Ledger columns are kept by
+-- AFTER INSERT/DELETE row triggers that add or subtract exactly the row, and
+-- owner columns are recomputed from the remaining owner changes, so deleting
+-- blocks >= n and replaying them restores the same state. Writers insert with
+-- ON CONFLICT (chain_id, event_id) DO NOTHING, so a redelivered log changes
+-- nothing. recompute_zero_seed_launch_state is the exact repair function.
 --
--- Reorgs: every event table cascades from blocks. Ledger columns are maintained
--- by AFTER INSERT/DELETE row triggers that add or subtract exactly the row's
--- amounts, and owner columns are recomputed from the remaining transfers, so
--- deleting blocks >= n and replaying them restores the same state. Writers
--- insert with ON CONFLICT (chain_id, event_id) DO NOTHING so a redelivered log
--- fires no trigger. recompute_zero_seed_launch_state is the exact repair
--- function.
---
--- No column stores a transaction sender. LaunchSwapped.locker is the contract
--- that forwarded the swap (normally a router); it is not a user.
---
--- Rollback before issuance: in one transaction that locks blocks first,
--- DROP VIEW all_pool_states_view and recreate it from 00123; restore
--- recompute_pool_last_event_id from 00123; DROP the zero_seed_launch_* tables
--- and functions. This returns to the 00139 schema, never to the #246 draft.
+-- Rollback before release: DROP VIEW all_pool_states_view and recreate it from
+-- 00139; restore recompute_pool_last_event_id from 00123; drop the
+-- zero_seed_launch_* objects.
 
 SET LOCAL lock_timeout = '15min';
 
@@ -123,68 +70,66 @@ CREATE TABLE zero_seed_launch_pool_keys
 
 CREATE TABLE zero_seed_launch_created
 (
-    chain_id             int8    NOT NULL,
-    block_number         int8    NOT NULL,
-    transaction_index    int4    NOT NULL,
-    event_index          int4    NOT NULL,
-    transaction_hash     NUMERIC NOT NULL,
-    emitter              NUMERIC NOT NULL,
-    event_id             int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
-    pool_key_id          int8 REFERENCES pool_keys (pool_key_id),
-    pool_id              NUMERIC NOT NULL,
-    token                NUMERIC NOT NULL,
-    -- the locker that forwarded the creation (normally the periphery); the
-    -- only locker that may claim the fee ledger; not a user
-    controller           NUMERIC NOT NULL,
-    -- LaunchParameters.quoteToken, the other token of the pool key; 0 is
-    -- native ETH
-    quote_token          NUMERIC NOT NULL,
-    quote_kind           TEXT GENERATED ALWAYS AS (CASE WHEN quote_token = 0 THEN 'native' ELSE 'erc20' END) STORED,
-    position_id          NUMERIC NOT NULL,
-    -- installed principal, immutable: the liquidity the extension computed
-    liquidity            NUMERIC NOT NULL,
-    -- LaunchParameters.supply, the token's totalSupply
-    requested_supply     NUMERIC NOT NULL,
-    -- launch-token delta of Core's PositionUpdated of the creation
-    installed_supply     NUMERIC NOT NULL,
-    -- minted to address(0) at creation; never spendable, not a burn
-    sink_supply          NUMERIC GENERATED ALWAYS AS (requested_supply - installed_supply) STORED,
-    -- NUL characters are stripped; Postgres text cannot hold them
-    name                 TEXT    NOT NULL,
-    symbol               TEXT    NOT NULL,
-    decimals             int2    NOT NULL,
-    -- economic ticks: log1.000001 of raw quote per raw launch token
-    ask_tick             int4    NOT NULL,
-    upper_tick           int4    NOT NULL,
-    tick_spacing         int8    NOT NULL,
+    chain_id           int8    NOT NULL,
+    block_number       int8    NOT NULL,
+    transaction_index  int4    NOT NULL,
+    event_index        int4    NOT NULL,
+    transaction_hash   NUMERIC NOT NULL,
+    emitter            NUMERIC NOT NULL,
+    event_id           int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
+    pool_key_id        int8 REFERENCES pool_keys (pool_key_id),
+    pool_id            NUMERIC NOT NULL,
+    token              NUMERIC NOT NULL,
+    -- the forwarding locker of the creation (the periphery for periphery
+    -- launches), the only locker that may claim; not the owner
+    controller         NUMERIC NOT NULL,
+    -- LaunchParameters.quoteToken; 0 is native ETH (then always token0)
+    quote_token        NUMERIC NOT NULL,
+    quote_kind         TEXT GENERATED ALWAYS AS (CASE WHEN quote_token = 0 THEN 'native' ELSE 'erc20' END) STORED,
+    position_id        NUMERIC NOT NULL,
+    liquidity          NUMERIC NOT NULL,
+    requested_supply   NUMERIC NOT NULL,
+    installed_supply   NUMERIC NOT NULL,
+    sink_supply        NUMERIC GENERATED ALWAYS AS (requested_supply - installed_supply) STORED,
+    -- LaunchParameters.name/symbol: the canonical LibString.packOne words
+    name_word          NUMERIC NOT NULL,
+    symbol_word        NUMERIC NOT NULL,
+    -- their content as UTF-8 text; NULL when it is not valid UTF-8 or holds a
+    -- NUL byte (Postgres text cannot), the words stay authoritative
+    name               TEXT,
+    symbol             TEXT,
+    -- LaunchCreated.logoUrl exactly as emitted ('' when absent); never
+    -- fetched or rewritten. logo_url is the same bytes as text, NULL when
+    -- they are not valid UTF-8 or hold a NUL byte.
+    logo_url_bytes     BYTEA   NOT NULL,
+    logo_url           TEXT,
+    -- requested economic ticks: log1.000001 of raw quote per raw launch token
+    ask_tick           int4    NOT NULL,
+    upper_tick         int4    NOT NULL,
+    -- derived spacing and installed (aligned) economic bounds
+    tick_spacing       int8    NOT NULL,
+    aligned_ask_tick   int4    NOT NULL,
+    aligned_upper_tick int4    NOT NULL,
     -- unix seconds
-    trading_start        int8    NOT NULL,
-    -- the deployment's fee model: 'fixed_base_duration_v1' (evm-contracts
-    -- 43d6628, fee_duration) or 'tick_rate_v2' (3d6378f, decay_rate_x32)
-    fee_model            TEXT    NOT NULL,
-    -- v1 only: seconds from trading_start to final_fee
-    fee_duration         int8,
-    -- v2 only: uint64 Q32.32 ticks per second; 0 keeps initial_fee
-    decay_rate_x32       NUMERIC,
-    -- Q0.64 fractions (2^64 = 100%)
-    initial_fee          NUMERIC NOT NULL,
-    final_fee            NUMERIC NOT NULL,
+    trading_start      NUMERIC NOT NULL,
+    -- uint64 Q32.32 ticks per second; 0 keeps initial_fee
+    decay_rate_x32     NUMERIC NOT NULL,
+    -- Q0.64 fractions (2^64 = 100%, not encodable)
+    initial_fee        NUMERIC NOT NULL,
+    final_fee          NUMERIC NOT NULL,
     -- the salt the extension received; a periphery passes
     -- keccak256(abi.encode(owner, userSalt))
-    salt                 NUMERIC NOT NULL,
-    token_is_token1      bool GENERATED ALWAYS AS (token > quote_token) STORED,
-    -- pool-tick bounds of the position
-    tick_lower           int4 GENERATED ALWAYS AS (CASE WHEN token > quote_token THEN -upper_tick ELSE ask_tick END) STORED,
-    tick_upper           int4 GENERATED ALWAYS AS (CASE WHEN token > quote_token THEN -ask_tick ELSE upper_tick END) STORED,
-    -- v1 only; v2 has no end: final_fee is a floor that is approached
-    fee_end              int8 GENERATED ALWAYS AS (trading_start + fee_duration) STORED,
+    salt               NUMERIC NOT NULL,
+    token_is_token1    bool GENERATED ALWAYS AS (token > quote_token) STORED,
+    tick_lower         int4 GENERATED ALWAYS AS (CASE WHEN token > quote_token THEN -aligned_upper_tick ELSE aligned_ask_tick END) STORED,
+    tick_upper         int4 GENERATED ALWAYS AS (CASE WHEN token > quote_token THEN -aligned_ask_tick ELSE aligned_upper_tick END) STORED,
     CHECK (0 < installed_supply AND installed_supply <= requested_supply),
-    -- exactly the model's parameter; IS NOT NULL keeps a NULL from passing
-    CHECK ((fee_model = 'fixed_base_duration_v1' AND fee_duration IS NOT NULL
-            AND fee_duration BETWEEN 1 AND 4294967295 AND decay_rate_x32 IS NULL)
-        OR (fee_model = 'tick_rate_v2' AND fee_duration IS NULL AND decay_rate_x32 IS NOT NULL
-            AND decay_rate_x32 BETWEEN 0 AND 18446744073709551615
-            AND decay_rate_x32 = TRUNC(decay_rate_x32))),
+    CHECK (requested_supply <= 1000000000000000000000000000000),
+    CHECK (ask_tick < upper_tick),
+    CHECK (tick_spacing = (upper_tick::int8 - ask_tick + 255) / 256),
+    CHECK (aligned_ask_tick < aligned_upper_tick),
+    CHECK (final_fee <= initial_fee),
+    CHECK (decay_rate_x32 BETWEEN 0 AND 18446744073709551615),
     PRIMARY KEY (chain_id, event_id),
     FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
 );
@@ -280,7 +225,8 @@ CREATE TABLE zero_seed_launch_fees_paid
     recipient         NUMERIC NOT NULL,
     amount0           NUMERIC NOT NULL,
     amount1           NUMERIC NOT NULL,
-    -- the extension CreatorFeesClaimed of the same claim (same transaction)
+    -- the extension CreatorFeesClaimed of the same claim (same transaction,
+    -- equal amounts)
     claimed_event_id  int8    NOT NULL,
     PRIMARY KEY (chain_id, event_id),
     FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE,
@@ -314,6 +260,28 @@ $$
     END;
 $$;
 
+-- One row per claim, keyed on the extension event. owner and recipient come
+-- from the periphery payout of the same claim and are NULL for a launch whose
+-- controller is not the periphery.
+CREATE VIEW zero_seed_launch_claims AS
+SELECT c.chain_id,
+       c.pool_key_id,
+       c.pool_id,
+       c.event_id,
+       c.block_number,
+       c.transaction_index,
+       c.event_index,
+       c.transaction_hash,
+       c.controller,
+       p.owner,
+       p.recipient,
+       c.amount0,
+       c.amount1,
+       p.event_id AS payout_event_id
+FROM zero_seed_launch_fees_claimed c
+         LEFT JOIN zero_seed_launch_fees_paid p
+                   ON p.chain_id = c.chain_id AND p.claimed_event_id = c.event_id;
+
 CREATE TABLE zero_seed_launch_states
 (
     pool_key_id        int8 PRIMARY KEY REFERENCES pool_keys (pool_key_id),
@@ -328,9 +296,8 @@ CREATE TABLE zero_seed_launch_states
     paid1              NUMERIC NOT NULL DEFAULT 0,
     swap_count         int8    NOT NULL DEFAULT 0,
     claim_count        int8    NOT NULL DEFAULT 0,
-    -- claimed <= accrued holds between transactions but not mid-cascade (a
-    -- reorg may delete a swap before the claim that followed it), so it is
-    -- asserted by tests and the repair check, not a CHECK constraint
+    -- claimed <= accrued holds between transactions but not mid-cascade, so
+    -- it is asserted by tests and the repair check, not a CHECK constraint
     last_event_id      int8    NOT NULL,
     -- periphery owner; NULL until LaunchOwnerChanged(poolId, 0, owner) and for
     -- launches of any other controller
@@ -343,7 +310,7 @@ CREATE TABLE zero_seed_launch_states
 CREATE INDEX ON zero_seed_launch_states (current_owner) WHERE current_owner IS NOT NULL;
 CREATE INDEX ON zero_seed_launch_states (initial_owner) WHERE initial_owner IS NOT NULL;
 
--- Owner columns from the remaining transfers: the first transfer's new owner
+-- Owner columns from the remaining owner changes: the first one's new owner
 -- is the creator, the last one's is the current owner.
 CREATE FUNCTION recompute_zero_seed_launch_owner(p_pool_key_id int8)
     RETURNS VOID
@@ -554,90 +521,6 @@ CREATE TRIGGER trg_zero_seed_launch_owner_changed_owner
     FOR EACH ROW
 EXECUTE FUNCTION trg_zero_seed_launch_owner();
 
--- fixed_base_duration_v1 only (evm-contracts 43d6628).
--- decayQ128 of the contract (math/feeDecay.sol): 2^(-elapsed/600) in Q128.
--- Starting at 2^128, multiply by the constant of every set bit of p_elapsed in
--- ascending bit order and floor to Q128 after each multiply; exactly zero from
--- 2^17 seconds on. The constants and the operation order are normative. DIV is
--- exact integer division on NUMERIC.
-CREATE FUNCTION zero_seed_launch_decay_q128(p_elapsed int8)
-    RETURNS NUMERIC
-    LANGUAGE plpgsql
-    IMMUTABLE STRICT PARALLEL SAFE AS
-$$
-DECLARE
-    q      CONSTANT NUMERIC   := 340282366920938463463374607431768211456;
-    t      CONSTANT NUMERIC[] := ARRAY [
-        339889484297159900493648602831395569057,
-        339497055287118257930533248299650400736,
-        338713556013920184336129943844147573651,
-        337151977828609613753562640265082287810,
-        334050386396171404885545237344599070716,
-        327932539264834336949184815807600758235,
-        316030922441737935988095136387330274498,
-        293507844215098455952964317090465751204,
-        253162852354938356992240649094357060196,
-        188347784201757897225807540435664088841,
-        104251325552682051605813724741512712010,
-        31939177389160626453527783486618815759,
-        2997836947964109484105344435429137776,
-        26410496811510722015611852309540293,
-        2049810421099131403277778219901,
-        12347753427443481862030,
-        448060
-        ];
-    result NUMERIC            := q;
-BEGIN
-    IF p_elapsed < 0 THEN
-        RAISE EXCEPTION 'negative elapsed time %', p_elapsed;
-    END IF;
-    IF p_elapsed >= 131072 THEN
-        RETURN 0;
-    END IF;
-    FOR i IN 0..16
-        LOOP
-            IF (p_elapsed >> i) & 1 = 1 THEN
-                result := DIV(result * t[i + 1], q);
-            END IF;
-        END LOOP;
-    RETURN result;
-END
-$$;
-
--- fixed_base_duration_v1 (evm-contracts 43d6628) only.
--- The fee in effect at p_time (unix seconds), as feeAt in the contract: initial
--- until the start, then final + floor((initial - final) * (decay(t) - decay(D))
--- / (2^128 - decay(D))) for elapsed t below duration D, then final.
-CREATE FUNCTION zero_seed_launch_fee_at(p_trading_start int8, p_fee_duration int8, p_initial NUMERIC,
-                                        p_final NUMERIC, p_time int8)
-    RETURNS NUMERIC
-    LANGUAGE sql
-    IMMUTABLE PARALLEL SAFE AS
-$$
-SELECT CASE
-           WHEN p_time <= p_trading_start THEN p_initial
-           WHEN p_time - p_trading_start >= p_fee_duration THEN p_final
-           ELSE p_final + DIV((p_initial - p_final) *
-                              (zero_seed_launch_decay_q128(p_time - p_trading_start) -
-                               zero_seed_launch_decay_q128(p_fee_duration)),
-                              340282366920938463463374607431768211456 - zero_seed_launch_decay_q128(p_fee_duration))
-           END
-$$;
-
--- fixed_base_duration_v1 only. Fee phase at p_time. A schedule label only;
--- trading and the pool are unchanged.
-CREATE FUNCTION zero_seed_launch_fee_phase(p_trading_start int8, p_fee_duration int8, p_time int8)
-    RETURNS TEXT
-    LANGUAGE sql
-    IMMUTABLE PARALLEL SAFE AS
-$$
-SELECT CASE
-           WHEN p_time < p_trading_start THEN 'before_trading_start'
-           WHEN p_time < p_trading_start + p_fee_duration THEN 'fee_decay'
-           ELSE 'final_fee'
-           END
-$$;
-
 -- toFixed(tickToSqrtRatio(-p_magnitude)) of the contracts (math/ticks.sol,
 -- types/sqrtRatio.sol): from 2^128, multiply by the constant of every set bit
 -- of the magnitude in ascending order and floor to Q128 after each multiply,
@@ -702,46 +585,26 @@ BEGIN
 END
 $$;
 
--- decayedFee of the tick-rate contract (evm-contracts 3d6378f,
--- math/feeDecay.sol) in its normative order: rate 0 is the initial fee;
--- elapsed > MAX_DECAY_PRODUCT / rate (integer division before any multiply;
--- MAX_DECAY_PRODUCT = (88722835 + 1) * 2^32 - 1) is the final fee, the floor;
--- otherwise m = floor(rate * elapsed / 2^32) and
+-- feeAt of the contract (math/feeDecay.sol decayedFee, ZeroSeedLaunch._feeAt)
+-- at p_time (unix seconds), in its normative order: at or before the start,
+-- or with rate 0, the initial fee; elapsed > MAX_DECAY_PRODUCT / rate (integer
+-- division first; MAX_DECAY_PRODUCT = (88722835 + 1) * 2^32 - 1) is the final
+-- fee, the floor; otherwise m = floor(rate * elapsed / 2^32) and
 -- final + floor((initial - final) * factor(m) / 2^128).
-CREATE FUNCTION zero_seed_launch_tick_rate_fee(p_initial NUMERIC, p_final NUMERIC,
-                                               p_decay_rate_x32 NUMERIC, p_elapsed NUMERIC)
+CREATE FUNCTION zero_seed_launch_fee_at(p_trading_start NUMERIC, p_decay_rate_x32 NUMERIC,
+                                        p_initial NUMERIC, p_final NUMERIC, p_time NUMERIC)
     RETURNS NUMERIC
     LANGUAGE sql
     IMMUTABLE STRICT PARALLEL SAFE AS
 $$
 SELECT CASE
-           WHEN p_elapsed <= 0 OR p_decay_rate_x32 = 0 THEN p_initial
-           WHEN p_elapsed > DIV(381061679028371455, p_decay_rate_x32) THEN p_final
+           WHEN p_time <= p_trading_start OR p_decay_rate_x32 = 0 THEN p_initial
+           WHEN p_time - p_trading_start > DIV(381061679028371455, p_decay_rate_x32) THEN p_final
            ELSE p_final + DIV((p_initial - p_final) *
                               zero_seed_launch_tick_factor_q128(
-                                      DIV(p_decay_rate_x32 * p_elapsed, 4294967296)::int8),
+                                      DIV(p_decay_rate_x32 * (p_time - p_trading_start), 4294967296)::int8),
                               340282366920938463463374607431768211456)
            END
-$$;
-
--- feeAt of either fee model at p_time (unix seconds): the launch row's own
--- model decides; the other model's parameter must be NULL.
-CREATE FUNCTION zero_seed_launch_model_fee_at(p_fee_model TEXT, p_trading_start int8,
-                                              p_fee_duration int8, p_decay_rate_x32 NUMERIC,
-                                              p_initial NUMERIC, p_final NUMERIC, p_time int8)
-    RETURNS NUMERIC
-    LANGUAGE plpgsql
-    IMMUTABLE PARALLEL SAFE AS
-$$
-BEGIN
-    IF p_fee_model = 'fixed_base_duration_v1' AND p_decay_rate_x32 IS NULL THEN
-        RETURN zero_seed_launch_fee_at(p_trading_start, p_fee_duration, p_initial, p_final, p_time);
-    ELSIF p_fee_model = 'tick_rate_v2' AND p_fee_duration IS NULL THEN
-        RETURN zero_seed_launch_tick_rate_fee(p_initial, p_final, p_decay_rate_x32,
-                                              p_time::NUMERIC - p_trading_start);
-    END IF;
-    RAISE EXCEPTION 'invalid zero-seed launch fee model %', p_fee_model;
-END
 $$;
 
 -- pool_last_event_id: the 00123 recompute plus the launch state table.
@@ -870,8 +733,6 @@ SELECT pk.pool_key_id,
        zslc.tick_upper                                           AS zero_seed_launch_tick_upper,
        zslc.liquidity                                            AS zero_seed_launch_liquidity,
        zslc.trading_start                                        AS zero_seed_launch_trading_start,
-       zslc.fee_model                                            AS zero_seed_launch_fee_model,
-       zslc.fee_duration                                         AS zero_seed_launch_fee_duration,
        zslc.decay_rate_x32                                       AS zero_seed_launch_decay_rate_x32,
        zslc.initial_fee                                          AS zero_seed_launch_initial_fee,
        zslc.final_fee                                            AS zero_seed_launch_final_fee,

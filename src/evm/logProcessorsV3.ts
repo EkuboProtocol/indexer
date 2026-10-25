@@ -34,6 +34,7 @@ import {
   BOOSTED_FEES_ABI as BOOSTED_FEES_ABI_V3,
 } from "./abis_v3";
 import { createZeroSeedLaunchProcessors } from "./zeroSeedLaunchProcessors";
+import type { ZeroSeedLaunchPin } from "./zeroSeedLaunchConfig";
 import { mevCaptureV21Processors } from "./mevCaptureV21";
 
 export interface LogProcessorConfigV3 {
@@ -53,10 +54,10 @@ export interface LogProcessorConfigV3 {
   veTokenAddress?: `0x${string}`;
   ve33PositionsAddress?: `0x${string}`;
   /**
-   * Extension addresses resolved through zeroSeedLaunchConfig.ts (the
-   * service resolves at most one); empty or unset leaves launches off.
+   * Launch instances resolved through zeroSeedLaunchConfig.ts (the service
+   * resolves at most one); empty or unset leaves launches off.
    */
-  zeroSeedLaunchAddresses?: readonly `0x${string}`[];
+  zeroSeedLaunchPins?: readonly ZeroSeedLaunchPin[];
   positionsContracts: PositionsContractProtocolFeeConfig[];
 }
 
@@ -98,7 +99,7 @@ export function createLogProcessorsV3({
   ve33Address,
   veTokenAddress,
   ve33PositionsAddress,
-  zeroSeedLaunchAddresses,
+  zeroSeedLaunchPins,
   positionsContracts,
 }: LogProcessorConfigV3): EvmLogProcessor[] {
   const mevCaptureAddressBigInt = BigInt(mevCaptureAddress);
@@ -112,7 +113,9 @@ export function createLogProcessorsV3({
   ) {
     if (extension === mevCaptureAddressBigInt) {
       await dao.insertMEVCapturePoolKey(key.emitter, poolId);
-    } else if (zeroSeedLaunchAddresses?.some((a) => BigInt(a) === extension)) {
+    } else if (
+      zeroSeedLaunchPins?.some((p) => BigInt(p.address) === extension)
+    ) {
       await dao.insertZeroSeedLaunchPoolKey(key.emitter, poolId);
     }
     if (mevCaptureV21Address && extension === BigInt(mevCaptureV21Address)) {
@@ -624,7 +627,7 @@ export function createLogProcessorsV3({
     twammProcessors,
     ordersProcessors,
     positionsProcessors,
-    createZeroSeedLaunchProcessors({ coreAddress, zeroSeedLaunchAddresses }),
+    createZeroSeedLaunchProcessors({ coreAddress, zeroSeedLaunchPins }),
     mevCaptureV21Processors(mevCaptureV21Address, coreAddress),
   );
 }
