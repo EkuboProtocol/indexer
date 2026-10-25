@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { gunzipSync } from "node:zlib";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres, { type Sql } from "postgres";
@@ -29,20 +28,27 @@ import {
   type StreamLog,
 } from "./logStream";
 import { floatSqrtRatioToFixed } from "./swapEvent";
-import { resolveZeroSeedLaunchPin } from "./zeroSeedLaunchConfig";
+import {
+  resolveZeroSeedLaunchPin,
+  type ZeroSeedLaunchPin,
+} from "./zeroSeedLaunchConfig";
 import {
   createZeroSeedLaunchProcessors,
+  launchCreatedLogoBytes,
+  launchCreatedRow,
   zeroSeedLaunchCatchUpGuard,
+  type LaunchCreated,
 } from "./zeroSeedLaunchProcessors";
 
-// Replays logs that a local anvil chain actually emitted (see
-// scripts/zeroSeedLaunchFixture.ts) through the indexer's own stream grouping,
-// processors, DAO and the 00140 triggers on a real Postgres, and checks the
-// indexed state against the chain state recorded after every block: Core
-// pool state and custody (native ETH and ERC-20), the creator fee ledger,
-// the periphery owner of every launch and the contract's feeAt. One extension
-// serves native-ETH and ERC-20 quote launches; each launch's requested,
-// installed and sink supply are checked against the chain.
+// Replays logs that a local anvil chain running evm-contracts 853b608
+// actually emitted (see scripts/zeroSeedLaunchFixture.ts) through the
+// indexer's own stream grouping, processors, DAO and the 00140 triggers on a
+// real Postgres, and checks the indexed state against the chain state
+// recorded after every block: Core pool state and custody (native ETH and
+// ERC-20), the creator fee ledger, the periphery owner of every launch and the
+// contract's feeAt. One extension serves native-ETH and ERC-20 quote
+// launches; each launch's requested, installed and sink supply are checked
+// against the chain and its raw LaunchToken mint Transfers.
 /** Awaits `expect(promise).rejects.toThrow(error)`: bun-types declares the
  * matcher as returning void, but it returns a promise that must be awaited. */
 const expectRejects = (promise: Promise<unknown>, error: RegExp) =>
@@ -101,6 +107,10 @@ const fixture = JSON.parse(
       installedSupply: string;
       sinkSupply: string;
       liquidity: string;
+      logoUrl: Hex;
+      tickSpacing: number;
+      alignedAskTick: number;
+      alignedUpperTick: number;
     }
   >;
   installations: Record<string, { owner: `0x${string}` }>;
@@ -138,7 +148,18 @@ const FEES_PAID = topic(ZERO_SEED_LAUNCH_PERIPHERY_ABI, "LaunchFeesClaimed");
 const unused = (n: number): `0x${string}` =>
   `0x${n.toString(16).padStart(40, "0")}`;
 
-// The instance resolves through the production configuration path.
+// No final deployment is pinned: the fixture's local instance is injected
+// and resolves through the production configuration path.
+const LOCAL_PINS: ZeroSeedLaunchPin[] = fixture.instances.map((i) => ({
+  chainId: CHAIN_ID,
+  address: i.extension,
+  runtimeCodehash: i.extensionRuntimeKeccak,
+  periphery: i.periphery,
+  core: CORE,
+  deploymentBlock: i.deploymentBlock,
+  local: true,
+  source: "tests/fixtures/zero-seed-launch/local-chain.json",
+}));
 const PINS = fixture.instances.map((i) =>
   resolveZeroSeedLaunchPin({
     coreAddress: CORE,
@@ -146,12 +167,13 @@ const PINS = fixture.instances.map((i) =>
     address: i.extension,
     runtimeCodehash: i.extensionRuntimeKeccak,
     production: false,
+    pins: LOCAL_PINS,
   })!,
 );
-const ALL = PINS.map((p) => p.address);
+const ALL = PINS;
 
 function processorsFor(
-  zeroSeedLaunchAddresses: readonly `0x${string}`[],
+  zeroSeedLaunchPins: readonly ZeroSeedLaunchPin[],
 ): EvmLogProcessor[] {
   return createLogProcessorsV3({
     mevCaptureAddress: unused(1),
@@ -165,7 +187,7 @@ function processorsFor(
     twammAddresses: [],
     ordersAddresses: [],
     positionsContracts: [],
-    zeroSeedLaunchAddresses,
+    zeroSeedLaunchPins,
   });
 }
 
@@ -385,9 +407,8 @@ describe.skipIf(!SERVER)(
       SELECT ps.sqrt_ratio, ps.tick, ps.liquidity, s.accrued0, s.accrued1, s.claimed0, s.claimed1,
              pt.balance0, pt.balance1, pk.token0, pk.token1, s.current_owner, s.initial_owner, c.controller,
              c.requested_supply, c.sink_supply,
-             zero_seed_launch_model_fee_at(c.fee_model, c.trading_start, c.fee_duration, c.decay_rate_x32,
-                                           c.initial_fee, c.final_fee,
-                                           (SELECT EXTRACT(EPOCH FROM MAX(block_time))::int8 FROM blocks)) AS fee_at
+             zero_seed_launch_fee_at(c.trading_start, c.decay_rate_x32, c.initial_fee, c.final_fee,
+                                     (SELECT EXTRACT(EPOCH FROM MAX(block_time))::int8 FROM blocks)) AS fee_at
       FROM pool_keys pk
                JOIN pool_states ps USING (pool_key_id)
                JOIN zero_seed_launch_states s USING (pool_key_id)
@@ -487,6 +508,9 @@ describe.skipIf(!SERVER)(
         paid: await q(
           `SELECT p.*, NULL AS pool_key_id FROM zero_seed_launch_fees_paid p ORDER BY event_id`,
         ),
+        claims: await q(
+          `SELECT c.*, NULL AS pool_key_id FROM zero_seed_launch_claims c ORDER BY event_id`,
+        ),
         states: await ledgerRows(db).then((rows) =>
           rows.map((r) => ({ ...r })),
         ),
@@ -496,8 +520,7 @@ describe.skipIf(!SERVER)(
                       JOIN pool_tvl pt USING (pool_key_id) ORDER BY pk.pool_id`),
         view: await q(`SELECT pool_id, sqrt_ratio, tick, liquidity, last_event_id, ticks, zero_seed_launch_token_is_token1,
                        zero_seed_launch_tick_lower, zero_seed_launch_tick_upper, zero_seed_launch_liquidity,
-                       zero_seed_launch_trading_start, zero_seed_launch_fee_model, zero_seed_launch_fee_duration,
-                       zero_seed_launch_decay_rate_x32, zero_seed_launch_initial_fee,
+                       zero_seed_launch_trading_start, zero_seed_launch_decay_rate_x32, zero_seed_launch_initial_fee,
                        zero_seed_launch_final_fee, is_zero_seed_launch_pool
                      FROM all_pool_states_view v JOIN pool_keys USING (pool_key_id) ORDER BY pool_id`),
       };
@@ -518,8 +541,19 @@ describe.skipIf(!SERVER)(
 
     test("the single fixture instance resolves through the pins and serves both quote kinds", () => {
       expect(PINS.map((p) => [p.address, p.deploymentBlock])).toEqual([
-        [fixture.instances[0].extension.toLowerCase() as Hex, 2],
+        [fixture.instances[0].extension, 2],
       ]);
+      // A local pin is never accepted in production.
+      expect(() =>
+        resolveZeroSeedLaunchPin({
+          coreAddress: CORE,
+          chainId: CHAIN_ID,
+          address: fixture.instances[0].extension,
+          runtimeCodehash: fixture.instances[0].extensionRuntimeKeccak,
+          production: true,
+          pins: LOCAL_PINS,
+        }),
+      ).toThrow(/local fixture/);
       expect(
         new Set(Object.values(fixture.launches).map((l) => l.quoteKind)),
       ).toEqual(new Set(["native", "erc20"]));
@@ -598,12 +632,12 @@ describe.skipIf(!SERVER)(
       for (const r of rows)
         expect(r.sink_supply).toBe(r.requested_supply - r.installed_supply);
       // Requested supply is stored as submitted, also for the two low-price
-      // token0 launches; l8 installs its whole int128-scale supply (no sink).
+      // token0 launches at the 1e30 cap.
       expect(rows.map((r) => [r.requested_supply, r.sink_supply > 0n])).toEqual(
         [
           ...Array.from({ length: 5 }, () => [10n ** 27n, true]),
           [10n ** 30n, true],
-          [170141183460469231694794709727778658247n, false],
+          [10n ** 30n, true],
         ],
       );
       // The table refuses an installed supply above the request, or zero.
@@ -614,12 +648,14 @@ describe.skipIf(!SERVER)(
               `INSERT INTO zero_seed_launch_created
                  (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
                   pool_key_id, pool_id, token, controller, quote_token, position_id, liquidity, requested_supply,
-                  installed_supply, name, symbol, decimals, ask_tick, upper_tick, tick_spacing, trading_start,
-                  fee_model, fee_duration, decay_rate_x32, initial_fee, final_fee, salt)
+                  installed_supply, name_word, symbol_word, name, symbol, logo_url_bytes, logo_url, ask_tick,
+                  upper_tick, tick_spacing, aligned_ask_tick, aligned_upper_tick, trading_start, decay_rate_x32,
+                  initial_fee, final_fee, salt)
                  SELECT chain_id, block_number, transaction_index, event_index + 1000, transaction_hash, emitter,
                         NULL, pool_id, token, controller, quote_token, position_id, liquidity, requested_supply,
-                        ${installed}, name, symbol, decimals, ask_tick, upper_tick, tick_spacing, trading_start,
-                        fee_model, fee_duration, decay_rate_x32, initial_fee, final_fee, salt
+                        ${installed}, name_word, symbol_word, name, symbol, logo_url_bytes, logo_url, ask_tick,
+                        upper_tick, tick_spacing, aligned_ask_tick, aligned_upper_tick, trading_start,
+                        decay_rate_x32, initial_fee, final_fee, salt
                  FROM zero_seed_launch_created LIMIT 1`,
             ),
           ),
@@ -749,28 +785,11 @@ describe.skipIf(!SERVER)(
       const createdLog = createdIn.logs.find(
         (l) => l.topics[0] === LAUNCH_CREATED,
       )!;
-      const event = decodeArgs<{
-        poolId: Hex;
-        token: Hex;
-        controller: Hex;
-        positionId: Hex;
-        liquidity: bigint;
-        parameters: {
-          supply: bigint;
-          quoteToken: Hex;
-          name: string;
-          symbol: string;
-          decimals: number;
-          askTick: number;
-          upperTick: number;
-          tickSpacing: number;
-          tradingStart: bigint;
-          feeDuration: number;
-          initialFee: bigint;
-          finalFee: bigint;
-          salt: Hex;
-        };
-      }>(ZERO_SEED_LAUNCH_ABI, "LaunchCreated", createdLog);
+      const event = decodeArgs<LaunchCreated>(
+        ZERO_SEED_LAUNCH_ABI,
+        "LaunchCreated",
+        createdLog,
+      );
       const position = createdIn.logs.find(isLaunchPosition)!;
       await expectRejects(
         db.dao.begin((tx) =>
@@ -782,15 +801,11 @@ describe.skipIf(!SERVER)(
               emitter: createdLog.address,
               transactionHash: createdLog.transactionHash,
             },
-            {
-              coreAddress: CORE,
-              ...event,
-              ...event.parameters,
-              feeModel: "fixed_base_duration_v1",
-              tradingStart: event.parameters.tradingStart,
-              quoteToken: event.parameters.quoteToken,
-              requestedSupply: event.parameters.supply,
-            },
+            launchCreatedRow(
+              event,
+              launchCreatedLogoBytes(createdLog.data),
+              CORE,
+            ),
           ),
         ),
         /0 Core position updates/,
@@ -994,9 +1009,8 @@ describe.skipIf(!SERVER)(
           native: boolean;
         }[]
       >`
-      SELECT w.fee_rate = zero_seed_launch_model_fee_at(c.fee_model, c.trading_start, c.fee_duration,
-                                                         c.decay_rate_x32, c.initial_fee, c.final_fee,
-                                                         EXTRACT(EPOCH FROM b.block_time)::int8) AS ok_rate,
+      SELECT w.fee_rate = zero_seed_launch_fee_at(c.trading_start, c.decay_rate_x32, c.initial_fee,
+                                                   c.final_fee, EXTRACT(EPOCH FROM b.block_time)::int8) AS ok_rate,
              (CASE WHEN w.fee_is_token1 THEN w.delta1 - s.delta1 ELSE w.delta0 - s.delta0 END) = w.fee_amount AS ok_fee_side,
              (CASE WHEN w.fee_is_token1 THEN w.delta0 = s.delta0 ELSE w.delta1 = s.delta1 END) AS ok_other,
              s.event_id IS NOT NULL AS core_found,
@@ -1037,26 +1051,31 @@ describe.skipIf(!SERVER)(
           pool_id: bigint;
           initial_fee: string;
           final_fee: string;
-          fee_duration: bigint;
+          decay_rate_x32: string;
         }[]
       >`
-      SELECT pool_id, initial_fee::TEXT, final_fee::TEXT, fee_duration
+      SELECT pool_id, initial_fee::TEXT, final_fee::TEXT, decay_rate_x32::TEXT
       FROM zero_seed_launch_created WHERE initial_fee = ${MAX.toString()}::NUMERIC ORDER BY event_id`;
       expect(
         created.map((r) => [
           r.pool_id,
           r.initial_fee,
           r.final_fee,
-          Number(r.fee_duration),
+          r.decay_rate_x32,
         ]),
       ).toEqual([
         [
           BigInt(fixture.launches.l5.poolId),
           MAX.toString(),
           "55340232221128654",
-          3600,
+          MAX.toString(),
         ],
-        [BigInt(fixture.launches.l6.poolId), MAX.toString(), MAX.toString(), 1],
+        [
+          BigInt(fixture.launches.l6.poolId),
+          MAX.toString(),
+          MAX.toString(),
+          "1",
+        ],
       ]);
       // Exact input nets floor(gross / 2^64); exact output pays calculated * 2^64.
       const swaps = await db.sql<
@@ -1080,98 +1099,107 @@ describe.skipIf(!SERVER)(
             (calculated / 2n ** 64n) * MAX,
           ]);
       }
-      // fee_at at the maximum: exact endpoints, never 2^64, monotone over the window.
+      // fee_at at the maximum fee: initial at the start; the maximum rate
+      // saturates to the floor from the first second; a flat schedule stays
+      // at the maximum; never above it and never rising.
+      const M = MAX.toString();
       const [ends] = await db.sql<
         {
           start: string;
-          end: string;
+          floor: string;
           flat: string;
           above: boolean;
           rising: number;
         }[]
       >`
-      SELECT zero_seed_launch_fee_at(0, 3600, ${MAX.toString()}::NUMERIC, 55340232221128654, 0)::TEXT AS start,
-             zero_seed_launch_fee_at(0, 3600, ${MAX.toString()}::NUMERIC, 55340232221128654, 3600)::TEXT AS end,
-             zero_seed_launch_fee_at(0, 1, ${MAX.toString()}::NUMERIC, ${MAX.toString()}::NUMERIC, 1)::TEXT AS flat,
+      SELECT zero_seed_launch_fee_at(0, ${M}::NUMERIC, ${M}::NUMERIC, 55340232221128654, 0)::TEXT AS start,
+             zero_seed_launch_fee_at(0, ${M}::NUMERIC, ${M}::NUMERIC, 55340232221128654, 1)::TEXT AS floor,
+             zero_seed_launch_fee_at(0, 1, ${M}::NUMERIC, ${M}::NUMERIC, 1000000)::TEXT AS flat,
              EXISTS (SELECT 1 FROM generate_series(0, 3600) t
-                     WHERE zero_seed_launch_fee_at(0, 3600, ${MAX.toString()}::NUMERIC, 0, t) > ${MAX.toString()}::NUMERIC) AS above,
+                     WHERE zero_seed_launch_fee_at(0, 68913100933, ${M}::NUMERIC, 0, t) > ${M}::NUMERIC) AS above,
              (SELECT COUNT(*)::int FROM generate_series(1, 3600) t
-              WHERE zero_seed_launch_fee_at(0, 3600, ${MAX.toString()}::NUMERIC, 0, t)
-                  > zero_seed_launch_fee_at(0, 3600, ${MAX.toString()}::NUMERIC, 0, t - 1)) AS rising`;
+              WHERE zero_seed_launch_fee_at(0, 68913100933, ${M}::NUMERIC, 0, t)
+                  > zero_seed_launch_fee_at(0, 68913100933, ${M}::NUMERIC, 0, t - 1)) AS rising`;
       expect(ends).toEqual({
-        start: MAX.toString(),
-        end: "55340232221128654",
-        flat: MAX.toString(),
+        start: M,
+        floor: "55340232221128654",
+        flat: M,
         above: false,
         rising: 0,
       });
       await db.sql.end();
     }, 120_000);
 
-    test("fee_at and decay_q128 reproduce the independent all-second vectors bit for bit", async () => {
+    test("fee_at reproduces the frozen fee vectors and fee curves of the contract", async () => {
       const db = await freshDb();
-      // [initial, final, duration, elapsed, fee] for every second of 12 curves,
-      // from the protocol's 250-digit Decimal generator, not from this code.
-      const rows = JSON.parse(
-        gunzipSync(
-          readFileSync(
-            resolve(
-              ROOT,
-              "tests/fixtures/zero-seed-launch/fee-curve-all-seconds.json.gz",
-            ),
-          ),
-        ).toString("utf8"),
-      ) as [string, string, string, string, string][];
-      expect(rows.length).toBe(25_212);
-      const mismatches = await db.sql<{ n: number }[]>`
-        WITH v AS (
-          SELECT (r ->> 0)::numeric AS initial, (r ->> 1)::numeric AS final, (r ->> 2)::int8 AS duration,
-                 (r ->> 3)::int8 AS elapsed, (r ->> 4)::numeric AS fee
-          FROM jsonb_array_elements((${JSON.stringify(rows)}::text)::jsonb) r
-        )
-        SELECT COUNT(*) FILTER (WHERE zero_seed_launch_fee_at(1000, duration, initial, final, 1000 + elapsed) <> fee)::int AS n,
-               COUNT(*)::int AS total
-        FROM v`;
-      expect(mismatches[0]).toEqual({ n: 0, total: 25_212 } as never);
-      // Before the start the fee is initial.
-      const [{ before }] = await db.sql<{ before: bigint }[]>`
-        SELECT zero_seed_launch_fee_at(1000, 600, 9223372036854775808, 55340232221128654, 1) AS before`;
-      expect(before).toBe(9223372036854775808n);
       const vectors = JSON.parse(
         readFileSync(
           resolve(
             ROOT,
-            "tests/fixtures/zero-seed-launch/fee-decay-vectors.json",
+            "tests/fixtures/zero-seed-launch/freeze-853b608/zero-seed-launch.json",
           ),
           "utf8",
         ),
       ) as {
-        zero_at_or_above: number;
-        decay_samples: { t: number; decay_q128: string }[];
-        fee_rows: {
-          initial: string;
-          final: string;
-          duration: number;
-          elapsed: number;
-          fee: string;
+        fee: {
+          decayRateX32: string;
+          t_minus_start: string;
+          fee_q64: string;
         }[];
+        fee_curve: {
+          rates_q64: Record<string, string>;
+          final_fee_q64: string;
+          decay_rates_x32: Record<string, string>;
+          tables: Record<string, { t: string; fee_q64: string }[]>;
+        };
       };
-      for (const { t, decay_q128 } of vectors.decay_samples) {
-        const [{ d }] = await db.sql<{ d: bigint }[]>`
-          SELECT zero_seed_launch_decay_q128(${t}::int8) AS d`;
-        expect(String(d)).toBe(decay_q128);
-      }
-      for (const t of [vectors.zero_at_or_above - 1, vectors.zero_at_or_above])
-        await db.sql`SELECT zero_seed_launch_decay_q128(${t}::int8)`;
-      const [{ zero }] = await db.sql<{ zero: bigint }[]>`
-        SELECT zero_seed_launch_decay_q128(${vectors.zero_at_or_above}::int8) AS zero`;
-      expect(zero).toBe(0n);
-      for (const r of vectors.fee_rows) {
-        const [{ fee }] = await db.sql<{ fee: bigint }[]>`
-          SELECT zero_seed_launch_fee_at(0, ${r.duration}::int8, ${r.initial}::numeric, ${r.final}::numeric,
-                                         ${r.elapsed}::int8) AS fee`;
-        expect(String(fee)).toBe(r.fee);
-      }
+      const { rates_q64: rate, decay_rates_x32: decay } = vectors.fee_curve;
+      // The `fee` rows are the 5% -> 0.3% schedule (see the vector file).
+      const rows: [string, string, string, string, string][] = vectors.fee.map(
+        (r) => [
+          rate["5"],
+          vectors.fee_curve.final_fee_q64,
+          r.decayRateX32,
+          r.t_minus_start,
+          r.fee_q64,
+        ],
+      );
+      const curves: Record<string, [string, string, string]> = {
+        "default_one_day_50_to_0.3": [
+          rate["50"],
+          vectors.fee_curve.final_fee_q64,
+          decay.default_one_day,
+        ],
+        default_one_day_max_to_0: [rate.max, "0", decay.default_one_day],
+        min_rate_max_to_0: [rate.max, "0", decay.min],
+        "two_ticks_per_second_50_to_0.3": [
+          rate["50"],
+          vectors.fee_curve.final_fee_q64,
+          decay.two_ticks_per_second,
+        ],
+        "two_ticks_per_second_99.9_to_0": [
+          rate["99.9"],
+          "0",
+          decay.two_ticks_per_second,
+        ],
+      };
+      expect(Object.keys(vectors.fee_curve.tables).sort()).toEqual(
+        Object.keys(curves).sort(),
+      );
+      for (const [name, [initial, final, rateX32]] of Object.entries(curves))
+        for (const r of vectors.fee_curve.tables[name])
+          rows.push([initial, final, rateX32, r.t, r.fee_q64]);
+      const [result] = await db.sql<{ n: number; total: number }[]>`
+        WITH v AS (
+          SELECT (r ->> 0)::numeric AS initial, (r ->> 1)::numeric AS final, (r ->> 2)::numeric AS rate,
+                 (r ->> 3)::numeric AS elapsed, (r ->> 4)::numeric AS fee
+          FROM jsonb_array_elements((${JSON.stringify(rows)}::text)::jsonb) r
+        )
+        SELECT COUNT(*) FILTER (WHERE zero_seed_launch_fee_at(1000, rate, initial, final, 1000 + elapsed) <> fee)::int AS n,
+               COUNT(*)::int AS total
+        FROM v`;
+      expect(result).toEqual({ n: 0, total: rows.length });
+      expect(rows.length).toBe(89);
       await db.sql.end();
     }, 300_000);
 
@@ -1185,8 +1213,8 @@ describe.skipIf(!SERVER)(
              v.is_zero_seed_launch_pool
                AND v.zero_seed_launch_tick_lower = c.tick_lower AND v.zero_seed_launch_tick_upper = c.tick_upper
                AND v.zero_seed_launch_liquidity = c.liquidity AND v.zero_seed_launch_token_is_token1 = c.token_is_token1
-               AND v.zero_seed_launch_trading_start = c.trading_start AND v.zero_seed_launch_fee_duration = c.fee_duration
-               AND v.zero_seed_launch_fee_model = c.fee_model AND v.zero_seed_launch_decay_rate_x32 IS NULL
+               AND v.zero_seed_launch_trading_start = c.trading_start
+               AND v.zero_seed_launch_decay_rate_x32 = c.decay_rate_x32
                AND v.zero_seed_launch_initial_fee = c.initial_fee AND v.zero_seed_launch_final_fee = c.final_fee
                AND v.ticks = JSONB_BUILD_ARRAY(JSONB_BUILD_OBJECT('t', c.tick_lower, 'd', c.liquidity::TEXT),
                                                JSONB_BUILD_OBJECT('t', c.tick_upper, 'd', (-c.liquidity)::TEXT))
@@ -1202,7 +1230,7 @@ describe.skipIf(!SERVER)(
         [true, true], // l5
         [false, false], // l6
         [false, false], // l7: low price, exact token0 installation
-        [false, false], // l8: full width at spacing 1, no sink
+        [false, false], // l8: full width, the widest derived spacing
       ]);
       expect(rows.every((r) => r.ok)).toBe(true);
       await db.sql.end();
@@ -1400,7 +1428,7 @@ describe.skipIf(!SERVER)(
       // duplicate extension and periphery logs inside later transactions are ignored
       const launchOnly = createZeroSeedLaunchProcessors({
         coreAddress: CORE,
-        zeroSeedLaunchAddresses: ALL,
+        zeroSeedLaunchPins: ALL,
       });
       for (let pass = 0; pass < 2; pass++)
         for (const block of groupLogsByBlock(
@@ -1451,7 +1479,7 @@ describe.skipIf(!SERVER)(
       const unregistered = processorsFor([]).concat(
         createZeroSeedLaunchProcessors({
           coreAddress: CORE,
-          zeroSeedLaunchAddresses: ALL,
+          zeroSeedLaunchPins: ALL,
         }),
       );
       await expectRejects(
