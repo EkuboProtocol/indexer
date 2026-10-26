@@ -429,7 +429,7 @@ deployed). It replaces, in place, every earlier draft of itself (the #246
 ScheduledLaunch draft, and the fixed-base and earlier tick-rate drafts); none
 was ever applied outside local tests, and a local database that applied one
 must be rebuilt. It creates `zero_seed_launch_pool_keys`, `_created`,
-`_swapped`, `_fees_claimed`, `_fees_paid`, `_owner_changed`,
+`_swapped`, `_fees_claimed`, `_fees_paid`, `_owner_changed`, `_token_events`,
 `zero_seed_launch_states` and the `zero_seed_launch_claims` view, the SQL fee
 function `zero_seed_launch_fee_at(trading_start, decay_rate_x32, initial,
 final, time)`, appends nine `zero_seed_launch_*`/`is_zero_seed_launch_pool`
@@ -452,10 +452,15 @@ authorizes no deployment or live database write.
   attaches owner and recipient; it is never counted again.
 - Supply: `requested_supply` = `totalSupply`; `installed_supply` is Core's
   debit for the position (the `Transfer(0, Core, installed)` mint);
-  `sink_supply` went to address 0 and is not a burn. LaunchToken
-  Transfer/Approval logs are not streamed; see
-  `docs/zero-seed-launch-events.md`, which also maps every event to its
-  filter, handler, columns, API field and tests.
+  `sink_supply` went to address 0 and is not a burn. A creation is refused
+  unless its captured mints are exactly these two transfers.
+- LaunchToken `Transfer`/`Approval` logs are stored raw in
+  `zero_seed_launch_token_events` (no balances or allowances). The EVM stream
+  follows each launch token from its `LaunchCreated`, mints included, and
+  adds one address per launch to its `eth_getLogs` requests (chunked at 1,000
+  addresses), plus one extra request for each read range that creates a
+  token. See `docs/zero-seed-launch-events.md`, which also maps every event
+  to its filter, handler, columns, API field and tests.
 
 Launch indexing is off unless `ZERO_SEED_LAUNCH_ADDRESS` and
 `ZERO_SEED_LAUNCH_RUNTIME_CODEHASH` match a pin in
