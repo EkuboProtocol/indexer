@@ -522,10 +522,13 @@ function newlyDiscovered(
   const known = new Set(allDiscovered(before));
   const addresses = allDiscovered(after).filter((a) => !known.has(a));
   if (addresses.length === 0) return undefined;
+  const fresh = new Set<string>(addresses);
   const sources = discoverySources(filters);
   const fromBlock = Math.min(
     ...logs
-      .filter((log) => sources.some((source) => namedAddress(log, source)))
+      .filter((log) =>
+        sources.some((source) => fresh.has(namedAddress(log, source) ?? "")),
+      )
       .map((log) => hexToNumber(log.blockNumber)),
   );
   return { addresses, fromBlock };

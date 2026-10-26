@@ -22,10 +22,12 @@ import { parseEvmBlockHeader, processEvmBlock } from "../evm";
 import { createLogProcessorsV3 } from "./logProcessorsV3";
 import { logStreamFilters, type EvmLogProcessor } from "./logProcessorsShared";
 import {
+  createEvmAdapter,
   groupLogsByBlock,
   loadKnownAddresses,
   type LogStreamFilter,
   type RawLog,
+  type RpcLike,
   type StreamBlock,
   type StreamLog,
 } from "./logStream";
@@ -1360,6 +1362,174 @@ describe.skipIf(!SERVER)(
       await db.sql.end();
     }, 120_000);
 
+    test("launch-token Transfer/Approval through the stream adapter: creation mints, later logs, same-batch tokens, redelivery, reorg and replay", async () => {
+      const TRANSFER = topic(LAUNCH_TOKEN_ABI, "Transfer");
+      const APPROVAL = topic(LAUNCH_TOKEN_ABI, "Approval");
+      /** eth_getLogs over a branch, filtered by range and address like a node. */
+      const chainRpc = (logs: RawLog[], calls: string[]): RpcLike => ({
+        request: (async ({
+          params: [{ fromBlock, toBlock, address }],
+        }: {
+          params: [{ fromBlock: Hex; toBlock: Hex; address: Hex[] }];
+        }) => {
+          const wanted = new Set(address.map((a) => BigInt(a)));
+          calls.push(`${Number(fromBlock)}..${Number(toBlock)}:${wanted.size}`);
+          return logs.filter(
+            (l) =>
+              Number(l.blockNumber) >= Number(fromBlock) &&
+              Number(l.blockNumber) <= Number(toBlock) &&
+              wanted.has(BigInt(l.address)),
+          );
+        }) as RpcLike["request"],
+      });
+      const processors = LAUNCH_ON();
+      const filters = filtersOf(processors);
+      /** A (re)started stream over `logs`, reading `ranges` into `db`. */
+      async function stream(
+        db: Db,
+        logs: RawLog[],
+        ranges: [number, number][],
+      ) {
+        const calls: string[] = [];
+        const adapter = createEvmAdapter(
+          chainRpc(logs, calls),
+          filters,
+          10_000,
+          (source) => db.dao.loadDiscoveredAddresses(source),
+        );
+        const read: StreamBlock[] = [];
+        for (const [from, to] of ranges)
+          for (const block of await adapter.readRange(from, to)) {
+            await applyBlock(db.dao, processors, block);
+            read.push(block);
+          }
+        return { calls, read };
+      }
+      const tokens = (labels: string[]) =>
+        new Set(labels.map((l) => BigInt(fixture.launches[l].token)));
+      /** Every Transfer/Approval of `of`, decoded from the raw chain logs. */
+      const expectedRows = (logs: RawLog[], of: Set<bigint>) =>
+        logs
+          .filter((l) => of.has(BigInt(l.address)))
+          .map((l) => {
+            const approval = l.topics[0] === APPROVAL;
+            expect(approval || l.topics[0] === TRANSFER).toBe(true);
+            const args = decodeArgs<Record<string, Hex | bigint>>(
+              LAUNCH_TOKEN_ABI,
+              approval ? "Approval" : "Transfer",
+              l,
+            );
+            return {
+              block_number: BigInt(l.blockNumber),
+              event_index: Number(l.logIndex),
+              emitter: BigInt(l.address),
+              kind: approval ? "approval" : "transfer",
+              from_or_owner: BigInt(approval ? args.owner : args.from),
+              to_or_spender: BigInt(approval ? args.spender : args.to),
+              value: args.amount,
+            };
+          });
+      const stored = async (db: Db) =>
+        (
+          await db.sql`SELECT block_number, event_index, emitter, kind, from_or_owner, to_or_spender, value
+                       FROM zero_seed_launch_token_events ORDER BY event_id`
+        ).map((r) => ({ ...r }));
+
+      // The alternate fork, streamed in ranges that each create a token: l1
+      // (block 2), l2 with l1's approval (3) and l2's approval a block later
+      // in the same range (4), l3 on the fork (8).
+      const db = await freshDb();
+      const forkLogs = [...prefix.logs, ...alternate.logs];
+      const fork = await stream(db, forkLogs, [
+        [1, 2],
+        [3, 4],
+        [5, 7],
+        [8, 9],
+      ]);
+      // one read per range, plus one from the creating block for each range
+      // that names new tokens
+      const STATIC = new Set(
+        filters.filter((f) => !f.discoveredBy).map((f) => BigInt(f.address)),
+      ).size;
+      expect(fork.calls).toEqual([
+        `1..2:${STATIC}`,
+        "2..2:1",
+        `3..4:${STATIC + 1}`,
+        "3..4:1",
+        `5..7:${STATIC + 2}`,
+        `8..9:${STATIC + 2}`,
+        "8..9:1",
+      ]);
+      expect(await stored(db)).toEqual(
+        expectedRows(forkLogs, tokens(["l1", "l2", "l3"])) as never,
+      );
+
+      // Mints precede LaunchCreated in its transaction and are stored with it.
+      const mints = await db.sql<{ n: number; ok: boolean }[]>`
+      SELECT COUNT(*)::int AS n,
+             bool_and(t.event_index < c.event_index AND t.to_or_spender IN (${num(CORE)}::numeric, 0)) AS ok
+      FROM zero_seed_launch_created c
+               JOIN zero_seed_launch_token_events t
+                    ON t.chain_id = c.chain_id AND t.block_number = c.block_number
+                        AND t.transaction_index = c.transaction_index AND t.emitter = c.token
+      WHERE t.kind = 'transfer' AND t.from_or_owner = 0`;
+      expect(mints[0]).toEqual({ n: 6, ok: true });
+      const [{ approvals, transfers }] = await db.sql<
+        { approvals: number; transfers: number }[]
+      >`SELECT COUNT(*) FILTER (WHERE kind = 'approval')::int AS approvals,
+               COUNT(*) FILTER (WHERE kind = 'transfer' AND from_or_owner <> 0)::int AS transfers
+        FROM zero_seed_launch_token_events`;
+      expect(approvals).toBe(2);
+      expect(transfers).toBeGreaterThan(5);
+
+      // Redelivery of every block read changes nothing.
+      const before = await dump(db);
+      for (const block of fork.read)
+        await applyBlock(db.dao, processors, block);
+      expect(await dump(db)).toEqual(before);
+
+      // Reorg to the canonical branch: the fork's token logs (l3, and l2's
+      // transfer at block 9) go; a restarted stream loads l1 and l2 from the
+      // database and creates l4..l8, two of them in one block.
+      await invalidateFrom(db.dao, fixture.forkPoint + 1);
+      expect(await stored(db)).toEqual(
+        expectedRows(prefix.logs, tokens(["l1", "l2"])) as never,
+      );
+      const canonicalLogs = [...prefix.logs, ...canonical.logs];
+      const restarted = await stream(db, canonicalLogs, [
+        [8, 9],
+        [10, 18],
+      ]);
+      expect(restarted.calls).toEqual([
+        `8..9:${STATIC + 2}`,
+        "8..9:3",
+        `10..18:${STATIC + 5}`,
+        "16..18:2",
+      ]);
+      const canonicalTokens = tokens([
+        "l1",
+        "l2",
+        "l4",
+        "l5",
+        "l6",
+        "l7",
+        "l8",
+      ]);
+      expect(await stored(db)).toEqual(
+        expectedRows(canonicalLogs, canonicalTokens) as never,
+      );
+      // Same state as the block-by-block replay; a second full stream is identical.
+      const blockByBlock = await canonicalReplay();
+      const expected = await dump(blockByBlock);
+      expect(await dump(db)).toEqual(expected);
+      const second = await freshDb();
+      await stream(second, canonicalLogs, [[1, 18]]);
+      expect(await dump(second)).toEqual(expected);
+      await db.sql.end();
+      await second.sql.end();
+      await blockByBlock.sql.end();
+    }, 120_000);
+
     test("reorg from the deployment block empties every launch table, and replay restores it", async () => {
       const db = await canonicalReplay();
       const deployment = PINS[0].deploymentBlock;
@@ -1367,7 +1537,8 @@ describe.skipIf(!SERVER)(
       const [{ n }] = await db.sql<{ n: number }[]>`
       SELECT ((SELECT COUNT(*) FROM zero_seed_launch_created) + (SELECT COUNT(*) FROM zero_seed_launch_swapped)
            + (SELECT COUNT(*) FROM zero_seed_launch_fees_claimed) + (SELECT COUNT(*) FROM zero_seed_launch_states)
-           + (SELECT COUNT(*) FROM zero_seed_launch_owner_changed) + (SELECT COUNT(*) FROM zero_seed_launch_fees_paid))::int AS n`;
+           + (SELECT COUNT(*) FROM zero_seed_launch_owner_changed) + (SELECT COUNT(*) FROM zero_seed_launch_fees_paid)
+           + (SELECT COUNT(*) FROM zero_seed_launch_token_events))::int AS n`;
       expect(n).toBe(0);
       const [{ flagged }] = await db.sql<{ flagged: number }[]>`
       SELECT COUNT(*)::int AS flagged FROM all_pool_states_view WHERE is_zero_seed_launch_pool`;
