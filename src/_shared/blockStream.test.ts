@@ -288,8 +288,61 @@ describe("a provider that refuses reads at the head", () => {
       cursor: 99,
     });
     expect(String(warnings[0]!.detail.error)).toContain(refusal);
+    expect(warnings.map((w) => [w.detail.to, w.detail.head])).toEqual([
+      [101, 101],
+      [101, 102],
+      [101, 103],
+      [101, 104],
+      [101, 105],
+    ]);
     if (message._tag !== "data") throw new Error("unreachable");
-    expect(message.data.endCursor?.orderKey).toBe(106n);
+    expect(message.data.endCursor?.orderKey).toBe(101n);
+  });
+
+  it("stops chasing the head while the provider's log index lags it", async () => {
+    let latest = 100;
+    const ranges: [number, number][] = [];
+    const adapter: ChainAdapter<string> = {
+      label: "fixture",
+      async fetchBlock(n) {
+        return n <= latest ? head(n) : null;
+      },
+      async fetchHead() {
+        return head(++latest);
+      },
+      async fetchFinalized() {
+        return head(90);
+      },
+      async readRange(from, to) {
+        ranges.push([from, to]);
+        if (ranges.length > 20) throw new Error("never caught up");
+        // The log index trails the reported head by two blocks.
+        if (to > latest - 2)
+          throw new Error(`eth_getLogs failed. Cause: ${refusal}`);
+        return [block(to, head(to).hash)];
+      },
+      async completeFresh() {},
+    };
+    const stream = createBlockStream({
+      adapter,
+      startingCursor: { orderKey: 99n },
+      options: { ...options, providerOutageBudgetMs: 60_000 },
+    });
+    const ends: bigint[] = [];
+    try {
+      for await (const message of stream) {
+        if (message._tag !== "data") continue;
+        ends.push(message.data.endCursor.orderKey);
+        if (ends.length === 2) break;
+      }
+    } finally {
+      await stream.return(undefined);
+    }
+    // Refused at 101, then held there until the index reached it; the next
+    // read chases the fresh head, is refused, and is held again.
+    expect(ranges.slice(0, 3).map(([, to]) => to)).toEqual([101, 101, 101]);
+    expect(ends[0]).toBe(101n);
+    expect(ends[1]).toBeGreaterThan(101n);
   });
 
   it("backs off through an unreadable head", async () => {

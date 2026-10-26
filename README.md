@@ -169,7 +169,11 @@ common case and behaves exactly as a list of one. **Each entry must satisfy the
 contract below on its own**: the list is read one endpoint at a time, never
 spread across a read. Failed requests retry against the same endpoint. A read that still fails emits nothing: the stream
 logs `provider read failed; backing off`, waits (doubling from the poll interval
-to `MAX_POLL_INTERVAL_MS`) and re-plans from a fresh head. Only reads failing
+to `MAX_POLL_INTERVAL_MS`) and re-plans from a fresh head. After a failed range
+read, the re-plan ends no later than the lowest end that failed in the streak,
+rather than at the fresh head: a provider whose log index trails the head it
+reports refuses any range ending at that head, and chasing a head that is
+always just as new never clears. Only reads failing
 back to back for more than ten minutes exit, restarting from the durable cursor.
 Exiting on the first failure turned a sixteen-minute provider outage into 89-315
 restarts per chain, each re-requesting the refused range (EKU-502). Startup

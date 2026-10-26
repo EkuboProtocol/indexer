@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Address, Hex } from "viem";
-import { numberToHex } from "viem";
+import { InvalidParamsRpcError, numberToHex, RpcRequestError } from "viem";
 import { readSnapshot } from "../_shared/blockSnapshot";
 import {
   createLogStream,
@@ -1294,6 +1294,37 @@ describe("fetchLogsChecked on an eth_getLogs error", () => {
     expect(failure.message).toContain("GET_LOGS_RANGE_SIZE");
     expect(failure.message).toContain("Block range is too large");
     expect((failure as { cause?: unknown }).cause).toBe(original);
+  });
+
+  it("puts the provider's own explanation ahead of the request body", async () => {
+    const rpc = rpcDouble({
+      logs: () => {
+        throw new InvalidParamsRpcError(
+          new RpcRequestError({
+            body: {
+              method: "eth_getLogs",
+              params: [{ address: Array(12).fill(CORE) }],
+            },
+            error: { code: -32602, message: "provider explanation" },
+            url: "https://rpc.example/v2/key",
+          }),
+        );
+      },
+    });
+
+    const failure = await fetchLogsChecked(rpc, {
+      fromBlock: 1,
+      toBlock: 10,
+      addresses: [CORE],
+      suspectLogCount: 10_000,
+    }).then(
+      () => null,
+      (error: unknown) => error as Error,
+    );
+    const cause = failure!.message.slice(failure!.message.indexOf("Cause: "));
+    expect(cause).toBe(
+      "Cause: [-32602] Invalid parameters were provided to the RPC method.\nDouble check you have provided the correct parameters. Details: provider explanation",
+    );
   });
 
   it("survives a thrown non-object", async () => {

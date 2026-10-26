@@ -1,5 +1,5 @@
 import type { Address, Hex, PublicClient } from "viem";
-import { hexToBigInt, hexToNumber, numberToHex } from "viem";
+import { BaseError, hexToBigInt, hexToNumber, numberToHex } from "viem";
 import type { IndexerCursor } from "../_shared/dao";
 import {
   recordEventIdentity,
@@ -232,9 +232,9 @@ export async function fetchLogsChecked(
     throw new Error(
       `eth_getLogs failed for blocks ${fromBlock}..${toBlock} (${
         toBlock - fromBlock + 1
-      } blocks, ${addresses.length} addresses). If this is the provider refusing the span rather than a transient fault, lower GET_LOGS_RANGE_SIZE. Cause: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      } blocks, ${addresses.length} addresses). If this is the provider refusing the span rather than a transient fault, lower GET_LOGS_RANGE_SIZE. Cause: ${describeRpcError(
+        error,
+      )}`,
       { cause: error },
     );
   }
@@ -253,6 +253,29 @@ export async function fetchLogsChecked(
   }
 
   return splitRange(rpc, args);
+}
+
+/**
+ * The provider's own words first, without the request body.
+ *
+ * viem's full message repeats the request, and with a dozen addresses that
+ * pushes the provider's explanation past the 500 characters a backoff warning
+ * keeps, leaving only viem's generic name for the error code in the logs.
+ */
+function describeRpcError(error: unknown): string {
+  if (!(error instanceof BaseError)) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  const code = (error as { code?: unknown }).code;
+  const parts = [
+    typeof code === "number"
+      ? `[${code}] ${error.shortMessage}`
+      : error.shortMessage,
+  ];
+  if (error.details && error.details !== error.shortMessage) {
+    parts.push(`Details: ${error.details}`);
+  }
+  return parts.join(" ");
 }
 
 /**
