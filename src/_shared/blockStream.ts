@@ -149,6 +149,17 @@ export interface StreamState {
   failingSince: number | null;
   lastReadFailed: boolean;
   lastHead: ChainHead | null;
+  /**
+   * The lowest end of a range read that failed in the current failure streak.
+   *
+   * A provider can report a head before its log index has caught up with it,
+   * and then refuse any range ending there. Retrying against a fresh head each
+   * time chases a block that is always just as new, so a lag longer than the
+   * backoff never clears. Re-reading only up to an end that was already the
+   * head earlier gives the index time to reach it, whatever the provider calls
+   * the refusal.
+   */
+  rangeCap: number | null;
 }
 
 export const MAX_EVENT_INDEX = 65_536;
@@ -617,7 +628,11 @@ async function planRead<TEvent>(
   state.lastHead = head;
   observeBlockRate(state, head);
   warnIfWindowCapped(state, opts);
-  const { from, to } = windowFor(state, head.number, opts);
+  const { from, to: windowTo } = windowFor(state, head.number, opts);
+  const to =
+    state.rangeCap !== null && state.rangeCap >= from
+      ? Math.min(windowTo, state.rangeCap)
+      : windowTo;
   return from > to ? null : { from, to, head };
 }
 
@@ -840,6 +855,7 @@ export function initStreamState(
       failingSince: null,
       lastReadFailed: false,
       lastHead: null,
+      rangeCap: null,
     },
   };
 }
@@ -1052,6 +1068,7 @@ function clearReadFailures(state: StreamState): void {
   state.failedReads = 0;
   state.failingSince = null;
   state.lastReadFailed = false;
+  state.rangeCap = null;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -1091,15 +1108,16 @@ async function snapshotOrWait<TEvent>(
     if (!snapshot) await sleep(opts.pollIntervalMs);
     return snapshot;
   } catch (error) {
-    await sleep(
-      backOffAfterReadFailure(state, opts, error, {
-        read: "range",
-        from: plan.from,
-        to: plan.to,
-        head: plan.head.number,
-        cursor: state.cursorBlock,
-      }),
-    );
+    // After the backoff decision, which rethrows anything that ends the stream.
+    const delay = backOffAfterReadFailure(state, opts, error, {
+      read: "range",
+      from: plan.from,
+      to: plan.to,
+      head: plan.head.number,
+      cursor: state.cursorBlock,
+    });
+    state.rangeCap = Math.min(state.rangeCap ?? plan.to, plan.to);
+    await sleep(delay);
     return null;
   }
 }
@@ -1124,6 +1142,7 @@ async function selectEndpoint<TEvent>(
   if (switched) {
     state.lastHead = null;
     state.lastReadFailed = false;
+    state.rangeCap = null;
   }
 }
 
