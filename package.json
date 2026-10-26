@@ -33,7 +33,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.10",
-    "@types/bun": "^1.4.3",
+    "@types/bun": "^1.4.4",
     "@typescript/native": "npm:typescript@^7.0.2",
     "oxfmt": "0.74.0",
     "oxlint": "1.89.0",
