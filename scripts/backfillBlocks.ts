@@ -2,7 +2,8 @@ import { createPublicClient, http } from "viem";
 import { loadConfig } from "../src/config";
 import { DAO } from "../src/_shared/dao";
 import { createEvmEntrypoint, createEvmProcessors } from "../src/evm";
-import { createEvmAdapter, type LogStreamFilter } from "../src/evm/logStream";
+import { createEvmAdapter } from "../src/evm/logStream";
+import { logStreamFilters } from "../src/evm/logProcessorsShared";
 
 loadConfig("evm");
 
@@ -17,17 +18,15 @@ const chainId = BigInt(process.env.CHAIN_ID!);
 const rpcUrl = process.env.AUDIT_RPC_URL ?? process.env.EVM_RPC_URL!;
 process.env.EVM_RPC_URL = rpcUrl;
 const rpc = createPublicClient({ transport: http(rpcUrl, { retryCount: 4 }) });
-const filters: LogStreamFilter[] = createEvmProcessors().map(
-  (processor, ix) => ({
-    id: ix + 1,
-    address: processor.address,
-    topics: processor.filter.topics,
-    strict: processor.filter.strict,
-  }),
-);
-const adapter = createEvmAdapter(rpc, filters, Number.MAX_SAFE_INTEGER);
-const entrypoint = await createEvmEntrypoint(chainId);
+const filters = logStreamFilters(createEvmProcessors());
 const dao = DAO.create(process.env.PG_CONNECTION_STRING!, chainId);
+const adapter = createEvmAdapter(
+  rpc,
+  filters,
+  Number.MAX_SAFE_INTEGER,
+  (source) => dao.loadDiscoveredAddresses(source),
+);
+const entrypoint = await createEvmEntrypoint(chainId);
 
 class DryRun extends Error {}
 const report = (line: Record<string, unknown>) =>

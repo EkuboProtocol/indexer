@@ -421,6 +421,74 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### Unreleased: zero-seed launches (00140, additive)
+
+Migration 00140 indexes the final `ZeroSeedLaunch` extension and its
+`ZeroSeedLaunchPeriphery` of evm-contracts `853b608` (source freeze, not
+deployed). It replaces, in place, every earlier draft of itself (the #246
+ScheduledLaunch draft, and the fixed-base and earlier tick-rate drafts); none
+was ever applied outside local tests, and a local database that applied one
+must be rebuilt. It creates `zero_seed_launch_pool_keys`, `_created`,
+`_swapped`, `_fees_claimed`, `_fees_paid`, `_owner_changed`, `_token_events`,
+`zero_seed_launch_states` and the `zero_seed_launch_claims` view, the SQL fee
+function `zero_seed_launch_fee_at(trading_start, decay_rate_x32, initial,
+final, time)`, appends nine `zero_seed_launch_*`/`is_zero_seed_launch_pool`
+columns to `all_pool_states_view`, and makes a launch's creation a source of
+`pool_last_event_id`. It parks the workers by locking `blocks` first, as 00123
+does, and must precede any API or quoter deployment reading it. This
+authorizes no deployment or live database write.
+
+- `LaunchParameters` are stored as emitted: the packed `name`/`symbol` words
+  (`name_word`, `symbol_word`, with their text when it is UTF-8 without NUL),
+  `supply`, `quoteToken` (0 is native ETH), the requested `ask_tick` and
+  `upper_tick`, `trading_start`, `decay_rate_x32`, `initial_fee`, `final_fee`
+  and the owner-namespaced `salt`. Decimals are always 18.
+- `logo_url_bytes` holds `LaunchCreated.logoUrl` exactly (`""` stays empty)
+  and `logo_url` the same as text when representable. It is never fetched.
+- The derived spacing `(upper - ask + 255) / 256` and the signed-aligned
+  installed bounds are stored and checked against the pool key and position.
+- One claim is one row: the extension `CreatorFeesClaimed`. The periphery
+  `LaunchFeesClaimed` of the same transaction must match its amounts and only
+  attaches owner and recipient; it is never counted again.
+- Supply: `requested_supply` = `totalSupply`; `installed_supply` is Core's
+  debit for the position (the `Transfer(0, Core, installed)` mint);
+  `sink_supply` went to address 0 and is not a burn. A creation is refused
+  unless its captured mints are exactly these two transfers.
+- LaunchToken `Transfer`/`Approval` logs are stored raw in
+  `zero_seed_launch_token_events` (no balances or allowances). The EVM stream
+  follows each launch token from its `LaunchCreated`, mints included, and
+  adds one address per launch to its `eth_getLogs` requests (chunked at 1,000
+  addresses), plus one extra request for each read range that creates a
+  token. See `docs/zero-seed-launch-events.md`, which also maps every event
+  to its filter, handler, columns, API field and tests.
+
+Launch indexing is off unless `ZERO_SEED_LAUNCH_ADDRESS` and
+`ZERO_SEED_LAUNCH_RUNTIME_CODEHASH` match a pin in
+`src/evm/zeroSeedLaunchConfig.ts`. No deployment of the final contract exists,
+so there are no pins; tests inject the local fixture pin, and a local pin is
+refused in production. Catch-up is deployment-block inclusive: the worker
+refuses to index a pinned instance from after its deployment unless nothing
+can have been missed. Recovery is to roll back to the block before the
+deployment and replay; replay is idempotent and exact under reorgs.
+
+`tests/fixtures/zero-seed-launch/local-chain.json` is regenerated with
+`bun scripts/zeroSeedLaunchFixture.ts <evm-contracts checkout at 853b608>`
+(after `forge build`; local anvil, no fork). The generator requires the clean
+source and compiled ABIs equal to the frozen ABIs. Its chain has native-ETH
+and ERC-20 quote launches with empty, URL, Unicode and non-UTF-8 logos,
+swaps, claims, ownership transfers, a claim by a new owner and a reorged
+branch. `src/evm/zeroSeedLaunchReplay.postgres.test.ts` and
+`src/evm/zeroSeedLaunchFrozenReceipts.postgres.test.ts` replay it and the
+frozen receipts against `TEST_PG_CONNECTION_STRING` (any disposable server,
+for example `docker run --rm -d -p 127.0.0.1:55432:5432 -e
+POSTGRES_PASSWORD=postgres postgres:18`; the tests create and drop their own
+databases).
+
+Rollback before any launch exists: in one transaction that locks `blocks`
+first, recreate `all_pool_states_view` from 00139 and
+`recompute_pool_last_event_id` from 00123, and drop the `zero_seed_launch_*`
+objects.
+
 ### 2026-10-22: MEVCapture v2.1 anchor/config history, gate events and per-swap surcharges (00139, additive)
 
 **`00139_mev_capture_v21`. New tables, a view and two SQL functions. No

@@ -10,22 +10,24 @@ import {
 import { withNullBlockRetry } from "./_shared/nullBlockRetry";
 import { BLOCK_STREAM_DEFAULTS } from "./_shared/blockStream";
 import { requireEvmRpcUrls } from "./_shared/streamEndpoints";
-import {
-  createLogStream,
-  type LogStreamFilter,
-  type StreamBlock as EvmBlock,
-} from "./evm/logStream";
+import { createLogStream, type StreamBlock as EvmBlock } from "./evm/logStream";
 import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
 import { StickyRpc } from "./evm/stickyRpc";
 import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
 import { parsePositionsProtocolFeeConfigs } from "./evm/positionsProtocolFeeConfig";
+import { resolveZeroSeedLaunchPin } from "./evm/zeroSeedLaunchConfig";
+import { zeroSeedLaunchCatchUpGuard } from "./evm/zeroSeedLaunchProcessors";
+import { isProduction } from "./config";
 import {
   loadMevCaptureV21Address,
   recordMevCaptureV21BlockState,
 } from "./evm/mevCaptureV21";
 import { runIndexer, type ParsedRuntimeBlock } from "./runtime";
 import type { DAO } from "./_shared/dao";
-import type { EvmLogProcessor } from "./evm/logProcessorsShared";
+import {
+  logStreamFilters,
+  type EvmLogProcessor,
+} from "./evm/logProcessorsShared";
 import type { NetworkEntrypoint, StreamOptions } from "./types";
 
 function requireAtLeastOneAddress(
@@ -105,6 +107,31 @@ export function createEvmProcessors(): EvmLogProcessor[] {
   return createEvmIndexing().processors;
 }
 
+/** The pinned launch instance named by the environment, if launch support is on. */
+function resolveConfiguredZeroSeedLaunchPin(
+  coreAddress: `0x${string}` | undefined,
+) {
+  const pin = resolveZeroSeedLaunchPin({
+    coreAddress,
+    chainId: process.env.CHAIN_ID ? BigInt(process.env.CHAIN_ID) : undefined,
+    address: loadOptionalHexAddress("ZERO_SEED_LAUNCH_ADDRESS"),
+    runtimeCodehash: process.env.ZERO_SEED_LAUNCH_RUNTIME_CODEHASH as
+      | `0x${string}`
+      | undefined,
+    production: isProduction(),
+    warn: (message) => logger.warn(message),
+  });
+  if (pin)
+    logger.info(`Indexing ZeroSeedLaunch`, {
+      zeroSeedLaunchAddress: pin.address,
+    });
+  return pin;
+}
+
+/**
+ * The processors, with the MEVCapture v2.1 extension and the launch instance
+ * they index when either is configured.
+ */
 function createEvmIndexing() {
   const evmV2AddressConfig = loadHexAddresses({
     mevCaptureAddress: "MEV_CAPTURE_ADDRESS",
@@ -138,6 +165,10 @@ function createEvmIndexing() {
     ve33PositionsAddress: loadOptionalHexAddress("VE33_POSITIONS_V3_ADDRESS"),
   };
 
+  const zeroSeedLaunchPin = resolveConfiguredZeroSeedLaunchPin(
+    evmV3AddressConfig?.coreAddress,
+  );
+
   if (!evmV2AddressConfig && !evmV3AddressConfig) {
     throw new Error("No config for either V2 or V3 contracts");
   }
@@ -170,11 +201,12 @@ function createEvmIndexing() {
             "RECOMPILED_ORDERS_V3_ADDRESS",
           ]),
           ...evmV3Ve33AddressConfig,
+          zeroSeedLaunchPins: zeroSeedLaunchPin ? [zeroSeedLaunchPin] : [],
           positionsContracts: positionsV3ProtocolFeeConfigs ?? [],
         })
       : []),
   ];
-  return { processors, mevCaptureV21 };
+  return { processors, mevCaptureV21, zeroSeedLaunchPin };
 }
 
 /**
@@ -256,7 +288,10 @@ function createStickyRpc(chainId: bigint): StickyRpc {
 export async function createEvmEntrypoint(
   chainId: bigint,
 ): Promise<NetworkEntrypoint<EvmBlock>> {
-  const { processors, mevCaptureV21 } = createEvmIndexing();
+  const { processors, mevCaptureV21, zeroSeedLaunchPin } = createEvmIndexing();
+  const launchCatchUp = zeroSeedLaunchCatchUpGuard(
+    zeroSeedLaunchPin ? [zeroSeedLaunchPin] : [],
+  );
   let mevCaptureV21PoolsRegistered = false;
 
   const rpc = createStickyRpc(chainId);
@@ -266,12 +301,7 @@ export async function createEvmEntrypoint(
     positiveInt("MAX_POLL_INTERVAL_MS", 30_000),
   );
 
-  const filters: LogStreamFilter[] = processors.map((processor, ix) => ({
-    id: ix + 1,
-    address: processor.address,
-    topics: processor.filter.topics,
-    strict: processor.filter.strict,
-  }));
+  const filters = logStreamFilters(processors);
 
   return {
     createStream(streamOptions: StreamOptions) {
@@ -281,6 +311,7 @@ export async function createEvmEntrypoint(
         startingCursor: streamOptions.startingCursor,
         loadPreviousCursor: streamOptions.loadPreviousCursor,
         loadStoredBlocks: streamOptions.loadStoredBlocks,
+        loadDiscoveredAddresses: streamOptions.loadDiscoveredAddresses,
         endpoints: rpc,
         options: {
           pollIntervalMs: positiveInt("POLL_INTERVAL_MS", 2_000),
@@ -303,6 +334,7 @@ export async function createEvmEntrypoint(
       return block.logs.reduce((total, log) => total + log.filterIds.length, 0);
     },
     async processBlock({ block, blockNumber, dao }) {
+      await launchCatchUp(dao, blockNumber);
       // Pools initialized before the v2.1 address was configured. Only marked
       // done once a block finds nothing left to register, so a rolled-back
       // block registers them again.
@@ -316,7 +348,7 @@ export async function createEvmEntrypoint(
         );
         if (registeredPools.length === 0) mevCaptureV21PoolsRegistered = true;
       }
-      const eventsProcessed = await processLogs(
+      const eventsProcessed = await processEvmBlock(
         processors,
         block,
         blockNumber,
@@ -351,7 +383,13 @@ function hasLogFrom(block: EvmBlock, addresses: HexAddress[]): boolean {
   return block.logs.some((log) => wanted.has(BigInt(log.address)));
 }
 
-async function processLogs(
+/**
+ * Runs a block's logs through the processors their filters matched, in log
+ * order. Exported so tests replay recorded chain logs through the same code.
+ * Logs must stay sequential: a zero-seed LaunchCreated reads the Core
+ * PositionUpdated written for an earlier log of its transaction.
+ */
+export async function processEvmBlock(
   processors: EvmLogProcessor[],
   block: EvmBlock,
   blockNumber: number,
