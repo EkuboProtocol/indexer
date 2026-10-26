@@ -7,6 +7,7 @@ import {
   type AbiParameter,
 } from "viem";
 import {
+  LAUNCH_TOKEN_ABI,
   ZERO_SEED_LAUNCH_ABI,
   ZERO_SEED_LAUNCH_PERIPHERY_ABI,
 } from "./abis_zero_seed_launch";
@@ -316,10 +317,70 @@ export function zeroSeedLaunchPeripheryHandlers(
   };
 }
 
+/** topics[2] of LaunchCreated is the launch token. */
+const LAUNCH_CREATED_TOKEN_TOPIC = 2;
+
+/**
+ * Raw Transfer and Approval logs of every launch token the extension creates,
+ * from the mints that precede its LaunchCreated onward.
+ */
+export function launchTokenProcessors(
+  extension: `0x${string}`,
+): EvmLogProcessor[] {
+  const discoveredBy = {
+    kind: "zero_seed_launch_token",
+    address: extension,
+    topic0: (
+      encodeEventTopics({
+        abi: ZERO_SEED_LAUNCH_ABI,
+        eventName: "LaunchCreated",
+      }) as `0x${string}`[]
+    )[0],
+    topicIndex: LAUNCH_CREATED_TOKEN_TOPIC,
+  } as const;
+  return (["Transfer", "Approval"] as const).map((eventName) => ({
+    address: extension,
+    discoveredBy,
+    filter: {
+      topics: encodeEventTopics({
+        abi: LAUNCH_TOKEN_ABI,
+        eventName,
+      }) as `0x${string}`[],
+      strict: false,
+    },
+    async handler(dao, key, log) {
+      const { args } = decodeEventLog({
+        abi: LAUNCH_TOKEN_ABI,
+        eventName,
+        topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
+        data: log.data,
+        strict: true,
+      });
+      await dao.insertZeroSeedLaunchTokenEvent(
+        key,
+        "from" in args
+          ? {
+              kind: "transfer",
+              fromOrOwner: args.from,
+              toOrSpender: args.to,
+              value: args.amount,
+            }
+          : {
+              kind: "approval",
+              fromOrOwner: args.owner,
+              toOrSpender: args.spender,
+              value: args.amount,
+            },
+      );
+    },
+  }));
+}
+
 /**
  * The five events of each pinned instance: LaunchCreated, LaunchSwapped and
  * CreatorFeesClaimed of the extension, LaunchOwnerChanged and
- * LaunchFeesClaimed of its periphery, decoded with the frozen ABIs.
+ * LaunchFeesClaimed of its periphery, decoded with the frozen ABIs, and the
+ * raw Transfer and Approval logs of its launch tokens.
  */
 export function createZeroSeedLaunchProcessors({
   coreAddress,
@@ -343,6 +404,7 @@ export function createZeroSeedLaunchProcessors({
           ...zeroSeedLaunchPeripheryHandlers(coreAddress, pin),
         },
       }),
+      ...launchTokenProcessors(pin.address),
     ];
   });
 }

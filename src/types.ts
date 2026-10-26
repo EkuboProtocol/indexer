@@ -1,5 +1,9 @@
 import type { LoadStoredBlocks } from "./_shared/blockStream";
-import type { DAO, IndexerCursor } from "./_shared/dao";
+import type {
+  DAO,
+  DiscoveredAddressSource,
+  IndexerCursor,
+} from "./_shared/dao";
 
 export type NetworkType = "evm" | "starknet";
 
@@ -14,6 +18,10 @@ export interface StreamOptions {
   startingCursor: IndexerCursor;
   loadPreviousCursor?: (before: number) => Promise<IndexerCursor | null>;
   loadStoredBlocks?: LoadStoredBlocks;
+  /** Contracts an EVM stream already follows (see LogStreamFilter.discoveredBy). */
+  loadDiscoveredAddresses?: (
+    source: DiscoveredAddressSource,
+  ) => Promise<`0x${string}`[]>;
   heartbeatInterval: {
     seconds: bigint;
     nanos: number;

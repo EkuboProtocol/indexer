@@ -18,7 +18,7 @@ import {
   ZERO_SEED_LAUNCH_ABI,
 } from "./abis_zero_seed_launch";
 import { createLogProcessorsV3 } from "./logProcessorsV3";
-import type { EvmLogProcessor } from "./logProcessorsShared";
+import { logStreamFilters, type EvmLogProcessor } from "./logProcessorsShared";
 import { groupLogsByBlock, type RawLog } from "./logStream";
 import type { ZeroSeedLaunchPin } from "./zeroSeedLaunchConfig";
 import type { LaunchCreated } from "./zeroSeedLaunchProcessors";
@@ -89,12 +89,7 @@ const processors: EvmLogProcessor[] = createLogProcessorsV3({
   positionsContracts: [],
   zeroSeedLaunchPins: [PIN],
 });
-const filters = processors.map((p, ix) => ({
-  id: ix + 1,
-  address: p.address,
-  topics: p.filter.topics,
-  strict: p.filter.strict,
-}));
+const filters = logStreamFilters(processors);
 
 const coreEvent = (name: string) =>
   CORE_ABI.find((i) => i.type === "event" && i.name === name) as AbiEvent;
@@ -299,6 +294,9 @@ describe.skipIf(!SERVER)(
         states: await q(
           `SELECT s.*, NULL AS pool_key_id FROM zero_seed_launch_states s`,
         ),
+        tokenEvents: await q(
+          `SELECT * FROM zero_seed_launch_token_events ORDER BY event_id`,
+        ),
       };
     }
 
@@ -309,13 +307,40 @@ describe.skipIf(!SERVER)(
         await replay(dao, logs);
         const s = await state(sql);
 
-        // LaunchToken Transfer/Approval logs match no filter: not streamed.
-        const matched = groupLogsByBlock(logs, filters).flatMap((b) => b.logs);
+        // Every LaunchToken log is stored raw, the two mints that precede
+        // LaunchCreated in its transaction included.
+        const token = BigInt(frozen.receipt[0].emitter);
+        const tokenLogs = logs.filter((l) => BigInt(l.address) === token);
+        expect(tokenLogs).toHaveLength(5);
         expect(
-          matched.some(
-            (l) => BigInt(l.address) === BigInt(frozen.receipt[0].emitter),
-          ),
-        ).toBe(false);
+          s.tokenEvents.map((e) => [
+            e.block_number,
+            e.event_index,
+            e.emitter,
+            e.kind,
+          ]),
+        ).toEqual(
+          tokenLogs.map((l) => [
+            BigInt(l.blockNumber),
+            Number(l.logIndex),
+            token,
+            l.topics[0] === frozen.receipt[4].topics[0]
+              ? "approval"
+              : "transfer",
+          ]),
+        );
+        const approval = decodeEventLog({
+          abi: LAUNCH_TOKEN_ABI,
+          eventName: "Approval",
+          topics: frozen.receipt[4].topics as [Hex],
+          data: frozen.receipt[4].data,
+          strict: true,
+        }).args as { owner: Hex; spender: Hex; amount: bigint };
+        expect(s.tokenEvents.find((e) => e.kind === "approval")).toMatchObject({
+          from_or_owner: BigInt(approval.owner),
+          to_or_spender: BigInt(approval.spender),
+          value: approval.amount,
+        });
 
         expect(s.created).toHaveLength(1);
         const [c] = s.created as Record<string, unknown>[];
@@ -365,6 +390,11 @@ describe.skipIf(!SERVER)(
           [BigInt(CORE), c.installed_supply as bigint],
           [0n, c.sink_supply as bigint],
         ]);
+        expect(
+          s.tokenEvents
+            .filter((e) => e.kind === "transfer" && e.from_or_owner === 0n)
+            .map((e) => [e.to_or_spender, e.value]),
+        ).toEqual(mints.map((m) => [BigInt(m.to), m.amount]));
 
         // One claim, keyed on the extension event, with the periphery's owner
         // and recipient; the ledger counts it once.

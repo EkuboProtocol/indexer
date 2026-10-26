@@ -10,11 +10,7 @@ import {
 import { withNullBlockRetry } from "./_shared/nullBlockRetry";
 import { BLOCK_STREAM_DEFAULTS } from "./_shared/blockStream";
 import { requireEvmRpcUrls } from "./_shared/streamEndpoints";
-import {
-  createLogStream,
-  type LogStreamFilter,
-  type StreamBlock as EvmBlock,
-} from "./evm/logStream";
+import { createLogStream, type StreamBlock as EvmBlock } from "./evm/logStream";
 import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
 import { StickyRpc } from "./evm/stickyRpc";
 import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
@@ -28,7 +24,10 @@ import {
 } from "./evm/mevCaptureV21";
 import { runIndexer, type ParsedRuntimeBlock } from "./runtime";
 import type { DAO } from "./_shared/dao";
-import type { EvmLogProcessor } from "./evm/logProcessorsShared";
+import {
+  logStreamFilters,
+  type EvmLogProcessor,
+} from "./evm/logProcessorsShared";
 import type { NetworkEntrypoint, StreamOptions } from "./types";
 
 function requireAtLeastOneAddress(
@@ -302,12 +301,7 @@ export async function createEvmEntrypoint(
     positiveInt("MAX_POLL_INTERVAL_MS", 30_000),
   );
 
-  const filters: LogStreamFilter[] = processors.map((processor, ix) => ({
-    id: ix + 1,
-    address: processor.address,
-    topics: processor.filter.topics,
-    strict: processor.filter.strict,
-  }));
+  const filters = logStreamFilters(processors);
 
   return {
     createStream(streamOptions: StreamOptions) {
@@ -317,6 +311,7 @@ export async function createEvmEntrypoint(
         startingCursor: streamOptions.startingCursor,
         loadPreviousCursor: streamOptions.loadPreviousCursor,
         loadStoredBlocks: streamOptions.loadStoredBlocks,
+        loadDiscoveredAddresses: streamOptions.loadDiscoveredAddresses,
         endpoints: rpc,
         options: {
           pollIntervalMs: positiveInt("POLL_INTERVAL_MS", 2_000),

@@ -1,6 +1,6 @@
 import type { Address, Hex, PublicClient } from "viem";
 import { hexToBigInt, hexToNumber, numberToHex } from "viem";
-import type { IndexerCursor } from "../_shared/dao";
+import type { DiscoveredAddressSource, IndexerCursor } from "../_shared/dao";
 import {
   recordEventIdentity,
   requireBlockInRange,
@@ -37,6 +37,67 @@ export interface LogStreamFilter {
   address: Address;
   topics: (Hex | null)[];
   strict: boolean;
+  /**
+   * When set, the filter matches logs of every address this source names,
+   * instead of logs of `address`.
+   */
+  discoveredBy?: DiscoveredAddressSource;
+}
+
+/** Lower-case addresses named so far, per source key. */
+export type DiscoveredAddresses = ReadonlyMap<string, ReadonlySet<string>>;
+
+export type LoadDiscoveredAddresses = (
+  source: DiscoveredAddressSource,
+) => Promise<Address[]>;
+
+export const discoveredAddressSourceKey = (
+  source: DiscoveredAddressSource,
+): string => `${source.kind}:${source.address.toLowerCase()}`;
+
+/** The address a log names for `source`, if it is that source's event. */
+function namedAddress(
+  log: Pick<RawLog, "address" | "topics">,
+  source: DiscoveredAddressSource,
+): string | undefined {
+  if (log.address.toLowerCase() !== source.address.toLowerCase()) return;
+  if (log.topics[0]?.toLowerCase() !== source.topic0.toLowerCase()) return;
+  const topic = log.topics[source.topicIndex];
+  return topic ? `0x${topic.slice(-40)}`.toLowerCase() : undefined;
+}
+
+function discoverySources(
+  filters: LogStreamFilter[],
+): DiscoveredAddressSource[] {
+  const sources = new Map<string, DiscoveredAddressSource>();
+  for (const { discoveredBy } of filters)
+    if (discoveredBy)
+      sources.set(discoveredAddressSourceKey(discoveredBy), discoveredBy);
+  return [...sources.values()];
+}
+
+/**
+ * `known` plus every address the logs name. The whole batch is scanned before
+ * any log is matched: a contract's first logs can precede, in the same
+ * transaction, the event that names it.
+ */
+export function discoverAddresses(
+  logs: Pick<RawLog, "address" | "topics" | "removed">[],
+  filters: LogStreamFilter[],
+  known: DiscoveredAddresses = new Map(),
+): DiscoveredAddresses {
+  const result = new Map<string, Set<string>>();
+  for (const source of discoverySources(filters)) {
+    const key = discoveredAddressSourceKey(source);
+    const addresses = new Set(known.get(key));
+    for (const log of logs) {
+      if (log.removed) continue;
+      const named = namedAddress(log, source);
+      if (named) addresses.add(named);
+    }
+    result.set(key, addresses);
+  }
+  return result;
 }
 
 export interface LogStreamOptions extends BlockStreamOptions {
@@ -73,11 +134,26 @@ export interface StreamLog {
 export type StreamBlock = SharedStreamBlock<StreamLog>;
 export type StreamMessage = SharedStreamMessage<StreamLog>;
 
+function addressMatches(
+  address: Address,
+  filter: LogStreamFilter,
+  discovered: DiscoveredAddresses | undefined,
+): boolean {
+  if (!filter.discoveredBy)
+    return address.toLowerCase() === filter.address.toLowerCase();
+  return (
+    discovered
+      ?.get(discoveredAddressSourceKey(filter.discoveredBy))
+      ?.has(address.toLowerCase()) ?? false
+  );
+}
+
 export function logMatchesFilter(
   log: Pick<RawLog, "address" | "topics">,
   filter: LogStreamFilter,
+  discovered?: DiscoveredAddresses,
 ): boolean {
-  if (log.address.toLowerCase() !== filter.address.toLowerCase()) return false;
+  if (!addressMatches(log.address, filter, discovered)) return false;
 
   if (filter.strict) {
     if (log.topics.length !== filter.topics.length) return false;
@@ -97,26 +173,33 @@ export function logMatchesFilter(
 export function matchingFilterIds(
   log: Pick<RawLog, "address" | "topics">,
   filters: LogStreamFilter[],
+  discovered?: DiscoveredAddresses,
 ): number[] {
   const ids: number[] = [];
   for (const filter of filters) {
-    if (logMatchesFilter(log, filter)) ids.push(filter.id);
+    if (logMatchesFilter(log, filter, discovered)) ids.push(filter.id);
   }
   return ids;
 }
 
+/**
+ * Groups the logs matching `filters` by block. Filters with `discoveredBy`
+ * match the `known` addresses and those named anywhere in `logs`.
+ */
 export function groupLogsByBlock(
   logs: RawLog[],
   filters: LogStreamFilter[],
+  known?: DiscoveredAddresses,
 ): StreamBlock[] {
   const byBlock = new Map<number, { block: StreamBlock }>();
   const seen = new Map<string, string>();
+  const discovered = discoverAddresses(logs, filters, known);
 
   for (const log of logs) {
     if (log.removed) continue;
 
     const blockNumber = hexToNumber(log.blockNumber);
-    const filterIds = matchingFilterIds(log, filters);
+    const filterIds = matchingFilterIds(log, filters, discovered);
     if (filterIds.length === 0) continue;
 
     recordEventIdentity(
@@ -382,21 +465,133 @@ export interface CreateLogStreamArgs {
   startingCursor: IndexerCursor;
   loadPreviousCursor?: (before: number) => Promise<IndexerCursor | null>;
   loadStoredBlocks?: LoadStoredBlocks;
+  /** Required when a filter has `discoveredBy`: the addresses already indexed. */
+  loadDiscoveredAddresses?: LoadDiscoveredAddresses;
   endpoints?: EndpointSelector;
   options?: LogStreamOptions;
+}
+
+/** Addresses per eth_getLogs request; a longer list is read in chunks. */
+export const MAX_ADDRESSES_PER_GET_LOGS = 1_000;
+
+async function fetchLogsForAddresses(
+  rpc: RpcLike,
+  args: {
+    fromBlock: number;
+    toBlock: number;
+    addresses: Address[];
+    suspectLogCount: number;
+  },
+): Promise<RawLog[]> {
+  const logs: RawLog[] = [];
+  for (let i = 0; i < args.addresses.length; i += MAX_ADDRESSES_PER_GET_LOGS) {
+    logs.push(
+      ...(await fetchLogsChecked(rpc, {
+        ...args,
+        addresses: args.addresses.slice(i, i + MAX_ADDRESSES_PER_GET_LOGS),
+      })),
+    );
+  }
+  for (const log of logs) {
+    requireBlockInRange(
+      hexToNumber(log.blockNumber),
+      args.fromBlock,
+      args.toBlock,
+    );
+    if (log.removed)
+      throw new Error("eth_getLogs returned a removed log in a numbered range");
+  }
+  return logs;
+}
+
+const allDiscovered = (discovered: DiscoveredAddresses) =>
+  [
+    ...new Set([...discovered.values()].flatMap((set) => [...set])),
+  ] as Address[];
+
+/**
+ * Addresses `after` holds that `before` does not, with the first block of
+ * `logs` that names any of them.
+ */
+function newlyDiscovered(
+  logs: RawLog[],
+  filters: LogStreamFilter[],
+  before: DiscoveredAddresses,
+  after: DiscoveredAddresses,
+): { addresses: Address[]; fromBlock: number } | undefined {
+  const known = new Set(allDiscovered(before));
+  const addresses = allDiscovered(after).filter((a) => !known.has(a));
+  if (addresses.length === 0) return undefined;
+  const sources = discoverySources(filters);
+  const fromBlock = Math.min(
+    ...logs
+      .filter((log) => sources.some((source) => namedAddress(log, source)))
+      .map((log) => hexToNumber(log.blockNumber)),
+  );
+  return { addresses, fromBlock };
+}
+
+/**
+ * Filters with `discoveredBy` follow contracts created on chain. Their
+ * addresses join every range read: the indexed ones, loaded once, and those
+ * named by a log the stream reads. An address named inside the range is read
+ * again from the block that names it, which also captures its logs that
+ * precede the naming event in that transaction.
+ */
+export async function loadKnownAddresses(
+  filters: LogStreamFilter[],
+  load: LoadDiscoveredAddresses | undefined,
+): Promise<DiscoveredAddresses> {
+  const sources = discoverySources(filters);
+  if (sources.length === 0) return new Map();
+  if (!load)
+    throw new Error(
+      "A log stream filter follows discovered addresses, but no loadDiscoveredAddresses was given to load those already indexed",
+    );
+  const loaded = new Map<string, Set<string>>();
+  for (const source of sources)
+    loaded.set(
+      discoveredAddressSourceKey(source),
+      new Set((await load(source)).map((a) => a.toLowerCase())),
+    );
+  return loaded;
+}
+
+function createDiscoveryTracker(
+  filters: LogStreamFilter[],
+  load: LoadDiscoveredAddresses | undefined,
+) {
+  let known: DiscoveredAddresses | undefined;
+  return {
+    async addresses(): Promise<DiscoveredAddresses> {
+      return (known ??= await loadKnownAddresses(filters, load));
+    },
+    /** Monotonic: an address named on a later-orphaned block emits nothing. */
+    remember(discovered: DiscoveredAddresses) {
+      known = discovered;
+    },
+  };
 }
 
 export function createEvmAdapter(
   rpc: RpcLike,
   filters: LogStreamFilter[],
   suspectLogCount: number | (() => number),
+  loadDiscoveredAddresses?: LoadDiscoveredAddresses,
 ): ChainAdapter<StreamLog> {
   const addresses = [
-    ...new Set(filters.map((f) => f.address.toLowerCase() as Address)),
+    ...new Set(
+      filters
+        .filter((f) => !f.discoveredBy)
+        .map((f) => f.address.toLowerCase() as Address),
+    ),
   ];
   if (addresses.length === 0) {
     throw new Error("createLogStream requires at least one filter");
   }
+  const discovery = createDiscoveryTracker(filters, loadDiscoveredAddresses);
+  const cap = () =>
+    typeof suspectLogCount === "function" ? suspectLogCount() : suspectLogCount;
 
   return {
     label: "evm",
@@ -404,23 +599,27 @@ export function createEvmAdapter(
     fetchFinalized: () => fetchBlockByTag(rpc, "finalized"),
     fetchBlock: (blockNumber) => fetchBlockByNumber(rpc, blockNumber),
     async readRange(from, to) {
-      const logs = await fetchLogsChecked(rpc, {
+      const known = await discovery.addresses();
+      const logs = await fetchLogsForAddresses(rpc, {
         fromBlock: from,
         toBlock: to,
-        addresses,
-        suspectLogCount:
-          typeof suspectLogCount === "function"
-            ? suspectLogCount()
-            : suspectLogCount,
+        addresses: [...addresses, ...allDiscovered(known)],
+        suspectLogCount: cap(),
       });
-      for (const log of logs) {
-        requireBlockInRange(hexToNumber(log.blockNumber), from, to);
-        if (log.removed)
-          throw new Error(
-            "eth_getLogs returned a removed log in a numbered range",
-          );
-      }
-      return groupLogsByBlock(logs, filters);
+      const discovered = discoverAddresses(logs, filters, known);
+      const fresh = newlyDiscovered(logs, filters, known, discovered);
+      if (fresh)
+        logs.push(
+          ...(await fetchLogsForAddresses(rpc, {
+            fromBlock: fresh.fromBlock,
+            toBlock: to,
+            addresses: fresh.addresses,
+            suspectLogCount: cap(),
+          })),
+        );
+      const blocks = groupLogsByBlock(logs, filters, discovered);
+      discovery.remember(discovered);
+      return blocks;
     },
     async completeFresh(blocks, head) {
       await completeBlocks(rpc, blocks, head);
@@ -435,7 +634,12 @@ export function createLogStream(
     args.options ?? {};
 
   return createBlockStream<StreamLog>({
-    adapter: createEvmAdapter(args.rpc, args.filters, suspectLogCount),
+    adapter: createEvmAdapter(
+      args.rpc,
+      args.filters,
+      suspectLogCount,
+      args.loadDiscoveredAddresses,
+    ),
     startingCursor: args.startingCursor,
     loadPreviousCursor: args.loadPreviousCursor,
     loadStoredBlocks: args.loadStoredBlocks,

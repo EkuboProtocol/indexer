@@ -1,5 +1,9 @@
 import { logger } from "./_shared/logger";
-import { DAO, type IndexerCursor } from "./_shared/dao";
+import {
+  DAO,
+  type DiscoveredAddressSource,
+  type IndexerCursor,
+} from "./_shared/dao";
 import { msToHumanShort } from "./_shared/msToHumanShort";
 import {
   assertRecoveryWalkAllowed,
@@ -160,6 +164,8 @@ export async function runIndexer<TBlock>({
             hashes: await dao.loadStoredBlockHashes(Math.max(from, floor), to),
           };
         },
+        loadDiscoveredAddresses: (source: DiscoveredAddressSource) =>
+          dao.loadDiscoveredAddresses(source),
         heartbeatInterval: {
           seconds: 10n,
           nanos: 0,

@@ -18,6 +18,8 @@
 --                                   owner and recipient of that same claim,
 --                                   linked 1:1 to it; never a second claim
 --   zero_seed_launch_owner_changed  ZeroSeedLaunchPeriphery.LaunchOwnerChanged
+--   zero_seed_launch_token_events   raw LaunchToken Transfer/Approval logs of
+--                                   the launch tokens, mints included
 --   zero_seed_launch_states         one row per launch: fee ledger, counts,
 --                                   creator and current owner
 --   zero_seed_launch_claims         view: one row per claim
@@ -36,8 +38,14 @@
 -- totalSupply. installed_supply is the launch-token delta of Core's
 -- PositionUpdated of the creation (Core's debit is the first mint's amount).
 -- sink_supply = requested - installed went to address(0) and can never move;
--- it is not a burn and totalSupply stays requested_supply. LaunchToken
--- Transfer/Approval logs are not streamed (see docs/zero-seed-launch-events.md).
+-- it is not a burn and totalSupply stays requested_supply. The writer refuses
+-- a creation whose captured mints differ from exactly these.
+--
+-- LaunchToken logs: every Transfer and Approval of each launch token is kept
+-- raw in zero_seed_launch_token_events (no balances or allowances are
+-- derived). The stream follows each token from its LaunchCreated, including
+-- the mints that precede it in the creation transaction (see
+-- docs/zero-seed-launch-events.md).
 --
 -- Ticks: ask_tick/upper_tick are the requested economic ticks of
 -- LaunchParameters. The installed range uses the derived spacing
@@ -137,6 +145,30 @@ CREATE TABLE zero_seed_launch_created
 CREATE INDEX ON zero_seed_launch_created (chain_id, block_number);
 CREATE UNIQUE INDEX ON zero_seed_launch_created (pool_key_id);
 CREATE INDEX ON zero_seed_launch_created (chain_id, token);
+
+CREATE TABLE zero_seed_launch_token_events
+(
+    chain_id          int8    NOT NULL,
+    block_number      int8    NOT NULL,
+    transaction_index int4    NOT NULL,
+    event_index       int4    NOT NULL,
+    transaction_hash  NUMERIC NOT NULL,
+    -- the launch token (zero_seed_launch_created.token); no foreign key: the
+    -- mints precede LaunchCreated in the creation transaction
+    emitter           NUMERIC NOT NULL,
+    event_id          int8 GENERATED ALWAYS AS (compute_event_id(block_number, transaction_index, event_index)) STORED,
+    kind              TEXT    NOT NULL CHECK (kind IN ('transfer', 'approval')),
+    -- Transfer: from, to; Approval: owner, spender
+    from_or_owner     NUMERIC NOT NULL,
+    to_or_spender     NUMERIC NOT NULL,
+    -- raw launch-token units (uint256)
+    value             NUMERIC NOT NULL CHECK (value BETWEEN 0 AND 115792089237316195423570985008687907853269984665640564039457584007913129639935),
+    PRIMARY KEY (chain_id, event_id),
+    FOREIGN KEY (chain_id, block_number) REFERENCES blocks (chain_id, block_number) ON DELETE CASCADE
+);
+
+CREATE INDEX ON zero_seed_launch_token_events (chain_id, block_number);
+CREATE INDEX ON zero_seed_launch_token_events (chain_id, emitter, event_id);
 
 CREATE TABLE zero_seed_launch_swapped
 (
@@ -247,7 +279,8 @@ $$
             'zero_seed_launch_swapped',
             'zero_seed_launch_fees_claimed',
             'zero_seed_launch_owner_changed',
-            'zero_seed_launch_fees_paid'
+            'zero_seed_launch_fees_paid',
+            'zero_seed_launch_token_events'
             ]
             LOOP
                 EXECUTE FORMAT(

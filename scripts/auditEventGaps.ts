@@ -3,7 +3,9 @@ import { createPublicClient, http } from "viem";
 import type { ChainAdapter } from "../src/_shared/blockStream";
 import { loadConfig } from "../src/config";
 import { createEvmProcessors } from "../src/evm";
+import { DAO } from "../src/_shared/dao";
 import { createEvmAdapter } from "../src/evm/logStream";
+import { logStreamFilters } from "../src/evm/logProcessorsShared";
 import { createStarknetProcessors } from "../src/starknet";
 import {
   createStarknetAdapter,
@@ -30,15 +32,16 @@ async function createAuditAdapter(
   let servedChainId: bigint;
   let adapter: ChainAdapter<{ address: string; filterIds: number[] }>;
   if (networkType === "evm") {
-    const filters = createEvmProcessors().map((processor, ix) => ({
-      id: ix + 1,
-      address: processor.address,
-      topics: processor.filter.topics,
-      strict: processor.filter.strict,
-    }));
+    const filters = logStreamFilters(createEvmProcessors());
     const rpc = createPublicClient({ transport: http(url, { retryCount: 4 }) });
     servedChainId = BigInt(await rpc.getChainId());
-    adapter = createEvmAdapter(rpc, filters, Number.MAX_SAFE_INTEGER);
+    const dao = DAO.create(process.env.PG_CONNECTION_STRING!, chainId);
+    adapter = createEvmAdapter(
+      rpc,
+      filters,
+      Number.MAX_SAFE_INTEGER,
+      (source) => dao.loadDiscoveredAddresses(source),
+    );
   } else {
     const filters = createStarknetProcessors().map((processor, ix) => ({
       id: ix + 1,

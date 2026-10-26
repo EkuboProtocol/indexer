@@ -20,9 +20,10 @@ import shift from "postgres-shift";
 import { DAO, NumericIntegerType } from "../_shared/dao";
 import { parseEvmBlockHeader, processEvmBlock } from "../evm";
 import { createLogProcessorsV3 } from "./logProcessorsV3";
-import type { EvmLogProcessor } from "./logProcessorsShared";
+import { logStreamFilters, type EvmLogProcessor } from "./logProcessorsShared";
 import {
   groupLogsByBlock,
+  loadKnownAddresses,
   type LogStreamFilter,
   type RawLog,
   type StreamBlock,
@@ -193,12 +194,7 @@ function processorsFor(
 }
 
 const filtersOf = (processors: EvmLogProcessor[]): LogStreamFilter[] =>
-  processors.map((p, ix) => ({
-    id: ix + 1,
-    address: p.address,
-    topics: p.filter.topics,
-    strict: p.filter.strict,
-  }));
+  logStreamFilters(processors);
 
 type Guard = ReturnType<typeof zeroSeedLaunchCatchUpGuard>;
 
@@ -300,7 +296,13 @@ describe.skipIf(!SERVER)(
       ) => Promise<void>,
       guard?: Guard,
     ) {
-      const blocks = groupLogsByBlock(branch.logs, filtersOf(processors));
+      // as the stream does: the tokens already indexed, plus those the
+      // branch creates
+      const filters = filtersOf(processors);
+      const known = await loadKnownAddresses(filters, (source) =>
+        db.dao.loadDiscoveredAddresses(source),
+      );
+      const blocks = groupLogsByBlock(branch.logs, filters, known);
       for (const fixtureBlock of branch.blocks) {
         const block = blocks.find(
           (b) => Number(b.header.blockNumber) === fixtureBlock.number,
@@ -511,6 +513,9 @@ describe.skipIf(!SERVER)(
         ),
         claims: await q(
           `SELECT c.*, NULL AS pool_key_id FROM zero_seed_launch_claims c ORDER BY event_id`,
+        ),
+        tokenEvents: await q(
+          `SELECT * FROM zero_seed_launch_token_events ORDER BY event_id`,
         ),
         states: await ledgerRows(db).then((rows) =>
           rows.map((r) => ({ ...r })),

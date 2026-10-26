@@ -1,6 +1,7 @@
-import type { DAO } from "../_shared/dao";
+import type { DAO, DiscoveredAddressSource } from "../_shared/dao";
 import type { EventKey } from "../_shared/eventKey";
 import { logger } from "../_shared/logger";
+import type { LogStreamFilter } from "./logStream";
 import type {
   Abi,
   AbiParameterToPrimitiveType,
@@ -29,6 +30,12 @@ export type ContractEvent<
 export interface EvmLogProcessor {
   address: `0x${string}`;
 
+  /**
+   * When set, the processor handles logs of every contract this source names
+   * (`address` is then the naming contract, not an emitter).
+   */
+  discoveredBy?: DiscoveredAddressSource;
+
   filter: {
     topics: (`0x${string}` | null)[];
     strict: boolean;
@@ -42,6 +49,19 @@ export interface EvmLogProcessor {
       data: `0x${string}` | undefined;
     },
   ) => Promise<void>;
+}
+
+/** The log stream filters of `processors`; filter id = index + 1. */
+export function logStreamFilters(
+  processors: EvmLogProcessor[],
+): LogStreamFilter[] {
+  return processors.map((processor, ix) => ({
+    id: ix + 1,
+    address: processor.address,
+    topics: processor.filter.topics,
+    strict: processor.filter.strict,
+    ...(processor.discoveredBy ? { discoveredBy: processor.discoveredBy } : {}),
+  }));
 }
 
 export type HandlerMap<T extends Abi> = {

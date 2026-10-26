@@ -314,6 +314,26 @@ export interface Ve33RewardsClaimedInsert extends Ve33PoolEventDescriptor {
   amount: NumericValue;
 }
 
+/**
+ * Contracts an EVM log stream follows from the event that names them:
+ * `topics[topicIndex]` of the `topic0` logs of `address`. `kind` selects what
+ * the DAO loads as already indexed.
+ */
+export interface DiscoveredAddressSource {
+  kind: "zero_seed_launch_token";
+  address: `0x${string}`;
+  topic0: `0x${string}`;
+  topicIndex: number;
+}
+
+/** A raw LaunchToken Transfer (from, to) or Approval (owner, spender). */
+export interface ZeroSeedLaunchTokenEventInsert {
+  kind: "transfer" | "approval";
+  fromOrOwner: AddressValue;
+  toOrSpender: AddressValue;
+  value: bigint;
+}
+
 export interface ZeroSeedLaunchEventDescriptor {
   coreAddress: `0x${string}`;
   poolId: `0x${string}`;
@@ -1272,6 +1292,79 @@ export class DAO {
     );
   }
 
+  /**
+   * The token's mints, captured earlier in the creation transaction, must be
+   * exactly Transfer(0, Core, installed) and, when positive,
+   * Transfer(0, 0, requested - installed).
+   */
+  private async checkZeroSeedLaunchMints(
+    key: EventKey,
+    parsed: ZeroSeedLaunchCreatedInsert,
+    installedSupply: bigint,
+  ) {
+    const rows = await this.sql<{ to_or_spender: bigint; value: bigint }[]>`
+      SELECT to_or_spender, value
+      FROM zero_seed_launch_token_events
+      WHERE chain_id = ${this.chainId}
+        AND block_number = ${key.blockNumber}
+        AND transaction_index = ${key.transactionIndex}
+        AND event_index < ${key.eventIndex}
+        AND emitter = ${this.numeric(parsed.token)}
+        AND kind = 'transfer'
+        AND from_or_owner = 0
+      ORDER BY event_index`;
+    const sink = parsed.requestedSupply - installedSupply;
+    const expected = [
+      [BigInt(parsed.coreAddress), installedSupply],
+      ...(sink > 0n ? [[0n, sink]] : []),
+    ].map(String);
+    const actual = rows
+      .map((row) => [BigInt(row.to_or_spender), BigInt(row.value)])
+      .map(String);
+    if (actual.join(";") !== expected.join(";"))
+      throw new Error(
+        `Refusing LaunchCreated for pool ${parsed.poolId}: the token mints in its transaction (${actual.join("; ") || "none"}) are not Core's installed supply and the sink remainder (${expected.join("; ")})`,
+      );
+  }
+
+  /** Addresses a log stream already follows for `source`. */
+  async loadDiscoveredAddresses(
+    source: DiscoveredAddressSource,
+  ): Promise<`0x${string}`[]> {
+    switch (source.kind) {
+      case "zero_seed_launch_token": {
+        const rows = await this.sql<{ token: bigint }[]>`
+          SELECT token FROM zero_seed_launch_created
+          WHERE chain_id = ${this.chainId}
+            AND emitter = ${this.numeric(source.address)}`;
+        return rows.map(
+          (row) =>
+            `0x${BigInt(row.token).toString(16).padStart(40, "0")}` as const,
+        );
+      }
+    }
+  }
+
+  /** A raw LaunchToken Transfer or Approval; the emitter is the token. */
+  async insertZeroSeedLaunchTokenEvent(
+    key: EventKey,
+    parsed: ZeroSeedLaunchTokenEventInsert,
+  ) {
+    await this.sql`
+      INSERT INTO zero_seed_launch_token_events
+        (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
+         kind, from_or_owner, to_or_spender, value)
+      VALUES (
+        ${this.eventKeyValues(key)},
+        ${parsed.kind},
+        ${this.numeric(parsed.fromOrOwner)},
+        ${this.numeric(parsed.toOrSpender)},
+        ${this.numeric(parsed.value)}
+      )
+      ON CONFLICT (chain_id, event_id) DO NOTHING;
+    `;
+  }
+
   // Launch writers insert with ON CONFLICT DO NOTHING so that a redelivered
   // log fires no ledger trigger. Swaps, claims, owner changes and payouts
   // without their LaunchCreated are refused by the state triggers.
@@ -1289,6 +1382,7 @@ export class DAO {
       poolKeyId,
       parsed,
     );
+    await this.checkZeroSeedLaunchMints(key, parsed, installedSupply);
     await this.sql`
       INSERT INTO zero_seed_launch_created
         (chain_id, block_number, transaction_index, event_index, transaction_hash, emitter,
