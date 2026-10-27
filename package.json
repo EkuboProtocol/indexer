@@ -40,7 +40,7 @@
     "oxlint-tsgolint": "^7.0.2005"
   },
   "dependencies": {
-    "@effect/platform-bun": "4.0.5",
+    "@effect/platform-bun": "4.0.6",
     "dotenv": "^18.0.9",
     "effect": "4.0.6",
     "postgres": "^3.4.9",
