@@ -6,6 +6,8 @@ import {
   type LogProcessorConfigV3,
 } from "./logProcessorsV3";
 import { ANCHOR_GATE_FAILED_TOPIC } from "./mevCaptureV21";
+import { parseV2PoolKeyConfig, toPoolId } from "./poolKey";
+import { parseSwapEventV3 } from "./swapEvent";
 
 const config: Omit<LogProcessorConfigV3, "twammAddresses" | "ordersAddresses"> =
   {
@@ -100,6 +102,79 @@ describe("createLogProcessorsV3", () => {
     expect(
       processors.filter((p) => p.address === ve33PositionsAddress),
     ).toHaveLength(1);
+  });
+
+  describe("FYND BNB pool", () => {
+    const core = "0x00000000000014aA86C5d3c41765bb24e11bd701";
+    const extension = "0x550CFe1292d0D9c0d28f232b3F42Edb4439B1D09";
+    const poolId =
+      "0x942e8f465b349913a0a115c8f346028f549129748184d8eac4fafc7b88c863a9";
+    const poolKey = {
+      token0: "0x4902c5ebc598265ed2212b559b042de8a5eeec3f",
+      token1: "0x55d398326f99059ff775485246999027b3197955",
+      config:
+        "0x550cfe1292d0d9c0d28f232b3f42edb4439b1d09000000000000000080000400",
+    } as const;
+
+    it("preserves the real custom pool identity and zero base fee", () => {
+      // Live chain-56 poolKeys fixture, independently matched to core storage
+      // at block 130481860. Zero base fee is not the signed per-swap fee.
+      expect(toPoolId(poolKey)).toBe(poolId);
+      expect(parseV2PoolKeyConfig(poolKey.config)).toEqual({
+        extension,
+        fee: 0n,
+        tickSpacing: 1024,
+      });
+    });
+
+    it("indexes the forwarded swap and its separately accumulated LP fees", async () => {
+      // Raw core logs from successful BNB transaction
+      // 0xc6860fc3cd218943cc9ab1d8fd3a0df70434eef6d78b7f0066100d23fb7adb53,
+      // block 130477192, log indices 170 (fees) and 172 (swap).
+      const swap = parseSwapEventV3(
+        "0x550cfe1292d0d9c0d28f232b3f42edb4439b1d09942e8f465b349913a0a115c8f346028f549129748184d8eac4fafc7b88c863a900000000000000002cdad56b9ef3d3a7ffffffffffffffff0b273b56bc7845348000000095828b349abf5cfc0019e4c0000000000000069c12b850fbff87e293",
+      );
+      expect(swap).toEqual({
+        locker: extension,
+        poolId,
+        delta0: 3232130340796748711n,
+        delta1: -17643067771485403852n,
+        liquidityAfter: 31213239889848212906643n,
+        sqrtRatioAfter: 794931173545013545714560661499743830016n,
+        tickAfter: 1696960,
+      });
+
+      const processors = createLogProcessorsV3({
+        ...config,
+        coreAddress: core,
+        twammAddresses: [],
+        ordersAddresses: [],
+      });
+      const topics = encodeEventTopics({
+        abi: CORE_ABI,
+        eventName: "FeesAccumulated",
+      });
+      const processor = processors.find(
+        (p) => p.address === core && p.filter.topics[0] === topics[0],
+      )!;
+      const dao = { insertFeesAccumulatedEvent: mock(async () => {}) };
+      const key = {
+        blockNumber: 130477192,
+        transactionIndex: 29,
+        eventIndex: 170,
+        emitter: core,
+        transactionHash:
+          "0xc6860fc3cd218943cc9ab1d8fd3a0df70434eef6d78b7f0066100d23fb7adb53",
+      } as const;
+      await processor.handler(dao as never, key, {
+        topics: topics as `0x${string}`[],
+        data: "0x942e8f465b349913a0a115c8f346028f549129748184d8eac4fafc7b88c863a9000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000e8d88d528dbf6c",
+      });
+      expect(dao.insertFeesAccumulatedEvent).toHaveBeenCalledWith(
+        { poolId, amount0: 0n, amount1: 65540296083881836n },
+        key,
+      );
+    });
   });
 
   describe("MEVCapture v2.1", () => {
