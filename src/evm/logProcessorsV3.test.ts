@@ -1,5 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
-import { encodeAbiParameters, encodeEventTopics } from "viem";
+import { checksumAddress, encodeAbiParameters, encodeEventTopics } from "viem";
 import { CORE_ABI, VE33_ABI } from "./abis_v3";
 import {
   createLogProcessorsV3,
@@ -125,6 +125,54 @@ describe("createLogProcessorsV3", () => {
         fee: 0n,
         tickSpacing: 1024,
       });
+    });
+
+    it("indexes the real initialization with the full custom pool config", async () => {
+      // BNB block 130064169, transaction
+      // 0x0c64bd21c3f486ace292bdde37a4cd65e4aede95f4dd72a6f0fa7aed68483ae0.
+      const topics = encodeEventTopics({
+        abi: CORE_ABI,
+        eventName: "PoolInitialized",
+      });
+      const processor = createLogProcessorsV3({
+        ...config,
+        coreAddress: core,
+        twammAddresses: [],
+        ordersAddresses: [],
+      }).find((p) => p.address === core && p.filter.topics[0] === topics[0])!;
+      const dao = { insertPoolInitializedEvent: mock(async () => {}) };
+      const key = {
+        blockNumber: 130064169,
+        transactionIndex: 44,
+        eventIndex: 207,
+        emitter: core,
+        transactionHash:
+          "0x0c64bd21c3f486ace292bdde37a4cd65e4aede95f4dd72a6f0fa7aed68483ae0",
+      } as const;
+      await processor.handler(dao as never, key, {
+        topics: topics as `0x${string}`[],
+        data: "0x942e8f465b349913a0a115c8f346028f549129748184d8eac4fafc7b88c863a90000000000000000000000004902c5ebc598265ed2212b559b042de8a5eeec3f00000000000000000000000055d398326f99059ff775485246999027b3197955550cfe1292d0d9c0d28f232b3f42edb4439b1d0900000000000000008000040000000000000000000000000000000000000000000000000000000000001980c5000000000000000000000000000000000000000080000000939bd6c809252982",
+      });
+      expect(dao.insertPoolInitializedEvent).toHaveBeenCalledWith(
+        {
+          feeDenominator: 1n << 64n,
+          poolKey: {
+            token0: checksumAddress(poolKey.token0),
+            token1: checksumAddress(poolKey.token1),
+            fee: 0n,
+            tickSpacing: 1024,
+            extension,
+            poolConfig: BigInt(poolKey.config),
+            poolConfigType: "concentrated",
+            stableswapCenterTick: null,
+            stableswapAmplification: null,
+          },
+          poolId,
+          tick: 1671365,
+          sqrtRatio: 784822710710294029073761929393950687232n,
+        },
+        key,
+      );
     });
 
     it("indexes the forwarded swap and its separately accumulated LP fees", async () => {
