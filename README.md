@@ -401,9 +401,12 @@ through the same cascade a reorg uses:
 `scripts/monitorEventGaps.ts` runs the audit over each chain's recent finalized
 history (`GAP_MONITOR_WINDOW_SECONDS`, default 3 h). It POSTs an HMAC-signed alert
 to a Paperclip routine webhook when it finds a gap, or when a chain's check fails
-twice. `GAP_MONITOR_CHAINS` is a comma list of `network=rpcUrl`, with a
-`starknet/` prefix for Starknet and an optional `|maxRange` suffix for an
-endpoint that refuses wide reads. `--test-alert` proves delivery.
+twice, `GAP_MONITOR_RETRY_SECONDS` (default 30) apart. A failed check reports the
+audit's own exception, with every configured RPC URL, the PG connection string
+and any credentials in other URLs redacted. `GAP_MONITOR_CHAINS` is a comma list
+of `network=rpcUrl`, with a `starknet/` prefix for Starknet and an optional
+`|maxRange` suffix for an endpoint that refuses wide reads. `--test-alert` proves
+delivery.
 
 ## Database migrations
 
