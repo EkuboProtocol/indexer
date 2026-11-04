@@ -271,22 +271,7 @@ workers:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
-    # Memory above 1% for 5 minutes is always true, so this alert triggers soon
-    # after the deploy. It shows that a metric alert reaches the owner's inbox,
-    # and then goes back to *worker-alerts.
-    alerts:
-      - rule: CPU_UTILIZATION
-        operator: GREATER_THAN
-        value: 95
-        window: THIRTY_MINUTES
-      - rule: MEM_UTILIZATION
-        operator: GREATER_THAN
-        value: 1
-        window: FIVE_MINUTES
-      - rule: RESTART_COUNT
-        operator: GREATER_THAN
-        value: 0.5
-        window: FIVE_MINUTES
+    alerts: *worker-alerts
     envs:
       - key: TOKEN_PRICE_SYNC_INTERVAL_MS
         scope: RUN_TIME
