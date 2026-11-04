@@ -1,4 +1,10 @@
 import { createHmac } from "node:crypto";
+import {
+  SUMMARY_ERROR_MAX_LENGTH,
+  checkError,
+  createRedactor,
+  elide,
+} from "./eventGapRules";
 
 type Summary = {
   kind: "summary";
@@ -25,11 +31,12 @@ const chains = (process.env.GAP_MONITOR_CHAINS ?? "")
   .split(",")
   .map((entry) => entry.trim())
   .filter(Boolean)
-  .map((entry) => {
+  .map((entry, index) => {
     const at = entry.indexOf("=");
+    // Not echoed: the entry may be a bare RPC URL with a key in it.
     if (at <= 0)
       throw new Error(
-        `GAP_MONITOR_CHAINS entry must be network=rpcUrl, got ${entry}`,
+        `GAP_MONITOR_CHAINS entry ${index + 1} must be network=rpcUrl`,
       );
     const name = entry.slice(0, at);
     const [networkType, network] = name.startsWith("starknet/")
@@ -49,7 +56,16 @@ const chains = (process.env.GAP_MONITOR_CHAINS ?? "")
 if (chains.length === 0) throw new Error("Set GAP_MONITOR_CHAINS");
 
 const windowSeconds = process.env.GAP_MONITOR_WINDOW_SECONDS ?? "10800";
+const retrySeconds = Number(process.env.GAP_MONITOR_RETRY_SECONDS ?? 30);
+if (!(retrySeconds >= 0))
+  throw new Error(
+    `GAP_MONITOR_RETRY_SECONDS must be a non-negative number, got ${process.env.GAP_MONITOR_RETRY_SECONDS}`,
+  );
 const testAlert = process.argv.includes("--test-alert");
+const redact = createRedactor({
+  rpcUrls: chains.map((chain) => chain.rpcUrl),
+  pgConnectionString: process.env.PG_CONNECTION_STRING,
+});
 
 async function auditOnce(
   network: string,
@@ -57,6 +73,7 @@ async function auditOnce(
   rpcUrl: string,
   maxRange?: string,
 ): Promise<Result> {
+  const deadline = AbortSignal.timeout(10 * 60_000);
   const child = Bun.spawn(["bun", "scripts/auditEventGaps.ts"], {
     cwd: `${import.meta.dir}/..`,
     env: {
@@ -71,14 +88,13 @@ async function auditOnce(
     },
     stdout: "pipe",
     stderr: "pipe",
+    signal: deadline,
   });
-  const timeout = setTimeout(() => child.kill(), 10 * 60_000);
   const [stdout, stderr, code] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
     child.exited,
   ]);
-  clearTimeout(timeout);
 
   const lines = stdout.split("\n").flatMap((line) => {
     try {
@@ -92,17 +108,14 @@ async function auditOnce(
     | Summary
     | undefined;
   if (!summary) {
-    const tail = (stderr + stdout)
-      .trim()
-      .split("\n")
-      .slice(-3)
-      .join(" | ")
-      .slice(0, 500);
+    const outcome = deadline.aborted
+      ? "timed out after 10 minutes"
+      : `exit ${code}`;
     return {
       network,
       ok: false,
       gap: false,
-      error: `exit ${code}, no summary: ${tail}`,
+      error: checkError(outcome, stdout, stderr, redact),
     };
   }
   if (summary.missing + summary.hash > 0) {
@@ -119,7 +132,7 @@ for (const { network, networkType, rpcUrl, maxRange } of chains) {
   const label = networkType === "evm" ? network : `${networkType}/${network}`;
   let result = await auditOnce(network, networkType, rpcUrl, maxRange);
   if (!result.ok && !result.gap) {
-    await Bun.sleep(30_000);
+    await Bun.sleep(retrySeconds * 1_000);
     result = await auditOnce(network, networkType, rpcUrl, maxRange);
   }
   results.push({ ...result, network: label });
@@ -151,7 +164,7 @@ if (failures.length > 0) {
       ? ""
       : r.gap
         ? `${r.network}: ${r.summary.missing} missing / ${r.summary.hash} wrong-hash block(s) in ${r.summary.from}..${r.summary.to}`
-        : `${r.network}: check failed (${r.error.slice(0, 160)})`;
+        : `${r.network}: check failed (${elide(r.error, SUMMARY_ERROR_MAX_LENGTH)})`;
   if (process.env.ALERT_WEBHOOK_URL) {
     const body = JSON.stringify({
       payload: {
