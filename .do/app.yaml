@@ -37,6 +37,34 @@ workers:
       tag: ${IMAGE_TAG}
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    # Saturation and restart alerts, shared by every worker and emailed like
+    # DEPLOYMENT_FAILED above. The thresholds sit above 30 days of App Platform
+    # metrics (120 s samples, 2026-10-05 to 2026-11-04): token-price-sync
+    # averages 75% CPU with a highest 30-minute mean of 90%, starknet-mainnet
+    # peaks at 83%, the rest stay under 35%, and no worker's memory averaged over
+    # 75% for 10 minutes.
+    #
+    # Every worker but token-price-sync runs under scripts/restart.sh, which
+    # restarts a crashed process inside the container, so for them RESTART_COUNT
+    # counts only container restarts; a worker that stops making progress shows
+    # up as head lag instead. token-price-sync's run_command starts bun directly
+    # (a run command replaces the image's entrypoint), so its crashes are
+    # container restarts.
+    alerts: &worker-alerts
+      - rule: CPU_UTILIZATION
+        operator: GREATER_THAN
+        value: 95
+        window: THIRTY_MINUTES
+      - rule: MEM_UTILIZATION
+        operator: GREATER_THAN
+        value: 80
+        window: TEN_MINUTES
+      # One restart reads as about 1 over the window; App Platform rejects a
+      # threshold of 0 as missing.
+      - rule: RESTART_COUNT
+        operator: GREATER_THAN
+        value: 0.5
+        window: FIVE_MINUTES
     envs:
       - key: STARKNET_RPC_URL
         scope: RUN_TIME
@@ -61,6 +89,7 @@ workers:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    alerts: *worker-alerts
     envs:
       - key: EVM_RPC_URL
         scope: RUN_TIME
@@ -74,6 +103,7 @@ workers:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    alerts: *worker-alerts
     envs:
       - key: EVM_RPC_URL
         scope: RUN_TIME
@@ -87,6 +117,7 @@ workers:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    alerts: *worker-alerts
     envs:
       - key: NETWORK
         scope: RUN_TIME
@@ -100,6 +131,7 @@ workers:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    alerts: *worker-alerts
     envs:
       - key: EVM_RPC_URL
         scope: RUN_TIME
@@ -113,6 +145,7 @@ workers:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    alerts: *worker-alerts
     envs:
       - key: EVM_RPC_URL
         scope: RUN_TIME
@@ -126,6 +159,7 @@ workers:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    alerts: *worker-alerts
     envs:
       - key: EVM_RPC_URL
         scope: RUN_TIME
@@ -139,6 +173,7 @@ workers:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    alerts: *worker-alerts
     envs:
       - key: EVM_RPC_URL
         scope: RUN_TIME
@@ -152,6 +187,7 @@ workers:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    alerts: *worker-alerts
     envs:
       - key: EVM_RPC_URL
         scope: RUN_TIME
@@ -165,6 +201,7 @@ workers:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    alerts: *worker-alerts
     envs:
       - key: EVM_RPC_URL
         scope: RUN_TIME
@@ -178,6 +215,7 @@ workers:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    alerts: *worker-alerts
     envs:
       - key: EVM_RPC_URL
         scope: RUN_TIME
@@ -191,6 +229,7 @@ workers:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    alerts: *worker-alerts
     envs:
       - key: EVM_RPC_URL
         scope: RUN_TIME
@@ -204,6 +243,7 @@ workers:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    alerts: *worker-alerts
     envs:
       - key: EVM_RPC_URL
         scope: RUN_TIME
@@ -217,6 +257,7 @@ workers:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    alerts: *worker-alerts
     envs:
       - key: EVM_RPC_URL
         scope: RUN_TIME
@@ -230,6 +271,22 @@ workers:
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb
     instance_count: 1
+    # Memory above 1% for 5 minutes is always true, so this alert triggers soon
+    # after the deploy. It shows that a metric alert reaches the owner's inbox,
+    # and then goes back to *worker-alerts.
+    alerts:
+      - rule: CPU_UTILIZATION
+        operator: GREATER_THAN
+        value: 95
+        window: THIRTY_MINUTES
+      - rule: MEM_UTILIZATION
+        operator: GREATER_THAN
+        value: 1
+        window: FIVE_MINUTES
+      - rule: RESTART_COUNT
+        operator: GREATER_THAN
+        value: 0.5
+        window: FIVE_MINUTES
     envs:
       - key: TOKEN_PRICE_SYNC_INTERVAL_MS
         scope: RUN_TIME
