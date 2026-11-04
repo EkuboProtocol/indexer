@@ -354,6 +354,26 @@ rules are in `scripts/headLagRules.ts`; `--test-alert` proves delivery. It uses
 block time, not `last_updated`, because a provider that freezes its `latest`
 block produces no error at all (Unichain, 2026-09-30, EKU-500).
 
+### Public endpoint monitor
+
+`scripts/monitorPublicEndpoints.ts` requests two public endpoints for every
+chain: the API's latest indexed block (`GET /blocks/<chainId>/latest` on
+`https://prod-api.ekubo.org`, through the Worker, Hyperdrive and the database)
+and the chain's quoter health (`GET /<chainId>/health` on
+`https://prod-api-quoter.ekubo.org`). It POSTs an HMAC-signed alert to
+`ALERT_WEBHOOK_URL` when a request fails on `ENDPOINT_MONITOR_SUSTAIN_CHECKS`
+(default 2) consecutive runs, or when a quoter's latest block is more than
+`ENDPOINT_MONITOR_QUOTER_LAG_SECONDS` (default 300) older than the block the API
+reports for that chain. Run it every minute. A request fails on a network error,
+a timeout (`ENDPOINT_MONITOR_TIMEOUT_MS`, default 10 s), any status other than
+200, or a body without the block. If every request fails and a control request
+to a third party (`ENDPOINT_MONITOR_CONTROL_URL`) fails too, the run counts as
+the monitor's host being offline and raises nothing. `ENDPOINT_MONITOR_CHAINS`
+is a comma list of `chainId=name` and defaults to the production chains. An
+ongoing failure re-alerts at most once per `ENDPOINT_MONITOR_REALERT_MINUTES`
+(default 60); streaks live in `ENDPOINT_MONITOR_STATE`. The rules are in
+`scripts/publicEndpointRules.ts`; `--test-alert` proves delivery.
+
 ### Verification
 
 `scripts/verifyStarknetStream.ts` compares a settled range against stored events.
@@ -423,6 +443,7 @@ The DigitalOcean Apps spec in `.do/app.yaml` documents the full production stack
 - Workers for each network (e.g.: `starknet-mainnet`, `eth-mainnet`, `base-mainnet`) that run the corresponding network entrypoint (`bun src/starknet.ts` or `bun src/evm.ts`) with the appropriate `NETWORK` value, pulling the published Docker image (`ghcr.io/ekuboprotocol/indexer:${IMAGE_TAG}`).
 - Managed Postgres (`indexer-db-nyc1`) wired in via the `PG_CONNECTION_STRING` env var, alongside the per-worker RPC secrets (`EVM_RPC_URL`, `STARKNET_RPC_URL`).
 - A `run-migrations` pre-deploy job and the long-running `src/price-sync/index.ts` process. Each price source/chain job has an independent timer, with separately configured CoinGecko and Chainlink cadences. The app spec discovers Chainlink feeds for eligible tokens on Ethereum, Base, Arbitrum, and Robinhood through Chainlink's multi-network catalogs and the existing Alchemy API key secret.
+- Alerts, emailed by App Platform: a failed deployment, and for every worker sustained CPU or memory saturation and container restarts. The thresholds and the measurements behind them are in the comment above `alerts: &worker-alerts`.
 
 Use this file as a base to recreate the stack in a new DigitalOcean App Platform project or as a reference for configuring similar infrastructure elsewhere.
 
