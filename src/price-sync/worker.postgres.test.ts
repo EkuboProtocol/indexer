@@ -11,11 +11,102 @@ import { fileURLToPath } from "node:url";
 import { Effect, Stream } from "effect";
 import postgres, { type Sql } from "postgres";
 import shift from "postgres-shift";
+import { encodeAbiParameters, encodeFunctionResult, multicall3Abi } from "viem";
 import type { PriceSyncJob } from "./fetchers/types";
 import { persistPriceUpdates } from "./persistPriceUpdates";
 import { lastStoredPriceAt, type PriceSyncSql } from "./worker";
 
 const SERVER = process.env.TEST_PG_CONNECTION_STRING;
+
+function feedRpc(round: { at: bigint }) {
+  return Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(request) {
+      const rpc = (await request.json()) as { id: number; method: string };
+      const result =
+        rpc.method === "eth_chainId"
+          ? "0x1"
+          : encodeFunctionResult({
+              abi: multicall3Abi,
+              functionName: "aggregate3",
+              result: [
+                {
+                  success: true,
+                  returnData: encodeAbiParameters([{ type: "uint8" }], [8]),
+                },
+                {
+                  success: true,
+                  returnData: encodeAbiParameters(
+                    [
+                      { type: "uint80" },
+                      { type: "int256" },
+                      { type: "uint256" },
+                      { type: "uint256" },
+                      { type: "uint80" },
+                    ],
+                    [1n, 200_000_000n, round.at, round.at, 1n],
+                  ),
+                },
+              ],
+            });
+      return Response.json({ jsonrpc: "2.0", id: rpc.id, result });
+    },
+  });
+}
+
+function startWorker(connection: string, rpcUrl: string) {
+  const child = Bun.spawn([process.execPath, "src/price-sync/index.ts"], {
+    cwd: resolve(import.meta.dir, "../.."),
+    env: {
+      PATH: process.env.PATH ?? "",
+      HTTP_PROXY: "http://127.0.0.1:9",
+      HTTPS_PROXY: "http://127.0.0.1:9",
+      NO_PROXY: "127.0.0.1,localhost",
+      PG_CONNECTION_STRING: connection,
+      TOKEN_PRICE_SYNC_INTERVAL_MS: "60000",
+      COINGECKO_TOKEN_PRICE_SYNC_INTERVAL_SECONDS: "0",
+      COINGECKO_NATIVE_PRICE_SYNC_INTERVAL_SECONDS: "0",
+      CHAINLINK_TOKEN_PRICE_SYNC_INTERVAL_SECONDS: "1",
+      EKUBO_QUOTER_URL: "http://127.0.0.1:9",
+      CHAINLINK_TOKEN_PRICE_CONFIG: JSON.stringify({
+        1: {
+          rpcUrls: [rpcUrl],
+          feeds: [
+            {
+              tokenAddress: "0x0000000000000000000000000000000000000001",
+              feedAddress: "0x0000000000000000000000000000000000000002",
+              maxAgeSeconds: 3600,
+            },
+          ],
+        },
+      }),
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  let output = "";
+  const collect = async (stream: ReadableStream<Uint8Array>) => {
+    for await (const chunk of stream) output += new TextDecoder().decode(chunk);
+  };
+  const drained = Promise.all([collect(child.stdout), collect(child.stderr)]);
+  return {
+    output: () => output,
+    async stop() {
+      child.kill("SIGTERM");
+      await child.exited;
+      await drained;
+    },
+  };
+}
+
+async function waitFor(check: () => Promise<boolean>) {
+  const deadline = Date.now() + 10_000;
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error("Worker fixture timed out");
+    await Bun.sleep(50);
+  }
+}
 
 describe.skipIf(!SERVER)("lastStoredPriceAt against Postgres", () => {
   const database = `worker_last_run_${process.pid}_${Date.now()}`;
@@ -109,4 +200,39 @@ describe.skipIf(!SERVER)("lastStoredPriceAt against Postgres", () => {
 
     expect(last).toBeUndefined();
   });
+
+  test("the real worker persists prices and resumes after process restart", async () => {
+    const round = { at: BigInt(Math.floor(Date.now() / 1_000) - 10) };
+    const rpc = feedRpc(round);
+    const url = new URL(SERVER!);
+    url.pathname = `/${database}`;
+    let worker = startWorker(url.toString(), rpc.url.toString());
+    const prices = () => sql`
+      SELECT value, "timestamp" FROM erc20_tokens_usd_prices
+      WHERE chain_id = 1 AND token_address = 1 AND source = 'cl1'
+      ORDER BY "timestamp"
+    `;
+    try {
+      await waitFor(async () => (await prices()).length === 1);
+      expect(Number((await prices())[0].value)).toBe(2);
+      await worker.stop();
+      expect(worker.output()).toContain(
+        "Closed the price-sync connection pool",
+      );
+      const stored = await prices();
+      round.at += 1n;
+      worker = startWorker(url.toString(), rpc.url.toString());
+      await waitFor(async () =>
+        worker.output().includes("Price sync job 1:cl1 completed"),
+      );
+      await waitFor(async () => (await prices()).length === 2);
+      expect((await prices())[0]).toEqual(stored[0]);
+      expect((await prices()).map((row) => Number(row.value))).toEqual([2, 2]);
+    } catch (error) {
+      throw new Error(worker.output(), { cause: error });
+    } finally {
+      await worker.stop();
+      await rpc.stop(true);
+    }
+  }, 30_000);
 });
