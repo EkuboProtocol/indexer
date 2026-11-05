@@ -45,7 +45,7 @@
     "effect": "4.1.1",
     "postgres": "^3.4.9",
     "postgres-shift": "^1.0.2",
-    "viem": "^2.57.13",
+    "viem": "^2.57.14",
     "winston": "^3.19.0"
   },
   "overrides": {
