@@ -441,9 +441,9 @@ const NumericIntegerType: postgres.PostgresType<bigint> = {
   },
 };
 
-type UnwrapPromiseArray<T> = T extends any[]
+type UnwrapPromiseArray<T> = T extends readonly any[]
   ? {
-      [k in keyof T]: T[k] extends Promise<infer R> ? R : T[k];
+      -readonly [k in keyof T]: Awaited<T[k]>;
     }
   : T;
 
@@ -523,7 +523,7 @@ export class DAO {
   public async begin<T>(
     cb: (dao: DAO) => T | Promise<T>,
   ): Promise<UnwrapPromiseArray<T>> {
-    if (!("begin" in this.sql))
+    if (!("end" in this.sql))
       throw new Error("Cannot begin a transaction inside a transaction");
     return this.sql.begin((sql) => {
       const dao = new DAO(sql, this.chainId);

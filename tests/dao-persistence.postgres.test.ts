@@ -55,10 +55,12 @@ describe.skipIf(!SERVER)("DAO persistence across worker exits", () => {
     return JSON.parse(output) as { orderKey: string; uniqueKey: string };
   }
 
-  test("committed blocks and exact numeric cursor survive restart; failed batches do not", async () => {
+  test("preserves transaction contracts and durable cursors across worker exits", async () => {
     const hash = (1n << 255n) + 123n;
     const expected = { orderKey: "100", uniqueKey: `0x${hash.toString(16)}` };
     expect(await worker("commit")).toEqual(expected);
+    expect(await worker("read")).toEqual(expected);
+    expect(await worker("contract")).toEqual(expected);
     expect(await worker("read")).toEqual(expected);
     expect(await worker("rollback")).toEqual(expected);
     expect(await worker("read")).toEqual(expected);
