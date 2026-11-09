@@ -37,7 +37,7 @@
     "@typescript/native": "npm:typescript@^7.0.2",
     "oxfmt": "0.75.0",
     "oxlint": "1.90.0",
-    "oxlint-tsgolint": "^7.0.2005"
+    "oxlint-tsgolint": "^7.0.2006"
   },
   "dependencies": {
     "@effect/platform-bun": "4.1.2",
