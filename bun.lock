@@ -8,7 +8,7 @@
         "@effect/platform-bun": "4.1.2",
         "dotenv": "^18.0.9",
         "effect": "4.1.2",
-        "postgres": "^3.4.9",
+        "postgres": "^4.1.0",
         "postgres-shift": "^1.0.2",
         "viem": "^2.57.16",
         "winston": "^3.19.0",
@@ -236,7 +236,7 @@
 
     "oxlint-tsgolint": ["oxlint-tsgolint@7.0.2006", "", { "optionalDependencies": { "@oxlint-tsgolint/darwin-arm64": "7.0.2006", "@oxlint-tsgolint/darwin-x64": "7.0.2006", "@oxlint-tsgolint/linux-arm64": "7.0.2006", "@oxlint-tsgolint/linux-x64": "7.0.2006", "@oxlint-tsgolint/win32-arm64": "7.0.2006", "@oxlint-tsgolint/win32-x64": "7.0.2006" }, "bin": { "tsgolint": "./bin/tsgolint.js" } }, "sha512-5B3UtH71kycPHUC1kFEIffivEAs49SUmkJuHZOZnTY0NPj4legp0bcsCQucuLVNCoJzDucS68P2C4WIhP+LypQ=="],
 
-    "postgres": ["postgres@3.4.9", "", {}, "sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw=="],
+    "postgres": ["postgres@4.1.0", "", {}, "sha512-s+0WH67YAyLdBQUb6XczbziBhY+C9uiQsg9S8R5RHdZhk6sdyK6202E+T2tXpiInSEEjDLRSJ3OpYBe3PN6MsQ=="],
 
     "postgres-shift": ["postgres-shift@1.0.2", "", {}, "sha512-b8NiyzsIye1X4mvdt9VLRBkPd1j3R1MkygHPma8CdGeiJAUCll7wWNOmXbNm1jebTcsbXHD3bZoF3/oPwXaGCA=="],
 
