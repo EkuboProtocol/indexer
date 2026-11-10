@@ -514,8 +514,8 @@ export class DAO {
   }
 
   public async releaseLock(): Promise<void> {
-    const rows = await this
-      .sql`SELECT pg_advisory_unlock(hashtext('ekubo-indexer-' || ${this.chainId}));`;
+    const rows =
+      await this.sql`SELECT pg_advisory_unlock(hashtext('ekubo-indexer-' || ${this.chainId}));`;
     if (!rows.length)
       throw new Error(`Failed to release lock for chain ID ${this.chainId}`);
   }
