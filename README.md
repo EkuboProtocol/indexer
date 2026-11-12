@@ -130,7 +130,7 @@ Two properties keep CoinGecko request volume flat rather than growing with `erc2
 - Native currency prices for every chain come from a single `cgn` job. Chains sharing a CoinGecko coin ID cost one request between them, not one apiece.
 - The per-chain `cg1` jobs request only the tokens CoinGecko has actually priced. Everything else is re-probed on a slow rotation (a full pass per day), so a chain with thousands of unlisted tokens does not pay for them every cycle. The rotation survives restarts: the first cycle seeds the priced set from the retained `cg1` rows in `erc20_tokens_latest_price_by_source` and treats every token already in the table as probed, and the re-probe slot follows the wall clock rather than a per-process counter. Tokens added after startup are still probed on their next cycle. Only a chain with no retained `cg1` rows at all does a full sweep (logged as `cold start`; a seeded chain logs `warm start`). If a cold sweep is cut short -- by a restart, or by the quota gate below -- after some `cg1` rows were written, the next start is warm, and the tokens the sweep never reached are found by the daily rotation rather than immediately. Each cycle serves every rotation slot whose interval epoch has passed since the last cycle it served, so launch jitter around an epoch boundary neither repeats nor skips a slot, and a paused job catches up (at most one full rotation) when it resumes.
 
-Every chain the `cgn` job prices also has a native-currency source that does not depend on CoinGecko, so a CoinGecko outage leaves none of them without a native price. Where Sushi's price list carries no native sentinel (Gnosis, Monad, MegaETH), its `ss1` job prices `0x0` from the chain's wrapped native token, configured per chain as `wrappedNative`. Chains that pay gas in ETH bridged from Ethereum and have no Sushi price list (Unichain, World Chain, Ink) get Ethereum's native price from the `em1` mirror job: each cycle it copies the best current non-CoinGecko `0x0` row on chain 1 (`qp1`, `cl1` or `ss1`), stamped now and with the copied row's `valid_until`. Both rank below `cgn`, so they serve only while it is stale. Never give a chain both `em1` and an `ss1` job: they share confidence 1 and would be averaged (a test enforces this).
+Every chain the `cgn` job prices also has a native-currency source that does not depend on CoinGecko, so a CoinGecko outage leaves none of them without a native price. Where Sushi's price list carries no native sentinel (Gnosis, Monad, MegaETH), its `ss1` job prices `0x0` from the chain's wrapped native token, configured per chain as `wrappedNative`. Chains that pay gas in ETH bridged from Ethereum and have no Sushi price list (Unichain, World Chain, Ink) get Ethereum's native price from the `em1` mirror job: each cycle it copies the best current non-CoinGecko `0x0` row on chain 1 (`qp1`, `cl1` or `ss1`), stamped now and with the copied row's `valid_until`. Both rank below `cgn`, so they serve only while it is stale. Never give a chain both `em1` and an `ss1` job: they share confidence 1 and would be averaged (a test enforces this). Elysium is the one exception to the rule above: it pays gas in HYPE, Sushi has no price list for it and HyperEVM is not indexed, so until it has pools its native price comes from `cgn` alone. Once a HYPE/USDC pool has liquidity, the `qp1` quoter job prices `0x0` there as well.
 
 The CoinGecko credit limit belongs to the account, so every CoinGecko job shares one quota gate. A `429` with `error_code` 10006 (monthly credit limit reached) pauses all of them for six hours and logs a single `COINGECKO_QUOTA_EXHAUSTED ... paused_until=<iso>` line; other 429s fail the cycle as usual. An hourly `GET /key` check logs `COINGECKO_CREDITS plan=… limit=… used=… remaining=… remaining_pct=…` (or `COINGECKO_CREDITS_CHECK_FAILED`) and reopens the gate early, logging `COINGECKO_QUOTA_RESTORED`, once at least 1,000 credits are available again (a smaller margin would reopen, spend it, and trip again every hour). Those lines are what the external quota monitor matches.
 
@@ -448,6 +448,30 @@ The DigitalOcean Apps spec in `.do/app.yaml` documents the full production stack
 Use this file as a base to recreate the stack in a new DigitalOcean App Platform project or as a reference for configuring similar infrastructure elsewhere.
 
 ## Breaking changelog (tracking as of 2025-11-17)
+
+### 2026-11-12: Elysium mainnet (99901) worker and Positions locker mapping (00140, additive)
+
+**`00140_elysium_positions_locker_mapping`. One `nft_locker_mappings` row; no
+schema change.**
+
+- New `elysium-mainnet` worker, starting at block `5206529` (the Core
+  deployment). Production reads Alchemy
+  (`elysium-mainnet.g.alchemy.com`, enabled on the indexer's Alchemy app) and
+  falls back to `https://rpc.elysium.kinetiq.xyz`. That endpoint caps
+  `eth_getLogs` at 10,000 logs per call, and the default 1,000 block range stays
+  far below it. The addresses match BNB Smart Chain and Ink, so the same two
+  manager overrides apply.
+- The migration adds the `bit_mod 192` mapping for the Positions contract
+  `0xA2971E0C…e326` on 99901, the same row 00128 added on every other chain.
+  Without it no Elysium position would join its salt.
+- Price sync: `cgn` prices HYPE (`hyperliquid`) for 99901. `cg1` uses the
+  `elysium-kinetiq` platform, and `qp1` quotes against the canonical USDC
+  `0xb47c4C8F…0B65` (6 decimals). There is no Sushi list (404) and no ETH
+  mirror, since gas is HYPE. The chain is in the bridge mirror's list.
+- Operator action: none. The migration runs in the normal pre-deploy step and
+  the worker creates its own cursor. The quoter route
+  `prod-api-quoter.ekubo.org/99901` comes from the matching quoter-service
+  change.
 
 ### 2026-10-22: MEVCapture v2.1 anchor/config history, gate events and per-swap surcharges (00139, additive)
 

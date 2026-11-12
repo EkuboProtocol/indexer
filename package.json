@@ -13,6 +13,7 @@
     "unichain:mainnet": "NETWORK=unichain-mainnet bun src/evm.ts",
     "worldchain:mainnet": "NETWORK=worldchain-mainnet bun src/evm.ts",
     "ink:mainnet": "NETWORK=ink-mainnet bun src/evm.ts",
+    "elysium:mainnet": "NETWORK=elysium-mainnet bun src/evm.ts",
     "eth:mainnet": "NETWORK=mainnet bun src/evm.ts",
     "mega:mainnet": "NETWORK=megaeth bun src/evm.ts",
     "monad:mainnet": "NETWORK=monad bun src/evm.ts",
