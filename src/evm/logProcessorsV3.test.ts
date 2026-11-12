@@ -59,6 +59,34 @@ describe("createLogProcessorsV3", () => {
     ).toHaveLength(1);
   });
 
+  it("watches an address named twice only once", () => {
+    // A chain pinning ORDERS_V3_ADDRESS to the recompiled Orders also inherits
+    // it as RECOMPILED_ORDERS_V3_ADDRESS from .env.evm, in another case.
+    const recompiledOrders = "0x9bB520B6192F71ec3D015C8a74F914f9c94bF794";
+    const twamm = "0x0000000000000000000000000000000000000010";
+    const positions = "0xA2971E0C37cFdb13aE8440A0C94Ef1A1af39e326";
+    const fees = { swapProtocolFee: 0n, withdrawalProtocolFeeDivisor: 0n };
+
+    const processors = createLogProcessorsV3({
+      ...config,
+      twammAddresses: [twamm, twamm],
+      ordersAddresses: [
+        recompiledOrders,
+        recompiledOrders.toLowerCase() as `0x${string}`,
+      ],
+      positionsContracts: [
+        { address: positions, ...fees },
+        { address: positions.toLowerCase() as `0x${string}`, ...fees },
+      ],
+    });
+    const at = (address: string) =>
+      processors.filter((p) => BigInt(p.address) === BigInt(address));
+
+    expect(at(recompiledOrders)).toHaveLength(1);
+    expect(at(twamm)).toHaveLength(3);
+    expect(at(positions)).toHaveLength(1);
+  });
+
   it("adds Ve33 event and NFT transfer processors when Ve33 addresses are configured", () => {
     const ve33Address = "0x0000000000000000000000000000000000000020";
     const veTokenAddress = "0x0000000000000000000000000000000000000021";
