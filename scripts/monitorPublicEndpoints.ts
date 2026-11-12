@@ -34,7 +34,7 @@ import {
 const DEFAULT_CHAINS =
   "1=eth,8453=base,42161=arb,4663=rhc,23448594291968334=starknet,4326=megaeth," +
   "143=monad,10=opt,56=bsc,100=gnosis,130=unichain,137=polygon,480=worldchain," +
-  "57073=ink";
+  "57073=ink,99901=elysium";
 const USER_AGENT = "ekubo-public-endpoint-monitor/1";
 
 const positive = (name: string, fallback: number): number => {

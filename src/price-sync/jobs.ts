@@ -109,6 +109,7 @@ export function createPriceSyncJobs({
         xdai: [100n], // gnosis
         "polygon-ecosystem-token": [137n], // polygon
         monad: [143n], // monad
+        hyperliquid: [99901n], // elysium
       },
     }),
 
@@ -139,6 +140,7 @@ export function createPriceSyncJobs({
         8453n, // base
         42161n, // arbitrum one
         57073n, // ink
+        99901n, // elysium
         23448594291968334n, // starknet mainnet
       ],
       intervalMs: defaultIntervalMs,
@@ -367,6 +369,22 @@ export function createPriceSyncJobs({
       chainId: 57073n,
       intervalMs: coingeckoIntervalMs,
       platform: "ink",
+    }),
+
+    // elysium -- USDC bridged from HyperEVM, the canonical one listed at
+    // https://elysium.kinetiq.xyz/docs/contract-addresses. HYPE is priced by
+    // cgn above; HyperEVM is not indexed, so there is nothing to mirror from.
+    quoter({
+      chainId: 99901n,
+      intervalMs: defaultIntervalMs,
+      address: "0xb47c4C8F73F009CC0C0d3f92B388d13E293F0B65",
+      decimals: 6,
+      quoteAmount: 1000n,
+    }),
+    coingecko({
+      chainId: 99901n,
+      intervalMs: coingeckoIntervalMs,
+      platform: "elysium-kinetiq",
     }),
 
     // starknet mainnet
