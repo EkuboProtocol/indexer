@@ -76,6 +76,23 @@ function stakeDescriptor(stakeId: `0x${string}`) {
   };
 }
 
+/**
+ * Drops repeated addresses, keeping the first. The env cascade can name one
+ * contract twice: a chain that pins `ORDERS_V3_ADDRESS` to the recompiled
+ * Orders also inherits it as `RECOMPILED_ORDERS_V3_ADDRESS`. Two processors on
+ * one address handle each log twice, and the second insert fails on the event
+ * primary key, stopping the stream at the first such log.
+ */
+function uniqueByAddress<T>(items: T[], address: (item: T) => string): T[] {
+  const seen = new Set<bigint>();
+  return items.filter((item) => {
+    const key = BigInt(address(item));
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function createLogProcessorsV3({
   mevCaptureAddress,
   mevCaptureV21Address,
@@ -565,42 +582,46 @@ export function createLogProcessorsV3({
 
   const baseProcessors = createProcessorsFromHandlers(processors);
 
-  const twammProcessors = twammAddresses.flatMap((address, index) =>
-    createProcessorsFromHandlers({
-      [`TWAMM${index + 1}`]: {
-        address,
-        ...twammHandler,
-      },
-    }),
+  const twammProcessors = uniqueByAddress(twammAddresses, (a) => a).flatMap(
+    (address, index) =>
+      createProcessorsFromHandlers({
+        [`TWAMM${index + 1}`]: {
+          address,
+          ...twammHandler,
+        },
+      }),
   );
 
-  const ordersProcessors = ordersAddresses.flatMap((address, index) =>
-    createProcessorsFromHandlers({
-      [`Orders${index + 1}`]: {
-        address,
-        ...ordersHandler,
-      },
-    }),
+  const ordersProcessors = uniqueByAddress(ordersAddresses, (a) => a).flatMap(
+    (address, index) =>
+      createProcessorsFromHandlers({
+        [`Orders${index + 1}`]: {
+          address,
+          ...ordersHandler,
+        },
+      }),
   );
 
-  const positionsProcessors =
-    positionsContracts
-      ?.filter(
-        (p) =>
-          !ve33PositionsAddress ||
-          BigInt(p.address) !== BigInt(ve33PositionsAddress),
-      )
-      .flatMap((p) =>
-        createContractEventProcessor({
-          contractName: "Positions",
-          address: p.address,
-          abi: POSITIONS_ABI_V3,
-          eventName: "Transfer",
-          async handler(dao, key, event) {
-            await dao.insertNonfungibleTokenTransferEvent(event, key);
-          },
-        }),
-      ) ?? [];
+  const positionsProcessors = uniqueByAddress(
+    positionsContracts ?? [],
+    (p) => p.address,
+  )
+    .filter(
+      (p) =>
+        !ve33PositionsAddress ||
+        BigInt(p.address) !== BigInt(ve33PositionsAddress),
+    )
+    .flatMap((p) =>
+      createContractEventProcessor({
+        contractName: "Positions",
+        address: p.address,
+        abi: POSITIONS_ABI_V3,
+        eventName: "Transfer",
+        async handler(dao, key, event) {
+          await dao.insertNonfungibleTokenTransferEvent(event, key);
+        },
+      }),
+    );
 
   return baseProcessors.concat(
     twammProcessors,
