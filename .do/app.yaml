@@ -283,6 +283,44 @@ workers:
         scope: RUN_TIME
         value: elysium-mainnet
     run_command: scripts/restart.sh bun src/evm.ts
+  # Head-lag and event-gap checks from inside the VPC (docs/INDEXER-MONITOR.md).
+  # It reads with the read-only monitor role: PG_CONNECTION_STRING is
+  # overridden here so this container never holds the indexer's write
+  # credential, and only chain names and verdicts leave, posted to the off-host
+  # receiver whose Health Checks email the owner. GAP_MONITOR_CHAINS holds the
+  # audit's own RPC endpoints (`network=url[|maxRange]`, `starknet/` for
+  # Starknet), a different provider from the indexer's where one is available,
+  # so one provider dropping logs cannot hide a gap. HEAD_LAG_CHAINS and the
+  # gap labels must match infra/indexer-monitor/src/chains.ts.
+  - name: indexer-monitor
+    image: *indexer-image
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    instance_count: 1
+    alerts: *worker-alerts
+    envs:
+      - key: PG_CONNECTION_STRING
+        scope: RUN_TIME
+        type: SECRET
+        value: ${MONITOR_PG_CONNECTION_STRING}
+      - key: MONITOR_PG_CONNECTION_STRING
+        scope: RUN_TIME
+        type: SECRET
+        value: ${MONITOR_PG_CONNECTION_STRING}
+      - key: MONITOR_REPORT_URL
+        scope: RUN_TIME
+        value: https://indexer-monitor.ekubo.org/report
+      - key: MONITOR_REPORT_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+        value: ${MONITOR_REPORT_TOKEN}
+      - key: HEAD_LAG_CHAINS
+        scope: RUN_TIME
+        value: 1=eth,10=optimism,56=bsc,100=gnosis,130=unichain,137=polygon,143=monad,480=worldchain,4326=megaeth,4663=rhc,8453=base,42161=arbitrum,57073=ink,99901=elysium,23448594291968334=starknet
+      - key: GAP_MONITOR_CHAINS
+        scope: RUN_TIME
+        type: SECRET
+        value: ${GAP_MONITOR_CHAINS}
+    run_command: scripts/restart.sh bun scripts/productionMonitor.ts
   - name: token-price-sync
     image: *indexer-image
     instance_size_slug: apps-s-1vcpu-0.5gb

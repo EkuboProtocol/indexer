@@ -81,6 +81,9 @@ jobs:
           DRPC_API_KEY: ${{ secrets.DRPC_API_KEY }}
           PG_CONNECTION_STRING: ${{ secrets.PRIVATE_PG_CONNECTION_STRING }}
           VPC_ID: ${{ secrets.VPC_ID }}
+          MONITOR_PG_CONNECTION_STRING: ${{ secrets.MONITOR_PG_CONNECTION_STRING }}
+          MONITOR_REPORT_TOKEN: ${{ secrets.MONITOR_REPORT_TOKEN }}
+          GAP_MONITOR_CHAINS: ${{ secrets.GAP_MONITOR_CHAINS }}
         run: |
           spec="$RUNNER_TEMP/app.yaml"
           trap 'rm -f "$spec"' EXIT

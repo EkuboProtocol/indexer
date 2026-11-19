@@ -339,6 +339,11 @@ Range queries still cover every intervening block when the head advances.
 
 ### Head freshness monitor
 
+In production these checks and the event-gap audit run inside the VPC as the
+`indexer-monitor` worker (`scripts/productionMonitor.ts`) and alert by
+Cloudflare email; see [docs/INDEXER-MONITOR.md](docs/INDEXER-MONITOR.md). The
+scripts below share its rules and remain for manual runs.
+
 `scripts/monitorHeadLag.ts` reads `indexer_cursor` (read-only) and alerts a
 Paperclip routine webhook when a chain's `head_block_time` is more than its
 threshold behind the database clock on `HEAD_LAG_SUSTAIN_CHECKS` (default 2)
