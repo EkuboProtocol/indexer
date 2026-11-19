@@ -46,7 +46,7 @@
     "effect": "4.1.4",
     "postgres": "4.1.1",
     "postgres-shift": "^1.0.2",
-    "viem": "^2.57.19",
+    "viem": "^2.57.20",
     "winston": "^3.19.0"
   }
 }
