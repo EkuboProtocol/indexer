@@ -18,6 +18,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun ci
+      # Lint reads the monitor Worker's tsconfig, which needs its own types.
+      - run: npm ci --prefix infra/indexer-monitor
 
       # Every step runs even when an earlier one fails, so one push reports
       # every kind of problem at once.
@@ -31,6 +33,11 @@ jobs:
       - name: Type check
         if: ${{ !cancelled() }}
         run: bun run typecheck
+
+      - name: Type check monitor Worker
+        if: ${{ !cancelled() }}
+        working-directory: infra/indexer-monitor
+        run: npx tsc -p tsconfig.json
 
   unit-tests:
     name: Unit tests (shard ${{ matrix.shard }} of 4)

@@ -1,0 +1,11 @@
+{
+  "name": "indexer-monitor",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261119.1",
+    "cf": "1.0.0-rc.1",
+    "typescript": "7.0.2",
+    "wrangler": "4.165.0"
+  }
+}

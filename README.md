@@ -339,6 +339,11 @@ Range queries still cover every intervening block when the head advances.
 
 ### Head freshness monitor
 
+In production these checks and the event-gap audit run inside the VPC as the
+`indexer-monitor` worker (`scripts/productionMonitor.ts`) and alert by
+Cloudflare email; see [docs/INDEXER-MONITOR.md](docs/INDEXER-MONITOR.md). The
+scripts below share its rules and remain for manual runs.
+
 `scripts/monitorHeadLag.ts` reads `indexer_cursor` (read-only) and alerts a
 Paperclip routine webhook when a chain's `head_block_time` is more than its
 threshold behind the database clock on `HEAD_LAG_SUSTAIN_CHECKS` (default 2)
@@ -448,6 +453,18 @@ The DigitalOcean Apps spec in `.do/app.yaml` documents the full production stack
 Use this file as a base to recreate the stack in a new DigitalOcean App Platform project or as a reference for configuring similar infrastructure elsewhere.
 
 ## Breaking changelog (tracking as of 2025-11-17)
+
+### 2026-11-20: `indexer-monitor` worker and three new deploy secrets (no schema change)
+
+- New App Platform worker `indexer-monitor` runs the head-lag and event-gap
+  checks inside the VPC and reports verdicts to the `indexer-monitor`
+  Cloudflare Worker; see [docs/INDEXER-MONITOR.md](docs/INDEXER-MONITOR.md).
+- Operator action: the deploy workflow now requires the GitHub secrets
+  `MONITOR_PG_CONNECTION_STRING`, `MONITOR_REPORT_TOKEN` and
+  `GAP_MONITOR_CHAINS`. The fail-closed `envsubst` stops the deploy before any
+  change if one is missing. Deploy the receiver Worker with the same token
+  before the first deploy.
+- No migration; indexer workers, the API and the price sync are unchanged.
 
 ### 2026-11-12: Elysium mainnet (99901) worker and Positions locker mapping (00140, additive)
 
