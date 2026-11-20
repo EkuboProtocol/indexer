@@ -454,6 +454,18 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### 2026-11-20: `indexer-monitor` worker and three new deploy secrets (no schema change)
+
+- New App Platform worker `indexer-monitor` runs the head-lag and event-gap
+  checks inside the VPC and reports verdicts to the `indexer-monitor`
+  Cloudflare Worker; see [docs/INDEXER-MONITOR.md](docs/INDEXER-MONITOR.md).
+- Operator action: the deploy workflow now requires the GitHub secrets
+  `MONITOR_PG_CONNECTION_STRING`, `MONITOR_REPORT_TOKEN` and
+  `GAP_MONITOR_CHAINS`. The fail-closed `envsubst` stops the deploy before any
+  change if one is missing. Deploy the receiver Worker with the same token
+  before the first deploy.
+- No migration; indexer workers, the API and the price sync are unchanged.
+
 ### 2026-11-12: Elysium mainnet (99901) worker and Positions locker mapping (00140, additive)
 
 **`00140_elysium_positions_locker_mapping`. One `nft_locker_mappings` row; no
