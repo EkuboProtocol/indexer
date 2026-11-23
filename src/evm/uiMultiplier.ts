@@ -13,6 +13,8 @@
 // immediate updateMultiplier() lands within one interval; tokens without one
 // are re-probed rarely.
 import {
+  BaseError,
+  RpcRequestError,
   decodeAbiParameters,
   getAddress,
   toFunctionSelector,
@@ -118,49 +120,101 @@ export function readingFromResults(
 }
 
 /**
- * Reads every token's multiplier at one block per chunk. Throws when a chunk's
- * own call fails (RPC error, no Multicall3), so a cycle never mistakes an
- * outage for tokens without the function.
+ * True when the node executed the call and it failed, such as running out of
+ * gas, as opposed to the request not getting through (HTTP errors, timeouts,
+ * rate limits), which are thrown as they are.
+ */
+export function isExecutionFailure(error: unknown): boolean {
+  if (!(error instanceof BaseError)) return false;
+  const rpc = error.walk((cause) => cause instanceof RpcRequestError);
+  return rpc instanceof RpcRequestError && !RATE_LIMIT_CODES.has(rpc.code);
+}
+
+// JSON-RPC "limit exceeded" and the HTTP-style code some providers return.
+const RATE_LIMIT_CODES = new Set([-32005, 429]);
+
+/** One token's reading; undefined when it cannot be read at all. */
+export type UiMultiplierRead = UiMultiplierReading | null | undefined;
+
+async function aggregate(
+  client: UiMultiplierClient,
+  multicallAddress: Address,
+  tokens: readonly bigint[],
+): Promise<[bigint, UiMultiplierRead][]> {
+  const results = await client.readContract({
+    address: multicallAddress,
+    abi: MULTICALL3_ABI,
+    functionName: "aggregate3",
+    args: [
+      tokens.flatMap((token) => {
+        const target = getAddress(`0x${token.toString(16).padStart(40, "0")}`);
+        return SELECTORS.map((callData) => ({
+          target,
+          allowFailure: true,
+          callData,
+        }));
+      }),
+    ],
+  });
+  if (results.length !== tokens.length * SELECTORS.length) {
+    throw new Error(
+      `Multicall3 returned ${results.length} results for ${tokens.length * SELECTORS.length} calls`,
+    );
+  }
+  return tokens.map((token, i) => [
+    token,
+    readingFromResults(
+      results.slice(i * SELECTORS.length, (i + 1) * SELECTORS.length),
+    ),
+  ]);
+}
+
+/**
+ * Reads `tokens`, splitting the call in half whenever the node fails to
+ * execute it. Old tokens that spend all the gas they are given on an unknown
+ * function (the invalid opcode of early Solidity) starve every call after
+ * them, so a single one fails the whole batch; once isolated, such a token is
+ * unreadable (undefined) rather than taking its neighbours with it.
+ */
+async function readSplitting(
+  client: UiMultiplierClient,
+  multicallAddress: Address,
+  tokens: readonly bigint[],
+): Promise<[bigint, UiMultiplierRead][]> {
+  try {
+    return await aggregate(client, multicallAddress, tokens);
+  } catch (error) {
+    if (!isExecutionFailure(error)) throw error;
+    if (tokens.length === 1) return [[tokens[0], undefined]];
+    const half = Math.ceil(tokens.length / 2);
+    return [
+      ...(await readSplitting(client, multicallAddress, tokens.slice(0, half))),
+      ...(await readSplitting(client, multicallAddress, tokens.slice(half))),
+    ];
+  }
+}
+
+/**
+ * Reads every token's multiplier, each chunk at one block. Throws when a call
+ * does not get through (RPC outage, rate limit, no Multicall3), so a cycle
+ * never mistakes an outage for tokens without the function.
  */
 export async function readUiMultipliers(
   client: UiMultiplierClient,
   multicallAddress: Address,
   tokens: readonly bigint[],
   tokensPerCall = 150,
-): Promise<Map<bigint, UiMultiplierReading | null>> {
-  const readings = new Map<bigint, UiMultiplierReading | null>();
+): Promise<Map<bigint, UiMultiplierRead>> {
+  const readings = new Map<bigint, UiMultiplierRead>();
   for (let start = 0; start < tokens.length; start += tokensPerCall) {
     const chunk = tokens.slice(start, start + tokensPerCall);
-    const results = await client.readContract({
-      address: multicallAddress,
-      abi: MULTICALL3_ABI,
-      functionName: "aggregate3",
-      args: [
-        chunk.flatMap((token) => {
-          const target = getAddress(
-            `0x${token.toString(16).padStart(40, "0")}`,
-          );
-          return SELECTORS.map((callData) => ({
-            target,
-            allowFailure: true,
-            callData,
-          }));
-        }),
-      ],
-    });
-    if (results.length !== chunk.length * SELECTORS.length) {
-      throw new Error(
-        `Multicall3 returned ${results.length} results for ${chunk.length * SELECTORS.length} calls`,
-      );
+    for (const [token, reading] of await readSplitting(
+      client,
+      multicallAddress,
+      chunk,
+    )) {
+      readings.set(token, reading);
     }
-    chunk.forEach((token, i) => {
-      readings.set(
-        token,
-        readingFromResults(
-          results.slice(i * SELECTORS.length, (i + 1) * SELECTORS.length),
-        ),
-      );
-    });
   }
   return readings;
 }
@@ -199,6 +253,58 @@ export interface RefreshSummary {
   read: number;
   withMultiplier: number;
   removed: number;
+  /** Tokens whose call could not be executed even on its own. */
+  unreadable: number;
+}
+
+interface StoredMultiplierRow {
+  chain_id: string;
+  token_address: string;
+  ui_multiplier: string;
+  new_ui_multiplier: string | null;
+  effective_at: string | null;
+}
+
+/**
+ * Splits a cycle's readings into rows to write and rows to delete, and records
+ * when each token without a multiplier was last probed.
+ */
+function classifyReadings({
+  chainId,
+  readings,
+  stored,
+  absentProbedAt,
+  nowMs,
+}: {
+  chainId: bigint;
+  readings: ReadonlyMap<bigint, UiMultiplierRead>;
+  stored: ReadonlySet<bigint>;
+  absentProbedAt: Map<bigint, number>;
+  nowMs: number;
+}) {
+  const present: StoredMultiplierRow[] = [];
+  const removed: string[] = [];
+  let unreadable = 0;
+  for (const [token, reading] of readings) {
+    if (reading) {
+      absentProbedAt.delete(token);
+      present.push({
+        chain_id: chainId.toString(),
+        token_address: token.toString(),
+        ui_multiplier: reading.uiMultiplier.toString(),
+        new_ui_multiplier: reading.newUiMultiplier?.toString() ?? null,
+        effective_at: reading.effectiveAt?.toString() ?? null,
+      });
+    } else {
+      absentProbedAt.set(token, nowMs);
+      // Only a token whose call ran and reverted loses its row; one that
+      // could not be read at all keeps the last value read.
+      if (reading === null && stored.has(token)) removed.push(token.toString());
+      if (reading === undefined) unreadable++;
+    }
+  }
+
+  return { present, removed, unreadable };
 }
 
 export async function refreshUiMultipliers({
@@ -242,29 +348,13 @@ export async function refreshUiMultipliers({
   });
   const readings = await readUiMultipliers(client, multicallAddress, toRead);
 
-  const present: {
-    chain_id: string;
-    token_address: string;
-    ui_multiplier: string;
-    new_ui_multiplier: string | null;
-    effective_at: string | null;
-  }[] = [];
-  const removed: string[] = [];
-  for (const [token, reading] of readings) {
-    if (reading) {
-      absentProbedAt.delete(token);
-      present.push({
-        chain_id: chainId.toString(),
-        token_address: token.toString(),
-        ui_multiplier: reading.uiMultiplier.toString(),
-        new_ui_multiplier: reading.newUiMultiplier?.toString() ?? null,
-        effective_at: reading.effectiveAt?.toString() ?? null,
-      });
-    } else {
-      absentProbedAt.set(token, nowMs);
-      if (stored.has(token)) removed.push(token.toString());
-    }
-  }
+  const { present, removed, unreadable } = classifyReadings({
+    chainId,
+    readings,
+    stored,
+    absentProbedAt,
+    nowMs,
+  });
 
   await sql.begin(async (tx) => {
     if (present.length > 0) {
@@ -293,6 +383,7 @@ export async function refreshUiMultipliers({
     read: toRead.length,
     withMultiplier: present.length,
     removed: removed.length,
+    unreadable,
   };
 }
 
