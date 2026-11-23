@@ -33,6 +33,9 @@ interface EvmConfig extends CommonConfiguration {
   GET_LOGS_RANGE_SIZE?: string; // Widest block span per eth_getLogs; defaults to 1000. The reorg window is capped at half of it, so at least half of every span is forward progress
   REORG_WINDOW_SECONDS?: string; // How far back to re-read at the head to notice a reorg, in seconds of chain time; defaults to 120. Converted to a block count per chain from the observed block rate, so it means the same amount of history on a 10s chain and a 0.09s one
   SUSPECT_LOG_COUNT?: string; // A log count treated as a provider cap rather than a real result; defaults to 10000
+  UI_MULTIPLIER_REFRESH_INTERVAL_SECONDS?: string; // How often token UI multipliers are re-read; defaults to 300, zero disables the refresher
+  UI_MULTIPLIER_ABSENT_REPROBE_SECONDS?: string; // How often a token without uiMultiplier() is probed again; defaults to 86400
+  MULTICALL3_ADDRESS?: `0x${string}`; // Multicall3 used by the refresher; defaults to the canonical 0xcA11bde05977b3631167028862bE2a173976CA11
 
   CORE_ADDRESS: `0x${string}`;
   POSITIONS_ADDRESS: `0x${string}`;

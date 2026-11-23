@@ -454,6 +454,27 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### 2026-11-23: token UI multipliers (00141, additive)
+
+**`00141_erc20_tokens_ui_multipliers`. New table
+`erc20_tokens_ui_multipliers`, function
+`erc20_token_effective_ui_multiplier` and view
+`erc20_tokens_effective_ui_multipliers`; nothing existing changes.**
+
+- A UI multiplier is a display scale next to a token's decimals (Robinhood
+  Stock Tokens: `uiMultiplier()`, with a scheduled `newUIMultiplier()` from
+  `effectiveAt()`). Raw amounts and prices stay as they are.
+- Every EVM worker now refreshes the multipliers of its chain's tokens beside
+  indexing, from its own `EVM_RPC_URL`, through Multicall3: tokens that have
+  one every 5 minutes (`UI_MULTIPLIER_REFRESH_INTERVAL_SECONDS`, zero
+  disables), every token once at start-up and when it first appears, and
+  tokens without one again daily (`UI_MULTIPLIER_ABSENT_REPROBE_SECONDS`). A
+  failed refresh is logged and never affects indexing.
+- Readers join the view, which applies a scheduled change once `effectiveAt`
+  has passed, so it flips on time between refreshes. A token without a row
+  has a multiplier of 1.
+- No operator action. The table fills within a minute of the workers starting.
+
 ### 2026-11-20: `indexer-monitor` worker and three new deploy secrets (no schema change)
 
 - New App Platform worker `indexer-monitor` runs the head-lag and event-gap

@@ -23,6 +23,10 @@ import {
   loadMevCaptureV21Address,
   recordMevCaptureV21BlockState,
 } from "./evm/mevCaptureV21";
+import {
+  loadUiMultiplierRefresherConfig,
+  startUiMultiplierRefresher,
+} from "./evm/uiMultiplier";
 import { runIndexer, type ParsedRuntimeBlock } from "./runtime";
 import type { DAO } from "./_shared/dao";
 import type { EvmLogProcessor } from "./evm/logProcessorsShared";
@@ -388,10 +392,34 @@ async function processLogs(
   return eventsProcessed;
 }
 
+/**
+ * Token UI multipliers are refreshed beside indexing, once this process holds
+ * the chain's lock, from the primary RPC endpoint. Not part of
+ * `createEvmEntrypoint`, so scripts that build one (backfills) do not start it.
+ */
+function startUiMultipliers(chainId: bigint): void {
+  const config = loadUiMultiplierRefresherConfig();
+  if (!config) {
+    logger.info({ message: "Token UI multiplier refresh is disabled" });
+    return;
+  }
+  const [url] = requireEvmRpcUrls(process.env.EVM_RPC_URL);
+  startUiMultiplierRefresher({
+    chainId,
+    pgConnectionString: process.env.PG_CONNECTION_STRING!,
+    client: createPublicClient({ transport: http(url, { retryCount: 2 }) }),
+    config,
+  });
+}
+
 if (import.meta.main) {
   await runIndexer({
     networkType: "evm",
-    createEntrypoint: createEvmEntrypoint,
+    createEntrypoint: async (chainId) => {
+      const entrypoint = await createEvmEntrypoint(chainId);
+      startUiMultipliers(chainId);
+      return entrypoint;
+    },
     parseBlockHeader: parseEvmBlockHeader,
   });
 }
