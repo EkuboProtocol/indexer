@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { encodeAbiParameters, toFunctionSelector, type Hex } from "viem";
+import {
+  encodeAbiParameters,
+  RpcRequestError,
+  toFunctionSelector,
+  type Hex,
+} from "viem";
 import {
   decodeUint256,
+  isExecutionFailure,
   readingFromResults,
   readUiMultipliers,
   selectTokensToRead,
@@ -159,6 +165,55 @@ describe("readUiMultipliers", () => {
     expect(readUiMultipliers(client, MULTICALL, [1n])).rejects.toThrow(
       "rate limited",
     );
+  });
+
+  test("isolates a token whose call cannot be executed instead of failing its chunk", async () => {
+    const GAS_EATER = 0x0cf0n;
+    const calls: number[] = [];
+    const client: UiMultiplierClient = {
+      readContract: ({ args: [requests] }) => {
+        calls.push(requests.length / 3);
+        if (requests.some(({ target }) => BigInt(target) === GAS_EATER)) {
+          return Promise.reject(
+            new RpcRequestError({
+              body: {},
+              url: "http://rpc",
+              error: {
+                code: -32003,
+                message: "out of gas: gas required exceeds: 50000000",
+              },
+            }),
+          );
+        }
+        return Promise.resolve(
+          requests.map(({ target }) =>
+            BigInt(target) === 0xb90an ? ok(8n * E18) : reverted,
+          ),
+        );
+      },
+    };
+    const readings = await readUiMultipliers(client, MULTICALL, [
+      0xb90an,
+      GAS_EATER,
+      0x5678n,
+      0x9abcn,
+    ]);
+    expect(calls).toEqual([4, 2, 1, 1, 2]);
+    expect(readings.get(0xb90an)?.uiMultiplier).toBe(8n * E18);
+    expect(readings.has(GAS_EATER)).toBe(true);
+    expect(readings.get(GAS_EATER)).toBeUndefined();
+    expect(readings.get(0x5678n)).toBeNull();
+    expect(readings.get(0x9abcn)).toBeNull();
+  });
+
+  test("a rate limit is not mistaken for an execution failure", () => {
+    const limited = new RpcRequestError({
+      body: {},
+      url: "http://rpc",
+      error: { code: -32005, message: "limit exceeded" },
+    });
+    expect(isExecutionFailure(limited)).toBe(false);
+    expect(isExecutionFailure(new Error("fetch failed"))).toBe(false);
   });
 
   test("a short Multicall3 result fails the read", async () => {

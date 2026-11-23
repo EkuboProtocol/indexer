@@ -119,6 +119,7 @@ describe.skipIf(!SERVER)("refreshUiMultipliers against Postgres", () => {
       read: 2,
       withMultiplier: 1,
       removed: 0,
+      unreadable: 0,
     });
     expect(await stored()).toEqual([
       {
