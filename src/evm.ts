@@ -13,8 +13,11 @@ import { requireEvmRpcUrls } from "./_shared/streamEndpoints";
 import {
   createLogStream,
   type LogStreamFilter,
+  type RpcLike,
   type StreamBlock as EvmBlock,
 } from "./evm/logStream";
+import { distinctTransactions } from "./_shared/transactionSenders";
+import { fetchEvmTransactionSenders } from "./evm/transactionSenders";
 import { createLogProcessorsV2 } from "./evm/logProcessorsV2";
 import { StickyRpc } from "./evm/stickyRpc";
 import { createLogProcessorsV3 } from "./evm/logProcessorsV3";
@@ -326,6 +329,7 @@ export async function createEvmEntrypoint(
         blockNumber,
         dao,
       );
+      await recordEvmTransactionSenders(rpc, dao, block, blockNumber);
       // After the block's Core and gate events are written, in the same
       // transaction. A gate failure on a no-op swap has no Core log.
       if (
@@ -348,6 +352,21 @@ export async function createEvmEntrypoint(
       return eventsProcessed;
     },
   };
+}
+
+/** The `from` of every transaction with an indexed log in the block (00142). */
+export async function recordEvmTransactionSenders(
+  rpc: RpcLike,
+  dao: DAO,
+  block: EvmBlock,
+  blockNumber: number,
+): Promise<void> {
+  const transactions = distinctTransactions(block.logs);
+  if (transactions.length === 0) return;
+  await dao.insertTransactionSenders(
+    blockNumber,
+    await fetchEvmTransactionSenders(rpc, block.header.blockHash, transactions),
+  );
 }
 
 function hasLogFrom(block: EvmBlock, addresses: HexAddress[]): boolean {

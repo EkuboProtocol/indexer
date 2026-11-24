@@ -1,6 +1,12 @@
 import type { Transport } from "viem";
 
-const RETRIED_METHODS = new Set(["eth_getBlockByHash", "eth_getBlockByNumber"]);
+// A node behind its peers answers null for a block it has not seen yet. The
+// transaction read is by block hash, so it lags the same way.
+const RETRIED_METHODS = new Set([
+  "eth_getBlockByHash",
+  "eth_getBlockByNumber",
+  "eth_getTransactionByBlockHashAndIndex",
+]);
 
 const DEFAULT_RETRY_COUNT = 5;
 

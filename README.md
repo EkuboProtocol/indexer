@@ -454,6 +454,38 @@ Use this file as a base to recreate the stack in a new DigitalOcean App Platform
 
 ## Breaking changelog (tracking as of 2025-11-17)
 
+### 2026-11-24: transaction senders (00142, additive, with a backfill)
+
+**`00142_transaction_senders`. New table `transaction_senders`; nothing
+existing changes.**
+
+- One row per transaction with an indexed event: `(chain_id, block_number,
+  transaction_index)` and `sender`, the EVM transaction's `from` or the
+  Starknet INVOKE/DECLARE `sender_address`. Event rows keep `locker`, the
+  contract that called Core, so this is what names the wallet behind a swap or
+  position update. Readers `LEFT JOIN` it on the three key columns; a row the
+  backfill has not reached yet is just absent.
+- A relayed transaction names the relayer (an ERC-4337 bundler, a Starknet
+  paymaster calling `execute_from_outside`), not the user. Starknet L1_HANDLER
+  and DEPLOY_ACCOUNT transactions have no sender and get no row.
+- Workers record senders for every block they write, in the block's
+  transaction, read pinned to the block's hash: EVM one
+  `eth_getTransactionByBlockHashAndIndex` per transaction (20 Alchemy CU),
+  Starknet one `starknet_getBlockWithTxs` per block (20 CU). A failed or
+  mismatching read fails the block and the runtime retries it, like the
+  MEVCapture v2.1 reads. Rows cascade from `blocks`, so a reorg removes them.
+- **Operator action: backfill history.** After the deploy, for each worker's
+  environment, run
+  `scripts/backfillTransactionSenders.ts <evm|starknet>` once without
+  `--apply` to check it reads, then with `--apply`. It walks stored swaps and
+  position updates newest first, only selects transactions without a row, and
+  can be stopped and re-run at any point. Other event types keep only the
+  senders recorded live.
+- Rollback: `DROP TABLE transaction_senders;` and, to allow a later re-apply,
+  `DELETE FROM migrations WHERE migration_id = 142;` (postgres-shift). Only
+  valid while 00142 is the latest migration. The workers need the code
+  revert too, or they fail every block on the missing table.
+
 ### 2026-11-23: token UI multipliers (00141, additive)
 
 **`00141_erc20_tokens_ui_multipliers`. New table

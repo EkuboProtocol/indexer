@@ -7,6 +7,11 @@ import { logger } from "./logger";
 export type NumericValue = bigint | number | `0x${string}`;
 export type AddressValue = bigint | `0x${string}`;
 
+export interface TransactionSender {
+  transactionIndex: number;
+  sender: AddressValue;
+}
+
 export interface IndexerCursor {
   orderKey: bigint;
   uniqueKey?: `0x${string}`;
@@ -805,6 +810,22 @@ export class DAO {
         hash,
       )}, ${time}, ${numEvents});
     `;
+  }
+
+  // One row per transaction of the block that carried an indexed event. The
+  // block row must already exist, and a rolled-back block cascades them away.
+  // A replayed block (backfillBlocks.ts) finds its rows already there.
+  public async insertTransactionSenders(
+    blockNumber: number,
+    senders: readonly TransactionSender[],
+  ) {
+    for (const { transactionIndex, sender } of senders) {
+      await this.sql`
+        INSERT INTO transaction_senders (chain_id, block_number, transaction_index, sender)
+        VALUES (${this.chainId}, ${blockNumber}, ${transactionIndex}, ${this.numeric(sender)})
+        ON CONFLICT (chain_id, block_number, transaction_index) DO NOTHING;
+      `;
+    }
   }
 
   public async insertNonfungibleTokenTransferEvent(

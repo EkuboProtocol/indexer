@@ -12,6 +12,7 @@ import {
   type StarknetStreamFilter,
 } from "./starknet/eventStream";
 import type { NetworkEntrypoint, StreamOptions } from "./types";
+import { recordStarknetTransactionSenders } from "./starknet/transactionSenders";
 
 export function parseStarknetBlockHeader(
   block: unknown,
@@ -142,6 +143,8 @@ export async function createStarknetEntrypoint(
           }),
         );
       }
+
+      await recordStarknetTransactionSenders(rpc, dao, block, blockNumber);
 
       return eventsProcessed;
     },
