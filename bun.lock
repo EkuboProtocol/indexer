@@ -7,7 +7,7 @@
       "dependencies": {
         "@effect/platform-bun": "4.1.4",
         "dotenv": "^18.0.10",
-        "effect": "4.1.4",
+        "effect": "4.1.5",
         "postgres": "4.1.1",
         "postgres-shift": "^1.0.2",
         "viem": "^2.58.2",
@@ -204,7 +204,7 @@
 
     "dotenv": ["dotenv@18.0.10", "", { "bin": { "dotenv": "dist/cli.cjs" } }, "sha512-89FAA1xchzK2mxVWdr5F/0rldwiueXs6zJM86rO66EzekR1iBdiXRthyG+m5GvkJaFH3C2LESzamTkgndmLT2A=="],
 
-    "effect": ["effect@4.1.4", "", {}, "sha512-Tgrv/9FN+TZYyOn8XSli+fVqAfwDrDAkiX5Uu9vztINb675VTQdhD0gWI5Kzvhlh9QqzjZvw72iugqw5pwoghQ=="],
+    "effect": ["effect@4.1.5", "", {}, "sha512-xyR20KhQI0vg2gD8ILUSQRTTESEYJ0JKdP+QD8J37xbwPTqXRxFM/l0+vUVD9fuSvoYruoTqyt33C4FZv1s4TQ=="],
 
     "enabled": ["enabled@2.0.0", "", {}, ""],
 
