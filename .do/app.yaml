@@ -327,6 +327,15 @@ workers:
     instance_count: 1
     alerts: *worker-alerts
     envs:
+      # The instance reports 8 CPUs but is limited to one vCPU, so JavaScriptCore
+      # starts 7 parallel garbage-collector helper threads that contend for that
+      # one vCPU. Sampled per thread on 2026-11-26, the helpers used about 85% of
+      # the worker's CPU while it sat at 97%. Locally, on the same workload capped
+      # to one CPU, 8 markers used 2.1x the CPU of one for the same jobs. One
+      # marker leaves collection to the concurrent collector thread.
+      - key: BUN_JSC_numberOfGCMarkers
+        scope: RUN_TIME
+        value: "1"
       - key: TOKEN_PRICE_SYNC_INTERVAL_MS
         scope: RUN_TIME
         value: "60000"
